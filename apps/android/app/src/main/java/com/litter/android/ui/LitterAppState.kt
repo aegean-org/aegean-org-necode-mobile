@@ -10,6 +10,7 @@ import com.litter.android.core.network.DiscoveredServer
 import com.litter.android.core.network.DiscoverySource
 import com.litter.android.core.network.ServerDiscoveryService
 import com.litter.android.state.AccountState
+import com.litter.android.state.ApprovalDecision
 import com.litter.android.state.AppState
 import com.litter.android.state.AuthStatus
 import com.litter.android.state.ChatMessage
@@ -17,6 +18,7 @@ import com.litter.android.state.ExperimentalFeature
 import com.litter.android.state.FuzzyFileSearchResult
 import com.litter.android.state.ModelOption
 import com.litter.android.state.ModelSelection
+import com.litter.android.state.PendingApproval
 import com.litter.android.state.SavedSshCredential
 import com.litter.android.state.ServerConfig
 import com.litter.android.state.ServerConnectionStatus
@@ -122,6 +124,7 @@ data class UiShellState(
     val collapsedSessionFolders: Set<String> = emptySet(),
     val activeThreadKey: ThreadKey? = null,
     val messages: List<ChatMessage> = emptyList(),
+    val toolTargetLabelsById: Map<String, String> = emptyMap(),
     val conversationTextSizeStep: Int = ConversationTextSizing.DEFAULT_STEP,
     val draft: String = "",
     val isSending: Boolean = false,
@@ -132,6 +135,7 @@ data class UiShellState(
     val showAccount: Boolean = false,
     val accountOpenedFromSettings: Boolean = false,
     val accountState: AccountState = AccountState(),
+    val activePendingApproval: PendingApproval? = null,
     val apiKeyDraft: String = "",
     val isAuthWorking: Boolean = false,
     val sshLogin: SshLoginUiState = SshLoginUiState(),
@@ -204,6 +208,11 @@ interface LitterAppState : Closeable {
     fun updateComposerPermissions(
         approvalPolicy: String,
         sandboxMode: String,
+    )
+
+    fun respondToPendingApproval(
+        approvalId: String,
+        decision: ApprovalDecision,
     )
 
     fun startReview(
@@ -801,6 +810,13 @@ class DefaultLitterAppState(
             approvalPolicy = normalizedApproval,
             sandboxMode = normalizedSandbox,
         )
+    }
+
+    override fun respondToPendingApproval(
+        approvalId: String,
+        decision: ApprovalDecision,
+    ) {
+        serverManager.respondToPendingApproval(approvalId = approvalId, decision = decision)
     }
 
     override fun startReview(onComplete: (Result<Unit>) -> Unit) {
@@ -1675,9 +1691,11 @@ class DefaultLitterAppState(
                 sessions = backend.threads,
                 activeThreadKey = backend.activeThreadKey,
                 messages = activeThread?.messages ?: emptyList(),
+                toolTargetLabelsById = backend.toolTargetLabelsById,
                 isSending = activeThread?.status == ThreadStatus.THINKING,
                 currentCwd = backend.currentCwd,
                 accountState = accountState,
+                activePendingApproval = backend.activePendingApproval,
                 showSettings = current.showSettings,
                 showAccount = current.showAccount,
                 accountOpenedFromSettings = current.accountOpenedFromSettings,

@@ -185,6 +185,120 @@ class ToolCallMessageParserTest {
         assertTrue(labels.indexOf("Output") < labels.indexOf("Progress"))
     }
 
+    @Test
+    fun targetsUseResolverForDisplayLabels() {
+        val text =
+            """
+            ### Collaboration
+            Status: inProgress
+            Tool: ask_agent
+            Targets: thread-alpha, agent-42
+            """.trimIndent()
+
+        val model =
+            unwrap(
+                ToolCallMessageParser.parse(systemMessage(text)) { target ->
+                    when (target) {
+                        "thread-alpha" -> "Planner [code]"
+                        "agent-42" -> "Reviewer [qa]"
+                        else -> target
+                    }
+                },
+            )
+
+        val targets =
+            model.sections
+                .filterIsInstance<ToolCallSection.ListSection>()
+                .firstOrNull { it.label == "Targets" }
+                ?.items
+        assertEquals(listOf("Planner [code]", "Reviewer [qa]"), targets)
+    }
+
+    @Test
+    fun targetsSectionListUsesResolverForDisplayLabels() {
+        val text =
+            """
+            ### Collaboration
+            Status: completed
+            Tool: spawnAgent
+
+            Targets:
+            - thread-alpha
+            - agent-42
+            """.trimIndent()
+
+        val model =
+            unwrap(
+                ToolCallMessageParser.parse(systemMessage(text)) { target ->
+                    when (target) {
+                        "thread-alpha" -> "Planner [code]"
+                        "agent-42" -> "Reviewer [qa]"
+                        else -> target
+                    }
+                },
+            )
+
+        val targets =
+            model.sections
+                .filterIsInstance<ToolCallSection.ListSection>()
+                .firstOrNull { it.label == "Targets" }
+                ?.items
+        assertEquals(listOf("Planner [code]", "Reviewer [qa]"), targets)
+    }
+
+    @Test
+    fun collaborationSummaryPrefersTargetLabels() {
+        val text =
+            """
+            ### Collaboration
+            Status: completed
+            Tool: spawnAgent
+            Targets: thread-alpha, agent-42
+            """.trimIndent()
+
+        val model =
+            unwrap(
+                ToolCallMessageParser.parse(systemMessage(text)) { target ->
+                    when (target) {
+                        "thread-alpha" -> "Harvey [explorer]"
+                        "agent-42" -> "Sartre [explorer]"
+                        else -> target
+                    }
+                },
+            )
+
+        assertEquals("Harvey [explorer] +1", model.summary)
+    }
+
+    @Test
+    fun preformattedTargetLabelsSkipResolver() {
+        val text =
+            """
+            ### Collaboration
+            Status: completed
+            Tool: spawnAgent
+            Targets: Harvey [explorer], agent-42
+            """.trimIndent()
+
+        val model =
+            unwrap(
+                ToolCallMessageParser.parse(systemMessage(text)) { target ->
+                    when (target) {
+                        "agent-42" -> "Sartre [explorer]"
+                        "Harvey [explorer]" -> "incorrect"
+                        else -> target
+                    }
+                },
+            )
+
+        val targets =
+            model.sections
+                .filterIsInstance<ToolCallSection.ListSection>()
+                .firstOrNull { it.label == "Targets" }
+                ?.items
+        assertEquals(listOf("Harvey [explorer]", "Sartre [explorer]"), targets)
+    }
+
     private fun systemMessage(text: String): ChatMessage =
         ChatMessage(role = MessageRole.SYSTEM, text = text)
 

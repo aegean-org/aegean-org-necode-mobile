@@ -26,6 +26,7 @@ struct ConversationView: View {
                 messages: messages,
                 threadStatus: threadStatus,
                 activeThreadKey: serverManager.activeThreadKey,
+                agentDirectoryVersion: serverManager.agentDirectoryVersion,
                 textSizeStep: $conversationTextSizeStep,
                 inputFocused: $composerFocused,
                 onEditUserMessage: editMessage,
@@ -145,6 +146,7 @@ private struct ConversationMessageList: View {
     let messages: [ChatMessage]
     let threadStatus: ConversationStatus
     let activeThreadKey: ThreadKey?
+    let agentDirectoryVersion: Int
     @Binding var textSizeStep: Int
     let inputFocused: FocusState<Bool>.Binding
     let onEditUserMessage: (ChatMessage) -> Void
@@ -178,7 +180,9 @@ private struct ConversationMessageList: View {
                             ForEach(messages) { message in
                                 EquatableMessageBubble(
                                     message: message,
+                                    serverId: activeThreadKey?.serverId,
                                     textScale: textScale,
+                                    agentDirectoryVersion: agentDirectoryVersion,
                                     messageActionsDisabled: messageActionsDisabled,
                                     onEditUserMessage: onEditUserMessage,
                                     onForkFromUserMessage: onForkFromUserMessage
@@ -330,7 +334,9 @@ private struct ConversationMessageList: View {
 
 private struct EquatableMessageBubble: View, Equatable {
     let message: ChatMessage
+    let serverId: String?
     let textScale: CGFloat
+    let agentDirectoryVersion: Int
     let messageActionsDisabled: Bool
     let onEditUserMessage: (ChatMessage) -> Void
     let onForkFromUserMessage: (ChatMessage) -> Void
@@ -340,13 +346,16 @@ private struct EquatableMessageBubble: View, Equatable {
         lhs.message.role == rhs.message.role &&
         lhs.message.text == rhs.message.text &&
         lhs.message.images.count == rhs.message.images.count &&
+        lhs.serverId == rhs.serverId &&
         lhs.textScale == rhs.textScale &&
+        lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
         lhs.messageActionsDisabled == rhs.messageActionsDisabled
     }
 
     var body: some View {
         MessageBubbleView(
             message: message,
+            serverId: serverId,
             textScale: textScale,
             actionsDisabled: messageActionsDisabled,
             onEditUserMessage: onEditUserMessage,

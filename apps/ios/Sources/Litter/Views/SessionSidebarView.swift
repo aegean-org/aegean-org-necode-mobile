@@ -955,6 +955,9 @@ struct SessionSidebarView: View {
     private func sessionMetadataLine(_ thread: ThreadState) -> String {
         let provider = thread.modelProvider.trimmingCharacters(in: .whitespacesAndNewlines)
         let providerLabel = provider.isEmpty ? "default" : provider
+        if let agentLabel = thread.agentDisplayLabel {
+            return "\(relativeDate(thread.updatedAt)) • \(thread.serverName) (\(agentLabel)) • \(providerLabel)"
+        }
         return "\(relativeDate(thread.updatedAt)) • \(thread.serverName) • \(providerLabel)"
     }
 

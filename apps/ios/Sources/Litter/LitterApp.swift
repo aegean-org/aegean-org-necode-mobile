@@ -152,6 +152,21 @@ private struct ApprovalPromptView: View {
         }
     }
 
+    private var requesterLabel: String? {
+        let nickname = approval.requesterAgentNickname?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let role = approval.requesterAgentRole?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !nickname.isEmpty && !role.isEmpty {
+            return "\(nickname) [\(role)]"
+        }
+        if !nickname.isEmpty {
+            return nickname
+        }
+        if !role.isEmpty {
+            return "[\(role)]"
+        }
+        return nil
+    }
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.7)
@@ -166,6 +181,12 @@ private struct ApprovalPromptView: View {
                     Text(reason)
                         .font(LitterFont.monospaced(.footnote))
                         .foregroundColor(LitterTheme.textSecondary)
+                }
+
+                if let requesterLabel {
+                    Text("Requester: \(requesterLabel)")
+                        .font(LitterFont.monospaced(.caption))
+                        .foregroundColor(LitterTheme.textMuted)
                 }
 
                 if let command = approval.command, !command.isEmpty {

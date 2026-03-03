@@ -4,7 +4,9 @@ import Inject
 
 struct MessageBubbleView: View {
     @ObserveInjection var inject
+    @EnvironmentObject var serverManager: ServerManager
     let message: ChatMessage
+    let serverId: String?
     let textScale: CGFloat
     let actionsDisabled: Bool
     let onEditUserMessage: ((ChatMessage) -> Void)?
@@ -20,12 +22,14 @@ struct MessageBubbleView: View {
 
     init(
         message: ChatMessage,
+        serverId: String? = nil,
         textScale: CGFloat = 1.0,
         actionsDisabled: Bool = false,
         onEditUserMessage: ((ChatMessage) -> Void)? = nil,
         onForkFromUserMessage: ((ChatMessage) -> Void)? = nil
     ) {
         self.message = message
+        self.serverId = serverId
         self.textScale = textScale
         self.actionsDisabled = actionsDisabled
         self.onEditUserMessage = onEditUserMessage
@@ -55,7 +59,7 @@ struct MessageBubbleView: View {
     }
 
     private var parseRefreshToken: String {
-        "\(message.id.uuidString)-\(message.role)-\(message.text.hashValue)-\(message.images.count)"
+        "\(message.id.uuidString)-\(message.role)-\(message.text.hashValue)-\(message.images.count)-\(serverId ?? "<nil>")-\(serverManager.agentDirectoryVersion)"
     }
 
     private var isReasoning: Bool {
@@ -110,6 +114,11 @@ struct MessageBubbleView: View {
     private var assistantContent: some View {
         let parsed = assistantSegmentsForRendering
         return VStack(alignment: .leading, spacing: 8) {
+            if let assistantLabel = assistantAgentLabel {
+                Text(assistantLabel)
+                    .font(LitterFont.monospaced(.caption2, weight: .semibold, scale: textScale))
+                    .foregroundColor(LitterTheme.textSecondary)
+            }
             ForEach(parsed) { segment in
                 switch segment.kind {
                 case .text(let md):
@@ -127,6 +136,13 @@ struct MessageBubbleView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var assistantAgentLabel: String? {
+        AgentLabelFormatter.format(
+            nickname: message.agentNickname,
+            role: message.agentRole
+        )
     }
 
     private var reasoningContent: some View {
@@ -236,7 +252,12 @@ struct MessageBubbleView: View {
         if didPrepareSystemResult {
             return parsedSystemResult
         }
-        return ToolCallMessageParser.parse(message: message)
+        return ToolCallMessageParser.parse(
+            message: message,
+            resolveTargetLabel: { target in
+                serverManager.resolvedAgentTargetLabel(for: target, serverId: serverId)
+            }
+        )
     }
 
     private func prepareDerivedContent() {
@@ -250,7 +271,12 @@ struct MessageBubbleView: View {
             didPrepareAssistantSegments = true
             didPrepareSystemResult = false
         case .system:
-            parsedSystemResult = ToolCallMessageParser.parse(message: message)
+            parsedSystemResult = ToolCallMessageParser.parse(
+                message: message,
+                resolveTargetLabel: { target in
+                    serverManager.resolvedAgentTargetLabel(for: target, serverId: serverId)
+                }
+            )
             didPrepareSystemResult = true
             didPrepareAssistantSegments = false
         case .user:

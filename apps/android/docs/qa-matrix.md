@@ -22,6 +22,8 @@ Current automated checks:
   - validates reconnect detection policy for healthy/stale websocket state
 - `CodexRuntimeStartupPolicyTest`
   - validates startup toggle parsing and precedence logic
+- `ThreadPlaceholderPrunePolicyTest`
+  - validates placeholder prune-on-refresh behavior (including active-thread exemption)
 
 ## Manual Matrix
 
@@ -48,6 +50,12 @@ Current automated checks:
 - Sidebar stays unmounted while closed; local UI controls persist when reopened.
 - Search + server filter + forks filter produce stable grouping and lineage chips.
 - Opening/closing sidebar does not trigger excessive recomposition/signpost churn in idle state.
+
+### Thread List Consistency
+
+- Refresh (`thread/list`) prunes non-authoritative placeholder threads unless they are currently active.
+- Notification-only placeholder rows disappear on next refresh once inactive.
+- No regressions in thread switching, forking, or session search after placeholder pruning.
 
 ### Directory Picker
 

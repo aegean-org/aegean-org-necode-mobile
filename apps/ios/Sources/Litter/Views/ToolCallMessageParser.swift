@@ -141,13 +141,17 @@ enum ToolCallMessageParser {
         "arguments",
         "result",
         "output",
+        "targets",
         "prompt",
         "action",
         "progress",
         "error"
     ]
 
-    static func parse(message: ChatMessage) -> ToolCallParseResult {
+    static func parse(
+        message: ChatMessage,
+        resolveTargetLabel: ((String) -> String?)? = nil
+    ) -> ToolCallParseResult {
         guard message.role == .system else { return .unrecognized }
         guard let system = parseSystemEnvelope(message.text),
               let kind = ToolCallKind.from(title: system.title) else {
@@ -155,7 +159,7 @@ enum ToolCallMessageParser {
         }
         guard !system.body.isEmpty else { return .unrecognized }
 
-        let body = parseBody(system.body, kind: kind)
+        let body = parseBody(system.body, kind: kind, resolveTargetLabel: resolveTargetLabel)
         if body.metadata.isEmpty && body.primarySections.isEmpty && body.auxSections.isEmpty {
             return .unrecognized
         }
@@ -227,7 +231,11 @@ enum ToolCallMessageParser {
         return ParsedSystemMessage(title: title, body: body)
     }
 
-    private static func parseBody(_ body: String, kind: ToolCallKind) -> ParsedBody {
+    private static func parseBody(
+        _ body: String,
+        kind: ToolCallKind,
+        resolveTargetLabel: ((String) -> String?)?
+    ) -> ParsedBody {
         let lines = body.components(separatedBy: "\n")
         var index = 0
         var metadata: [ToolCallKeyValue] = []
@@ -256,12 +264,29 @@ enum ToolCallMessageParser {
             }
 
             if normalizedKey == "targets" {
-                let items = keyValue.value
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
+                var targetContent = keyValue.value
+                if targetContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    var cursor = index + 1
+                    var extraLines: [String] = []
+                    while cursor < lines.count {
+                        let nextTrimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+                        if nextTrimmed.isEmpty || parseSectionHeader(nextTrimmed) != nil {
+                            break
+                        }
+                        extraLines.append(nextTrimmed)
+                        cursor += 1
+                    }
+                    if !extraLines.isEmpty {
+                        targetContent = extraLines.joined(separator: "\n")
+                        index = cursor - 1
+                    }
+                }
+                let items = parseTargetItems(targetContent)
                 if !items.isEmpty {
-                    auxSections.append(.list(label: "Targets", items: items))
+                    let enrichedItems = items.map { target in
+                        resolvedTargetItem(target, resolveTargetLabel: resolveTargetLabel)
+                    }
+                    auxSections.append(.list(label: "Targets", items: enrichedItems))
                 }
             } else {
                 metadata.append(keyValue)
@@ -284,7 +309,13 @@ enum ToolCallMessageParser {
             default:
                 let rawSections = splitNamedSections(remainder)
                 for raw in rawSections {
-                    appendSection(raw, kind: kind, primary: &primarySections, aux: &auxSections)
+                    appendSection(
+                        raw,
+                        kind: kind,
+                        primary: &primarySections,
+                        aux: &auxSections,
+                        resolveTargetLabel: resolveTargetLabel
+                    )
                 }
             }
         }
@@ -428,7 +459,8 @@ enum ToolCallMessageParser {
         _ raw: RawSection,
         kind: ToolCallKind,
         primary: inout [ToolCallSection],
-        aux: inout [ToolCallSection]
+        aux: inout [ToolCallSection],
+        resolveTargetLabel: ((String) -> String?)?
     ) {
         let label = raw.label?.capitalized
         let content = raw.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -456,6 +488,15 @@ enum ToolCallMessageParser {
                     .filter { !$0.isEmpty }
                 if !items.isEmpty {
                     aux.append(.progress(label: "Progress", items: items))
+                }
+            case "targets":
+                let items = parseTargetItems(content).map { target in
+                    resolvedTargetItem(target, resolveTargetLabel: resolveTargetLabel)
+                }
+                if !items.isEmpty {
+                    aux.append(.list(label: "Targets", items: items))
+                } else {
+                    primary.append(.text(label: "Targets", content: content))
                 }
             case "error":
                 primary.append(parseOutputLike(label: "Error", content: content))
@@ -498,6 +539,50 @@ enum ToolCallMessageParser {
                 primary.append(.text(label: "Details", content: content))
             }
         }
+    }
+
+    private static func parseTargetItems(_ content: String) -> [String] {
+        var items: [String] = []
+        for rawLine in content.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            let deBulleted = line.replacingOccurrences(
+                of: #"^([-*•]\s+|\d+\.\s+)"#,
+                with: "",
+                options: .regularExpression
+            )
+            let candidates = deBulleted.split(separator: ",")
+            for candidate in candidates {
+                let normalized = String(candidate).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalized.isEmpty {
+                    items.append(normalized)
+                }
+            }
+        }
+        return items
+    }
+
+    private static func resolvedTargetItem(
+        _ target: String,
+        resolveTargetLabel: ((String) -> String?)?
+    ) -> String {
+        let normalized = target.trimmingCharacters(in: .whitespacesAndNewlines)
+        if looksLikeAgentDisplayLabel(normalized) {
+            return normalized
+        }
+        return resolveTargetLabel?(normalized) ?? normalized
+    }
+
+    private static func looksLikeAgentDisplayLabel(_ value: String) -> Bool {
+        guard value.hasSuffix("]"),
+              let openBracket = value.lastIndex(of: "[") else {
+            return false
+        }
+        let nickname = value[..<openBracket].trimmingCharacters(in: .whitespacesAndNewlines)
+        let roleStart = value.index(after: openBracket)
+        let roleEnd = value.index(before: value.endIndex)
+        let role = value[roleStart..<roleEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+        return !nickname.isEmpty && !role.isEmpty
     }
 
     private static func parseCodeLike(label: String, content: String, fallbackLanguage: String) -> ToolCallSection {
@@ -591,6 +676,9 @@ enum ToolCallMessageParser {
                 return basename.isEmpty ? path : basename
             }
         case .collaboration:
+            if let targetSummary = collaborationTargetSummary(from: body), !targetSummary.isEmpty {
+                return targetSummary
+            }
             if let tool = body.metadataValue(for: "tool"), !tool.isEmpty {
                 return tool
             }
@@ -618,6 +706,21 @@ enum ToolCallMessageParser {
             default:
                 continue
             }
+        }
+        return nil
+    }
+
+    private static func collaborationTargetSummary(from body: ParsedBody) -> String? {
+        for section in body.auxSections {
+            guard case .list(let label, let items) = section,
+                  normalizeToken(label) == "targets",
+                  let first = items.first else {
+                continue
+            }
+            if items.count > 1 {
+                return "\(first) +\(items.count - 1)"
+            }
+            return first
         }
         return nil
     }

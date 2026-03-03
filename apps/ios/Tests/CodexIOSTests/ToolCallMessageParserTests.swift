@@ -55,6 +55,34 @@ final class ToolCallMessageParserTests: XCTestCase {
         }
     }
 
+    func testAgentMessageDecodesNestedThreadSpawnIdMetadata() throws {
+        let json = """
+        {
+          "type": "agentMessage",
+          "text": "hello",
+          "source": {
+            "subAgent": {
+              "thread_spawn": {
+                "id": "agent-scout",
+                "agent_nickname": "Scout",
+                "agent_role": "researcher"
+              }
+            }
+          }
+        }
+        """
+
+        let item = try JSONDecoder().decode(ResumedThreadItem.self, from: Data(json.utf8))
+        guard case .agentMessage(_, _, let agentId, let nickname, let role) = item else {
+            XCTFail("Expected .agentMessage")
+            return
+        }
+
+        XCTAssertEqual(agentId, "agent-scout")
+        XCTAssertEqual(nickname, "Scout")
+        XCTAssertEqual(role, "researcher")
+    }
+
     func testMalformedFenceFallsBackToTextSection() {
         let text = """
         ### Command Output
@@ -190,6 +218,128 @@ final class ToolCallMessageParserTests: XCTestCase {
         XCTAssertEqual(labels.first, "Metadata")
         XCTAssertLessThan(labels.firstIndex(of: "Command") ?? .max, labels.firstIndex(of: "Output") ?? .max)
         XCTAssertLessThan(labels.firstIndex(of: "Output") ?? .max, labels.firstIndex(of: "Progress") ?? .max)
+    }
+
+    func testTargetListUsesResolverLabelsWhenProvided() {
+        let text = """
+        ### Collaboration
+        Status: completed
+        Tool: ask_agent
+        Targets: thread-alpha, agent-beta, unknown-id
+        """
+        let model = unwrap(
+            ToolCallMessageParser.parse(
+                message: ChatMessage(role: .system, text: text),
+                resolveTargetLabel: { target in
+                    switch target {
+                    case "thread-alpha":
+                        return "Planner [lead]"
+                    case "agent-beta":
+                        return "Builder [worker]"
+                    default:
+                        return nil
+                    }
+                }
+            )
+        )
+
+        let targets = model.sections.compactMap { section -> [String]? in
+            guard case .list(let label, let items) = section, label == "Targets" else { return nil }
+            return items
+        }.first
+
+        XCTAssertEqual(targets, ["Planner [lead]", "Builder [worker]", "unknown-id"])
+    }
+
+    func testTargetSectionListUsesResolverLabelsWhenProvided() {
+        let text = """
+        ### Collaboration
+        Status: completed
+        Tool: spawnAgent
+
+        Targets:
+        - thread-alpha
+        - agent-beta
+        """
+        let model = unwrap(
+            ToolCallMessageParser.parse(
+                message: ChatMessage(role: .system, text: text),
+                resolveTargetLabel: { target in
+                    switch target {
+                    case "thread-alpha":
+                        return "Planner [lead]"
+                    case "agent-beta":
+                        return "Builder [worker]"
+                    default:
+                        return nil
+                    }
+                }
+            )
+        )
+
+        let targets = model.sections.compactMap { section -> [String]? in
+            guard case .list(let label, let items) = section, label == "Targets" else { return nil }
+            return items
+        }.first
+
+        XCTAssertEqual(targets, ["Planner [lead]", "Builder [worker]"])
+    }
+
+    func testCollaborationSummaryPrefersTargetLabels() {
+        let text = """
+        ### Collaboration
+        Status: completed
+        Tool: spawnAgent
+        Targets: thread-alpha, agent-beta
+        """
+        let model = unwrap(
+            ToolCallMessageParser.parse(
+                message: ChatMessage(role: .system, text: text),
+                resolveTargetLabel: { target in
+                    switch target {
+                    case "thread-alpha":
+                        return "Harvey [explorer]"
+                    case "agent-beta":
+                        return "Sartre [explorer]"
+                    default:
+                        return nil
+                    }
+                }
+            )
+        )
+
+        XCTAssertEqual(model.summary, "Harvey [explorer] +1")
+    }
+
+    func testTargetListSkipsResolverForPreformattedLabels() {
+        let text = """
+        ### Collaboration
+        Status: completed
+        Tool: spawnAgent
+        Targets: Harvey [explorer], thread-alpha
+        """
+        let model = unwrap(
+            ToolCallMessageParser.parse(
+                message: ChatMessage(role: .system, text: text),
+                resolveTargetLabel: { target in
+                    switch target {
+                    case "thread-alpha":
+                        return "Sartre [explorer]"
+                    case "Harvey [explorer]":
+                        return "incorrect"
+                    default:
+                        return nil
+                    }
+                }
+            )
+        )
+
+        let targets = model.sections.compactMap { section -> [String]? in
+            guard case .list(let label, let items) = section, label == "Targets" else { return nil }
+            return items
+        }.first
+
+        XCTAssertEqual(targets, ["Harvey [explorer]", "Sartre [explorer]"])
     }
 
     private func unwrap(

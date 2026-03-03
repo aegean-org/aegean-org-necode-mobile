@@ -159,7 +159,19 @@ Prerequisites:
 
 - Java 17
 - Android SDK + build tools for API 35
-- Gradle 8.x (or wrapper, once added)
+- Gradle 8.x (or use `apps/android/gradlew`)
+
+Open in Android Studio (macOS):
+
+```bash
+open -a "Android Studio" apps/android
+```
+
+Rebuild and reopen Android project:
+
+```bash
+./apps/android/scripts/rebuild-and-reopen.sh
+```
 
 Build Android flavors:
 

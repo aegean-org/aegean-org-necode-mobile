@@ -20,6 +20,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -56,6 +57,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -143,6 +145,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
@@ -158,12 +161,15 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.litter.android.core.network.DiscoverySource
 import com.litter.android.state.AccountState
+import com.litter.android.state.ApprovalDecision
+import com.litter.android.state.ApprovalKind
 import com.litter.android.state.AuthStatus
 import com.litter.android.state.ChatMessage
 import com.litter.android.state.ExperimentalFeature
 import com.litter.android.state.FuzzyFileSearchResult
 import com.litter.android.state.MessageRole
 import com.litter.android.state.ModelOption
+import com.litter.android.state.PendingApproval
 import com.litter.android.state.ServerConfig
 import com.litter.android.state.ServerConnectionStatus
 import com.litter.android.state.ServerSource
@@ -242,6 +248,7 @@ fun LitterAppShell(
             } else {
                 ConversationPanel(
                     messages = uiState.messages,
+                    toolTargetLabelsById = uiState.toolTargetLabelsById,
                     activeThreadKey = uiState.activeThreadKey,
                     conversationTextSizeStep = uiState.conversationTextSizeStep,
                     draft = uiState.draft,
@@ -419,6 +426,36 @@ fun LitterAppShell(
             )
         }
 
+        uiState.activePendingApproval?.let { approval ->
+            PendingApprovalDialog(
+                approval = approval,
+                onAllowOnce = {
+                    appState.respondToPendingApproval(
+                        approvalId = approval.id,
+                        decision = ApprovalDecision.ACCEPT,
+                    )
+                },
+                onAllowForSession = {
+                    appState.respondToPendingApproval(
+                        approvalId = approval.id,
+                        decision = ApprovalDecision.ACCEPT_FOR_SESSION,
+                    )
+                },
+                onDeny = {
+                    appState.respondToPendingApproval(
+                        approvalId = approval.id,
+                        decision = ApprovalDecision.DECLINE,
+                    )
+                },
+                onAbort = {
+                    appState.respondToPendingApproval(
+                        approvalId = approval.id,
+                        decision = ApprovalDecision.CANCEL,
+                    )
+                },
+            )
+        }
+
         if (uiState.uiError != null) {
             AlertDialog(
                 onDismissRequest = appState::clearUiError,
@@ -430,6 +467,135 @@ fun LitterAppShell(
                     }
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun PendingApprovalDialog(
+    approval: PendingApproval,
+    onAllowOnce: () -> Unit,
+    onAllowForSession: () -> Unit,
+    onDeny: () -> Unit,
+    onAbort: () -> Unit,
+) {
+    val title =
+        when (approval.kind) {
+            ApprovalKind.COMMAND_EXECUTION -> "Approve Command"
+            ApprovalKind.FILE_CHANGE -> "Approve File Change"
+        }
+    val details =
+        remember(approval) {
+            buildList {
+                formatAgentLabel(approval.requesterAgentNickname, approval.requesterAgentRole)?.let {
+                    add("Requester: $it")
+                }
+                approval.reason?.takeIf { it.isNotBlank() }?.let { add("Reason: $it") }
+                approval.cwd?.takeIf { it.isNotBlank() }?.let { add("Directory: $it") }
+                approval.grantRoot?.takeIf { it.isNotBlank() }?.let { add("Grant root: $it") }
+                approval.threadId?.takeIf { it.isNotBlank() }?.let { add("Thread: $it") }
+            }
+        }
+
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = LitterTheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = title,
+                    color = LitterTheme.textPrimary,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "Codex requested approval before continuing.",
+                    color = LitterTheme.textSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                approval.command?.takeIf { it.isNotBlank() }?.let { command ->
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Command",
+                            color = LitterTheme.textSecondary,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = LitterTheme.surfaceLight,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border),
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = command,
+                                    color = LitterTheme.textPrimary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (details.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        details.forEach { line ->
+                            Text(
+                                text = line,
+                                color = LitterTheme.textSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onDeny,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Deny")
+                    }
+                    Button(
+                        onClick = onAllowOnce,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Allow Once")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onAbort,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Abort")
+                    }
+                    OutlinedButton(
+                        onClick = onAllowForSession,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Allow Session")
+                    }
+                }
+            }
         }
     }
 }
@@ -731,6 +897,7 @@ private fun SessionSidebar(
         remember(workspaceGroups, workspaceSortMode) {
             derivedStateOf { buildWorkspaceSections(workspaceGroups, workspaceSortMode) }
         }
+    val activeSession = sessions.firstOrNull { it.key == activeThreadKey }
     val activeWorkspaceGroupId by
         remember(workspaceGroups, activeThreadKey) {
             derivedStateOf {
@@ -855,7 +1022,6 @@ private fun SessionSidebar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                val activeSession = sessions.firstOrNull { it.key == activeThreadKey }
                 Text(
                     text =
                         if (connectionStatus == ServerConnectionStatus.READY) {
@@ -1039,182 +1205,43 @@ private fun SessionSidebar(
                                         )
                                     items(items = visibleRows, key = { threadNodeId(it.thread.key) }) { row ->
                                         val thread = row.thread
-                                        val isActive = thread.key == activeThreadKey
                                         val isNodeCollapsed = collapsedSessionNodeIds.contains(threadNodeId(thread.key))
-                                        val parent = lineageIndex.parentByKey[thread.key]
-                                        val siblings = lineageIndex.siblingsByKey[thread.key].orEmpty()
-                                        val children = lineageIndex.childrenByParentKey[thread.key].orEmpty()
-                                        val hasLineage = parent != null || siblings.isNotEmpty() || children.isNotEmpty()
-
-                                        Column(
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxWidth()
-                                        ) {
-                                            Column(
-                                                modifier =
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .clickable { onSessionSelected(thread.key) }
-                                                        .background(
-                                                            if (isActive) {
-                                                                LitterTheme.surfaceLight.copy(alpha = 0.55f)
-                                                            } else {
-                                                                Color.Transparent
-                                                            },
-                                                        )
-                                                        .padding(start = 1.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
-                                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.Top,
-                                                ) {
-                                                    SessionTreePrefix(
-                                                        depth = row.depth,
-                                                        hasChildren = row.hasChildren,
-                                                        isCollapsed = isNodeCollapsed,
-                                                        onToggle = {
-                                                            if (row.hasChildren) {
-                                                                collapsedSessionNodeIds =
-                                                                    if (isNodeCollapsed) {
-                                                                        collapsedSessionNodeIds - threadNodeId(thread.key)
-                                                                    } else {
-                                                                        collapsedSessionNodeIds + threadNodeId(thread.key)
-                                                                    }
-                                                            }
-                                                        },
-                                                    )
-
-                                                    Text(
-                                                        text = thread.preview.ifBlank { "Untitled session" },
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        color = LitterTheme.textPrimary,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        modifier = Modifier.weight(1f),
-                                                    )
-
-                                                    if (thread.isFork) {
-                                                        Surface(
-                                                            color = LitterTheme.accent,
-                                                            shape = RoundedCornerShape(4.dp),
-                                                        ) {
-                                                            Text(
-                                                                text = "Fork",
-                                                                color = Color.Black,
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                                            )
+                                        AllThreadsSessionRow(
+                                            row = row,
+                                            parentThread = lineageIndex.parentByKey[thread.key],
+                                            siblings = lineageIndex.siblingsByKey[thread.key].orEmpty(),
+                                            children = lineageIndex.childrenByParentKey[thread.key].orEmpty(),
+                                            isActive = thread.key == activeThreadKey,
+                                            isNodeCollapsed = isNodeCollapsed,
+                                            onSessionSelected = onSessionSelected,
+                                            onToggleNode = {
+                                                if (row.hasChildren) {
+                                                    collapsedSessionNodeIds =
+                                                        if (isNodeCollapsed) {
+                                                            collapsedSessionNodeIds - threadNodeId(thread.key)
+                                                        } else {
+                                                            collapsedSessionNodeIds + threadNodeId(thread.key)
                                                         }
-                                                    }
-
-                                                    Box {
-                                                        IconButton(
-                                                            modifier = Modifier.size(20.dp),
-                                                            onClick = { rowMenuThreadKey = thread.key },
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.MoreVert,
-                                                                contentDescription = "Session actions",
-                                                                tint = LitterTheme.textSecondary,
-                                                                modifier = Modifier.size(14.dp),
-                                                            )
-                                                        }
-                                                        DropdownMenu(
-                                                            expanded = rowMenuThreadKey == thread.key,
-                                                            onDismissRequest = { rowMenuThreadKey = null },
-                                                        ) {
-                                                            DropdownMenuItem(
-                                                                text = { Text("Rename") },
-                                                                onClick = {
-                                                                    renameTargetThread = thread
-                                                                    renameDraft = ""
-                                                                    renameError = null
-                                                                    rowMenuThreadKey = null
-                                                                },
-                                                            )
-                                                            DropdownMenuItem(
-                                                                text = { Text("Fork") },
-                                                                onClick = {
-                                                                    onForkSession(thread.key)
-                                                                    rowMenuThreadKey = null
-                                                                },
-                                                            )
-                                                            DropdownMenuItem(
-                                                                text = { Text("Delete") },
-                                                                onClick = {
-                                                                    archiveTargetThread = thread
-                                                                    rowMenuThreadKey = null
-                                                                },
-                                                            )
-                                                        }
-                                                    }
                                                 }
-
-                                                Text(
-                                                    text = sessionMetaLine(thread),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    color = LitterTheme.textSecondary,
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                )
-
-                                                parent?.let {
-                                                    Text(
-                                                        text = "from ${it.preview.ifBlank { "Untitled session" }}",
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        color = LitterTheme.textMuted,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                    )
-                                                }
-
-                                                if (thread.cwd.isNotBlank()) {
-                                                    Text(
-                                                        text = thread.cwd,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        color = LitterTheme.textMuted,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                    )
-                                                }
-
-                                                if (isActive && hasLineage) {
-                                                    Row(
-                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                    ) {
-                                                        parent?.let {
-                                                            SessionLineageChip(
-                                                                title = "Parent",
-                                                                count = 1,
-                                                                onClick = { onSessionSelected(it.key) },
-                                                            )
-                                                        }
-                                                        if (siblings.isNotEmpty()) {
-                                                            SessionLineageChip(
-                                                                title = "Siblings",
-                                                                count = siblings.size,
-                                                                onClick = { siblings.firstOrNull()?.let { sibling -> onSessionSelected(sibling.key) } },
-                                                            )
-                                                        }
-                                                        if (children.isNotEmpty()) {
-                                                            SessionLineageChip(
-                                                                title = "Children",
-                                                                count = children.size,
-                                                                onClick = { children.firstOrNull()?.let { child -> onSessionSelected(child.key) } },
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            HorizontalDivider(
-                                                modifier = Modifier.padding(start = 24.dp),
-                                                color = LitterTheme.border.copy(alpha = 0.65f),
-                                                thickness = 1.dp,
-                                            )
-                                        }
+                                            },
+                                            menuExpanded = rowMenuThreadKey == thread.key,
+                                            onOpenMenu = { rowMenuThreadKey = thread.key },
+                                            onDismissMenu = { rowMenuThreadKey = null },
+                                            onRename = {
+                                                renameTargetThread = thread
+                                                renameDraft = ""
+                                                renameError = null
+                                                rowMenuThreadKey = null
+                                            },
+                                            onFork = {
+                                                onForkSession(thread.key)
+                                                rowMenuThreadKey = null
+                                            },
+                                            onDelete = {
+                                                archiveTargetThread = thread
+                                                rowMenuThreadKey = null
+                                            },
+                                        )
                                     }
                                 }
                             }
@@ -1336,6 +1363,192 @@ private fun SessionSidebar(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AllThreadsSessionRow(
+    row: SessionTreeRow,
+    parentThread: ThreadState?,
+    siblings: List<ThreadState>,
+    children: List<ThreadState>,
+    isActive: Boolean,
+    isNodeCollapsed: Boolean,
+    onSessionSelected: (ThreadKey) -> Unit,
+    onToggleNode: () -> Unit,
+    menuExpanded: Boolean,
+    onOpenMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onRename: () -> Unit,
+    onFork: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val thread = row.thread
+    val hasLineage = parentThread != null || siblings.isNotEmpty() || children.isNotEmpty()
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { onSessionSelected(thread.key) }
+                    .background(
+                        if (isActive) {
+                            LitterTheme.surfaceLight.copy(alpha = 0.55f)
+                        } else {
+                            Color.Transparent
+                        },
+                    ).padding(start = 1.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.Top,
+            ) {
+                SessionTreePrefix(
+                    depth = row.depth,
+                    hasChildren = row.hasChildren,
+                    isCollapsed = isNodeCollapsed,
+                    onToggle = onToggleNode,
+                )
+
+                Text(
+                    text = thread.preview.ifBlank { "Untitled session" },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = LitterTheme.textPrimary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+
+                if (thread.isFork) {
+                    Surface(
+                        color = LitterTheme.accent,
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(
+                            text = "Fork",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+
+                SessionRowMenu(
+                    expanded = menuExpanded,
+                    onOpenMenu = onOpenMenu,
+                    onDismissMenu = onDismissMenu,
+                    onRename = onRename,
+                    onFork = onFork,
+                    onDelete = onDelete,
+                )
+            }
+
+            Text(
+                text = sessionMetaLine(thread),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = LitterTheme.textSecondary,
+                style = MaterialTheme.typography.labelLarge,
+            )
+
+            parentThread?.let {
+                Text(
+                    text = "from ${it.preview.ifBlank { "Untitled session" }}",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = LitterTheme.textMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            if (thread.cwd.isNotBlank()) {
+                Text(
+                    text = thread.cwd,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = LitterTheme.textMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            if (isActive && hasLineage) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    parentThread?.let {
+                        SessionLineageChip(
+                            title = "Parent",
+                            count = 1,
+                            onClick = { onSessionSelected(it.key) },
+                        )
+                    }
+                    if (siblings.isNotEmpty()) {
+                        SessionLineageChip(
+                            title = "Siblings",
+                            count = siblings.size,
+                            onClick = { siblings.firstOrNull()?.let { sibling -> onSessionSelected(sibling.key) } },
+                        )
+                    }
+                    if (children.isNotEmpty()) {
+                        SessionLineageChip(
+                            title = "Children",
+                            count = children.size,
+                            onClick = { children.firstOrNull()?.let { child -> onSessionSelected(child.key) } },
+                        )
+                    }
+                }
+            }
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 24.dp),
+            color = LitterTheme.border.copy(alpha = 0.65f),
+            thickness = 1.dp,
+        )
+    }
+}
+
+@Composable
+private fun SessionRowMenu(
+    expanded: Boolean,
+    onOpenMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onRename: () -> Unit,
+    onFork: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Box {
+        IconButton(
+            modifier = Modifier.size(20.dp),
+            onClick = onOpenMenu,
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Session actions",
+                tint = LitterTheme.textSecondary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismissMenu,
+        ) {
+            DropdownMenuItem(
+                text = { Text("Rename") },
+                onClick = onRename,
+            )
+            DropdownMenuItem(
+                text = { Text("Fork") },
+                onClick = onFork,
+            )
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                onClick = onDelete,
+            )
+        }
     }
 }
 
@@ -1472,7 +1685,25 @@ private fun SessionLineageChipPreview() {
 
 private fun sessionMetaLine(thread: ThreadState): String {
     val modelLabel = thread.modelProvider.ifBlank { "default" }
-    return "${relativeDate(thread.updatedAtEpochMillis)} • ${thread.serverName} • $modelLabel"
+    val agentLabel = formatAgentLabel(thread.agentNickname, thread.agentRole)
+    val serverLabel = if (agentLabel != null) "${thread.serverName} ($agentLabel)" else thread.serverName
+    return "${relativeDate(thread.updatedAtEpochMillis)} • $serverLabel • $modelLabel"
+}
+
+private fun formatAgentLabel(
+    nickname: String?,
+    role: String?,
+    fallbackThreadId: String? = null,
+): String? {
+    val cleanNickname = nickname?.trim().orEmpty()
+    val cleanRole = role?.trim().orEmpty()
+    return when {
+        cleanNickname.isNotEmpty() && cleanRole.isNotEmpty() -> "$cleanNickname [$cleanRole]"
+        cleanNickname.isNotEmpty() -> cleanNickname
+        cleanRole.isNotEmpty() -> "[$cleanRole]"
+        !fallbackThreadId.isNullOrBlank() -> fallbackThreadId
+        else -> null
+    }
 }
 
 private fun threadNodeId(key: ThreadKey): String = "${key.serverId}:${key.threadId}"
@@ -1556,14 +1787,14 @@ private fun ancestorThreadKeys(
     return ancestors
 }
 
-private data class ThreadLineageIndex(
+internal data class ThreadLineageIndex(
     val parentByKey: Map<ThreadKey, ThreadState>,
     val siblingsByKey: Map<ThreadKey, List<ThreadState>>,
     val childrenByParentKey: Map<ThreadKey, List<ThreadState>>,
     val searchableTextByKey: Map<ThreadKey, String>,
 )
 
-private fun buildThreadLineageIndex(allThreads: List<ThreadState>): ThreadLineageIndex {
+internal fun buildThreadLineageIndex(allThreads: List<ThreadState>): ThreadLineageIndex {
     val threadByKey =
         allThreads.associateBy { thread ->
             thread.key
@@ -1573,13 +1804,26 @@ private fun buildThreadLineageIndex(allThreads: List<ThreadState>): ThreadLineag
 
     allThreads.forEach { thread ->
         val parentId = thread.parentThreadId?.trim().orEmpty()
-        if (parentId.isEmpty()) {
+        val resolvedParent =
+            if (parentId.isNotEmpty()) {
+                val parentKey = ThreadKey(serverId = thread.key.serverId, threadId = parentId)
+                threadByKey[parentKey]
+            } else {
+                null
+            } ?:
+                run {
+                    val rootId = thread.rootThreadId?.trim().orEmpty()
+                    if (rootId.isEmpty() || rootId == thread.key.threadId) {
+                        null
+                    } else {
+                        threadByKey[ThreadKey(serverId = thread.key.serverId, threadId = rootId)]
+                    }
+                }
+        if (resolvedParent == null) {
             return@forEach
         }
-        val parentKey = ThreadKey(serverId = thread.key.serverId, threadId = parentId)
-        val parentThread = threadByKey[parentKey] ?: return@forEach
-        parentByKey[thread.key] = parentThread
-        childrenByParentKey.getOrPut(parentKey) { mutableListOf() }.add(thread)
+        parentByKey[thread.key] = resolvedParent
+        childrenByParentKey.getOrPut(resolvedParent.key) { mutableListOf() }.add(thread)
     }
 
     val sortedChildrenByParentKey =
@@ -1826,6 +2070,40 @@ private fun ActiveTurnPulseDot(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun TypingIndicator(modifier: Modifier = Modifier) {
+    var phase by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(400L)
+            phase = (phase + 1) % 3
+        }
+    }
+
+    Row(
+        modifier = modifier.clearAndSetSemantics { },
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(3) { index ->
+            val alpha by
+                animateFloatAsState(
+                    targetValue = if (phase == index) 1f else 0.3f,
+                    animationSpec = tween(durationMillis = 150),
+                    label = "typing_indicator_dot_alpha_$index",
+                )
+            Box(
+                modifier =
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(LitterTheme.accent.copy(alpha = alpha)),
+            )
+        }
+    }
+}
+
+@Composable
 private fun ServerSourceBadge(
     source: ServerSource,
     serverName: String,
@@ -1862,6 +2140,7 @@ private fun ServerSourceBadge(
 @Composable
 private fun ConversationPanel(
     messages: List<ChatMessage>,
+    toolTargetLabelsById: Map<String, String>,
     activeThreadKey: ThreadKey?,
     conversationTextSizeStep: Int,
     draft: String,
@@ -1901,6 +2180,8 @@ private fun ConversationPanel(
     var attachmentError by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val toolTargetResolverVersion = remember(toolTargetLabelsById) { toolTargetLabelsById.hashCode() }
+    val toolTargetResolver = remember(toolTargetLabelsById) { { targetId: String -> toolTargetLabelsById[targetId] ?: targetId } }
     val nearBottomThresholdPx = with(LocalContext.current.resources.displayMetrics) { (36 * density).toInt() }
     var wasNearBottom by remember { mutableStateOf(true) }
     val isNearBottom by remember(listState, nearBottomThresholdPx) {
@@ -1922,6 +2203,7 @@ private fun ConversationPanel(
     }
     var pinchBaseStep by remember { mutableStateOf<Int?>(null) }
     var pinchAppliedDelta by remember { mutableIntStateOf(0) }
+    val bottomAnchorIndex = messages.size + if (isSending) 1 else 0
 
     val attachmentLauncher =
         rememberLauncherForActivityResult(
@@ -1959,13 +2241,13 @@ private fun ConversationPanel(
     }
 
     LaunchedEffect(activeThreadKey) {
-        listState.scrollToItem(messages.size)
+        listState.scrollToItem(bottomAnchorIndex)
         wasNearBottom = true
     }
 
     LaunchedEffect(messages.size) {
         if ((isNearBottom || wasNearBottom) && listState.layoutInfo.totalItemsCount > 0) {
-            listState.animateScrollToItem(messages.size)
+            listState.animateScrollToItem(bottomAnchorIndex)
         }
     }
 
@@ -2028,10 +2310,19 @@ private fun ConversationPanel(
                         textScale = textScale,
                         markdownMarkwon = markdownMarkwon,
                         syntaxMarkwon = syntaxMarkwon,
+                        toolTargetResolver = toolTargetResolver,
+                        toolTargetResolverVersion = toolTargetResolverVersion,
                         messageActionsEnabled = !isSending,
                         onEditMessage = onEditMessage,
                         onForkFromMessage = onForkFromMessage,
                     )
+                }
+                if (isSending) {
+                    item(key = "conversation-typing-indicator") {
+                        TypingIndicator(
+                            modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
+                        )
+                    }
                 }
                 item(key = "conversation-bottom-anchor") {
                     Spacer(modifier = Modifier.height(1.dp))
@@ -2044,7 +2335,7 @@ private fun ConversationPanel(
                     onClick = {
                         scope.launch {
                             if (listState.layoutInfo.totalItemsCount > 0) {
-                                listState.animateScrollToItem(messages.size)
+                                listState.animateScrollToItem(bottomAnchorIndex)
                             }
                         }
                     },
@@ -2163,6 +2454,8 @@ private fun MessageRow(
     textScale: Float,
     markdownMarkwon: Markwon,
     syntaxMarkwon: Markwon,
+    toolTargetResolver: (String) -> String,
+    toolTargetResolverVersion: Int,
     messageActionsEnabled: Boolean,
     onEditMessage: (ChatMessage) -> Unit,
     onForkFromMessage: (ChatMessage) -> Unit,
@@ -2232,13 +2525,26 @@ private fun MessageRow(
         }
 
         MessageRole.ASSISTANT -> {
-            MessageMarkdownContent(
-                markdown = message.text,
-                textScale = textScale,
-                markdownMarkwon = markdownMarkwon,
-                syntaxMarkwon = syntaxMarkwon,
+            val agentLabel = formatAgentLabel(message.agentNickname, message.agentRole)
+            Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-            )
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (agentLabel != null) {
+                    Text(
+                        text = agentLabel,
+                        color = LitterTheme.textSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                MessageMarkdownContent(
+                    markdown = message.text,
+                    textScale = textScale,
+                    markdownMarkwon = markdownMarkwon,
+                    syntaxMarkwon = syntaxMarkwon,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
 
         MessageRole.SYSTEM -> {
@@ -2247,6 +2553,8 @@ private fun MessageRow(
                 textScale = textScale,
                 markdownMarkwon = markdownMarkwon,
                 syntaxMarkwon = syntaxMarkwon,
+                toolTargetResolver = toolTargetResolver,
+                toolTargetResolverVersion = toolTargetResolverVersion,
             )
         }
 
@@ -2531,8 +2839,16 @@ private fun SystemMessageCard(
     textScale: Float,
     markdownMarkwon: Markwon,
     syntaxMarkwon: Markwon,
+    toolTargetResolver: (String) -> String,
+    toolTargetResolverVersion: Int,
 ) {
-    val parseResult = remember(message.text) { ToolCallMessageParser.parse(message) }
+    val parseResult =
+        remember(message.text, toolTargetResolverVersion) {
+            ToolCallMessageParser.parse(
+                message = message,
+                targetLabelResolver = toolTargetResolver,
+            )
+        }
     when (parseResult) {
         is ToolCallParseResult.Recognized ->
             StructuredToolCallCard(
