@@ -14,6 +14,8 @@ struct ChatMessage: Identifiable, Equatable {
     var sourceTurnId: String? = nil
     var sourceTurnIndex: Int? = nil
     var isFromUserTurnBoundary: Bool = false
+    var agentNickname: String? = nil
+    var agentRole: String? = nil
     let timestamp = Date()
 }
 

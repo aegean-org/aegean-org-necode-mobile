@@ -113,13 +113,17 @@ internal object ToolCallMessageParser {
             "arguments",
             "result",
             "output",
+            "targets",
             "prompt",
             "action",
             "progress",
             "error",
         )
 
-    fun parse(message: ChatMessage): ToolCallParseResult {
+    fun parse(
+        message: ChatMessage,
+        targetLabelResolver: (String) -> String = { it },
+    ): ToolCallParseResult {
         if (message.role != MessageRole.SYSTEM) {
             return ToolCallParseResult.Unrecognized
         }
@@ -129,7 +133,7 @@ internal object ToolCallMessageParser {
             return ToolCallParseResult.Unrecognized
         }
 
-        val body = parseBody(system.body, kind)
+        val body = parseBody(system.body, kind, targetLabelResolver)
         if (body.metadata.isEmpty() && body.primarySections.isEmpty() && body.auxSections.isEmpty()) {
             return ToolCallParseResult.Unrecognized
         }
@@ -227,6 +231,7 @@ internal object ToolCallMessageParser {
     private fun parseBody(
         body: String,
         kind: ToolCallKind,
+        targetLabelResolver: (String) -> String,
     ): ParsedBody {
         val lines = body.split('\n')
         var index = 0
@@ -254,11 +259,27 @@ internal object ToolCallMessageParser {
             }
 
             if (normalizedKey == "targets") {
+                var targetContent = keyValue.value
+                if (targetContent.isBlank()) {
+                    var cursor = index + 1
+                    val extraLines = mutableListOf<String>()
+                    while (cursor < lines.size) {
+                        val nextTrimmed = lines[cursor].trim()
+                        if (nextTrimmed.isEmpty() || parseSectionHeader(nextTrimmed) != null) {
+                            break
+                        }
+                        extraLines += nextTrimmed
+                        cursor += 1
+                    }
+                    if (extraLines.isNotEmpty()) {
+                        targetContent = extraLines.joinToString(separator = "\n")
+                        index = cursor - 1
+                    }
+                }
                 val items =
-                    keyValue.value
-                        .split(',')
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
+                    parseTargetItems(targetContent).map { target ->
+                        resolvedTargetItem(target, targetLabelResolver)
+                    }
                 if (items.isNotEmpty()) {
                     auxSections += ToolCallSection.ListSection(label = "Targets", items = items)
                 }
@@ -284,7 +305,7 @@ internal object ToolCallMessageParser {
 
                 else -> {
                     splitNamedSections(remainder).forEach { raw ->
-                        appendSection(raw, kind, primarySections, auxSections)
+                        appendSection(raw, kind, primarySections, auxSections, targetLabelResolver)
                     }
                 }
             }
@@ -442,6 +463,7 @@ internal object ToolCallMessageParser {
         kind: ToolCallKind,
         primary: MutableList<ToolCallSection>,
         aux: MutableList<ToolCallSection>,
+        targetLabelResolver: (String) -> String,
     ) {
         val label = raw.label?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }
         val content = raw.content.trim()
@@ -466,6 +488,17 @@ internal object ToolCallMessageParser {
                             .toList()
                     if (items.isNotEmpty()) {
                         aux += ToolCallSection.Progress(label = "Progress", items = items)
+                    }
+                }
+
+                "targets" -> {
+                    val items = parseTargetItems(content).map { target ->
+                        resolvedTargetItem(target, targetLabelResolver)
+                    }
+                    if (items.isNotEmpty()) {
+                        aux += ToolCallSection.ListSection(label = "Targets", items = items)
+                    } else {
+                        primary += ToolCallSection.Text(label = "Targets", content = content)
                     }
                 }
 
@@ -628,6 +661,10 @@ internal object ToolCallMessageParser {
             }
 
             ToolCallKind.COLLABORATION -> {
+                val targetSummary = collaborationTargetSummary(body)
+                if (!targetSummary.isNullOrBlank()) {
+                    return targetSummary
+                }
                 val tool = body.metadataValue("tool")
                 if (!tool.isNullOrBlank()) {
                     return tool
@@ -674,6 +711,64 @@ internal object ToolCallMessageParser {
             }
         }
         return text
+    }
+
+    private fun parseTargetItems(content: String): List<String> {
+        val items = mutableListOf<String>()
+        content.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            if (line.isEmpty()) {
+                return@forEach
+            }
+            val deBulleted = line.replace(Regex("^([-*•]\\s+|\\d+\\.\\s+)"), "")
+            deBulleted
+                .split(',')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .forEach { items += it }
+        }
+        return items
+    }
+
+    private fun resolvedTargetItem(
+        target: String,
+        targetLabelResolver: (String) -> String,
+    ): String {
+        val normalized = target.trim()
+        if (looksLikeAgentDisplayLabel(normalized)) {
+            return normalized
+        }
+        return targetLabelResolver(normalized).trim().ifEmpty { normalized }
+    }
+
+    private fun looksLikeAgentDisplayLabel(value: String): Boolean {
+        if (!value.endsWith("]")) {
+            return false
+        }
+        val openBracket = value.lastIndexOf('[')
+        if (openBracket <= 0) {
+            return false
+        }
+        val nickname = value.substring(0, openBracket).trim()
+        val role = value.substring(openBracket + 1, value.length - 1).trim()
+        return nickname.isNotEmpty() && role.isNotEmpty()
+    }
+
+    private fun collaborationTargetSummary(body: ParsedBody): String? {
+        body.auxSections.forEach { section ->
+            if (section is ToolCallSection.ListSection &&
+                normalizeToken(section.label) == "targets" &&
+                section.items.isNotEmpty()
+            ) {
+                val first = section.items.first()
+                return if (section.items.size > 1) {
+                    "$first +${section.items.size - 1}"
+                } else {
+                    first
+                }
+            }
+        }
+        return null
     }
 
     private fun normalizeStatus(raw: String?): ToolCallStatus {

@@ -60,6 +60,8 @@ class ServerManager(
     private val liveTurnDiffMessageIndices = LinkedHashMap<ThreadKey, MutableMap<String, Int>>()
     private val serversUsingItemNotifications = HashSet<String>()
     private val threadTurnCounts = LinkedHashMap<ThreadKey, Int>()
+    private val pendingApprovalsById = LinkedHashMap<String, PendingApproval>()
+    private val agentDirectory = AgentDirectory()
 
     private val appContext = context?.applicationContext
     private val bundledAuthStore: BundledAuthStore? =
@@ -331,6 +333,24 @@ class ServerManager(
         }
     }
 
+    fun respondToPendingApproval(
+        approvalId: String,
+        decision: ApprovalDecision,
+    ) {
+        submit {
+            val pending = pendingApprovalsById.remove(approvalId) ?: return@submit
+            val decisionValue = approvalDecisionValue(method = pending.method, decision = decision)
+            val transport = transportsByServerId[pending.serverId]
+            if (transport != null) {
+                transport.respondToServerRequest(
+                    requestId = pending.requestId,
+                    result = JSONObject().put("decision", decisionValue),
+                )
+            }
+            updateState { it.copy(connectionError = null) }
+        }
+    }
+
     fun startThread(
         cwd: String = defaultWorkingDirectory(),
         modelSelection: ModelSelection? = null,
@@ -366,13 +386,38 @@ class ServerManager(
             val result = runCatching {
                 val existing = threadsByKey[threadKey]
                     ?: throw IllegalStateException("Unknown thread: ${threadKey.threadId}")
-                if (existing.messages.isEmpty() && !cwdForLazyResume.isNullOrBlank()) {
-                    resumeThreadInternal(threadKey.serverId, threadKey.threadId, cwdForLazyResume)
+                val resumeCwd = normalizeCwd(cwdForLazyResume) ?: normalizeCwd(existing.cwd)
+                if (existing.messages.isEmpty() && resumeCwd != null) {
+                    try {
+                        resumeThreadInternal(threadKey.serverId, threadKey.threadId, resumeCwd)
+                    } catch (error: Throwable) {
+                        if (!isMissingRolloutForThread(error)) {
+                            throw error
+                        }
+                        val latest = threadsByKey[threadKey] ?: existing
+                        threadsByKey[threadKey] =
+                            latest.copy(
+                                status = ThreadStatus.READY,
+                                lastError = null,
+                                updatedAtEpochMillis = System.currentTimeMillis(),
+                            )
+                        updateState {
+                            it.copy(
+                                activeThreadKey = threadKey,
+                                activeServerId = threadKey.serverId,
+                                currentCwd = resumeCwd,
+                                connectionError = null,
+                            )
+                        }
+                        threadKey
+                    }
                 } else {
+                    val selectedCwd = normalizeCwd(existing.cwd)
                     updateState {
                         it.copy(
                             activeThreadKey = threadKey,
                             activeServerId = threadKey.serverId,
+                            currentCwd = selectedCwd ?: it.currentCwd,
                         )
                     }
                     threadKey
@@ -392,9 +437,10 @@ class ServerManager(
     ) {
         submit {
             val result = runCatching {
+                val resolvedCwd = resolveMessageCwd(cwd)
                 sendMessageInternal(
                     text = text,
-                    cwd = cwd ?: state.currentCwd,
+                    cwd = resolvedCwd,
                     modelSelection = modelSelection ?: state.selectedModel,
                     localImagePath = localImagePath,
                     skillMentions = skillMentions,
@@ -571,8 +617,13 @@ class ServerManager(
                     handleNotification(normalizedServer.id, method, params)
                 }
             },
-            onServerRequest = { method, params ->
-                handleServerRequestInternal(normalizedServer.id, method, params)
+            onServerRequest = { requestId, method, params ->
+                handleServerRequestInternal(
+                    serverId = normalizedServer.id,
+                    requestId = requestId,
+                    method = method,
+                    params = params,
+                )
             },
         )
 
@@ -622,6 +673,8 @@ class ServerManager(
             liveTurnDiffMessageIndices.clear()
             serversUsingItemNotifications.clear()
             threadTurnCounts.clear()
+            pendingApprovalsById.clear()
+            agentDirectory.clear()
             runCatching { codexRpcClient.stop() }
             runCatching { appContext?.stopService(android.content.Intent(appContext, BundledCodexService::class.java)) }
             commitState(
@@ -646,6 +699,8 @@ class ServerManager(
         liveTurnDiffMessageIndices.keys.removeAll { it.serverId == serverId }
         serversUsingItemNotifications.remove(serverId)
         threadTurnCounts.keys.removeAll { it.serverId == serverId }
+        pendingApprovalsById.values.removeAll { it.serverId == serverId }
+        agentDirectory.removeServer(serverId)
 
         if (removedServer?.source == ServerSource.LOCAL && serversById.values.none { it.source == ServerSource.LOCAL }) {
             runCatching { codexRpcClient.stop() }
@@ -745,63 +800,135 @@ class ServerManager(
 
         for (server in targetServers) {
             val transport = requireTransport(server.id)
-            val response = transport.request(
-                method = "thread/list",
-                params = JSONObject()
-                    .put("cursor", JSONObject.NULL)
-                    .put("limit", 50)
-                    .put("sortKey", "updated_at")
-                    .put("cwd", JSONObject.NULL),
-            )
+            val authoritativeKeys = LinkedHashSet<ThreadKey>()
+            val missingRemoteCwdKeys = LinkedHashSet<ThreadKey>()
+            var cursor: String? = null
+            val seenCursors = LinkedHashSet<String>()
+            while (true) {
+                val response = transport.request(
+                    method = "thread/list",
+                    params = JSONObject()
+                        .put("cursor", cursor ?: JSONObject.NULL)
+                        .put("limit", 50)
+                        .put("sortKey", "updated_at")
+                        .put("cwd", JSONObject.NULL),
+                )
 
-            val data = response.optJSONArray("data") ?: JSONArray()
-            for (index in 0 until data.length()) {
-                val item = data.optJSONObject(index) ?: continue
-                val threadId = item.optString("id").trim()
-                if (threadId.isEmpty()) {
-                    continue
-                }
-                val key = ThreadKey(server.id, threadId)
-                val existing = threadsByKey[key]
-                val preview = item.optString("preview").trim().ifBlank {
-                    item.optString("name").trim().ifBlank {
-                        existing?.preview ?: "Session $threadId"
+                val data = response.optJSONArray("data") ?: JSONArray()
+                for (index in 0 until data.length()) {
+                    val item = data.optJSONObject(index) ?: continue
+                    val threadId = item.optString("id").trim()
+                    if (threadId.isEmpty()) {
+                        continue
                     }
-                }
-                val cwd = item.optString("cwd").trim().ifBlank { existing?.cwd ?: state.currentCwd }
-                val modelProvider = parseModelProvider(item).ifBlank { existing?.modelProvider.orEmpty() }
-                val parentThreadId = parseParentThreadId(item) ?: existing?.parentThreadId
-                val rootThreadId = parseRootThreadId(item) ?: existing?.rootThreadId
-                val updatedAtRaw =
-                    item.opt("updatedAt").asLongOrNull()
-                        ?: item.opt("updated_at").asLongOrNull()
-                        ?: System.currentTimeMillis()
-                val updatedAtEpochMillis = normalizeEpochMillis(updatedAtRaw)
-                val remoteStatus = item.optString("status").trim().lowercase(Locale.ROOT)
-                val resolvedStatus =
-                    when (remoteStatus) {
-                        "inprogress", "in_progress", "running", "busy" -> ThreadStatus.THINKING
-                        "failed", "error" -> ThreadStatus.ERROR
-                        else -> existing?.status ?: ThreadStatus.READY
+                    val key = ThreadKey(server.id, threadId)
+                    authoritativeKeys += key
+                    val existing = threadsByKey[key]
+                    val remoteCwd = parseThreadCwd(item)
+                    val preview = item.optString("preview").trim().ifBlank {
+                        item.optString("name").trim().ifBlank {
+                            existing?.preview ?: "Session $threadId"
+                        }
                     }
+                    val parentThreadId = parseParentThreadId(item) ?: existing?.parentThreadId
+                    val rootThreadId = parseRootThreadId(item) ?: existing?.rootThreadId
+                    val cwd =
+                        resolveThreadCwd(
+                            serverId = server.id,
+                            threadId = threadId,
+                            responseCwd = remoteCwd,
+                            existing = existing,
+                            parentThreadId = parentThreadId,
+                            rootThreadId = rootThreadId,
+                        )
+                    if (remoteCwd.isNullOrBlank()) {
+                        missingRemoteCwdKeys += key
+                    }
+                    val modelProvider = parseModelProvider(item).ifBlank { existing?.modelProvider.orEmpty() }
+                    val agentId = parseAgentId(item)
+                    val resolvedAgent =
+                        upsertAgentIdentity(
+                            serverId = server.id,
+                            threadId = threadId,
+                            agentId = agentId,
+                            nickname = parseAgentNickname(item) ?: existing?.agentNickname,
+                            role = parseAgentRole(item) ?: existing?.agentRole,
+                        )
+                    val updatedAtRaw =
+                        item.opt("updatedAt").asLongOrNull()
+                            ?: item.opt("updated_at").asLongOrNull()
+                            ?: System.currentTimeMillis()
+                    val updatedAtEpochMillis = normalizeEpochMillis(updatedAtRaw)
+                    val remoteStatus = item.optString("status").trim().lowercase(Locale.ROOT)
+                    val resolvedStatus =
+                        when (remoteStatus) {
+                            "inprogress", "in_progress", "running", "busy" -> ThreadStatus.THINKING
+                            "failed", "error" -> ThreadStatus.ERROR
+                            else -> existing?.status ?: ThreadStatus.READY
+                        }
 
-                threadsByKey[key] =
-                    ThreadState(
-                        key = key,
-                        serverName = server.name,
-                        serverSource = server.source,
-                        status = resolvedStatus,
-                        messages = existing?.messages ?: emptyList(),
-                        preview = preview,
-                        cwd = cwd,
-                        modelProvider = modelProvider,
-                        parentThreadId = parentThreadId,
-                        rootThreadId = rootThreadId,
-                        updatedAtEpochMillis = maxOf(updatedAtEpochMillis, existing?.updatedAtEpochMillis ?: 0L),
-                        activeTurnId = existing?.activeTurnId,
-                        lastError = existing?.lastError,
-                    )
-                threadTurnCounts[key] = threadTurnCounts[key] ?: inferredTurnCountFromMessages(existing?.messages.orEmpty())
+                    threadsByKey[key] =
+                        ThreadState(
+                            key = key,
+                            serverName = server.name,
+                            serverSource = server.source,
+                            status = resolvedStatus,
+                            messages = existing?.messages ?: emptyList(),
+                            preview = preview,
+                            cwd = cwd,
+                            modelProvider = modelProvider,
+                            parentThreadId = parentThreadId,
+                            rootThreadId = rootThreadId,
+                            agentNickname = resolvedAgent?.nickname ?: existing?.agentNickname,
+                            agentRole = resolvedAgent?.role ?: existing?.agentRole,
+                            updatedAtEpochMillis = maxOf(updatedAtEpochMillis, existing?.updatedAtEpochMillis ?: 0L),
+                            activeTurnId = existing?.activeTurnId,
+                            lastError = existing?.lastError,
+                        )
+                    threadTurnCounts[key] = threadTurnCounts[key] ?: inferredTurnCountFromMessages(existing?.messages.orEmpty())
+                }
+
+                val nextCursor = extractString(response, "nextCursor", "next_cursor")
+                if (nextCursor.isNullOrBlank() || !seenCursors.add(nextCursor)) {
+                    break
+                }
+                cursor = nextCursor
+            }
+
+            if (missingRemoteCwdKeys.isNotEmpty()) {
+                var changed: Boolean
+                do {
+                    changed = false
+                    for (key in missingRemoteCwdKeys) {
+                        val thread = threadsByKey[key] ?: continue
+                        val parentCwd =
+                            thread.parentThreadId
+                                ?.let { parentId -> normalizeCwd(threadsByKey[ThreadKey(serverId = server.id, threadId = parentId)]?.cwd) }
+                        val rootCwd =
+                            thread.rootThreadId
+                                ?.takeIf { rootId -> rootId != key.threadId }
+                                ?.let { rootId -> normalizeCwd(threadsByKey[ThreadKey(serverId = server.id, threadId = rootId)]?.cwd) }
+                        val inheritedCwd = parentCwd ?: rootCwd
+                        if (inheritedCwd != null && inheritedCwd != thread.cwd) {
+                            threadsByKey[key] = thread.copy(cwd = inheritedCwd)
+                            changed = true
+                        }
+                    }
+                } while (changed)
+            }
+
+            val placeholderKeysToPrune =
+                computePlaceholderKeysToPrune(
+                    serverId = server.id,
+                    authoritativeKeys = authoritativeKeys,
+                    activeThreadKey = state.activeThreadKey,
+                    threadsByKey = threadsByKey,
+                )
+            placeholderKeysToPrune.forEach { key ->
+                threadsByKey.remove(key)
+                threadTurnCounts.remove(key)
+                liveItemMessageIndices.remove(key)
+                liveTurnDiffMessageIndices.remove(key)
             }
         }
 
@@ -960,11 +1087,19 @@ class ServerManager(
 
     private fun handleServerRequestInternal(
         serverId: String,
+        requestId: String,
         method: String,
         params: JSONObject?,
-    ): JSONObject? {
+    ): ServerRequestHandlingResult {
+        val pendingApproval = parsePendingApprovalRequest(serverId, requestId, method, params)
+        if (pendingApproval != null) {
+            pendingApprovalsById[pendingApproval.id] = pendingApproval
+            updateState { it.copy(connectionError = null) }
+            return ServerRequestHandlingResult.Deferred
+        }
+
         if (method != "account/chatgptAuthTokens/refresh") {
-            return null
+            return ServerRequestHandlingResult.Unhandled
         }
         if (serversById[serverId]?.source != ServerSource.BUNDLED) {
             throw IllegalStateException("External token refresh is only supported for bundled auth")
@@ -992,10 +1127,12 @@ class ServerManager(
                 ),
             )
 
-            JSONObject()
-                .put("accessToken", refreshed.accessToken)
-                .put("chatgptAccountId", info.accountId)
-                .put("chatgptPlanType", info.planType ?: JSONObject.NULL)
+            ServerRequestHandlingResult.Immediate(
+                JSONObject()
+                    .put("accessToken", refreshed.accessToken)
+                    .put("chatgptAccountId", info.accountId)
+                    .put("chatgptPlanType", info.planType ?: JSONObject.NULL),
+            )
         }.getOrElse { error ->
             bundledAuthStore?.clear()
             accountByServerId[serverId] =
@@ -1013,6 +1150,149 @@ class ServerManager(
                 )
             }
             throw IllegalStateException(error.message ?: "Failed to refresh ChatGPT tokens")
+        }
+    }
+
+    private fun parsePendingApprovalRequest(
+        serverId: String,
+        requestId: String,
+        method: String,
+        params: JSONObject?,
+    ): PendingApproval? {
+        val approvalId = "$serverId:$requestId"
+        return when (method) {
+            "item/commandExecution/requestApproval" -> {
+                val threadId = extractThreadIdForIdentity(params, "threadId", "thread_id", "conversationId", "conversation_id")
+                val requester = resolveAgentIdentity(serverId = serverId, threadId = threadId, params = params)
+                PendingApproval(
+                    id = approvalId,
+                    requestId = requestId,
+                    serverId = serverId,
+                    method = method,
+                    kind = ApprovalKind.COMMAND_EXECUTION,
+                    threadId = threadId,
+                    turnId = extractString(params, "turnId", "turn_id"),
+                    itemId = extractString(params, "itemId", "item_id", "callId", "call_id", "cmdId", "cmd_id"),
+                    command = commandTextFromApprovalParams(params),
+                    cwd = extractString(params, "cwd"),
+                    reason = extractString(params, "reason"),
+                    grantRoot = null,
+                    requesterAgentNickname = requester.nickname,
+                    requesterAgentRole = requester.role,
+                )
+            }
+
+            "item/fileChange/requestApproval" -> {
+                val threadId = extractThreadIdForIdentity(params, "threadId", "thread_id", "conversationId", "conversation_id")
+                val requester = resolveAgentIdentity(serverId = serverId, threadId = threadId, params = params)
+                PendingApproval(
+                    id = approvalId,
+                    requestId = requestId,
+                    serverId = serverId,
+                    method = method,
+                    kind = ApprovalKind.FILE_CHANGE,
+                    threadId = threadId,
+                    turnId = extractString(params, "turnId", "turn_id"),
+                    itemId = extractString(params, "itemId", "item_id", "callId", "call_id", "patchId", "patch_id"),
+                    command = null,
+                    cwd = null,
+                    reason = extractString(params, "reason"),
+                    grantRoot = extractString(params, "grantRoot", "grant_root"),
+                    requesterAgentNickname = requester.nickname,
+                    requesterAgentRole = requester.role,
+                )
+            }
+
+            "execCommandApproval" -> {
+                val threadId = extractThreadIdForIdentity(params, "conversationId", "conversation_id", "threadId", "thread_id")
+                val requester = resolveAgentIdentity(serverId = serverId, threadId = threadId, params = params)
+                PendingApproval(
+                    id = approvalId,
+                    requestId = requestId,
+                    serverId = serverId,
+                    method = method,
+                    kind = ApprovalKind.COMMAND_EXECUTION,
+                    threadId = threadId,
+                    turnId = null,
+                    itemId = extractString(params, "approvalId", "callId", "cmdId"),
+                    command = commandTextFromApprovalParams(params),
+                    cwd = extractString(params, "cwd"),
+                    reason = extractString(params, "reason"),
+                    grantRoot = null,
+                    requesterAgentNickname = requester.nickname,
+                    requesterAgentRole = requester.role,
+                )
+            }
+
+            "applyPatchApproval" -> {
+                val threadId = extractThreadIdForIdentity(params, "conversationId", "conversation_id", "threadId", "thread_id")
+                val requester = resolveAgentIdentity(serverId = serverId, threadId = threadId, params = params)
+                PendingApproval(
+                    id = approvalId,
+                    requestId = requestId,
+                    serverId = serverId,
+                    method = method,
+                    kind = ApprovalKind.FILE_CHANGE,
+                    threadId = threadId,
+                    turnId = null,
+                    itemId = extractString(params, "callId", "patchId"),
+                    command = null,
+                    cwd = null,
+                    reason = extractString(params, "reason"),
+                    grantRoot = extractString(params, "grantRoot", "grant_root"),
+                    requesterAgentNickname = requester.nickname,
+                    requesterAgentRole = requester.role,
+                )
+            }
+
+            else -> null
+        }
+    }
+
+    private fun commandTextFromApprovalParams(params: JSONObject?): String? {
+        val direct = extractString(params, "command")
+        if (!direct.isNullOrEmpty()) {
+            return direct
+        }
+        val command = params?.opt("command")
+        return when (command) {
+            is JSONArray -> {
+                val parts = ArrayList<String>(command.length())
+                for (index in 0 until command.length()) {
+                    val token = command.opt(index)?.toString()?.trim().orEmpty()
+                    if (token.isNotEmpty()) {
+                        parts += token
+                    }
+                }
+                parts.joinToString(separator = " ").ifEmpty { null }
+            }
+
+            else -> null
+        }
+    }
+
+    private fun approvalDecisionValue(
+        method: String,
+        decision: ApprovalDecision,
+    ): String {
+        return when (method) {
+            "execCommandApproval", "applyPatchApproval" -> {
+                when (decision) {
+                    ApprovalDecision.ACCEPT -> "approved"
+                    ApprovalDecision.ACCEPT_FOR_SESSION -> "approved_for_session"
+                    ApprovalDecision.DECLINE -> "denied"
+                    ApprovalDecision.CANCEL -> "abort"
+                }
+            }
+
+            else -> {
+                when (decision) {
+                    ApprovalDecision.ACCEPT -> "accept"
+                    ApprovalDecision.ACCEPT_FOR_SESSION -> "acceptForSession"
+                    ApprovalDecision.DECLINE -> "decline"
+                    ApprovalDecision.CANCEL -> "cancel"
+                }
+            }
         }
     }
 
@@ -1608,6 +1888,14 @@ class ServerManager(
         val now = System.currentTimeMillis()
         val responseModelProvider = parseModelProvider(response)
         val threadObj = response.optJSONObject("thread")
+        val resolvedAgent =
+            upsertAgentIdentity(
+                serverId = server.id,
+                threadId = threadId,
+                agentId = parseAgentId(threadObj),
+                nickname = parseAgentNickname(threadObj) ?: existing?.agentNickname,
+                role = parseAgentRole(threadObj) ?: existing?.agentRole,
+            )
         threadsByKey[key] =
             ThreadState(
                 key = key,
@@ -1620,6 +1908,8 @@ class ServerManager(
                 modelProvider = responseModelProvider.ifBlank { existing?.modelProvider.orEmpty() },
                 parentThreadId = parseParentThreadId(threadObj) ?: existing?.parentThreadId,
                 rootThreadId = parseRootThreadId(threadObj) ?: existing?.rootThreadId,
+                agentNickname = resolvedAgent?.nickname ?: existing?.agentNickname,
+                agentRole = resolvedAgent?.role ?: existing?.agentRole,
                 updatedAtEpochMillis = now,
                 activeTurnId = null,
                 lastError = null,
@@ -1696,6 +1986,11 @@ class ServerManager(
                 messages = existing?.messages ?: emptyList(),
                 preview = existing?.preview ?: "",
                 cwd = cwd,
+                modelProvider = existing?.modelProvider.orEmpty(),
+                parentThreadId = existing?.parentThreadId,
+                rootThreadId = existing?.rootThreadId,
+                agentNickname = existing?.agentNickname,
+                agentRole = existing?.agentRole,
                 updatedAtEpochMillis = System.currentTimeMillis(),
                 activeTurnId = existing?.activeTurnId,
                 lastError = null,
@@ -1705,7 +2000,21 @@ class ServerManager(
         try {
             val response = resumeThreadWithFallback(serverId = serverId, threadId = threadId, cwd = cwd)
             val threadObj = response.optJSONObject("thread") ?: JSONObject()
-            val restored = restoreMessages(threadObj)
+            val resolvedAgent =
+                upsertAgentIdentity(
+                    serverId = server.id,
+                    threadId = threadId,
+                    agentId = parseAgentId(threadObj),
+                    nickname = parseAgentNickname(threadObj) ?: existing?.agentNickname,
+                    role = parseAgentRole(threadObj) ?: existing?.agentRole,
+                )
+            val restored =
+                restoreMessages(
+                    threadObject = threadObj,
+                    serverId = serverId,
+                    defaultAgentNickname = resolvedAgent?.nickname ?: existing?.agentNickname,
+                    defaultAgentRole = resolvedAgent?.role ?: existing?.agentRole,
+                )
             val now = System.currentTimeMillis()
             val responseModelProvider = parseModelProvider(response)
             val threadModelProvider = parseModelProvider(threadObj)
@@ -1721,6 +2030,8 @@ class ServerManager(
                     modelProvider = responseModelProvider.ifBlank { threadModelProvider.ifBlank { existing?.modelProvider.orEmpty() } },
                     parentThreadId = parseParentThreadId(threadObj) ?: existing?.parentThreadId,
                     rootThreadId = parseRootThreadId(threadObj) ?: existing?.rootThreadId,
+                    agentNickname = resolvedAgent?.nickname ?: existing?.agentNickname,
+                    agentRole = resolvedAgent?.role ?: existing?.agentRole,
                     updatedAtEpochMillis = now,
                     activeTurnId = null,
                     lastError = null,
@@ -1896,8 +2207,22 @@ class ServerManager(
         if (forkedThreadId.isEmpty()) {
             throw IllegalStateException("thread/fork returned no thread id")
         }
+        val resolvedAgent =
+            upsertAgentIdentity(
+                serverId = server.id,
+                threadId = forkedThreadId,
+                agentId = parseAgentId(threadObj),
+                nickname = parseAgentNickname(threadObj) ?: sourceThread.agentNickname,
+                role = parseAgentRole(threadObj) ?: sourceThread.agentRole,
+            )
 
-        val restored = restoreMessages(threadObj)
+        val restored =
+            restoreMessages(
+                threadObject = threadObj,
+                serverId = sourceKey.serverId,
+                defaultAgentNickname = resolvedAgent?.nickname ?: sourceThread.agentNickname,
+                defaultAgentRole = resolvedAgent?.role ?: sourceThread.agentRole,
+            )
         val forkedKey = ThreadKey(server.id, forkedThreadId)
         val now = System.currentTimeMillis()
         val resolvedCwd = response.optString("cwd").trim().ifEmpty { sourceCwd }
@@ -1917,6 +2242,8 @@ class ServerManager(
                 modelProvider = responseModelProvider.ifBlank { threadModelProvider.ifBlank { sourceThread.modelProvider } },
                 parentThreadId = lineageParentId ?: sourceKey.threadId,
                 rootThreadId = lineageRootId ?: sourceThread.rootThreadId ?: sourceThread.parentThreadId ?: sourceKey.threadId,
+                agentNickname = resolvedAgent?.nickname ?: sourceThread.agentNickname,
+                agentRole = resolvedAgent?.role ?: sourceThread.agentRole,
                 updatedAtEpochMillis = now,
                 activeTurnId = null,
                 lastError = null,
@@ -1951,8 +2278,9 @@ class ServerManager(
                     ?: sortedRemainingThreads.firstOrNull()?.key
             val resolvedCwd =
                 resolvedActiveKey
-                    ?.let { key -> threadsByKey[key]?.cwd?.trim().orEmpty() }
-                    .orEmpty()
+                    ?.let { key -> normalizeCwd(threadsByKey[key]?.cwd) }
+                    ?: normalizeCwd(it.currentCwd)
+                    ?: defaultWorkingDirectory()
             it.copy(
                 activeThreadKey = resolvedActiveKey,
                 activeServerId = resolvedActiveKey?.serverId ?: it.activeServerId,
@@ -2011,8 +2339,14 @@ class ServerManager(
                 params = JSONObject().put("threadId", key.threadId).put("numTurns", numTurns),
             )
         val threadObj = response.optJSONObject("thread") ?: JSONObject()
-        val restored = restoreMessages(threadObj)
         val existing = threadsByKey[key] ?: throw IllegalStateException("Unable to resolve thread")
+        val restored =
+            restoreMessages(
+                threadObject = threadObj,
+                serverId = key.serverId,
+                defaultAgentNickname = parseAgentNickname(threadObj) ?: existing.agentNickname,
+                defaultAgentRole = parseAgentRole(threadObj) ?: existing.agentRole,
+            )
         threadsByKey[key] =
             existing.copy(
                 status = ThreadStatus.READY,
@@ -2474,6 +2808,14 @@ class ServerManager(
                     ) ?: return
                 val key = ThreadKey(serverId = serverId, threadId = threadId)
                 val existing = ensureThreadState(key)
+                val resolvedAgent =
+                    upsertAgentIdentity(
+                        serverId = serverId,
+                        threadId = threadId,
+                        agentId = parseAgentId(params),
+                        nickname = parseAgentNickname(params) ?: existing.agentNickname,
+                        role = parseAgentRole(params) ?: existing.agentRole,
+                    )
                 threadsByKey[key] =
                     existing.copy(
                         preview =
@@ -2484,6 +2826,8 @@ class ServerManager(
                         modelProvider = parseModelProvider(params).ifBlank { existing.modelProvider },
                         parentThreadId = parseParentThreadId(params) ?: existing.parentThreadId,
                         rootThreadId = parseRootThreadId(params) ?: existing.rootThreadId,
+                        agentNickname = resolvedAgent?.nickname ?: existing.agentNickname,
+                        agentRole = resolvedAgent?.role ?: existing.agentRole,
                     )
                 updateState { it }
             }
@@ -2512,14 +2856,34 @@ class ServerManager(
                 if (delta.isBlank()) {
                     return
                 }
-                val key = resolveThreadKey(serverId, params.optThreadId()) ?: return
+                val eventThreadId = extractThreadIdForIdentity(params) ?: params.optThreadId()
+                val key = resolveThreadKey(serverId, eventThreadId) ?: return
                 val existing = ensureThreadState(key)
-                val mergedMessages = appendAssistantDelta(existing.messages, delta)
+                val eventAgentId = extractAgentIdForIdentity(params)
+                val identityThreadId = eventThreadId ?: if (eventAgentId.isNullOrBlank()) key.threadId else null
+                val resolvedAgent =
+                    resolveAgentIdentity(
+                        serverId = serverId,
+                        threadId = identityThreadId,
+                        agentId = eventAgentId,
+                        params = params,
+                    )
+                val agentNickname = resolvedAgent.nickname ?: existing.agentNickname
+                val agentRole = resolvedAgent.role ?: existing.agentRole
+                val mergedMessages =
+                    appendAssistantDelta(
+                        messages = existing.messages,
+                        delta = delta,
+                        agentNickname = agentNickname,
+                        agentRole = agentRole,
+                    )
                 threadsByKey[key] =
                     existing.copy(
                         status = ThreadStatus.THINKING,
                         messages = mergedMessages,
                         preview = derivePreview(mergedMessages, existing.preview),
+                        agentNickname = agentNickname,
+                        agentRole = agentRole,
                         updatedAtEpochMillis = System.currentTimeMillis(),
                     )
                 updateState { it.copy(activeThreadKey = key, activeServerId = key.serverId) }
@@ -2626,10 +2990,11 @@ class ServerManager(
             else -> {
                 if (method.startsWith("item/")) {
                     serversUsingItemNotifications += serverId
-                } else if ((method == "codex/event" || method.startsWith("codex/event/")) &&
-                    !serversUsingItemNotifications.contains(serverId)
-                ) {
-                    handleLegacyCodexEventNotification(serverId = serverId, method = method, params = params)
+                } else if (method == "codex/event" || method.startsWith("codex/event/")) {
+                    ingestCodexEventAgentMetadata(serverId = serverId, method = method, params = params)
+                    if (!serversUsingItemNotifications.contains(serverId)) {
+                        handleLegacyCodexEventNotification(serverId = serverId, method = method, params = params)
+                    }
                 }
             }
         }
@@ -2651,7 +3016,15 @@ class ServerManager(
             return
         }
 
-        val message = chatMessageFromItem(item, sourceTurnId = null, sourceTurnIndex = null) ?: return
+        val message =
+            chatMessageFromItem(
+                item = item,
+                sourceTurnId = null,
+                sourceTurnIndex = null,
+                serverId = serverId,
+                defaultAgentNickname = existing.agentNickname,
+                defaultAgentRole = existing.agentRole,
+            ) ?: return
         val itemId = extractString(item, "id")
         val updatedMessages =
             when {
@@ -3233,6 +3606,221 @@ class ServerManager(
         return null
     }
 
+    private fun extractString(value: Any?): String? {
+        val text =
+            when (value) {
+                null, JSONObject.NULL -> null
+                is String -> value
+                is Number -> value.toString()
+                else -> value.toString()
+            }?.trim()
+        return text?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun extractStringList(
+        obj: JSONObject?,
+        vararg keys: String,
+    ): List<String> {
+        if (obj == null) {
+            return emptyList()
+        }
+        for (key in keys) {
+            if (!obj.has(key)) {
+                continue
+            }
+            when (val value = obj.opt(key)) {
+                is JSONArray -> {
+                    val items = ArrayList<String>(value.length())
+                    for (index in 0 until value.length()) {
+                        val text = extractString(value.opt(index))
+                        if (!text.isNullOrBlank()) {
+                            items += text
+                        }
+                    }
+                    if (items.isNotEmpty()) {
+                        return items
+                    }
+                }
+
+                is Collection<*> -> {
+                    val items =
+                        value
+                            .mapNotNull { extractString(it) }
+                            .filter { it.isNotBlank() }
+                    if (items.isNotEmpty()) {
+                        return items
+                    }
+                }
+
+                else -> {
+                    val text = extractString(value)
+                    if (!text.isNullOrBlank()) {
+                        return listOf(text)
+                    }
+                }
+            }
+        }
+        return emptyList()
+    }
+
+    private data class ParsedCodexEvent(
+        val eventType: String,
+        val payload: JSONObject,
+    )
+
+    private fun parseCodexEvent(
+        method: String,
+        params: JSONObject?,
+    ): ParsedCodexEvent? {
+        val payload =
+            when (val rawMsg = params?.opt("msg")) {
+                is JSONObject -> rawMsg
+                else -> params
+            } ?: return null
+        val eventType =
+            if (method == "codex/event") {
+                extractString(payload, "type") ?: "codex/event"
+            } else {
+                method.removePrefix("codex/event/")
+            }
+        return ParsedCodexEvent(eventType = eventType, payload = payload)
+    }
+
+    private fun ingestCodexEventAgentMetadata(
+        serverId: String,
+        method: String,
+        params: JSONObject?,
+    ) {
+        val parsed = parseCodexEvent(method = method, params = params) ?: return
+        val payload = parsed.payload
+        var threadStateUpdated = false
+
+        fun upsertIdentity(
+            threadId: String?,
+            agentId: String?,
+            nickname: String?,
+            role: String?,
+            metadata: JSONObject? = null,
+        ) {
+            val cleanThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() }
+            val cleanAgentId = agentId?.trim()?.takeIf { it.isNotEmpty() }
+            val cleanNickname = nickname?.trim()?.takeIf { it.isNotEmpty() }
+            val cleanRole = role?.trim()?.takeIf { it.isNotEmpty() }
+            if (cleanThreadId == null && cleanAgentId == null && cleanNickname == null && cleanRole == null) {
+                return
+            }
+            upsertAgentIdentity(
+                serverId = serverId,
+                threadId = cleanThreadId,
+                agentId = cleanAgentId,
+                nickname = cleanNickname,
+                role = cleanRole,
+            )
+            val shouldHydrateThread =
+                cleanThreadId != null &&
+                    (metadata != null || threadsByKey.containsKey(ThreadKey(serverId = serverId, threadId = cleanThreadId)))
+            if (shouldHydrateThread && upsertThreadMetadataFromEvent(serverId = serverId, threadId = cleanThreadId, source = metadata)) {
+                threadStateUpdated = true
+            }
+        }
+
+        val senderThreadId =
+            extractThreadIdForIdentity(payload, "sender_thread_id", "senderThreadId")
+                ?: extractThreadIdForIdentity(params)
+        upsertIdentity(
+            threadId = senderThreadId,
+            agentId = extractString(payload, "sender_agent_id", "senderAgentId") ?: extractAgentIdForIdentity(payload),
+            nickname = extractAgentNicknameForIdentity(payload),
+            role = extractAgentRoleForIdentity(payload),
+            metadata = payload,
+        )
+
+        upsertIdentity(
+            threadId = extractString(payload, "new_thread_id", "newThreadId"),
+            agentId = extractString(payload, "new_agent_id", "newAgentId"),
+            nickname = extractString(payload, "new_agent_nickname", "newAgentNickname"),
+            role = extractString(payload, "new_agent_role", "newAgentRole"),
+            metadata = payload,
+        )
+
+        upsertIdentity(
+            threadId = extractString(payload, "receiver_thread_id", "receiverThreadId"),
+            agentId = extractString(payload, "receiver_agent_id", "receiverAgentId"),
+            nickname = extractString(payload, "receiver_agent_nickname", "receiverAgentNickname"),
+            role = extractString(payload, "receiver_agent_role", "receiverAgentRole"),
+            metadata = payload,
+        )
+
+        val receiverThreadIds = extractStringList(payload, "receiver_thread_ids", "receiverThreadIds")
+        val receiverAgentsRaw = payload.optJSONArray("receiver_agents") ?: payload.optJSONArray("receiverAgents")
+        receiverThreadIds.forEachIndexed { index, threadId ->
+            val aligned = receiverAgentsRaw?.optJSONObject(index)
+            upsertIdentity(
+                threadId = threadId,
+                agentId = aligned?.let { extractString(it, "agent_id", "agentId", "id") },
+                nickname = aligned?.let { extractString(it, "agent_nickname", "agentNickname", "nickname", "name") },
+                role = aligned?.let { extractString(it, "agent_role", "agentRole", "agent_type", "agentType", "role", "type") },
+                metadata = aligned ?: payload,
+            )
+        }
+
+        if (receiverAgentsRaw != null) {
+            for (index in 0 until receiverAgentsRaw.length()) {
+                val rawReceiver = receiverAgentsRaw.opt(index)
+                val receiver = rawReceiver as? JSONObject
+                if (receiver != null) {
+                    upsertIdentity(
+                        threadId = extractThreadIdForIdentity(receiver),
+                        agentId = extractAgentIdForIdentity(receiver),
+                        nickname = extractAgentNicknameForIdentity(receiver),
+                        role = extractAgentRoleForIdentity(receiver),
+                        metadata = receiver,
+                    )
+                } else {
+                    upsertIdentity(
+                        threadId = extractString(rawReceiver),
+                        agentId = null,
+                        nickname = null,
+                        role = null,
+                    )
+                }
+            }
+        }
+
+        payload.optJSONObject("statuses")?.let { statuses ->
+            val iterator = statuses.keys()
+            while (iterator.hasNext()) {
+                val threadId = iterator.next()
+                val statusObj = statuses.optJSONObject(threadId)
+                upsertIdentity(
+                    threadId = threadId,
+                    agentId = statusObj?.let { extractString(it, "agent_id", "agentId") },
+                    nickname = statusObj?.let { extractString(it, "agent_nickname", "agentNickname", "receiver_agent_nickname", "receiverAgentNickname") },
+                    role = statusObj?.let { extractString(it, "agent_role", "agentRole", "receiver_agent_role", "receiverAgentRole", "agent_type", "agentType") },
+                    metadata = statusObj ?: payload,
+                )
+            }
+        }
+
+        val statusEntries = payload.optJSONArray("agent_statuses") ?: payload.optJSONArray("agentStatuses")
+        if (statusEntries != null) {
+            for (index in 0 until statusEntries.length()) {
+                val entry = statusEntries.optJSONObject(index) ?: continue
+                upsertIdentity(
+                    threadId = extractString(entry, "thread_id", "threadId", "receiver_thread_id", "receiverThreadId"),
+                    agentId = extractString(entry, "agent_id", "agentId"),
+                    nickname = extractString(entry, "agent_nickname", "agentNickname", "receiver_agent_nickname", "receiverAgentNickname"),
+                    role = extractString(entry, "agent_role", "agentRole", "receiver_agent_role", "receiverAgentRole", "agent_type", "agentType"),
+                    metadata = entry,
+                )
+            }
+        }
+
+        if (threadStateUpdated) {
+            updateState { it }
+        }
+    }
+
     private fun parseModelProvider(obj: JSONObject?): String {
         return extractString(
             obj,
@@ -3242,6 +3830,193 @@ class ServerManager(
             "model_provider_id",
             "model",
         ).orEmpty()
+    }
+
+    private fun normalizeCwd(cwd: String?): String? = cwd?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun parseThreadCwd(obj: JSONObject?): String? {
+        val direct =
+            extractString(
+                obj,
+                "cwd",
+                "workingDirectory",
+                "working_directory",
+            )
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        return extractString(
+            threadSpawnObject(obj),
+            "cwd",
+            "workingDirectory",
+            "working_directory",
+        )
+    }
+
+    private fun resolveThreadCwd(
+        serverId: String,
+        threadId: String,
+        responseCwd: String?,
+        existing: ThreadState?,
+        parentThreadId: String?,
+        rootThreadId: String?,
+    ): String {
+        normalizeCwd(responseCwd)?.let { return it }
+
+        parentThreadId?.let { parentId ->
+            normalizeCwd(threadsByKey[ThreadKey(serverId = serverId, threadId = parentId)]?.cwd)?.let { return it }
+        }
+        rootThreadId?.takeIf { it != threadId }?.let { rootId ->
+            normalizeCwd(threadsByKey[ThreadKey(serverId = serverId, threadId = rootId)]?.cwd)?.let { return it }
+        }
+        normalizeCwd(existing?.cwd)?.let { return it }
+
+        val activeKey = state.activeThreadKey
+        if (activeKey?.serverId == serverId) {
+            val activeCwd = normalizeCwd(threadsByKey[activeKey]?.cwd) ?: normalizeCwd(state.currentCwd)
+            if (activeCwd != null) {
+                val threadMatchesActiveTree =
+                    activeKey.threadId == threadId ||
+                        activeKey.threadId == parentThreadId ||
+                        activeKey.threadId == rootThreadId
+                if (threadMatchesActiveTree) {
+                    return activeCwd
+                }
+            }
+        }
+
+        return defaultWorkingDirectory()
+    }
+
+    private fun resolveMessageCwd(cwd: String?): String {
+        normalizeCwd(cwd)?.let { return it }
+        val activeKey = state.activeThreadKey
+        if (activeKey != null) {
+            normalizeCwd(threadsByKey[activeKey]?.cwd)?.let { return it }
+        }
+        normalizeCwd(state.currentCwd)?.let { return it }
+        return defaultWorkingDirectory()
+    }
+
+    private fun upsertThreadMetadataFromEvent(
+        serverId: String,
+        threadId: String?,
+        source: JSONObject?,
+    ): Boolean {
+        val cleanThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        val key = ThreadKey(serverId = serverId, threadId = cleanThreadId)
+        val existing = threadsByKey[key] ?: ensureThreadState(key)
+
+        val parentThreadId = parseParentThreadId(source) ?: existing.parentThreadId
+        val rootThreadId = parseRootThreadId(source) ?: existing.rootThreadId
+        val nextCwd =
+            normalizeCwd(parseThreadCwd(source))
+                ?: parentThreadId?.let { parentId ->
+                    normalizeCwd(threadsByKey[ThreadKey(serverId = serverId, threadId = parentId)]?.cwd)
+                }
+                ?: rootThreadId?.let { rootId ->
+                    normalizeCwd(threadsByKey[ThreadKey(serverId = serverId, threadId = rootId)]?.cwd)
+                }
+                ?: normalizeCwd(existing.cwd)
+
+        if (parentThreadId == existing.parentThreadId && rootThreadId == existing.rootThreadId && (nextCwd == null || nextCwd == existing.cwd)) {
+            return false
+        }
+
+        threadsByKey[key] =
+            existing.copy(
+                parentThreadId = parentThreadId,
+                rootThreadId = rootThreadId,
+                cwd = nextCwd ?: existing.cwd,
+            )
+        return true
+    }
+
+    private fun sourceObject(obj: JSONObject?): JSONObject? = obj?.opt("source") as? JSONObject
+
+    private fun threadSpawnObject(obj: JSONObject?): JSONObject? {
+        val source = sourceObject(obj) ?: return null
+        val subAgent = (source.opt("subAgent") as? JSONObject) ?: (source.opt("sub_agent") as? JSONObject) ?: return null
+        return (subAgent.opt("thread_spawn") as? JSONObject) ?: (subAgent.opt("threadSpawn") as? JSONObject)
+    }
+
+    private fun extractThreadIdForIdentity(
+        obj: JSONObject?,
+        vararg directKeys: String,
+    ): String? {
+        val keys = ArrayList<String>(directKeys.size + 8)
+        directKeys.forEach { keys += it }
+        keys +=
+            listOf(
+                "threadId",
+                "threadID",
+                "thread_id",
+                "conversationId",
+                "conversationID",
+                "conversation_id",
+                "receiverThreadId",
+                "receiver_thread_id",
+            )
+        val direct = extractString(obj, *keys.toTypedArray())
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        val threadSpawn = threadSpawnObject(obj)
+        return extractString(threadSpawn, "thread_id", "threadId", "conversation_id", "conversationId")
+    }
+
+    private fun extractAgentNicknameForIdentity(obj: JSONObject?): String? {
+        val direct = parseAgentNickname(obj)
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        val nestedAgent = obj?.opt("agent") as? JSONObject
+        return extractString(
+            nestedAgent,
+            "agentNickname",
+            "agent_nickname",
+            "nickname",
+            "name",
+        ) ?: extractString(obj, "nickname")
+    }
+
+    private fun extractAgentRoleForIdentity(obj: JSONObject?): String? {
+        val direct = parseAgentRole(obj)
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        val nestedAgent = obj?.opt("agent") as? JSONObject
+        return extractString(
+            nestedAgent,
+            "agentRole",
+            "agent_role",
+            "agentType",
+            "agent_type",
+            "role",
+            "type",
+        ) ?: extractString(obj, "role", "agentType", "agent_type")
+    }
+
+    private fun extractAgentIdForIdentity(obj: JSONObject?): String? {
+        val direct =
+            extractString(
+                obj,
+                "agentId",
+                "agent_id",
+                "senderAgentId",
+                "sender_agent_id",
+                "receiverAgentId",
+                "receiver_agent_id",
+            )
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        val fromThreadSpawn = extractString(threadSpawnObject(obj), "agent_id", "agentId", "id")
+        if (!fromThreadSpawn.isNullOrBlank()) {
+            return fromThreadSpawn
+        }
+        val nestedAgent = obj?.opt("agent") as? JSONObject
+        return extractString(nestedAgent, "agentId", "agent_id", "id")
     }
 
     private fun parseParentThreadId(obj: JSONObject?): String? {
@@ -3256,17 +4031,375 @@ class ServerManager(
         if (!direct.isNullOrBlank()) {
             return direct
         }
-        val source = obj?.opt("source")
-        if (source !is JSONObject) {
-            return null
-        }
-        val subAgent = source.opt("subAgent") as? JSONObject ?: return null
-        val threadSpawn = subAgent.opt("thread_spawn") as? JSONObject ?: return null
-        return extractString(threadSpawn, "parent_thread_id", "parentThreadId")
+        return extractString(threadSpawnObject(obj), "parent_thread_id", "parentThreadId")
     }
 
     private fun parseRootThreadId(obj: JSONObject?): String? {
-        return extractString(obj, "rootThreadId", "root_thread_id")
+        val direct = extractString(obj, "rootThreadId", "root_thread_id")
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        return extractString(threadSpawnObject(obj), "root_thread_id", "rootThreadId")
+    }
+
+    private fun parseAgentNickname(obj: JSONObject?): String? {
+        val direct = extractString(obj, "agentNickname", "agent_nickname")
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        return extractString(threadSpawnObject(obj), "agent_nickname", "agentNickname")
+    }
+
+    private fun parseAgentRole(obj: JSONObject?): String? {
+        val direct = extractString(obj, "agentRole", "agent_role", "agentType", "agent_type")
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        return extractString(threadSpawnObject(obj), "agent_role", "agentRole", "agent_type", "agentType")
+    }
+
+    private fun parseAgentId(obj: JSONObject?): String? {
+        val direct = extractString(obj, "agentId", "agent_id")
+        if (!direct.isNullOrBlank()) {
+            return direct
+        }
+        return extractString(threadSpawnObject(obj), "agent_id", "agentId")
+    }
+
+    private fun formatAgentLabel(
+        nickname: String?,
+        role: String?,
+        threadId: String? = null,
+    ): String {
+        val cleanNickname = nickname?.trim().orEmpty()
+        val cleanRole = role?.trim().orEmpty()
+        return when {
+            cleanNickname.isNotEmpty() && cleanRole.isNotEmpty() -> "$cleanNickname [$cleanRole]"
+            cleanNickname.isNotEmpty() -> cleanNickname
+            cleanRole.isNotEmpty() -> "[$cleanRole]"
+            !threadId.isNullOrBlank() -> threadId
+            else -> "Agent"
+        }
+    }
+
+    private data class AgentIdentity(
+        val nickname: String?,
+        val role: String?,
+    )
+
+    private data class AgentLookup(
+        val identity: AgentIdentity?,
+        val threadHit: Boolean,
+        val agentHit: Boolean,
+    )
+
+    private data class ReceiverAddressing(
+        val threadId: String?,
+        val agentId: String?,
+        val fallbackId: String?,
+    ) {
+        fun candidateIds(): List<String> =
+            listOf(threadId, agentId, fallbackId)
+                .mapNotNull { id -> id?.trim()?.takeIf { it.isNotEmpty() } }
+                .distinct()
+    }
+
+    private fun parseReceiverAddressing(value: Any?): ReceiverAddressing? {
+        return when (value) {
+            null, JSONObject.NULL -> null
+            is JSONObject -> parseReceiverAddressingObject(value)
+            else -> {
+                val id = value.toString().trim()
+                if (id.isEmpty()) null else ReceiverAddressing(threadId = id, agentId = id, fallbackId = id)
+            }
+        }
+    }
+
+    private fun parseReceiverAddressingObject(obj: JSONObject): ReceiverAddressing {
+        var threadId = extractThreadIdForIdentity(obj)
+        var agentId = extractAgentIdForIdentity(obj)
+        var fallbackId = extractString(obj, "id", "receiverId", "receiver_id", "targetId", "target_id", "addressingId", "addressing_id")
+
+        val nestedFields = listOf("address", "receiver", "target", "ref")
+        for (field in nestedFields) {
+            when (val nested = obj.opt(field)) {
+                is JSONObject -> {
+                    val nestedAddressing = parseReceiverAddressingObject(nested)
+                    if (threadId.isNullOrBlank()) {
+                        threadId = nestedAddressing.threadId
+                    }
+                    if (agentId.isNullOrBlank()) {
+                        agentId = nestedAddressing.agentId
+                    }
+                    if (fallbackId.isNullOrBlank()) {
+                        fallbackId = nestedAddressing.fallbackId
+                    }
+                }
+
+                is String -> {
+                    if (fallbackId.isNullOrBlank()) {
+                        fallbackId = nested.trim().ifEmpty { null }
+                    }
+                }
+            }
+        }
+
+        val cleanThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanAgentId = agentId?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanFallback =
+            fallbackId
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: cleanThreadId
+                ?: cleanAgentId
+        return ReceiverAddressing(
+            threadId = cleanThreadId,
+            agentId = cleanAgentId,
+            fallbackId = cleanFallback,
+        )
+    }
+
+    private class AgentDirectory {
+        private val byThreadId = LinkedHashMap<String, AgentIdentity>()
+        private val byAgentId = LinkedHashMap<String, AgentIdentity>()
+        private val agentIdByThreadId = LinkedHashMap<String, String>()
+        private val threadIdByAgentId = LinkedHashMap<String, String>()
+
+        fun clear() {
+            byThreadId.clear()
+            byAgentId.clear()
+            agentIdByThreadId.clear()
+            threadIdByAgentId.clear()
+        }
+
+        fun removeServer(serverId: String) {
+            val prefix = "$serverId:"
+            byThreadId.keys.removeAll { it.startsWith(prefix) }
+            byAgentId.keys.removeAll { it.startsWith(prefix) }
+            agentIdByThreadId.entries.removeAll { it.key.startsWith(prefix) || it.value.startsWith(prefix) }
+            threadIdByAgentId.entries.removeAll { it.key.startsWith(prefix) || it.value.startsWith(prefix) }
+        }
+
+        fun resolveLookup(
+            serverId: String,
+            threadId: String?,
+            agentId: String?,
+        ): AgentLookup {
+            val threadKey = threadId?.trim()?.takeIf { it.isNotEmpty() }?.let { key(serverId, it) }
+            val agentKey = agentId?.trim()?.takeIf { it.isNotEmpty() }?.let { key(serverId, it) }
+            val directThread = threadKey?.let { byThreadId[it] }
+            val directAgent = agentKey?.let { byAgentId[it] }
+            val linkedAgent = threadKey?.let { scopedThread -> agentIdByThreadId[scopedThread] }?.let { scopedAgent -> byAgentId[scopedAgent] }
+            val linkedThread = agentKey?.let { scopedAgent -> threadIdByAgentId[scopedAgent] }?.let { scopedThread -> byThreadId[scopedThread] }
+            val merged =
+                mergeIdentity(
+                    mergeIdentity(directThread, directAgent),
+                    mergeIdentity(linkedThread, linkedAgent),
+                )
+            return AgentLookup(
+                identity = merged,
+                threadHit = directThread != null || linkedThread != null,
+                agentHit = directAgent != null || linkedAgent != null,
+            )
+        }
+
+        fun resolve(
+            serverId: String,
+            threadId: String?,
+            agentId: String?,
+        ): AgentIdentity? {
+            return resolveLookup(serverId = serverId, threadId = threadId, agentId = agentId).identity
+        }
+
+        fun upsert(
+            serverId: String,
+            threadId: String?,
+            agentId: String?,
+            nickname: String?,
+            role: String?,
+        ): AgentIdentity? {
+            val cleanThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() }
+            val cleanAgentId = agentId?.trim()?.takeIf { it.isNotEmpty() }
+            val threadKey = cleanThreadId?.let { key(serverId, it) }
+            val agentKey = cleanAgentId?.let { key(serverId, it) }
+            if (threadKey != null && agentKey != null) {
+                agentIdByThreadId[threadKey] = agentKey
+                threadIdByAgentId[agentKey] = threadKey
+            }
+            val explicit = normalizeIdentity(AgentIdentity(nickname = nickname, role = role))
+            val existing = resolveLookup(serverId = serverId, threadId = cleanThreadId, agentId = cleanAgentId).identity
+            val resolved = mergeIdentity(explicit, existing) ?: existing
+            if (resolved != null) {
+                threadKey?.let { scopedThread ->
+                    byThreadId[scopedThread] = resolved
+                    agentIdByThreadId[scopedThread]?.let { scopedAgent ->
+                        byAgentId[scopedAgent] = mergeIdentity(resolved, byAgentId[scopedAgent]) ?: resolved
+                    }
+                }
+                agentKey?.let { scopedAgent ->
+                    byAgentId[scopedAgent] = resolved
+                    threadIdByAgentId[scopedAgent]?.let { scopedThread ->
+                        byThreadId[scopedThread] = mergeIdentity(resolved, byThreadId[scopedThread]) ?: resolved
+                    }
+                }
+            }
+            return resolved
+        }
+
+        fun snapshotIdentitiesById(serverId: String): Map<String, AgentIdentity> {
+            val prefix = "$serverId:"
+            val snapshot = LinkedHashMap<String, AgentIdentity>()
+            byThreadId.forEach { (scopedId, identity) ->
+                if (!scopedId.startsWith(prefix)) {
+                    return@forEach
+                }
+                val id = scopedId.removePrefix(prefix)
+                if (id.isEmpty()) {
+                    return@forEach
+                }
+                snapshot[id] = mergeIdentity(identity, snapshot[id]) ?: identity
+            }
+            byAgentId.forEach { (scopedId, identity) ->
+                if (!scopedId.startsWith(prefix)) {
+                    return@forEach
+                }
+                val id = scopedId.removePrefix(prefix)
+                if (id.isEmpty()) {
+                    return@forEach
+                }
+                snapshot[id] = mergeIdentity(identity, snapshot[id]) ?: identity
+            }
+            return snapshot
+        }
+
+        private fun key(
+            serverId: String,
+            id: String,
+        ): String = "$serverId:$id"
+
+        private fun normalizeIdentity(identity: AgentIdentity?): AgentIdentity? {
+            if (identity == null) {
+                return null
+            }
+            val nickname = identity.nickname?.trim()?.takeIf { it.isNotEmpty() }
+            val role = identity.role?.trim()?.takeIf { it.isNotEmpty() }
+            return if (nickname == null && role == null) {
+                null
+            } else {
+                AgentIdentity(nickname = nickname, role = role)
+            }
+        }
+
+        private fun mergeIdentity(
+            primary: AgentIdentity?,
+            secondary: AgentIdentity?,
+        ): AgentIdentity? {
+            val normalizedPrimary = normalizeIdentity(primary)
+            val normalizedSecondary = normalizeIdentity(secondary)
+            val nickname = normalizedPrimary?.nickname ?: normalizedSecondary?.nickname
+            val role = normalizedPrimary?.role ?: normalizedSecondary?.role
+            return if (nickname == null && role == null) {
+                null
+            } else {
+                AgentIdentity(nickname = nickname, role = role)
+            }
+        }
+    }
+
+    private fun upsertAgentIdentity(
+        serverId: String,
+        threadId: String?,
+        agentId: String?,
+        nickname: String?,
+        role: String?,
+    ): AgentIdentity? {
+        val cleanThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanAgentId = agentId?.trim()?.takeIf { it.isNotEmpty() }
+        val resolved =
+            agentDirectory.upsert(
+                serverId = serverId,
+                threadId = cleanThreadId,
+                agentId = cleanAgentId,
+                nickname = nickname,
+                role = role,
+            )
+        if (resolved != null && cleanThreadId != null) {
+            val key = ThreadKey(serverId = serverId, threadId = cleanThreadId)
+            val existing = threadsByKey[key]
+            if (existing != null) {
+                val nextNickname = resolved.nickname ?: existing.agentNickname
+                val nextRole = resolved.role ?: existing.agentRole
+                if (nextNickname != existing.agentNickname || nextRole != existing.agentRole) {
+                    threadsByKey[key] =
+                        existing.copy(
+                            agentNickname = nextNickname,
+                            agentRole = nextRole,
+                        )
+                }
+            }
+        }
+        return resolved
+    }
+
+    private fun resolveAgentIdentity(
+        serverId: String,
+        threadId: String?,
+        agentId: String? = null,
+        params: JSONObject? = null,
+    ): AgentIdentity {
+        val resolvedThreadId = threadId?.trim()?.takeIf { it.isNotEmpty() } ?: extractThreadIdForIdentity(params)
+        val resolvedAgentId = agentId?.trim()?.takeIf { it.isNotEmpty() } ?: extractAgentIdForIdentity(params)
+        val resolvedNickname = extractAgentNicknameForIdentity(params)
+        val resolvedRole = extractAgentRoleForIdentity(params)
+        val resolved =
+            upsertAgentIdentity(
+                serverId = serverId,
+                threadId = resolvedThreadId,
+                agentId = resolvedAgentId,
+                nickname = resolvedNickname,
+                role = resolvedRole,
+            ) ?: agentDirectory.resolve(
+                serverId = serverId,
+                threadId = resolvedThreadId,
+                agentId = resolvedAgentId,
+            )
+        if (resolved != null) {
+            return resolved
+        }
+        val cleanThreadId = resolvedThreadId.orEmpty()
+        val thread =
+            if (cleanThreadId.isEmpty()) {
+                null
+            } else {
+                threadsByKey[ThreadKey(serverId = serverId, threadId = cleanThreadId)]
+                    ?: threadsByKey.values.firstOrNull { it.key.serverId == serverId && it.key.threadId == cleanThreadId }
+            }
+        return AgentIdentity(
+            nickname = thread?.agentNickname,
+            role = thread?.agentRole,
+        )
+    }
+
+    private fun resolveAgentIdentityByAnyId(
+        serverId: String,
+        id: String,
+    ): AgentIdentity {
+        val cleanId = id.trim()
+        if (cleanId.isEmpty()) {
+            return AgentIdentity(nickname = null, role = null)
+        }
+        val lookup = agentDirectory.resolveLookup(serverId = serverId, threadId = cleanId, agentId = cleanId)
+        if (lookup.identity != null) {
+            return lookup.identity
+        }
+        val thread = threadsByKey[ThreadKey(serverId = serverId, threadId = cleanId)]
+            ?: threadsByKey.values.firstOrNull { it.key.serverId == serverId && it.key.threadId == cleanId }
+        val fallback =
+            AgentIdentity(
+                nickname = thread?.agentNickname,
+                role = thread?.agentRole,
+            )
+        return fallback
     }
 
     private fun prettyJson(value: Any?): String? {
@@ -3279,15 +4412,7 @@ class ServerManager(
     }
 
     private fun extractThreadId(params: JSONObject?): String? {
-        return extractString(
-            params,
-            "threadId",
-            "threadID",
-            "thread_id",
-            "conversationId",
-            "conversationID",
-            "conversation_id",
-        )
+        return extractThreadIdForIdentity(params)
     }
 
     private fun syncActiveThreadFromServerInternal() {
@@ -3307,7 +4432,21 @@ class ServerManager(
         val cwd = thread.cwd.ifBlank { defaultWorkingDirectory() }
         val response = runCatching { resumeThreadWithFallback(key.serverId, key.threadId, cwd) }.getOrNull() ?: return false
         val threadObj = response.optJSONObject("thread") ?: return false
-        val restored = restoreMessages(threadObj)
+        val resolvedAgent =
+            upsertAgentIdentity(
+                serverId = key.serverId,
+                threadId = key.threadId,
+                agentId = parseAgentId(threadObj),
+                nickname = parseAgentNickname(threadObj) ?: thread.agentNickname,
+                role = parseAgentRole(threadObj) ?: thread.agentRole,
+            )
+        val restored =
+            restoreMessages(
+                threadObject = threadObj,
+                serverId = key.serverId,
+                defaultAgentNickname = resolvedAgent?.nickname ?: thread.agentNickname,
+                defaultAgentRole = resolvedAgent?.role ?: thread.agentRole,
+            )
         val responseModelProvider = parseModelProvider(response)
         val threadModelProvider = parseModelProvider(threadObj)
         if (messagesEquivalent(thread.messages, restored.messages)) {
@@ -3326,6 +4465,8 @@ class ServerManager(
                 modelProvider = responseModelProvider.ifBlank { threadModelProvider.ifBlank { thread.modelProvider } },
                 parentThreadId = parseParentThreadId(threadObj) ?: thread.parentThreadId,
                 rootThreadId = parseRootThreadId(threadObj) ?: thread.rootThreadId,
+                agentNickname = resolvedAgent?.nickname ?: thread.agentNickname,
+                agentRole = resolvedAgent?.role ?: thread.agentRole,
                 updatedAtEpochMillis = System.currentTimeMillis(),
                 lastError = null,
             )
@@ -3355,6 +4496,9 @@ class ServerManager(
                 return false
             }
             if (lhs.isFromUserTurnBoundary != rhs.isFromUserTurnBoundary) {
+                return false
+            }
+            if (lhs.agentNickname != rhs.agentNickname || lhs.agentRole != rhs.agentRole) {
                 return false
             }
         }
@@ -3397,7 +4541,12 @@ class ServerManager(
         val turnCount: Int,
     )
 
-    private fun restoreMessages(threadObject: JSONObject): RestoredMessages {
+    private fun restoreMessages(
+        threadObject: JSONObject,
+        serverId: String,
+        defaultAgentNickname: String? = null,
+        defaultAgentRole: String? = null,
+    ): RestoredMessages {
         val restored = ArrayList<ChatMessage>()
         val turns = threadObject.optJSONArray("turns")
         if (turns != null) {
@@ -3410,6 +4559,9 @@ class ServerManager(
                     items = items,
                     sourceTurnId = turnId,
                     sourceTurnIndex = index,
+                    serverId = serverId,
+                    defaultAgentNickname = defaultAgentNickname,
+                    defaultAgentRole = defaultAgentRole,
                 )
             }
             return RestoredMessages(messages = restored, turnCount = turns.length())
@@ -3422,6 +4574,9 @@ class ServerManager(
                 items = legacyItems,
                 sourceTurnId = null,
                 sourceTurnIndex = null,
+                serverId = serverId,
+                defaultAgentNickname = defaultAgentNickname,
+                defaultAgentRole = defaultAgentRole,
             )
         }
         return RestoredMessages(
@@ -3435,10 +4590,21 @@ class ServerManager(
         items: JSONArray,
         sourceTurnId: String?,
         sourceTurnIndex: Int?,
+        serverId: String,
+        defaultAgentNickname: String?,
+        defaultAgentRole: String?,
     ) {
         for (index in 0 until items.length()) {
             val item = items.optJSONObject(index) ?: continue
-            val message = chatMessageFromItem(item, sourceTurnId, sourceTurnIndex) ?: continue
+            val message =
+                chatMessageFromItem(
+                    item = item,
+                    sourceTurnId = sourceTurnId,
+                    sourceTurnIndex = sourceTurnIndex,
+                    serverId = serverId,
+                    defaultAgentNickname = defaultAgentNickname,
+                    defaultAgentRole = defaultAgentRole,
+                ) ?: continue
             out += message
         }
     }
@@ -3447,6 +4613,9 @@ class ServerManager(
         item: JSONObject,
         sourceTurnId: String?,
         sourceTurnIndex: Int?,
+        serverId: String?,
+        defaultAgentNickname: String? = null,
+        defaultAgentRole: String? = null,
     ): ChatMessage? {
         return when (item.optString("type")) {
             "userMessage" -> {
@@ -3471,11 +4640,15 @@ class ServerManager(
                 if (text.isEmpty()) {
                     null
                 } else {
+                    val itemAgentNickname = extractString(item, "agentNickname", "agent_nickname")
+                    val itemAgentRole = extractString(item, "agentRole", "agent_role", "agentType", "agent_type")
                     ChatMessage(
                         role = MessageRole.ASSISTANT,
                         text = text,
                         sourceTurnId = sourceTurnId,
                         sourceTurnIndex = sourceTurnIndex,
+                        agentNickname = itemAgentNickname ?: defaultAgentNickname,
+                        agentRole = itemAgentRole ?: defaultAgentRole,
                     )
                 }
             }
@@ -3508,7 +4681,7 @@ class ServerManager(
             "commandExecution" -> withTurnMetadata(parseCommandExecutionMessage(item), sourceTurnId, sourceTurnIndex)
             "fileChange" -> withTurnMetadata(parseFileChangeMessage(item), sourceTurnId, sourceTurnIndex)
             "mcpToolCall" -> withTurnMetadata(parseMcpToolCallMessage(item), sourceTurnId, sourceTurnIndex)
-            "collabAgentToolCall" -> withTurnMetadata(parseCollabMessage(item), sourceTurnId, sourceTurnIndex)
+            "collabAgentToolCall" -> withTurnMetadata(parseCollabMessage(item, serverId), sourceTurnId, sourceTurnIndex)
             "webSearch" -> withTurnMetadata(parseWebSearchMessage(item), sourceTurnId, sourceTurnIndex)
             "imageView" -> {
                 val path = item.optString("path").trim()
@@ -3674,22 +4847,129 @@ class ServerManager(
         return if (body.isEmpty()) null else systemMessage("MCP Tool Call", body)
     }
 
-    private fun parseCollabMessage(item: JSONObject): ChatMessage? {
+    private fun parseCollabMessage(
+        item: JSONObject,
+        serverId: String?,
+    ): ChatMessage? {
         val status = item.optString("status").trim()
         val tool = item.optString("tool").trim()
         val prompt = item.optString("prompt").trim()
-        val receivers = item.optJSONArray("receiverThreadIds")
+        val receivers = item.optJSONArray("receiverThreadIds") ?: item.optJSONArray("receiver_thread_ids")
+        val receiverAgentsRaw = item.optJSONArray("receiverAgents") ?: item.optJSONArray("receiver_agents")
+        val receiverAgentOverridesById = LinkedHashMap<String, AgentIdentity>()
+        val receiverAgentAddressingByIndex = LinkedHashMap<Int, ReceiverAddressing>()
+        val receiverAgentOverridesByIndex = LinkedHashMap<Int, AgentIdentity>()
+        if (receiverAgentsRaw != null) {
+            for (idx in 0 until receiverAgentsRaw.length()) {
+                val rawReceiver = receiverAgentsRaw.opt(idx)
+                val receiver = rawReceiver as? JSONObject
+                val addressing = parseReceiverAddressing(rawReceiver)
+                if (addressing != null) {
+                    receiverAgentAddressingByIndex[idx] = addressing
+                }
+
+                val identity =
+                    AgentIdentity(
+                        nickname = extractAgentNicknameForIdentity(receiver),
+                        role = extractAgentRoleForIdentity(receiver),
+                    )
+                val hasIdentity = !identity.nickname.isNullOrBlank() || !identity.role.isNullOrBlank()
+                if (hasIdentity) {
+                    receiverAgentOverridesByIndex[idx] = identity
+                    addressing?.candidateIds()?.forEach { candidateId ->
+                        receiverAgentOverridesById[candidateId] = identity
+                    }
+                }
+
+                if (serverId != null) {
+                    upsertAgentIdentity(
+                        serverId = serverId,
+                        threadId = addressing?.threadId,
+                        agentId = addressing?.agentId,
+                        nickname = identity.nickname,
+                        role = identity.role,
+                    )
+                }
+            }
+        }
 
         val lines = ArrayList<String>()
         if (status.isNotEmpty()) lines += "Status: $status"
         if (tool.isNotEmpty()) lines += "Tool: $tool"
-        if (receivers != null && receivers.length() > 0) {
-            val ids = ArrayList<String>()
-            for (idx in 0 until receivers.length()) {
-                val id = receivers.opt(idx)?.toString()?.trim().orEmpty()
-                if (id.isNotEmpty()) ids += id
+        val receiverIndices =
+            when {
+                receivers != null && receivers.length() > 0 -> (0 until receivers.length()).toList()
+                receiverAgentAddressingByIndex.isNotEmpty() -> receiverAgentAddressingByIndex.keys.sorted()
+                else -> emptyList()
             }
-            if (ids.isNotEmpty()) lines += "Targets: ${ids.joinToString(separator = ", ")}"
+        if (receiverIndices.isNotEmpty()) {
+            val labels = ArrayList<String>()
+            for (idx in receiverIndices) {
+                val receiverAddressing =
+                    parseReceiverAddressing(receivers?.opt(idx))
+                        ?: receiverAgentAddressingByIndex[idx]
+                        ?: continue
+                val alignedAddressing = receiverAgentAddressingByIndex[idx]
+                val candidateIds =
+                    LinkedHashSet<String>().apply {
+                        receiverAddressing.candidateIds().forEach { add(it) }
+                        alignedAddressing?.candidateIds()?.forEach { add(it) }
+                    }
+                if (candidateIds.isEmpty()) {
+                    continue
+                }
+
+                var overrideById: AgentIdentity? = null
+                for (candidateId in candidateIds) {
+                    val match = receiverAgentOverridesById[candidateId]
+                    if (match != null) {
+                        overrideById = match
+                        break
+                    }
+                }
+                val indexAlignedOverride = receiverAgentOverridesByIndex[idx]
+                val overrideIdentity =
+                    when {
+                        overrideById != null && indexAlignedOverride != null ->
+                            AgentIdentity(
+                                nickname = overrideById.nickname ?: indexAlignedOverride.nickname,
+                                role = overrideById.role ?: indexAlignedOverride.role,
+                            )
+                        overrideById != null -> overrideById
+                        else -> indexAlignedOverride
+                    }
+
+                var directoryIdentity: AgentIdentity? = null
+                if (serverId != null) {
+                    for (candidateId in candidateIds) {
+                        val resolved = resolveAgentIdentityByAnyId(serverId = serverId, id = candidateId)
+                        if (!resolved.nickname.isNullOrBlank() || !resolved.role.isNullOrBlank()) {
+                            directoryIdentity = resolved
+                            break
+                        }
+                    }
+                }
+
+                val resolved =
+                    when {
+                        overrideIdentity != null && directoryIdentity != null ->
+                            AgentIdentity(
+                                nickname = overrideIdentity.nickname ?: directoryIdentity.nickname,
+                                role = overrideIdentity.role ?: directoryIdentity.role,
+                            )
+                        overrideIdentity != null -> overrideIdentity
+                        directoryIdentity != null -> directoryIdentity
+                        else -> AgentIdentity(nickname = null, role = null)
+                    }
+
+                labels +=
+                    formatAgentLabel(
+                        nickname = resolved.nickname,
+                        role = resolved.role,
+                        threadId = candidateIds.firstOrNull(),
+                    )
+            }
+            if (labels.isNotEmpty()) lines += "Targets: ${labels.joinToString(separator = ", ")}"
         }
         if (prompt.isNotEmpty()) {
             lines += ""
@@ -3856,12 +5136,21 @@ class ServerManager(
             return existing
         }
         val server = serversById[key.serverId] ?: ServerConfig.local(port = 0)
+        val activeKey = state.activeThreadKey
+        val inferredCwd =
+            if (activeKey?.serverId == key.serverId) {
+                normalizeCwd(threadsByKey[activeKey]?.cwd) ?: normalizeCwd(state.currentCwd)
+            } else {
+                null
+            } ?: defaultWorkingDirectory()
         val created =
             ThreadState(
                 key = key,
                 serverName = server.name,
                 serverSource = server.source,
                 status = ThreadStatus.READY,
+                cwd = inferredCwd,
+                isPlaceholder = true,
             )
         threadsByKey[key] = created
         threadTurnCounts[key] = threadTurnCounts[key] ?: 0
@@ -3886,21 +5175,43 @@ class ServerManager(
     private fun appendAssistantDelta(
         messages: List<ChatMessage>,
         delta: String,
+        agentNickname: String? = null,
+        agentRole: String? = null,
     ): List<ChatMessage> {
         if (delta.isEmpty()) {
             return messages
         }
         if (messages.isEmpty()) {
-            return listOf(ChatMessage(role = MessageRole.ASSISTANT, text = delta, isStreaming = true))
+            return listOf(
+                ChatMessage(
+                    role = MessageRole.ASSISTANT,
+                    text = delta,
+                    isStreaming = true,
+                    agentNickname = agentNickname,
+                    agentRole = agentRole,
+                ),
+            )
         }
         val last = messages.last()
         return if (last.role == MessageRole.ASSISTANT && last.isStreaming) {
             val updated = messages.toMutableList()
             updated[updated.lastIndex] =
-                last.copy(text = last.text + delta, timestampEpochMillis = System.currentTimeMillis())
+                last.copy(
+                    text = last.text + delta,
+                    agentNickname = last.agentNickname ?: agentNickname,
+                    agentRole = last.agentRole ?: agentRole,
+                    timestampEpochMillis = System.currentTimeMillis(),
+                )
             updated
         } else {
-            messages + ChatMessage(role = MessageRole.ASSISTANT, text = delta, isStreaming = true)
+            messages +
+                ChatMessage(
+                    role = MessageRole.ASSISTANT,
+                    text = delta,
+                    isStreaming = true,
+                    agentNickname = agentNickname,
+                    agentRole = agentRole,
+                )
         }
     }
 
@@ -4177,6 +5488,28 @@ class ServerManager(
         commitState(transform(state))
     }
 
+    private fun buildToolTargetLabelsById(activeServerId: String?): Map<String, String> {
+        val serverId = activeServerId?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyMap()
+        val labelsById = LinkedHashMap<String, String>()
+
+        agentDirectory.snapshotIdentitiesById(serverId).forEach { (id, identity) ->
+            labelsById[id] = formatAgentLabel(identity.nickname, identity.role, threadId = id)
+        }
+
+        threadsByKey.values
+            .asSequence()
+            .filter { thread -> thread.key.serverId == serverId }
+            .forEach { thread ->
+                val threadId = thread.key.threadId.trim()
+                if (threadId.isEmpty() || labelsById.containsKey(threadId)) {
+                    return@forEach
+                }
+                labelsById[threadId] = formatAgentLabel(thread.agentNickname, thread.agentRole, threadId = threadId)
+            }
+
+        return labelsById
+    }
+
     private fun commitState(base: AppState) {
         val sortedThreads = threadsByKey.values.sortedByDescending { it.updatedAtEpochMillis }
         val activeKey =
@@ -4192,6 +5525,7 @@ class ServerManager(
                 serversById.isNotEmpty() -> serversById.keys.first()
                 else -> null
             }
+        val toolTargetLabelsById = buildToolTargetLabelsById(activeServerId)
         val nextConnectionStatus =
             when {
                 serversById.isEmpty() -> {
@@ -4213,6 +5547,8 @@ class ServerManager(
                 activeServerId = activeServerId,
                 threads = sortedThreads,
                 activeThreadKey = activeKey,
+                pendingApprovals = pendingApprovalsById.values.toList(),
+                toolTargetLabelsById = toolTargetLabelsById,
             )
         state = next
         publish(next)
@@ -4295,6 +5631,26 @@ class ServerManager(
     }
 }
 
+internal fun computePlaceholderKeysToPrune(
+    serverId: String,
+    authoritativeKeys: Set<ThreadKey>,
+    activeThreadKey: ThreadKey?,
+    threadsByKey: Map<ThreadKey, ThreadState>,
+): Set<ThreadKey> {
+    if (threadsByKey.isEmpty()) {
+        return emptySet()
+    }
+    return threadsByKey
+        .asSequence()
+        .filter { (key, thread) ->
+            key.serverId == serverId &&
+                thread.isPlaceholder &&
+                key != activeThreadKey &&
+                !authoritativeKeys.contains(key)
+        }.map { (key, _) -> key }
+        .toSet()
+}
+
 private val LOCAL_IMAGE_MARKER_REGEX = Regex("\\[\\[litter_local_image:([^\\]]+)]]")
 
 private fun Any?.asLongOrNull(): Long? {
@@ -4348,6 +5704,21 @@ private fun JSONObject?.optThreadId(): String? {
             continue
         }
         val value = opt(key)
+        val threadId = value.asLongOrNull()?.toString() ?: value?.toString()
+        val trimmed = threadId?.trim()
+        if (!trimmed.isNullOrEmpty()) {
+            return trimmed
+        }
+    }
+    val source = opt("source") as? JSONObject
+    val subAgent = (source?.opt("subAgent") as? JSONObject) ?: (source?.opt("sub_agent") as? JSONObject)
+    val threadSpawn = (subAgent?.opt("thread_spawn") as? JSONObject) ?: (subAgent?.opt("threadSpawn") as? JSONObject)
+    val fallbackKeys = arrayOf("thread_id", "threadId", "conversation_id", "conversationId")
+    for (key in fallbackKeys) {
+        if (!(threadSpawn?.has(key) == true)) {
+            continue
+        }
+        val value = threadSpawn?.opt(key)
         val threadId = value.asLongOrNull()?.toString() ?: value?.toString()
         val trimmed = threadId?.trim()
         if (!trimmed.isNullOrEmpty()) {

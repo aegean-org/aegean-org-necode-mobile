@@ -21,6 +21,8 @@ final class ThreadState: ObservableObject, Identifiable {
     @Published var modelProvider: String = ""
     @Published var parentThreadId: String?
     @Published var rootThreadId: String?
+    @Published var agentNickname: String?
+    @Published var agentRole: String?
     @Published var updatedAt: Date = Date()
 
     var hasTurnActive: Bool {
@@ -30,6 +32,21 @@ final class ThreadState: ObservableObject, Identifiable {
 
     var isFork: Bool {
         parentThreadId?.isEmpty == false
+    }
+
+    var agentDisplayLabel: String? {
+        let nickname = agentNickname?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let role = agentRole?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !nickname.isEmpty && !role.isEmpty {
+            return "\(nickname) [\(role)]"
+        }
+        if !nickname.isEmpty {
+            return nickname
+        }
+        if !role.isEmpty {
+            return "[\(role)]"
+        }
+        return nil
     }
 
     init(serverId: String, threadId: String, serverName: String, serverSource: ServerSource) {
