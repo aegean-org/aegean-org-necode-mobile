@@ -19,15 +19,10 @@ struct ContentView: View {
     @ObserveInjection var inject
     @EnvironmentObject var serverManager: ServerManager
     @StateObject private var appState = AppState()
-    @State private var showAccount = false
     @State private var sidebarDragOffset: CGFloat = 0
     @State private var isEdgeOpeningSidebar = false
 
     private let sidebarAnimation = Animation.spring(response: 0.3, dampingFraction: 0.86)
-
-    private var activeAuthStatus: AuthStatus {
-        serverManager.activeConnection?.authStatus ?? .unknown
-    }
 
     private var sidebarRevealProgress: CGFloat {
         guard appState.sidebarOpen else { return 0 }
@@ -39,11 +34,13 @@ struct ContentView: View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
 
-            mainContent(bottomInset: geometry.safeAreaInsets.bottom)
+            mainContent(topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .overlay(alignment: .top) {
-                    HeaderView(topInset: geometry.safeAreaInsets.top)
+                    if serverManager.activeThreadKey != nil {
+                        HeaderView(topInset: geometry.safeAreaInsets.top)
+                    }
                 }
                 .overlay {
                     if appState.showModelSelector {
@@ -79,20 +76,12 @@ struct ContentView: View {
         .onAppear {
             let forceDiscoveryForUITest =
                 ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] == "1"
-            if forceDiscoveryForUITest || !serverManager.hasAnyConnection {
+            if forceDiscoveryForUITest {
                 appState.showServerPicker = true
             }
         }
         .onChange(of: appState.sidebarOpen) { _, isOpen in
             if !isOpen { sidebarDragOffset = 0 }
-        }
-        .onChange(of: activeAuthStatus) { _, newStatus in
-            if case .notLoggedIn = newStatus {
-                showAccount = true
-            }
-        }
-        .sheet(isPresented: $showAccount) {
-            AccountView().environmentObject(serverManager)
         }
         .enableInjection()
         .sheet(isPresented: $appState.showServerPicker) {
@@ -144,12 +133,37 @@ struct ContentView: View {
             }
     }
 
-    private func mainContent(bottomInset: CGFloat) -> some View {
+    private func mainContent(topInset: CGFloat, bottomInset: CGFloat) -> some View {
         Group {
             if serverManager.activeThreadKey != nil {
-                ConversationView(bottomInset: bottomInset)
+                ConversationView(topInset: topInset, bottomInset: bottomInset)
             } else {
-                EmptyStateView()
+                HomeNavigationView()
+                    .environmentObject(serverManager)
+                    .environmentObject(appState)
+            }
+        }
+    }
+}
+
+private struct HomeNavigationView: View {
+    @EnvironmentObject var serverManager: ServerManager
+    @EnvironmentObject var appState: AppState
+    @State private var showSessions = false
+
+    var body: some View {
+        NavigationStack {
+            DiscoveryView(onServerSelected: { _ in
+                showSessions = true
+            })
+            .environmentObject(serverManager)
+            .navigationDestination(isPresented: $showSessions) {
+                SessionSidebarView()
+                    .navigationTitle("Sessions")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(LitterTheme.backgroundGradient.ignoresSafeArea())
             }
         }
     }

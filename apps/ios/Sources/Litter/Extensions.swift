@@ -131,6 +131,19 @@ func serverIconName(for source: ServerSource) -> String {
     }
 }
 
+func abbreviateHomePath(_ path: String) -> String {
+    let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "~" }
+    for basePrefix in ["/Users", "/home"] {
+        let prefix = basePrefix + "/"
+        guard trimmed.hasPrefix(prefix) else { continue }
+        let remainder = trimmed.dropFirst(prefix.count)
+        guard let slashIndex = remainder.firstIndex(of: "/") else { return "~" }
+        return "~" + remainder[slashIndex...]
+    }
+    return trimmed
+}
+
 func relativeDate(_ timestamp: Int64) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
     let formatter = RelativeDateTimeFormatter()

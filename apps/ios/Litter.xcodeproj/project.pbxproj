@@ -70,7 +70,6 @@
 		72AF522324657480D02995E1 /* DiscoveredServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7779BD02F3B304F9C3AD32A1 /* DiscoveredServer.swift */; };
 		7326B68EB1C5AA725F7E5DE4 /* ThreadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67AFB81F773863EB4A05235C /* ThreadState.swift */; };
 		73273C538728D9434D9E9E53 /* ToolCallCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BA392F9C2104B8B643C0F9E /* ToolCallCardView.swift */; };
-		7DBB890A86052681A5D96176 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874A3358C9BA76F0C1A140C5 /* EmptyStateView.swift */; };
 		7E7B4AC85F18366192E98E8B /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CFDCB6C4655E3D2D76B41B /* AppState.swift */; };
 		81D60E8A00FED5E64E7B352F /* ios_system.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0A9C36495A1AD0AC9AC6DBA4 /* ios_system.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8445E0A9CDF58E2E9A509018 /* CodeBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEDF2E1FEDF741D69062FDDD /* CodeBlockView.swift */; };
@@ -101,7 +100,6 @@
 		BDD00F77D6868A0501810E51 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 35949923355BB19A7209FD65 /* Assets.xcassets */; };
 		BEE15B569CF1A1D7F73F25F9 /* DiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034CE02FECF86AB9EC0842D0 /* DiscoveryView.swift */; };
 		C07B1499364228CD0094A4DB /* ios_system.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A9C36495A1AD0AC9AC6DBA4 /* ios_system.xcframework */; };
-		C3A48E2E94665A53790DAEE1 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874A3358C9BA76F0C1A140C5 /* EmptyStateView.swift */; };
 		C7D4DE1CB01AB8E07C92AAAC /* SidebarOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAAD91EA135C03B2759124D /* SidebarOverlay.swift */; };
 		C833C49F1B377068396A5308 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ABFE016B445D1A4398CFE2A5 /* Localizable.strings */; };
 		C9FE50288375157B79A052FB /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CB5C5E5705BBF5E25A30B7 /* SessionListView.swift */; };
@@ -218,7 +216,6 @@
 		7F79D1C06A25D0ABAA5042BA /* SafariView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariView.swift; sourceTree = "<group>"; };
 		817117A5E16EBD02388DBBE1 /* HeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeaderView.swift; sourceTree = "<group>"; };
 		818BC73F3855A9BA29C8E868 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
-		874A3358C9BA76F0C1A140C5 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		874C6CFBD438D4B4909DD1CF /* shell.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = shell.xcframework; path = Frameworks/ios_system/shell.xcframework; sourceTree = "<group>"; };
 		93677A51659C08505EA4CE10 /* OnDeviceCodexFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceCodexFeature.swift; sourceTree = "<group>"; };
 		94787AD35DEC95D38907632B /* CodexBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBridge.swift; sourceTree = "<group>"; };
@@ -417,7 +414,6 @@
 				BF245554F39E59E68B72EB22 /* ConversationView.swift */,
 				318F2F8563E91AB97950F5DA /* DirectoryPickerView.swift */,
 				034CE02FECF86AB9EC0842D0 /* DiscoveryView.swift */,
-				874A3358C9BA76F0C1A140C5 /* EmptyStateView.swift */,
 				817117A5E16EBD02388DBBE1 /* HeaderView.swift */,
 				1959956ABBEC98793B97B468 /* MessageBubbleView.swift */,
 				E744000053715A5866060B15 /* PreviewSupport.swift */,
@@ -635,7 +631,6 @@
 				F91EC376599CBBEC881C53E4 /* DirectoryPickerView.swift in Sources */,
 				72AF522324657480D02995E1 /* DiscoveredServer.swift in Sources */,
 				ACB4703CB129ED8B32E9F291 /* DiscoveryView.swift in Sources */,
-				7DBB890A86052681A5D96176 /* EmptyStateView.swift in Sources */,
 				FAFB0D5AB213C4A0ADA9B0C3 /* Extensions.swift in Sources */,
 				0CF8F35C0BAB5AB811C2809F /* HeaderView.swift in Sources */,
 				681CFF0789D9D2369F61ECF2 /* IosSystemBridge.m in Sources */,
@@ -686,7 +681,6 @@
 				CFA5E4B56537F480AFECC903 /* DirectoryPickerView.swift in Sources */,
 				8C573877188B1CF76579523A /* DiscoveredServer.swift in Sources */,
 				BEE15B569CF1A1D7F73F25F9 /* DiscoveryView.swift in Sources */,
-				C3A48E2E94665A53790DAEE1 /* EmptyStateView.swift in Sources */,
 				4CBDF32CF8B225BD0F4F272D /* Extensions.swift in Sources */,
 				CD03B7391871A06D022D42BA /* HeaderView.swift in Sources */,
 				52E7CA333B014D1F4AAFA9D6 /* IosSystemBridge.m in Sources */,

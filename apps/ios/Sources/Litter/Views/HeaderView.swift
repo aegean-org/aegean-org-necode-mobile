@@ -59,7 +59,7 @@ struct HeaderView: View {
                                 .foregroundColor(LitterTheme.textSecondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                            ContextRingView(percent: Int(sessionContextPercent ?? 100), tint: sessionContextTint)
+                            ContextBadgeView(percent: Int(sessionContextPercent ?? 100), tint: sessionContextTint)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -154,12 +154,12 @@ struct HeaderView: View {
     private var sessionDirectoryLabel: String {
         let currentDirectory = serverManager.activeThread?.cwd.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !currentDirectory.isEmpty {
-            return abbreviateRemoteHomePath(currentDirectory)
+            return abbreviateHomePath(currentDirectory)
         }
 
         let appDirectory = appState.currentCwd.trimmingCharacters(in: .whitespacesAndNewlines)
         if !appDirectory.isEmpty {
-            return abbreviateRemoteHomePath(appDirectory)
+            return abbreviateHomePath(appDirectory)
         }
 
         return "~"
@@ -255,31 +255,6 @@ struct HeaderView: View {
         return min(max(percent, 0), 100)
     }
 
-    private func abbreviateRemoteHomePath(_ path: String) -> String {
-        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPath.isEmpty else { return "~" }
-
-        if let abbreviated = abbreviateUnixHomePrefix(trimmedPath, basePrefix: "/Users") {
-            return abbreviated
-        }
-        if let abbreviated = abbreviateUnixHomePrefix(trimmedPath, basePrefix: "/home") {
-            return abbreviated
-        }
-        return trimmedPath
-    }
-
-    private func abbreviateUnixHomePrefix(_ path: String, basePrefix: String) -> String? {
-        let prefix = basePrefix + "/"
-        guard path.hasPrefix(prefix) else { return nil }
-
-        let remainder = path.dropFirst(prefix.count)
-        guard let slashIndex = remainder.firstIndex(of: "/") else {
-            return "~"
-        }
-
-        let suffix = remainder[slashIndex...]
-        return "~" + suffix
-    }
 }
 
 struct InlineModelSelectorView: View {
