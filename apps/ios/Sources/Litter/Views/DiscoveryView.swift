@@ -134,15 +134,6 @@ struct DiscoveryView: View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             List {
-                Section {
-                    HStack {
-                        Spacer()
-                        BrandLogo(size: 86)
-                        Spacer()
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
                 if !localServers.isEmpty {
                     localSection
                 }
@@ -157,6 +148,9 @@ struct DiscoveryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                BrandLogo(size: 32)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     refreshDiscovery()
