@@ -147,23 +147,34 @@ private enum ConversationTextSize: Int, CaseIterable {
     }
 }
 
-struct ContextRingView: View, Equatable {
+struct ContextBadgeView: View, Equatable {
     let percent: Int
     let tint: Color
 
+    private let cornerRadius: CGFloat = 3.5
+    private let strokeWidth: CGFloat = 1.2
+    private let inset: CGFloat = 1.5
+
     var body: some View {
         ZStack {
-            Circle()
-                .stroke(tint.opacity(0.2), lineWidth: 2)
-            Circle()
-                .trim(from: 0, to: Double(percent) / 100.0)
-                .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(tint.opacity(0.4), lineWidth: strokeWidth)
+
+            GeometryReader { geo in
+                let inner = geo.size.width - (inset + strokeWidth) * 2
+                RoundedRectangle(cornerRadius: max(0, cornerRadius - inset))
+                    .fill(tint.opacity(0.25))
+                    .frame(width: max(0, inner * CGFloat(percent) / 100.0))
+                    .padding(.leading, inset + strokeWidth / 2)
+                    .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .padding(.vertical, inset + strokeWidth / 2)
+
             Text("\(percent)")
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .font(.system(size: 7.5, weight: .heavy, design: .monospaced))
                 .foregroundColor(tint)
         }
-        .frame(width: 22, height: 22)
+        .frame(width: 28, height: 13)
     }
 }
 

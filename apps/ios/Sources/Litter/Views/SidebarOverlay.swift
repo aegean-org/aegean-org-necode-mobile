@@ -19,7 +19,7 @@ struct SidebarOverlay: View {
                 }
 
             SessionSidebarView()
-                .padding(.top, topInset)
+                .padding(.top, topInset + 8)
                 .frame(
                     minWidth: Self.sidebarWidth,
                     idealWidth: Self.sidebarWidth,
@@ -27,7 +27,8 @@ struct SidebarOverlay: View {
                     maxHeight: .infinity,
                     alignment: .topLeading
                 )
-                .ignoresSafeArea(.container, edges: .bottom)
+                .background(.ultraThinMaterial)
+                .ignoresSafeArea()
                 .offset(x: panelOffset)
                 .shadow(color: .black.opacity(0.35), radius: 20, x: 6, y: 0)
                 .gesture(

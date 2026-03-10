@@ -18,6 +18,7 @@ struct DiscoveryView: View {
     @State private var connectingServer: DiscoveredServer?
     @State private var wakingServer: DiscoveredServer?
     @State private var connectError: String?
+    @State private var showSettings = false
     private let autoStartDiscovery: Bool
     private let initialServers: [DiscoveredServer]
 
@@ -148,6 +149,12 @@ struct DiscoveryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+            }
             ToolbarItem(placement: .principal) {
                 BrandLogo(size: 32)
             }
@@ -161,6 +168,9 @@ struct DiscoveryView: View {
                 .accessibilityIdentifier("discovery.refreshButton")
                 .disabled(discovery.isScanning)
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView().environmentObject(serverManager)
         }
         .onAppear { handleAppear() }
         .onDisappear { handleDisappear() }

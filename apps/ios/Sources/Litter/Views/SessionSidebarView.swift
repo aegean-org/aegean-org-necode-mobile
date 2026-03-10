@@ -57,7 +57,6 @@ struct SessionSidebarView: View {
     private func sidebarContent(derived: SessionSidebarDerivedData) -> some View {
         let base = sidebarLayout(derived: derived)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .modifier(GlassRectModifier(cornerRadius: 0))
             .enableInjection()
 
         let lifecycle = attachLifecycleHandlers(to: base, derived: derived)
@@ -544,10 +543,7 @@ struct SessionSidebarView: View {
 
     private func workspaceGroupHeader(_ group: WorkspaceSessionGroup) -> some View {
         let isCollapsed = collapsedWorkspaceGroupIDs.contains(group.id)
-        let countLabel = group.threads.count == 1 ? "1 session" : "\(group.threads.count) sessions"
-        let detailLine = group.workspacePath == group.workspaceTitle
-            ? "\(group.serverName) • \(countLabel)"
-            : "\(group.serverName) • \(group.workspacePath) • \(countLabel)"
+        let hostname = serverManager.connections[group.serverId]?.server.hostname ?? group.serverName
 
         return Button {
             if isCollapsed {
@@ -572,7 +568,12 @@ struct SessionSidebarView: View {
                         .foregroundColor(.white)
                         .lineLimit(1)
 
-                    Text(detailLine)
+                    Text(hostname)
+                        .font(LitterFont.monospaced(.caption2))
+                        .foregroundColor(LitterTheme.textMuted)
+                        .lineLimit(1)
+
+                    Text(abbreviateHomePath(group.workspacePath))
                         .font(LitterFont.monospaced(.caption2))
                         .foregroundColor(LitterTheme.textMuted)
                         .lineLimit(1)
@@ -766,24 +767,24 @@ struct SessionSidebarView: View {
                             }
                         }
 
-                        Text(sessionMetadataLine(thread))
-                            .font(LitterFont.monospaced(.caption))
-                            .foregroundColor(LitterTheme.textSecondary)
-                            .lineLimit(1)
-
-                        if let parent {
-                            Text("from \(sessionTitle(parent))")
-                                .font(LitterFont.monospaced(.caption2))
-                                .foregroundColor(LitterTheme.textMuted)
-                                .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(relativeDate(thread.updatedAt))
+                                .foregroundColor(LitterTheme.textSecondary)
+                            if let provider = sessionModelLabel(thread) {
+                                Text("•")
+                                    .foregroundColor(LitterTheme.textMuted)
+                                Text(provider)
+                                    .foregroundColor(LitterTheme.textMuted)
+                            }
+                            if let parent {
+                                Text("•")
+                                    .foregroundColor(LitterTheme.textMuted)
+                                Text("from \(sessionTitle(parent))")
+                                    .foregroundColor(LitterTheme.textMuted)
+                            }
                         }
-
-                        if !thread.cwd.isEmpty {
-                            Text(thread.cwd)
-                                .font(LitterFont.monospaced(.caption2))
-                                .foregroundColor(LitterTheme.textMuted)
-                                .lineLimit(1)
-                        }
+                        .font(LitterFont.monospaced(.caption2))
+                        .lineLimit(1)
                     }
                 }
                 .contentShape(Rectangle())
@@ -972,13 +973,13 @@ struct SessionSidebarView: View {
         thread.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled session" : thread.preview
     }
 
-    private func sessionMetadataLine(_ thread: ThreadState) -> String {
-        let provider = thread.modelProvider.trimmingCharacters(in: .whitespacesAndNewlines)
-        let providerLabel = provider.isEmpty ? "default" : provider
+    private func sessionModelLabel(_ thread: ThreadState) -> String? {
+        let model = thread.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if model.isEmpty { return nil }
         if let agentLabel = thread.agentDisplayLabel {
-            return "\(relativeDate(thread.updatedAt)) • \(thread.serverName) (\(agentLabel)) • \(providerLabel)"
+            return "\(model) (\(agentLabel))"
         }
-        return "\(relativeDate(thread.updatedAt)) • \(thread.serverName) • \(providerLabel)"
+        return model
     }
 
     private func sanitizedLineageId(_ raw: String?) -> String? {

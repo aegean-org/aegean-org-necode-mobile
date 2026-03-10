@@ -38,7 +38,9 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .overlay(alignment: .top) {
-                    HeaderView(topInset: geometry.safeAreaInsets.top)
+                    if serverManager.activeThreadKey != nil {
+                        HeaderView(topInset: geometry.safeAreaInsets.top)
+                    }
                 }
                 .overlay {
                     if appState.showModelSelector {
@@ -136,7 +138,32 @@ struct ContentView: View {
             if serverManager.activeThreadKey != nil {
                 ConversationView(bottomInset: bottomInset)
             } else {
-                EmptyStateView()
+                HomeNavigationView()
+                    .environmentObject(serverManager)
+                    .environmentObject(appState)
+            }
+        }
+    }
+}
+
+private struct HomeNavigationView: View {
+    @EnvironmentObject var serverManager: ServerManager
+    @EnvironmentObject var appState: AppState
+    @State private var showSessions = false
+
+    var body: some View {
+        NavigationStack {
+            DiscoveryView(onServerSelected: { _ in
+                showSessions = true
+            })
+            .environmentObject(serverManager)
+            .navigationDestination(isPresented: $showSessions) {
+                SessionSidebarView()
+                    .navigationTitle("Sessions")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(LitterTheme.backgroundGradient.ignoresSafeArea())
             }
         }
     }
