@@ -1,5 +1,7 @@
 import SwiftUI
+import Combine
 import Inject
+import UIKit
 
 @main
 struct LitterApp: App {
@@ -21,6 +23,7 @@ struct ContentView: View {
     @StateObject private var appState = AppState()
     @State private var sidebarDragOffset: CGFloat = 0
     @State private var isEdgeOpeningSidebar = false
+    @State private var keyboardHeight: CGFloat = 0
 
     private let sidebarAnimation = Animation.spring(response: 0.3, dampingFraction: 0.86)
 
@@ -34,7 +37,7 @@ struct ContentView: View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
 
-            mainContent(topInset: geometry.safeAreaInsets.top, bottomInset: geometry.safeAreaInsets.bottom)
+            mainContent(topInset: geometry.safeAreaInsets.top, bottomInset: keyboardHeight > 0 ? 0 : geometry.safeAreaInsets.bottom)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .overlay(alignment: .top) {
@@ -70,7 +73,15 @@ struct ContentView: View {
                 }
             }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(.container)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                keyboardHeight = frame.height
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
         }
         .environmentObject(appState)
         .onAppear {
