@@ -198,7 +198,9 @@ struct SettingsView: View {
     private var oauthSheet: some View {
         if let url = conn?.oauthURL {
             NavigationStack {
-                SafariView(url: url) {
+                OAuthWebView(url: url, onCallbackIntercepted: { callbackURL in
+                    conn?.forwardOAuthCallback(callbackURL)
+                }) {
                     Task { await conn?.cancelLogin() }
                 }
                 .ignoresSafeArea()

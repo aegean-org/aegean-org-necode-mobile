@@ -253,8 +253,6 @@ struct SessionSidebarView: View {
                 }
             }
 
-            Divider().background(LitterTheme.separator)
-            settingsRow
         }
         .accessibilityIdentifier("sidebar.container")
     }
@@ -333,42 +331,38 @@ struct SessionSidebarView: View {
         return ids.first
     }
 
-    private var settingsRow: some View {
-        Button { showSettings = true } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "gear")
-                    .foregroundColor(LitterTheme.textSecondary)
-                    .frame(width: 20)
-                Text("Settings")
-                    .font(LitterFont.monospaced(.footnote))
-                    .foregroundColor(LitterTheme.textSecondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-        }
-    }
-
     private var newSessionButton: some View {
-        Button {
-            if let defaultServerId = defaultNewSessionServerId() {
-                directoryPickerSheet = DirectoryPickerSheetModel(selectedServerId: defaultServerId)
-            } else {
-                appState.showServerPicker = true
-            }
-        } label: {
-            HStack {
-                Image(systemName: "plus")
+        HStack(spacing: 10) {
+            Button { showSettings = true } label: {
+                Image(systemName: "gear")
                     .font(.system(.subheadline, weight: .medium))
-                Text("New Session")
-                    .font(LitterFont.monospaced(.subheadline))
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .modifier(GlassRectModifier(cornerRadius: 10))
             }
-            .foregroundColor(.black)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(LitterTheme.accent)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityIdentifier("sidebar.settingsButton")
+
+            Button {
+                if let defaultServerId = defaultNewSessionServerId() {
+                    directoryPickerSheet = DirectoryPickerSheetModel(selectedServerId: defaultServerId)
+                } else {
+                    appState.showServerPicker = true
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "plus")
+                        .font(.system(.subheadline, weight: .medium))
+                    Text("New Session")
+                        .font(LitterFont.monospaced(.subheadline))
+                }
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(LitterTheme.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .accessibilityIdentifier("sidebar.newSessionButton")
         }
-        .accessibilityIdentifier("sidebar.newSessionButton")
         .padding(16)
     }
 

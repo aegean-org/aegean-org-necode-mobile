@@ -292,6 +292,13 @@ final class ServerManager: ObservableObject {
     }
 
     func removeServer(id: String) {
+        if let conn = connections[id] {
+            if conn.target == .local {
+                Task { await CodexBridge.shared.stop() }
+            } else if conn.server.source == .ssh {
+                Task { await SSHSessionManager.shared.stopRemoteServer() }
+            }
+        }
         connections[id]?.disconnect()
         connections.removeValue(forKey: id)
         connectionSubscriptions.removeValue(forKey: id)

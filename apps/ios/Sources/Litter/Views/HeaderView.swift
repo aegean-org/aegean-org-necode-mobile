@@ -8,6 +8,7 @@ struct HeaderView: View {
     @EnvironmentObject var serverManager: ServerManager
     @EnvironmentObject var appState: AppState
     @State private var isReloading = false
+    @State private var showOAuth = false
 
     var topInset: CGFloat = 0
 
@@ -40,6 +41,9 @@ struct HeaderView: View {
                 } label: {
                     VStack(spacing: 2) {
                         HStack(spacing: 6) {
+                            Circle()
+                                .fill(authDotColor)
+                                .frame(width: 6, height: 6)
                             Text(sessionModelLabel)
                                 .foregroundColor(.white)
                             Text(sessionReasoningLabel)
@@ -114,7 +118,54 @@ struct HeaderView: View {
             syncSelectionFromActiveThread()
             await loadModelsIfNeeded()
         }
+        .onChange(of: activeConn?.oauthURL) { _, url in
+            showOAuth = url != nil
+        }
+        .onChange(of: activeConn?.loginCompleted) { _, completed in
+            if completed == true {
+                showOAuth = false
+                activeConn?.loginCompleted = false
+                Task {
+                    await serverManager.refreshAllSessions()
+                    await serverManager.syncActiveThreadFromServer()
+                    syncSelectionFromActiveThread()
+                }
+            }
+        }
+        .sheet(isPresented: $showOAuth) {
+            if let conn = activeConn, let url = conn.oauthURL {
+                NavigationStack {
+                    OAuthWebView(url: url, onCallbackIntercepted: { callbackURL in
+                        conn.forwardOAuthCallback(callbackURL)
+                    }) {
+                        Task { await conn.cancelLogin() }
+                    }
+                    .ignoresSafeArea()
+                    .navigationTitle("Login with ChatGPT")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Cancel") {
+                                Task { await conn.cancelLogin() }
+                                showOAuth = false
+                            }
+                            .foregroundColor(Color(hex: "#FF5555"))
+                        }
+                    }
+                }
+            }
+        }
         .enableInjection()
+    }
+
+    private var authDotColor: Color {
+        let conn = activeConn ?? serverManager.connections.values.first(where: { $0.isConnected })
+        switch conn?.authStatus {
+        case .chatgpt, .apiKey: return LitterTheme.accentStrong
+        case .notLoggedIn: return LitterTheme.danger
+        case .unknown, .none: return LitterTheme.textMuted
+        }
     }
 
     private var sessionModelLabel: String {
@@ -219,9 +270,15 @@ struct HeaderView: View {
         Button {
             Task {
                 isReloading = true
-                await serverManager.refreshAllSessions()
-                await serverManager.syncActiveThreadFromServer()
-                syncSelectionFromActiveThread()
+                let conn = activeConn ?? serverManager.connections.values.first(where: { $0.isConnected })
+                if conn?.authStatus == .notLoggedIn {
+                    await conn?.logout()
+                    await conn?.loginWithChatGPT()
+                } else {
+                    await serverManager.refreshAllSessions()
+                    await serverManager.syncActiveThreadFromServer()
+                    syncSelectionFromActiveThread()
+                }
                 isReloading = false
             }
         } label: {

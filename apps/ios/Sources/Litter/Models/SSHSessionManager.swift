@@ -12,6 +12,7 @@ actor SSHSessionManager {
     private var forwardedLocalPort: UInt16?
     private var forwardedRemotePort: UInt16?
     private var forwardedRemoteHost: String?
+    private var launchedServerPID: Int?
     private let defaultRemotePort: UInt16 = 8390
 
     private enum ServerLaunchCommand {
@@ -161,8 +162,9 @@ actor SSHSessionManager {
             let listenAddr = wantsIPv6 ? "[::]:\(port)" : "0.0.0.0:\(port)"
             let logPath = "/tmp/codex-ios-app-server-\(port).log"
 
-            // Check if already running on this port
+            // Check if already running on this port (not launched by us)
             if let listening = try? await isPortListening(client: client, port: port), listening {
+                launchedServerPID = nil
                 return port
             }
 
@@ -179,6 +181,7 @@ actor SSHSessionManager {
                 for attempt in 0..<60 {
                     try await Task.sleep(for: .milliseconds(500))
                     if let listening = try? await isPortListening(client: client, port: port), listening {
+                        launchedServerPID = launchedPID
                         return port
                     }
                     if let pid = launchedPID, let alive = try? await isProcessAlive(client: client, pid: pid), !alive {
@@ -205,6 +208,7 @@ actor SSHSessionManager {
                        let pid = launchedPID,
                        let alive = try? await isProcessAlive(client: client, pid: pid),
                        alive {
+                        launchedServerPID = launchedPID
                         return port
                     }
                 }
@@ -397,6 +401,12 @@ actor SSHSessionManager {
         guard let output = try? await client.executeCommand(script) else { return nil }
         let raw = String(buffer: output).trimmingCharacters(in: .whitespacesAndNewlines)
         return DiscoveredServer.normalizeWakeMAC(raw)
+    }
+
+    func stopRemoteServer() async {
+        guard let client, let pid = launchedServerPID else { return }
+        _ = try? await client.executeCommand("kill \(pid) 2>/dev/null")
+        launchedServerPID = nil
     }
 
     func disconnect() async {

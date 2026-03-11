@@ -88,6 +88,19 @@ final class ServerConnection: ObservableObject, Identifiable {
         serverURL = nil
     }
 
+    func forwardOAuthCallback(_ url: URL) {
+        switch target {
+        case .local:
+            Task { _ = try? await URLSession.shared.data(from: url) }
+        case .remote:
+            Task {
+                _ = try? await execCommand(["curl", "-s", "-4", "-L", "--max-time", "10", url.absoluteString])
+            }
+        case .sshThenRemote:
+            break
+        }
+    }
+
     // MARK: - RPC Methods
 
     func listThreads(cwd: String? = nil, cursor: String? = nil, limit: Int? = 20) async throws -> ThreadListResponse {
