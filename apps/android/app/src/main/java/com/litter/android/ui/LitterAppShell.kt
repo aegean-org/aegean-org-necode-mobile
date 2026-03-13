@@ -82,6 +82,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapVert
@@ -190,6 +191,7 @@ import com.litter.android.state.ThreadState
 import com.sigkitten.litter.android.BuildConfig
 import com.sigkitten.litter.android.R
 import io.noties.markwon.Markwon
+import io.noties.markwon.syntax.Prism4jThemeDefault
 import io.noties.markwon.syntax.Prism4jThemeDarkula
 import io.noties.markwon.syntax.SyntaxHighlightPlugin
 import io.noties.prism4j.GrammarLocator
@@ -2429,7 +2431,17 @@ private fun ConversationPanel(
     DebugRecomposeCheckpoint(name = "ConversationPanel")
     val context = LocalContext.current
     val markdownMarkwon = remember(context) { Markwon.create(context) }
-    val syntaxMarkwon = remember(context) { createSyntaxHighlightMarkwon(context) }
+    val syntaxThemeKey = LitterTheme.themeKey
+    val syntaxThemeIsDark = LitterTheme.isDark
+    val syntaxBackgroundArgb = LitterTheme.codeBackground.toArgb()
+    val syntaxMarkwon =
+        remember(context, syntaxThemeKey, syntaxThemeIsDark, syntaxBackgroundArgb) {
+            createSyntaxHighlightMarkwon(
+                context = context,
+                isDark = syntaxThemeIsDark,
+                backgroundColor = syntaxBackgroundArgb,
+            )
+        }
     val textScale = remember(conversationTextSizeStep) { ConversationTextSizing.scaleForStep(conversationTextSizeStep) }
     var attachedImagePath by remember { mutableStateOf<String?>(null) }
     var attachmentError by remember { mutableStateOf<String?>(null) }
@@ -3072,11 +3084,21 @@ private fun CodeBlockCard(
     }
 }
 
-private fun createSyntaxHighlightMarkwon(context: Context): Markwon {
+private fun createSyntaxHighlightMarkwon(
+    context: Context,
+    isDark: Boolean,
+    backgroundColor: Int,
+): Markwon {
     val builder = Markwon.builder(context)
     createPrism4jLocator()?.let { locator ->
         val prism4j = Prism4j(locator)
-        builder.usePlugin(SyntaxHighlightPlugin.create(prism4j, Prism4jThemeDarkula.create()))
+        val prismTheme =
+            if (isDark) {
+                Prism4jThemeDarkula.create(backgroundColor)
+            } else {
+                Prism4jThemeDefault.create(backgroundColor)
+            }
+        builder.usePlugin(SyntaxHighlightPlugin.create(prism4j, prismTheme))
     }
     return builder.build()
 }
@@ -7201,8 +7223,31 @@ private fun SettingsSheetContent(
     onRemoveServer: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var activeThemePicker by rememberSaveable { mutableStateOf<ThemePickerKind?>(null) }
+    val lightThemes = LitterThemeManager.lightThemes
+    val darkThemes = LitterThemeManager.darkThemes
+    val selectedLightTheme = lightThemes.firstOrNull { it.slug == LitterThemeManager.selectedLightSlug } ?: lightThemes.firstOrNull()
+    val selectedDarkTheme = darkThemes.firstOrNull { it.slug == LitterThemeManager.selectedDarkSlug } ?: darkThemes.firstOrNull()
+
+    activeThemePicker?.let { pickerKind ->
+        ThemePickerDialog(
+            title = pickerKind.title,
+            themes = if (pickerKind == ThemePickerKind.LIGHT) lightThemes else darkThemes,
+            selectedSlug = if (pickerKind == ThemePickerKind.LIGHT) LitterThemeManager.selectedLightSlug else LitterThemeManager.selectedDarkSlug,
+            onDismiss = { activeThemePicker = null },
+            onSelect = { slug ->
+                if (pickerKind == ThemePickerKind.LIGHT) {
+                    LitterThemeManager.selectLightTheme(slug)
+                } else {
+                    LitterThemeManager.selectDarkTheme(slug)
+                }
+                activeThemePicker = null
+            },
+        )
+    }
+
     Column(
-        modifier = modifier,
+        modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (onDismiss == null) {
@@ -7246,6 +7291,20 @@ private fun SettingsSheetContent(
                 Text("Open", color = LitterTheme.accent, style = MaterialTheme.typography.labelLarge)
             }
         }
+
+        Text("Appearance", color = LitterTheme.textSecondary, style = MaterialTheme.typography.labelLarge)
+        ThemeSelectionTriggerCard(
+            label = "Light Theme",
+            entry = selectedLightTheme,
+            enabled = lightThemes.isNotEmpty(),
+            onClick = { activeThemePicker = ThemePickerKind.LIGHT },
+        )
+        ThemeSelectionTriggerCard(
+            label = "Dark Theme",
+            entry = selectedDarkTheme,
+            enabled = darkThemes.isNotEmpty(),
+            onClick = { activeThemePicker = ThemePickerKind.DARK },
+        )
 
         Text("Typography", color = LitterTheme.textSecondary, style = MaterialTheme.typography.labelLarge)
         Surface(
@@ -7310,6 +7369,240 @@ private fun SettingsSheetContent(
                 }
             }
         }
+    }
+}
+
+private enum class ThemePickerKind(val title: String) {
+    LIGHT("Light Theme"),
+    DARK("Dark Theme"),
+}
+
+@Composable
+private fun ThemeSelectionTriggerCard(
+    label: String,
+    entry: LitterThemeIndexEntry?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
+        color = LitterTheme.surface.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(label, color = LitterTheme.textSecondary, style = MaterialTheme.typography.labelLarge)
+            ThemeOptionRowContent(
+                entry = entry,
+                trailingContent = {
+                    Icon(
+                        imageVector = Icons.Default.SwapVert,
+                        contentDescription = null,
+                        tint = if (enabled) LitterTheme.textMuted else LitterTheme.border,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemePickerDialog(
+    title: String,
+    themes: List<LitterThemeIndexEntry>,
+    selectedSlug: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    var searchQuery by rememberSaveable(title) { mutableStateOf("") }
+    val trimmedQuery = searchQuery.trim()
+    val filteredThemes =
+        remember(themes, trimmedQuery) {
+            if (trimmedQuery.isEmpty()) {
+                themes
+            } else {
+                themes.filter { entry ->
+                    entry.name.contains(trimmedQuery, ignoreCase = true) ||
+                        entry.slug.contains(trimmedQuery, ignoreCase = true)
+                }
+            }
+        }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 620.dp),
+                color = LitterTheme.surface,
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(title, color = LitterTheme.textPrimary, style = MaterialTheme.typography.titleMedium)
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = LitterTheme.textSecondary)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Search themes") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = LitterTheme.textMuted)
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search", tint = LitterTheme.textMuted)
+                                }
+                            }
+                        },
+                    )
+
+                    if (filteredThemes.isEmpty()) {
+                        Text(
+                            text = if (trimmedQuery.isEmpty()) "No themes available" else "No matching themes",
+                            color = LitterTheme.textMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(filteredThemes, key = { it.slug }) { entry ->
+                                ThemePickerOptionCard(
+                                    entry = entry,
+                                    selected = entry.slug == selectedSlug,
+                                    onClick = { onSelect(entry.slug) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePickerOptionCard(
+    entry: LitterThemeIndexEntry,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = LitterTheme.surface.copy(alpha = 0.72f),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) LitterTheme.accent else LitterTheme.border),
+    ) {
+        ThemeOptionRowContent(
+            entry = entry,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+            trailingContent = {
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = LitterTheme.accent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ThemeOptionRowContent(
+    entry: LitterThemeIndexEntry?,
+    modifier: Modifier = Modifier,
+    trailingContent: (@Composable () -> Unit)? = null,
+) {
+    val themeName = entry?.name ?: "No theme available"
+    val showSlug = entry != null && !entry.slug.equals(entry.name, ignoreCase = true)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ThemePreviewBadge(entry = entry)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(themeName, color = LitterTheme.textPrimary, style = MaterialTheme.typography.bodyMedium)
+            if (showSlug) {
+                Text(
+                    entry?.slug.orEmpty(),
+                    color = LitterTheme.textMuted,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        trailingContent?.invoke()
+    }
+}
+
+@Composable
+private fun ThemePreviewBadge(
+    entry: LitterThemeIndexEntry?,
+    modifier: Modifier = Modifier,
+) {
+    val backgroundColor = colorFromHex(entry?.backgroundHex, LitterTheme.surface)
+    val foregroundColor = colorFromHex(entry?.foregroundHex, LitterTheme.textPrimary)
+    val accentColor = colorFromHex(entry?.accentHex, LitterTheme.accent)
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.BottomEnd,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .width(28.dp)
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(backgroundColor)
+                    .border(1.dp, LitterTheme.border.copy(alpha = 0.6f), RoundedCornerShape(5.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Aa", color = foregroundColor, style = MaterialTheme.typography.labelMedium)
+        }
+        Box(
+            modifier =
+                Modifier
+                    .offset(x = 1.dp, y = 1.dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(accentColor),
+        )
     }
 }
 

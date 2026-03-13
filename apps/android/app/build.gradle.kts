@@ -86,6 +86,12 @@ android {
         buildConfig = true
     }
 
+    sourceSets {
+        getByName("main") {
+            assets.srcDir("../../ios/Sources/Litter/Resources/Themes")
+        }
+    }
+
     packaging {
         jniLibs {
             // Ensure native libs are extracted to a filesystem path so they can be executed.

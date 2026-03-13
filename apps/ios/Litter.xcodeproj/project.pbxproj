@@ -43,6 +43,7 @@
 		1DB21F6FFA11CE197FCFDBD5 /* shell.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 874C6CFBD438D4B4909DD1CF /* shell.xcframework */; };
 		1DBECB5F40FE8322F20A327F /* ServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73840201673E0D1EE9E9DEBF /* ServerConnection.swift */; };
 		1E4B6194A06FB712657A24C7 /* AudioWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63D9ACF04F4018F2949FB7E0 /* AudioWaveformView.swift */; };
+		1F5F939015D83641B6E06256 /* LockScreenCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892D583790A9BD90CFD89701 /* LockScreenCardView.swift */; };
 		2079821AAFA0AB0D5D4E429C /* BerkeleyMono-Oblique.otf in Resources */ = {isa = PBXBuildFile; fileRef = ACD06DF72574CDDF16E1E41B /* BerkeleyMono-Oblique.otf */; };
 		20AD8AEA4E06442319C65002 /* text.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = CECEF29277C1DB1AD1EF304D /* text.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		21EF79499E78247D3E3FF54E /* github-light-default.json in Resources */ = {isa = PBXBuildFile; fileRef = 34141C0068C950ECBC391996 /* github-light-default.json */; };
@@ -100,6 +101,7 @@
 		536EF112EA2B3405B03B0BB6 /* commandDictionary.plist in Resources */ = {isa = PBXBuildFile; fileRef = 545E3E3890AFDE088424F0C1 /* commandDictionary.plist */; };
 		5400EC90AC19739394FB569E /* rose-pine-moon.json in Resources */ = {isa = PBXBuildFile; fileRef = E8ABCFE5B02E47BAA5599A8F /* rose-pine-moon.json */; };
 		55C6A6864F364EC484A9D349 /* notion-dark-BTRKJ-yg.json in Resources */ = {isa = PBXBuildFile; fileRef = 5FB346B6064CA358E9EEAD00 /* notion-dark-BTRKJ-yg.json */; };
+		568C0B1181B1ACFFBD7B165D /* LockScreenCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892D583790A9BD90CFD89701 /* LockScreenCardView.swift */; };
 		56DBF9B40EDB38539AD3F363 /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1959956ABBEC98793B97B468 /* MessageBubbleView.swift */; };
 		591F49598442E387E16C7BF2 /* BerkeleyMono-Oblique.otf in Resources */ = {isa = PBXBuildFile; fileRef = ACD06DF72574CDDF16E1E41B /* BerkeleyMono-Oblique.otf */; };
 		5AB1046D51A1A192F1952893 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF245554F39E59E68B72EB22 /* ConversationView.swift */; };
@@ -108,6 +110,7 @@
 		5D63E745693A7897E3681D8F /* gruvbox-dark-hard.json in Resources */ = {isa = PBXBuildFile; fileRef = 33DE469299079F6EDB067A49 /* gruvbox-dark-hard.json */; };
 		5D679C8A9B0387B360172E20 /* material-theme-palenight.json in Resources */ = {isa = PBXBuildFile; fileRef = B776A14B7CB1BD40651E0EE1 /* material-theme-palenight.json */; };
 		5D69A8BA80D3B1B771C94DC0 /* OnDeviceCodexFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93677A51659C08505EA4CE10 /* OnDeviceCodexFeature.swift */; };
+		5D9A8CE3A70AD6DD7C4CAC90 /* LockScreenCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892D583790A9BD90CFD89701 /* LockScreenCardView.swift */; };
 		5DA1B598B3942307A46A324F /* light-plus.json in Resources */ = {isa = PBXBuildFile; fileRef = CFF9DBA865CCBB3308B5667D /* light-plus.json */; };
 		5DD814C6E3FA475AEC086F0D /* min-light.json in Resources */ = {isa = PBXBuildFile; fileRef = EC90366C4F2A6030ED27AE18 /* min-light.json */; };
 		5F1228C0BD5FC2E520010A2C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBE8C3705FCC98F7E1642771 /* SettingsView.swift */; };
@@ -455,6 +458,7 @@
 		887F9EF05D2351DEB6B9602D /* solarized-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "solarized-light.json"; sourceTree = "<group>"; };
 		88B886829FDF299DFFCC1A86 /* everforest-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "everforest-light.json"; sourceTree = "<group>"; };
 		89172C83E4194291FF873A88 /* houston.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = houston.json; sourceTree = "<group>"; };
+		892D583790A9BD90CFD89701 /* LockScreenCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenCardView.swift; sourceTree = "<group>"; };
 		923C3634CB4FDDA1286DB63F /* LitterLiveActivity.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitterLiveActivity.entitlements; sourceTree = "<group>"; };
 		9355F09B357618AB71A7C114 /* linear-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linear-light.json"; sourceTree = "<group>"; };
 		93677A51659C08505EA4CE10 /* OnDeviceCodexFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceCodexFeature.swift; sourceTree = "<group>"; };
@@ -799,6 +803,7 @@
 				034CE02FECF86AB9EC0842D0 /* DiscoveryView.swift */,
 				817117A5E16EBD02388DBBE1 /* HeaderView.swift */,
 				C822FD11C8902B0EDED54723 /* LiveActivityPreview.swift */,
+				892D583790A9BD90CFD89701 /* LockScreenCardView.swift */,
 				1959956ABBEC98793B97B468 /* MessageBubbleView.swift */,
 				E744000053715A5866060B15 /* PreviewSupport.swift */,
 				7F79D1C06A25D0ABAA5042BA /* SafariView.swift */,
@@ -1198,6 +1203,7 @@
 				86E2808B0663D8B7B68B09A5 /* CodexTurnLiveActivity.swift in Sources */,
 				AD2D67F6F7249521B4DB7AB2 /* LitterLiveActivityBundle.swift in Sources */,
 				B99941D99DD00E277C82D472 /* LitterPalette.swift in Sources */,
+				5D9A8CE3A70AD6DD7C4CAC90 /* LockScreenCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1228,6 +1234,7 @@
 				E8E75D80AB816ABCFBE01609 /* LitterApp.swift in Sources */,
 				4E829E34565DCE0468982923 /* LitterPalette.swift in Sources */,
 				E36B30554FEEE6838CAA6120 /* LiveActivityPreview.swift in Sources */,
+				1F5F939015D83641B6E06256 /* LockScreenCardView.swift in Sources */,
 				56DBF9B40EDB38539AD3F363 /* MessageBubbleView.swift in Sources */,
 				99AFB38AE70951A482AB9253 /* NetworkDiscovery.swift in Sources */,
 				5D69A8BA80D3B1B771C94DC0 /* OnDeviceCodexFeature.swift in Sources */,
@@ -1289,6 +1296,7 @@
 				0AC3B09D832DD47A0C781EE5 /* LitterApp.swift in Sources */,
 				055E4E6F482808FF3A6FE4AD /* LitterPalette.swift in Sources */,
 				8162FA999156618F9B3D7ADF /* LiveActivityPreview.swift in Sources */,
+				568C0B1181B1ACFFBD7B165D /* LockScreenCardView.swift in Sources */,
 				31EB5932CBEDDB0E7FFB1158 /* MessageBubbleView.swift in Sources */,
 				FF4D813592AD383AD342CFFB /* NetworkDiscovery.swift in Sources */,
 				03B99F932AFF887324B15968 /* OnDeviceCodexFeature.swift in Sources */,
