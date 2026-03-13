@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var serverManager: ServerManager
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     @State private var apiKey = ""
     @State private var isAuthWorking = false
     @State private var authError: String?
@@ -29,6 +30,8 @@ struct SettingsView: View {
             ZStack {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
                 Form {
+                    appearanceSection
+                    fontSection
                     accountSection
                     serversSection
                 }
@@ -36,7 +39,6 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
@@ -44,7 +46,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .sheet(isPresented: $showOAuth) {
             oauthSheet
         }
@@ -59,6 +60,62 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Appearance Section
+
+    private var appearanceSection: some View {
+        Section {
+            NavigationLink {
+                AppearanceSettingsView()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "paintbrush")
+                        .foregroundColor(LitterTheme.accent)
+                        .frame(width: 20)
+                    Text("Appearance")
+                        .font(LitterFont.styled(.subheadline))
+                        .foregroundColor(LitterTheme.textPrimary)
+                }
+            }
+            .listRowBackground(LitterTheme.surface.opacity(0.6))
+        } header: {
+            Text("Theme")
+                .foregroundColor(LitterTheme.textSecondary)
+        }
+    }
+
+    // MARK: - Font Section
+
+    private var fontSection: some View {
+        Section {
+            ForEach(FontFamilyOption.allCases) { option in
+                Button {
+                    fontFamily = option.rawValue
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(option.displayName)
+                                .font(LitterFont.styled(.subheadline))
+                                .foregroundColor(LitterTheme.textPrimary)
+                            Text("The quick brown fox")
+                                .font(LitterFont.sampleFont(family: option, size: 14))
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+                        Spacer()
+                        if fontFamily == option.rawValue {
+                            Image(systemName: "checkmark")
+                                .font(.system(.subheadline, weight: .semibold))
+                                .foregroundColor(LitterTheme.accentStrong)
+                        }
+                    }
+                }
+                .listRowBackground(LitterTheme.surface.opacity(0.6))
+            }
+        } header: {
+            Text("Font")
+                .foregroundColor(LitterTheme.textSecondary)
+        }
+    }
+
     // MARK: - Account Section (inline, no nested sheet)
 
     private var accountSection: some View {
@@ -70,11 +127,11 @@ struct SettingsView: View {
                     .frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(authTitle)
-                        .font(LitterFont.monospaced(.subheadline))
-                        .foregroundColor(.white)
+                        .font(LitterFont.styled(.subheadline))
+                        .foregroundColor(LitterTheme.textPrimary)
                     if let sub = authSubtitle {
                         Text(sub)
-                            .font(LitterFont.monospaced(.caption))
+                            .font(LitterFont.styled(.caption))
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                 }
@@ -83,7 +140,7 @@ struct SettingsView: View {
                     Button("Logout") {
                         Task { await conn?.logout() }
                     }
-                    .font(LitterFont.monospaced(.caption))
+                    .font(LitterFont.styled(.caption))
                     .foregroundColor(LitterTheme.danger)
                 }
             }
@@ -101,11 +158,11 @@ struct SettingsView: View {
                 } label: {
                     HStack {
                         if isAuthWorking {
-                            ProgressView().tint(.white).scaleEffect(0.8)
+                            ProgressView().tint(LitterTheme.textPrimary).scaleEffect(0.8)
                         }
                         Image(systemName: "person.crop.circle.badge.checkmark")
                         Text("Login with ChatGPT")
-                            .font(LitterFont.monospaced(.subheadline))
+                            .font(LitterFont.styled(.subheadline))
                     }
                     .foregroundColor(LitterTheme.accent)
                 }
@@ -114,8 +171,8 @@ struct SettingsView: View {
 
                 HStack(spacing: 8) {
                     SecureField("sk-...", text: $apiKey)
-                        .font(LitterFont.monospaced(.footnote))
-                        .foregroundColor(.white)
+                        .font(LitterFont.styled(.footnote))
+                        .foregroundColor(LitterTheme.textPrimary)
                         .textInputAutocapitalization(.never)
                     Button("Save") {
                         let key = apiKey.trimmingCharacters(in: .whitespaces)
@@ -127,7 +184,7 @@ struct SettingsView: View {
                             isAuthWorking = false
                         }
                     }
-                    .font(LitterFont.monospaced(.caption))
+                    .font(LitterFont.styled(.caption))
                     .foregroundColor(LitterTheme.accent)
                     .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isAuthWorking)
                 }
@@ -136,14 +193,14 @@ struct SettingsView: View {
 
             if case .unknown = authStatus, conn == nil {
                 Text("Connect to a server first")
-                    .font(LitterFont.monospaced(.caption))
+                    .font(LitterFont.styled(.caption))
                     .foregroundColor(LitterTheme.textMuted)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
             if let err = authError {
                 Text(err)
-                    .font(LitterFont.monospaced(.caption))
+                    .font(LitterFont.styled(.caption))
                     .foregroundColor(LitterTheme.danger)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
@@ -159,7 +216,7 @@ struct SettingsView: View {
         Section {
             if connectedServers.isEmpty {
                 Text("No servers connected")
-                    .font(LitterFont.monospaced(.footnote))
+                    .font(LitterFont.styled(.footnote))
                     .foregroundColor(LitterTheme.textMuted)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             } else {
@@ -170,17 +227,17 @@ struct SettingsView: View {
                             .frame(width: 20)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(conn.server.name)
-                                .font(LitterFont.monospaced(.footnote))
-                                .foregroundColor(.white)
+                                .font(LitterFont.styled(.footnote))
+                                .foregroundColor(LitterTheme.textPrimary)
                             Text(conn.isConnected ? "Connected" : "Disconnected")
-                                .font(LitterFont.monospaced(.caption))
+                                .font(LitterFont.styled(.caption))
                                 .foregroundColor(conn.isConnected ? LitterTheme.accent : LitterTheme.textSecondary)
                         }
                         Spacer()
                         Button("Remove") {
                             serverManager.removeServer(id: conn.id)
                         }
-                        .font(LitterFont.monospaced(.caption))
+                        .font(LitterFont.styled(.caption))
                         .foregroundColor(LitterTheme.danger)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -206,7 +263,6 @@ struct SettingsView: View {
                 .ignoresSafeArea()
                 .navigationTitle("Login with ChatGPT")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Cancel") {

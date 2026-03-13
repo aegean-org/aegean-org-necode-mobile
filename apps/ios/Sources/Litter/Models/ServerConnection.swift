@@ -16,6 +16,7 @@ final class ServerConnection: ObservableObject, Identifiable {
     @Published var loginCompleted = false
     @Published var models: [CodexModel] = []
     @Published var modelsLoaded = false
+    @Published var rateLimits: RateLimitSnapshot?
 
     let client = JSONRPCClient()
     private var serverURL: URL?
@@ -76,6 +77,7 @@ final class ServerConnection: ObservableObject, Identifiable {
             connectionPhase = "ready"
             Task { [weak self] in
                 await self?.checkAuth()
+                await self?.fetchRateLimits()
             }
         } catch {
             connectionPhase = "error: \(error.localizedDescription)"
@@ -86,6 +88,7 @@ final class ServerConnection: ObservableObject, Identifiable {
         Task { await client.disconnect() }
         isConnected = false
         serverURL = nil
+        rateLimits = nil
     }
 
     func forwardOAuthCallback(_ url: URL) {
@@ -191,6 +194,14 @@ final class ServerConnection: ObservableObject, Identifiable {
             method: "thread/start",
             params: ThreadStartParams(model: model, cwd: cwd, approvalPolicy: approvalPolicy, sandbox: sandbox),
             responseType: ThreadStartResponse.self
+        )
+    }
+
+    func readThread(threadId: String) async throws -> ThreadReadResponse {
+        try await client.sendRequest(
+            method: "thread/read",
+            params: ThreadReadParams(threadId: threadId),
+            responseType: ThreadReadResponse.self
         )
     }
 
@@ -387,6 +398,19 @@ final class ServerConnection: ObservableObject, Identifiable {
         }
     }
 
+    func getAuthToken() async -> (method: String?, token: String?) {
+        do {
+            let resp: GetAuthStatusResponse = try await client.sendRequest(
+                method: "getAuthStatus",
+                params: GetAuthStatusParams(includeToken: true, refreshToken: false),
+                responseType: GetAuthStatusResponse.self
+            )
+            return (resp.authMethod, resp.authToken)
+        } catch {
+            return (nil, nil)
+        }
+    }
+
     func loginWithChatGPT() async {
         do {
             let resp: LoginStartResponse = try await client.sendRequest(
@@ -438,6 +462,18 @@ final class ServerConnection: ObservableObject, Identifiable {
         oauthURL = nil
     }
 
+    // MARK: - Rate Limits
+
+    func fetchRateLimits() async {
+        struct EmptyParams: Encodable {}
+        guard let resp = try? await client.sendRequest(
+            method: "account/rateLimits/read",
+            params: EmptyParams(),
+            responseType: GetAccountRateLimitsResponse.self
+        ) else { return }
+        rateLimits = resp.rateLimits
+    }
+
     // MARK: - Account Notifications
 
     func handleAccountNotification(method: String, data: Data) {
@@ -452,6 +488,10 @@ final class ServerConnection: ObservableObject, Identifiable {
             }
         case "account/updated":
             Task { await self.checkAuth() }
+        case "account/rateLimits/updated":
+            if let notif = try? JSONDecoder().decode(AccountRateLimitsUpdatedNotification.self, from: extractParams(data)) {
+                rateLimits = notif.rateLimits
+            }
         default:
             break
         }
@@ -560,13 +600,20 @@ final class ServerConnection: ObservableObject, Identifiable {
     private func setupDisconnectHandler() async {
         await client.setDisconnectHandler { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, self.isConnected else { return }
+                guard let self, self.isConnected else {
+                    NSLog("[ws] disconnect handler: already disconnected id=%@", self?.id ?? "?")
+                    return
+                }
+                NSLog("[ws] socket died, auto-reconnecting id=%@", self.id)
                 self.isConnected = false
                 self.onDisconnect?()
                 do {
                     try await self.connectAndInitialize()
                     self.isConnected = true
-                } catch {}
+                    NSLog("[ws] auto-reconnect SUCCESS id=%@", self.id)
+                } catch {
+                    NSLog("[ws] auto-reconnect FAILED id=%@ err=%@", self.id, error.localizedDescription)
+                }
             }
         }
     }

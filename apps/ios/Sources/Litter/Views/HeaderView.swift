@@ -2,8 +2,6 @@ import SwiftUI
 import Inject
 
 struct HeaderView: View {
-    private static let contextBaselineTokens: Int64 = 12_000
-
     @ObserveInjection var inject
     @EnvironmentObject var serverManager: ServerManager
     @EnvironmentObject var appState: AppState
@@ -26,7 +24,7 @@ struct HeaderView: View {
                 } label: {
                     Image(systemName: "line.3.horizontal")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Color(hex: "#999999"))
+                        .foregroundColor(LitterTheme.textSecondary)
                         .frame(width: 44, height: 44)
                         .modifier(GlassCircleModifier())
                 }
@@ -45,7 +43,7 @@ struct HeaderView: View {
                                 .fill(authDotColor)
                                 .frame(width: 6, height: 6)
                             Text(sessionModelLabel)
-                                .foregroundColor(.white)
+                                .foregroundColor(LitterTheme.textPrimary)
                             Text(sessionReasoningLabel)
                                 .foregroundColor(LitterTheme.textSecondary)
                             Image(systemName: "chevron.down")
@@ -53,18 +51,15 @@ struct HeaderView: View {
                                 .foregroundColor(LitterTheme.textSecondary)
                                 .rotationEffect(.degrees(appState.showModelSelector ? 180 : 0))
                         }
-                        .font(LitterFont.monospaced(.subheadline, weight: .semibold))
+                        .font(LitterFont.styled(.subheadline, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
 
-                        HStack(spacing: 6) {
-                            Text(sessionDirectoryLabel)
-                                .font(LitterFont.monospaced(.caption2, weight: .semibold))
-                                .foregroundColor(LitterTheme.textSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            ContextBadgeView(percent: Int(sessionContextPercent ?? 100), tint: sessionContextTint)
-                        }
+                        Text(sessionDirectoryLabel)
+                            .font(LitterFont.styled(.caption2, weight: .semibold))
+                            .foregroundColor(LitterTheme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -93,7 +88,7 @@ struct HeaderView: View {
         }
         .background(
             LinearGradient(
-                colors: [.black.opacity(0.5), .black.opacity(0.2), .clear],
+                colors: LitterTheme.headerScrim,
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -143,14 +138,13 @@ struct HeaderView: View {
                     .ignoresSafeArea()
                     .navigationTitle("Login with ChatGPT")
                     .navigationBarTitleDisplayMode(.inline)
-                    .toolbarColorScheme(.dark, for: .navigationBar)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Cancel") {
                                 Task { await conn.cancelLogin() }
                                 showOAuth = false
                             }
-                            .foregroundColor(Color(hex: "#FF5555"))
+                            .foregroundColor(LitterTheme.danger)
                         }
                     }
                 }
@@ -162,7 +156,7 @@ struct HeaderView: View {
     private var authDotColor: Color {
         let conn = activeConn ?? serverManager.connections.values.first(where: { $0.isConnected })
         switch conn?.authStatus {
-        case .chatgpt, .apiKey: return LitterTheme.accentStrong
+        case .chatgpt, .apiKey: return LitterTheme.success
         case .notLoggedIn: return LitterTheme.danger
         case .unknown, .none: return LitterTheme.textMuted
         }
@@ -188,20 +182,6 @@ struct HeaderView: View {
         return "default"
     }
 
-    private var sessionContextTint: Color {
-        guard let percent = sessionContextPercent else {
-            return LitterTheme.textSecondary
-        }
-        switch percent {
-        case ...15:
-            return LitterTheme.danger
-        case ...35:
-            return LitterTheme.warning
-        default:
-            return LitterTheme.accentStrong
-        }
-    }
-
     private var sessionDirectoryLabel: String {
         let currentDirectory = serverManager.activeThread?.cwd.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !currentDirectory.isEmpty {
@@ -214,19 +194,6 @@ struct HeaderView: View {
         }
 
         return "~"
-    }
-
-    private var sessionContextPercent: Int64? {
-        guard let thread = serverManager.activeThread,
-              let contextWindow = thread.modelContextWindow else {
-            return nil
-        }
-
-        let totalTokens = thread.contextTokensUsed ?? Self.contextBaselineTokens
-        return percentOfContextWindowRemaining(
-            totalTokens: totalTokens,
-            contextWindow: contextWindow
-        )
     }
 
     private func loadModelsIfNeeded() async {
@@ -300,18 +267,6 @@ struct HeaderView: View {
         .disabled(isReloading || !serverManager.hasAnyConnection)
     }
 
-    private func percentOfContextWindowRemaining(totalTokens: Int64, contextWindow: Int64) -> Int64 {
-        let baseline = Self.contextBaselineTokens
-        guard contextWindow > baseline else { return 0 }
-
-        let effectiveWindow = contextWindow - baseline
-        let usedTokens = max(0, totalTokens - baseline)
-        let remainingTokens = max(0, effectiveWindow - usedTokens)
-        let remainingFraction = Double(remainingTokens) / Double(effectiveWindow)
-        let percent = Int64((remainingFraction * 100).rounded())
-        return min(max(percent, 0), 100)
-    }
-
 }
 
 struct InlineModelSelectorView: View {
@@ -340,11 +295,11 @@ struct InlineModelSelectorView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
                                         Text(model.displayName)
-                                            .font(LitterFont.monospaced(.footnote))
-                                            .foregroundColor(.white)
+                                            .font(LitterFont.styled(.footnote))
+                                            .foregroundColor(LitterTheme.textPrimary)
                                         if model.isDefault {
                                             Text("default")
-                                                .font(LitterFont.monospaced(.caption2, weight: .medium))
+                                                .font(LitterFont.styled(.caption2, weight: .medium))
                                                 .foregroundColor(LitterTheme.accent)
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 1)
@@ -353,7 +308,7 @@ struct InlineModelSelectorView: View {
                                         }
                                     }
                                     Text(model.description)
-                                        .font(LitterFont.monospaced(.caption2))
+                                        .font(LitterFont.styled(.caption2))
                                         .foregroundColor(LitterTheme.textSecondary)
                                 }
                                 Spacer()
@@ -384,8 +339,8 @@ struct InlineModelSelectorView: View {
                                 appState.reasoningEffort = effort.reasoningEffort
                             } label: {
                                 Text(effort.reasoningEffort)
-                                    .font(LitterFont.monospaced(.caption2, weight: .medium))
-                                    .foregroundColor(effort.reasoningEffort == appState.reasoningEffort ? .black : .white)
+                                    .font(LitterFont.styled(.caption2, weight: .medium))
+                                    .foregroundColor(effort.reasoningEffort == appState.reasoningEffort ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
                                     .background(effort.reasoningEffort == appState.reasoningEffort ? LitterTheme.accent : LitterTheme.surfaceLight)
@@ -427,11 +382,11 @@ struct ModelSelectorSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(model.displayName)
-                                    .font(LitterFont.monospaced(.footnote))
-                                    .foregroundColor(.white)
+                                    .font(LitterFont.styled(.footnote))
+                                    .foregroundColor(LitterTheme.textPrimary)
                                 if model.isDefault {
                                     Text("default")
-                                        .font(LitterFont.monospaced(.caption2, weight: .medium))
+                                        .font(LitterFont.styled(.caption2, weight: .medium))
                                         .foregroundColor(LitterTheme.accent)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 1)
@@ -440,7 +395,7 @@ struct ModelSelectorSheet: View {
                                 }
                             }
                             Text(model.description)
-                                .font(LitterFont.monospaced(.caption2))
+                                .font(LitterFont.styled(.caption2))
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
                         Spacer()
@@ -464,8 +419,8 @@ struct ModelSelectorSheet: View {
                                 appState.reasoningEffort = effort.reasoningEffort
                             } label: {
                                 Text(effort.reasoningEffort)
-                                    .font(LitterFont.monospaced(.caption2, weight: .medium))
-                                    .foregroundColor(effort.reasoningEffort == appState.reasoningEffort ? .black : .white)
+                                    .font(LitterFont.styled(.caption2, weight: .medium))
+                                    .foregroundColor(effort.reasoningEffort == appState.reasoningEffort ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
                                     .background(effort.reasoningEffort == appState.reasoningEffort ? LitterTheme.accent : LitterTheme.surfaceLight)

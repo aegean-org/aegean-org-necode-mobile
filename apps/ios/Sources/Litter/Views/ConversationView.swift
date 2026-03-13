@@ -149,34 +149,23 @@ private enum ConversationTextSize: Int, CaseIterable {
     }
 }
 
-struct ContextBadgeView: View, Equatable {
+struct RateLimitBadgeView: View, Equatable {
+    let label: String
     let percent: Int
-    let tint: Color
 
-    private let cornerRadius: CGFloat = 3.5
-    private let strokeWidth: CGFloat = 1.2
-    private let inset: CGFloat = 1.5
+    private var tint: Color {
+        if percent <= 10 { return LitterTheme.danger }
+        if percent <= 30 { return LitterTheme.warning }
+        return LitterTheme.textMuted
+    }
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(tint.opacity(0.4), lineWidth: strokeWidth)
-
-            GeometryReader { geo in
-                let inner = geo.size.width - (inset + strokeWidth) * 2
-                RoundedRectangle(cornerRadius: max(0, cornerRadius - inset))
-                    .fill(tint.opacity(0.25))
-                    .frame(width: max(0, inner * CGFloat(percent) / 100.0))
-                    .padding(.leading, inset + strokeWidth / 2)
-                    .frame(maxHeight: .infinity, alignment: .center)
-            }
-            .padding(.vertical, inset + strokeWidth / 2)
-
-            Text("\(percent)")
-                .font(.system(size: 7.5, weight: .heavy, design: .monospaced))
-                .foregroundColor(tint)
+        HStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
+                .foregroundColor(LitterTheme.textSecondary)
+            ContextBadgeView(percent: percent, tint: tint)
         }
-        .frame(width: 28, height: 13)
     }
 }
 
@@ -426,9 +415,9 @@ private struct ScrollToBottomIndicator: View {
                     .font(.system(.caption, weight: .bold))
                     .offset(y: bob ? 1.5 : -1.5)
                 Text("Latest")
-                    .font(LitterFont.monospaced(.caption, weight: .semibold))
+                    .font(LitterFont.styled(.caption, weight: .semibold))
             }
-            .foregroundColor(.white)
+            .foregroundColor(LitterTheme.textPrimary)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .modifier(GlassCapsuleModifier())
@@ -588,6 +577,8 @@ private struct ConversationInputBar: View {
     @State private var skillsLoading = false
     @State private var mentionSkillPathsByName: [String: String] = [:]
     @State private var hasAttemptedSkillMentionLoad = false
+    @StateObject private var voiceManager = VoiceTranscriptionManager()
+    @State private var showMicPermissionAlert = false
 
     private var hasText: Bool {
         !inputText.trimmingCharacters(in: .whitespaces).isEmpty
@@ -623,6 +614,13 @@ private struct ConversationInputBar: View {
                 .padding(.top, 8)
             }
             composerRow
+                .overlay(alignment: .bottomTrailing) {
+                    if bottomInset > 20 {
+                        contextBar
+                            .offset(y: 16)
+                    }
+                }
+                .padding(.bottom, bottomInset)
         }
         .overlay(alignment: .bottom) {
             if showSlashPopup {
@@ -650,7 +648,18 @@ private struct ConversationInputBar: View {
             hideComposerPopups()
             inputFocused.wrappedValue = true
         }
+        .alert("Microphone Access", isPresented: $showMicPermissionAlert) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Microphone permission is required for voice input. Enable it in Settings.")
+        }
         .onDisappear {
+            if voiceManager.isRecording { voiceManager.cancelRecording() }
             popupRefreshTask?.cancel()
             popupRefreshTask = nil
             fileSearchTask?.cancel()
@@ -689,8 +698,8 @@ private struct ConversationInputBar: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(preset.title)
-                                        .foregroundColor(.white)
-                                        .font(LitterFont.monospaced(.subheadline))
+                                        .foregroundColor(LitterTheme.textPrimary)
+                                        .font(LitterFont.styled(.subheadline))
                                     Spacer()
                                     if preset.approvalPolicy == appState.approvalPolicy && preset.sandboxMode == appState.sandboxMode {
                                         Image(systemName: "checkmark")
@@ -699,7 +708,7 @@ private struct ConversationInputBar: View {
                                 }
                                 Text(preset.description)
                                     .foregroundColor(LitterTheme.textSecondary)
-                                    .font(LitterFont.monospaced(.caption))
+                                    .font(LitterFont.styled(.caption))
                             }
                         }
                         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -716,7 +725,6 @@ private struct ConversationInputBar: View {
                     }
                 }
             }
-            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showExperimentalSheet) {
             NavigationStack {
@@ -725,7 +733,7 @@ private struct ConversationInputBar: View {
                         ProgressView().tint(LitterTheme.accent)
                     } else if experimentalFeatures.isEmpty {
                         Text("No experimental features available")
-                            .font(LitterFont.monospaced(.footnote))
+                            .font(LitterFont.styled(.footnote))
                             .foregroundColor(LitterTheme.textMuted)
                     } else {
                         List {
@@ -733,10 +741,10 @@ private struct ConversationInputBar: View {
                                 HStack(alignment: .top, spacing: 10) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(feature.displayName ?? feature.name)
-                                            .font(LitterFont.monospaced(.subheadline))
-                                            .foregroundColor(.white)
+                                            .font(LitterFont.styled(.subheadline))
+                                            .foregroundColor(LitterTheme.textPrimary)
                                         Text(feature.description ?? feature.stage)
-                                            .font(LitterFont.monospaced(.caption))
+                                            .font(LitterFont.styled(.caption))
                                             .foregroundColor(LitterTheme.textSecondary)
                                     }
                                     Spacer(minLength: 0)
@@ -773,7 +781,6 @@ private struct ConversationInputBar: View {
                     }
                 }
             }
-            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showSkillsSheet) {
             NavigationStack {
@@ -782,7 +789,7 @@ private struct ConversationInputBar: View {
                         ProgressView().tint(LitterTheme.accent)
                     } else if skills.isEmpty {
                         Text("No skills available for this workspace")
-                            .font(LitterFont.monospaced(.footnote))
+                            .font(LitterFont.styled(.footnote))
                             .foregroundColor(LitterTheme.textMuted)
                     } else {
                         List {
@@ -790,20 +797,20 @@ private struct ConversationInputBar: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
                                         Text(skill.name)
-                                            .font(LitterFont.monospaced(.subheadline))
-                                            .foregroundColor(.white)
+                                            .font(LitterFont.styled(.subheadline))
+                                            .foregroundColor(LitterTheme.textPrimary)
                                         Spacer()
                                         if skill.enabled {
                                             Text("enabled")
-                                                .font(LitterFont.monospaced(.caption2))
+                                                .font(LitterFont.styled(.caption2))
                                                 .foregroundColor(LitterTheme.accent)
                                         }
                                     }
                                     Text(skill.description)
-                                        .font(LitterFont.monospaced(.caption))
+                                        .font(LitterFont.styled(.caption))
                                         .foregroundColor(LitterTheme.textSecondary)
                                     Text(skill.path)
-                                        .font(LitterFont.monospaced(.caption2))
+                                        .font(LitterFont.styled(.caption2))
                                         .foregroundColor(LitterTheme.textMuted)
                                 }
                                 .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -827,7 +834,6 @@ private struct ConversationInputBar: View {
                     }
                 }
             }
-            .preferredColorScheme(.dark)
         }
         .alert("Rename Thread", isPresented: Binding(
             get: { showRenamePrompt },
@@ -863,35 +869,29 @@ private struct ConversationInputBar: View {
 
     private var composerRow: some View {
         HStack(alignment: .center, spacing: 8) {
-            Button { showAttachMenu = true } label: {
-                Image(systemName: "plus")
-                    .font(.system(.subheadline, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 32, height: 32)
-                    .modifier(GlassCircleModifier())
+            if !voiceManager.isRecording && !voiceManager.isTranscribing && !isTurnActive {
+                Button { showAttachMenu = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(.body, weight: .semibold))
+                        .foregroundColor(LitterTheme.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .modifier(GlassCircleModifier())
+                }
+                .transition(.scale.combined(with: .opacity))
             }
 
             HStack(spacing: 0) {
                 TextField("Message litter...", text: $inputText, axis: .vertical)
                     .font(.system(.body))
-                    .foregroundColor(.white)
+                    .foregroundColor(LitterTheme.textPrimary)
                     .lineLimit(1...5)
                     .focused(inputFocused)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
-                    .padding(.leading, 14)
-                    .padding(.vertical, 8)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 10)
 
-                if isTurnActive {
-                    Button {
-                        Task { await serverManager.interrupt() }
-                    } label: {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(.title2))
-                            .foregroundColor(LitterTheme.danger)
-                    }
-                    .padding(.trailing, 4)
-                } else if hasText {
+                if hasText {
                     Button {
                         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !text.isEmpty else { return }
@@ -914,16 +914,135 @@ private struct ConversationInputBar: View {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(.title2))
                             .foregroundColor(LitterTheme.accent)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .padding(.trailing, 4)
+                } else if voiceManager.isRecording {
+                    AudioWaveformView(level: voiceManager.audioLevel)
+                        .frame(width: 48, height: 20)
+                    Button {
+                        Task {
+                            let auth = await serverManager.activeConnection?.getAuthToken()
+                            if let text = await voiceManager.stopAndTranscribe(
+                                authMethod: auth?.method, authToken: auth?.token
+                            ), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                inputText = text
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(.title2))
+                            .foregroundColor(LitterTheme.accentStrong)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .padding(.trailing, 4)
+                } else if voiceManager.isTranscribing {
+                    ProgressView()
+                        .tint(LitterTheme.accent)
+                        .padding(.trailing, 8)
+                } else {
+                    Button {
+                        Task {
+                            let granted = await voiceManager.requestMicPermission()
+                            guard granted else {
+                                showMicPermissionAlert = true
+                                return
+                            }
+                            voiceManager.startRecording()
+                        }
+                    } label: {
+                        Image(systemName: "mic.fill")
+                            .font(.system(.subheadline))
+                            .foregroundColor(LitterTheme.textSecondary)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                     }
                     .padding(.trailing, 4)
                 }
             }
-            .frame(minHeight: 32)
-            .modifier(GlassCapsuleModifier())
+            .frame(minHeight: 36)
+            .modifier(GlassRoundedRectModifier(cornerRadius: 20))
+
+            if isTurnActive {
+                Button {
+                    Task { await serverManager.interrupt() }
+                } label: {
+                    Text("Cancel")
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundColor(LitterTheme.textPrimary)
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .modifier(GlassCapsuleModifier())
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isTurnActive)
         .padding(.horizontal, 12)
         .padding(.top, 6)
-        .padding(.bottom, max(bottomInset, 8))
+        .padding(.bottom, 6)
+    }
+
+    @ViewBuilder
+    private var contextBar: some View {
+        let rateLimits = serverManager.activeConnection?.rateLimits
+        let contextPct = contextPercent(thread: serverManager.activeThread)
+        let hasAnything = rateLimits?.primary != nil || rateLimits?.secondary != nil || contextPct != nil
+
+        if hasAnything {
+            HStack(spacing: 4) {
+                if let primary = rateLimits?.primary {
+                    RateLimitBadgeView(
+                        label: formatWindowLabel(primary),
+                        percent: normalizedPercent(primary.usedPercent)
+                    )
+                }
+                if let secondary = rateLimits?.secondary {
+                    RateLimitBadgeView(
+                        label: formatWindowLabel(secondary),
+                        percent: normalizedPercent(secondary.usedPercent)
+                    )
+                }
+                if let percent = contextPct {
+                    ContextBadgeView(percent: Int(percent), tint: contextTint(percent: percent))
+                }
+            }
+            .padding(.trailing, 40)
+        }
+    }
+
+    private func normalizedPercent(_ raw: Double) -> Int {
+        let used = raw > 1 ? min(Int(raw), 100) : min(Int(raw * 100), 100)
+        return max(0, 100 - used)
+    }
+
+    private func formatWindowLabel(_ window: RateLimitWindow) -> String {
+        guard let mins = window.windowDurationMins else { return "" }
+        if mins >= 1440 { return "\(mins / 1440)d" }
+        if mins >= 60 { return "\(mins / 60)h" }
+        return "\(mins)m"
+    }
+
+    private func contextPercent(thread: ThreadState?) -> Int64? {
+        guard let thread, let contextWindow = thread.modelContextWindow else { return nil }
+        let baseline: Int64 = 12_000
+        guard contextWindow > baseline else { return 0 }
+        let totalTokens = thread.contextTokensUsed ?? baseline
+        let effectiveWindow = contextWindow - baseline
+        let usedTokens = max(0, totalTokens - baseline)
+        let remainingTokens = max(0, effectiveWindow - usedTokens)
+        let percent = Int64((Double(remainingTokens) / Double(effectiveWindow) * 100).rounded())
+        return min(max(percent, 0), 100)
+    }
+
+    private func contextTint(percent: Int64) -> Color {
+        switch percent {
+        case ...15: return LitterTheme.danger
+        case ...35: return LitterTheme.warning
+        default: return LitterTheme.success
+        }
     }
 
     private var slashSuggestionPopup: some View {
@@ -935,10 +1054,10 @@ private struct ConversationInputBar: View {
                     } label: {
                         HStack(spacing: 10) {
                             Text("/\(command.rawValue)")
-                                .font(LitterFont.monospaced(.body))
-                                .foregroundColor(Color(hex: "#6EA676"))
+                                .font(LitterFont.styled(.body))
+                                .foregroundColor(LitterTheme.success)
                             Text(command.description)
-                                .font(LitterFont.monospaced(.body))
+                                .font(LitterFont.styled(.body))
                                 .foregroundColor(LitterTheme.textSecondary)
                                 .lineLimit(1)
                             Spacer(minLength: 0)
@@ -960,21 +1079,21 @@ private struct ConversationInputBar: View {
         suggestionPopup {
             if fileSearchLoading {
                 Text("Searching files...")
-                    .font(LitterFont.monospaced(.footnote))
+                    .font(LitterFont.styled(.footnote))
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
             } else if let fileSearchError, !fileSearchError.isEmpty {
                 Text(fileSearchError)
-                    .font(LitterFont.monospaced(.footnote))
+                    .font(LitterFont.styled(.footnote))
                     .foregroundColor(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
             } else if fileSuggestions.isEmpty {
                 Text("No matches")
-                    .font(LitterFont.monospaced(.footnote))
+                    .font(LitterFont.styled(.footnote))
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
@@ -990,8 +1109,8 @@ private struct ConversationInputBar: View {
                                     .font(.system(.caption))
                                     .foregroundColor(LitterTheme.textSecondary)
                                 Text(suggestion.path)
-                                    .font(LitterFont.monospaced(.footnote))
-                                    .foregroundColor(.white)
+                                    .font(LitterFont.styled(.footnote))
+                                    .foregroundColor(LitterTheme.textPrimary)
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
@@ -1013,14 +1132,14 @@ private struct ConversationInputBar: View {
         suggestionPopup {
             if skillsLoading && skillSuggestions.isEmpty {
                 Text("Loading skills...")
-                    .font(LitterFont.monospaced(.footnote))
+                    .font(LitterFont.styled(.footnote))
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
             } else if skillSuggestions.isEmpty {
                 Text("No skills found")
-                    .font(LitterFont.monospaced(.footnote))
+                    .font(LitterFont.styled(.footnote))
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
@@ -1033,10 +1152,10 @@ private struct ConversationInputBar: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Text("$\(skill.name)")
-                                    .font(LitterFont.monospaced(.footnote))
-                                    .foregroundColor(Color(hex: "#6EA676"))
+                                    .font(LitterFont.styled(.footnote))
+                                    .foregroundColor(LitterTheme.success)
                                 Text(skill.description)
-                                    .font(LitterFont.monospaced(.footnote))
+                                    .font(LitterFont.styled(.footnote))
                                     .foregroundColor(LitterTheme.textSecondary)
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
@@ -1915,6 +2034,5 @@ struct CameraView: UIViewControllerRepresentable {
 #Preview("Conversation") {
     ContentView()
         .environmentObject(LitterPreviewData.makeServerManager(messages: LitterPreviewData.longConversation))
-        .preferredColorScheme(.dark)
 }
 #endif

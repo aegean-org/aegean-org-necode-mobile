@@ -2,6 +2,84 @@ import SwiftUI
 import MarkdownUI
 import Inject
 
+// MARK: - Reusable bubble components
+
+struct UserBubble: View {
+    let text: String
+    var images: [ChatImage] = []
+    var textScale: CGFloat = 1.0
+    var compact: Bool = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Spacer(minLength: compact ? 30 : 60)
+            VStack(alignment: .trailing, spacing: compact ? 4 : 8) {
+                ForEach(images) { img in
+                    if let uiImage = UserBubble.decodeImage(from: img.data, cacheKey: "user-\(img.id.uuidString)") {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 200, maxHeight: 200)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+                if !text.isEmpty {
+                    Text(text)
+                        .font(LitterFont.styled(compact ? .footnote : .callout, scale: textScale))
+                        .foregroundColor(LitterTheme.textPrimary)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.horizontal, compact ? 10 : 14)
+            .padding(.vertical, compact ? 6 : 10)
+            .modifier(GlassRectModifier(cornerRadius: compact ? 10 : 14, tint: LitterTheme.accent.opacity(0.3)))
+        }
+    }
+
+    private static let imageCache = NSCache<NSString, UIImage>()
+
+    private static func decodeImage(from data: Data, cacheKey: String) -> UIImage? {
+        let key = cacheKey as NSString
+        if let cached = imageCache.object(forKey: key) { return cached }
+        guard let image = UIImage(data: data) else { return nil }
+        imageCache.setObject(image, forKey: key)
+        return image
+    }
+}
+
+struct AssistantBubble: View {
+    let text: String
+    var label: String? = nil
+    var textScale: CGFloat = 1.0
+    var compact: Bool = false
+    @ScaledMetric(relativeTo: .body) private var mdBodySize: CGFloat = 14
+    @ScaledMetric(relativeTo: .footnote) private var mdCodeSize: CGFloat = 13
+
+    private var bodySize: CGFloat { (compact ? 12 : mdBodySize) * textScale }
+    private var codeSize: CGFloat { (compact ? 11 : mdCodeSize) * textScale }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: compact ? 4 : 8) {
+                if let label {
+                    Text(label)
+                        .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+                Markdown(text)
+                    .markdownTheme(.litter(bodySize: bodySize, codeSize: codeSize))
+                    .markdownCodeSyntaxHighlighter(.plain)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: compact ? 8 : 20)
+        }
+    }
+}
+
+// MARK: - Full message bubble (used in conversation)
+
 struct MessageBubbleView: View {
     @ObserveInjection var inject
     @EnvironmentObject var serverManager: ServerManager
@@ -37,19 +115,21 @@ struct MessageBubbleView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        Group {
             if message.role == .user {
-                Spacer(minLength: 60)
-                userBubble
+                userBubbleWithActions
             } else if message.role == .assistant {
                 assistantContent
-                Spacer(minLength: 20)
             } else if isReasoning {
-                reasoningContent
-                Spacer(minLength: 20)
+                HStack(alignment: .top, spacing: 0) {
+                    reasoningContent
+                    Spacer(minLength: 20)
+                }
             } else {
-                systemBubble
-                Spacer(minLength: 20)
+                HStack(alignment: .top, spacing: 0) {
+                    systemBubble
+                    Spacer(minLength: 20)
+                }
             }
         }
         .task(id: parseRefreshToken) {
@@ -75,67 +155,60 @@ struct MessageBubbleView: View {
             message.sourceTurnIndex != nil
     }
 
-    private var userBubble: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            ForEach(message.images) { img in
-                if let uiImage = decodedImage(from: img.data, cacheKey: "user-\(img.id.uuidString)") {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 200, maxHeight: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-            }
-            if !message.text.isEmpty {
-                Text(message.text)
-                    .font(LitterFont.monospaced(.callout, scale: textScale))
-                    .foregroundColor(.white)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .modifier(GlassRectModifier(cornerRadius: 14, tint: LitterTheme.accent.opacity(0.3)))
-        .contextMenu {
-            if supportsUserActions {
-                Button("Edit Message") {
-                    onEditUserMessage?(message)
-                }
-                .disabled(actionsDisabled || onEditUserMessage == nil)
+    private var userBubbleWithActions: some View {
+        UserBubble(text: message.text, images: message.images, textScale: textScale)
+            .contextMenu {
+                if supportsUserActions {
+                    Button("Edit Message") {
+                        onEditUserMessage?(message)
+                    }
+                    .disabled(actionsDisabled || onEditUserMessage == nil)
 
-                Button("Fork From Here") {
-                    onForkFromUserMessage?(message)
+                    Button("Fork From Here") {
+                        onForkFromUserMessage?(message)
+                    }
+                    .disabled(actionsDisabled || onForkFromUserMessage == nil)
                 }
-                .disabled(actionsDisabled || onForkFromUserMessage == nil)
             }
-        }
     }
 
+    @ViewBuilder
     private var assistantContent: some View {
         let parsed = assistantSegmentsForRendering
-        return VStack(alignment: .leading, spacing: 8) {
-            if let assistantLabel = assistantAgentLabel {
-                Text(assistantLabel)
-                    .font(LitterFont.monospaced(.caption2, weight: .semibold, scale: textScale))
-                    .foregroundColor(LitterTheme.textSecondary)
-            }
-            ForEach(parsed) { segment in
-                switch segment.kind {
-                case .text(let md):
-                    Markdown(md)
-                        .markdownTheme(.litter(bodySize: mdBodySize * textScale, codeSize: mdCodeSize * textScale))
-                        .markdownCodeSyntaxHighlighter(.plain)
-                        .textSelection(.enabled)
-                case .image(let uiImage):
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 300)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+        let hasImages = parsed.contains { if case .image = $0.kind { return true } else { return false } }
+
+        if !hasImages {
+            // Simple text-only path — use the reusable AssistantBubble
+            AssistantBubble(text: message.text, label: assistantAgentLabel, textScale: textScale)
+        } else {
+            // Inline images — need segment-based rendering
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let assistantLabel = assistantAgentLabel {
+                        Text(assistantLabel)
+                            .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                            .foregroundColor(LitterTheme.textSecondary)
+                    }
+                    ForEach(parsed) { segment in
+                        switch segment.kind {
+                        case .text(let md):
+                            Markdown(md)
+                                .markdownTheme(.litter(bodySize: mdBodySize * textScale, codeSize: mdCodeSize * textScale))
+                                .markdownCodeSyntaxHighlighter(.plain)
+                                .textSelection(.enabled)
+                        case .image(let uiImage):
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 300)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 20)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var assistantAgentLabel: String? {
@@ -148,7 +221,7 @@ struct MessageBubbleView: View {
     private var reasoningContent: some View {
         let (_, body) = extractSystemTitleAndBody(message.text)
         return Text(normalizedReasoningText(body))
-            .font(LitterFont.monospaced(.footnote, scale: textScale))
+            .font(LitterFont.styled(.footnote, scale: textScale))
             .italic()
             .foregroundColor(LitterTheme.textSecondary)
             .textSelection(.enabled)
@@ -177,7 +250,7 @@ struct MessageBubbleView: View {
                     .font(.system(.caption2, weight: .semibold))
                     .foregroundColor(LitterTheme.accent)
                 Text(displayTitle.uppercased())
-                    .font(LitterFont.monospaced(.caption2, weight: .bold, scale: textScale))
+                    .font(LitterFont.styled(.caption2, weight: .bold, scale: textScale))
                     .foregroundColor(LitterTheme.accent)
                 Spacer()
             }
@@ -410,7 +483,7 @@ extension MarkdownUI.Theme {
                     .markdownTextStyle {
                         FontWeight(.bold)
                         FontSize(bodySize * 1.43)
-                        ForegroundColor(.white)
+                        ForegroundColor(LitterTheme.textPrimary)
                     }
                     .markdownMargin(top: 16, bottom: 8)
             }
@@ -419,7 +492,7 @@ extension MarkdownUI.Theme {
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(bodySize * 1.21)
-                        ForegroundColor(.white)
+                        ForegroundColor(LitterTheme.textPrimary)
                     }
                     .markdownMargin(top: 12, bottom: 6)
             }
@@ -428,13 +501,13 @@ extension MarkdownUI.Theme {
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(bodySize * 1.07)
-                        ForegroundColor(.white)
+                        ForegroundColor(LitterTheme.textPrimary)
                     }
                     .markdownMargin(top: 10, bottom: 4)
             }
             .strong {
                 FontWeight(.semibold)
-                ForegroundColor(.white)
+                ForegroundColor(LitterTheme.textPrimary)
             }
             .emphasis {
                 FontStyle(.italic)
@@ -451,7 +524,8 @@ extension MarkdownUI.Theme {
             .codeBlock { configuration in
                 CodeBlockView(
                     language: configuration.language ?? "",
-                    code: configuration.content
+                    code: configuration.content,
+                    fontSize: codeSize
                 )
                 .markdownMargin(top: 8, bottom: 8)
             }
@@ -492,7 +566,7 @@ extension MarkdownUI.Theme {
                     .markdownTextStyle {
                         FontWeight(.bold)
                         FontSize(bodySize * 1.31)
-                        ForegroundColor(.white)
+                        ForegroundColor(LitterTheme.textPrimary)
                     }
                     .markdownMargin(top: 12, bottom: 6)
             }
@@ -501,7 +575,7 @@ extension MarkdownUI.Theme {
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(bodySize * 1.15)
-                        ForegroundColor(.white)
+                        ForegroundColor(LitterTheme.textPrimary)
                     }
                     .markdownMargin(top: 10, bottom: 4)
             }
@@ -510,13 +584,13 @@ extension MarkdownUI.Theme {
                     .markdownTextStyle {
                         FontWeight(.semibold)
                         FontSize(bodySize * 1.08)
-                        ForegroundColor(.white)
+                        ForegroundColor(LitterTheme.textPrimary)
                     }
                     .markdownMargin(top: 8, bottom: 4)
             }
             .strong {
                 FontWeight(.semibold)
-                ForegroundColor(.white)
+                ForegroundColor(LitterTheme.textPrimary)
             }
             .emphasis {
                 FontStyle(.italic)
@@ -533,7 +607,8 @@ extension MarkdownUI.Theme {
             .codeBlock { configuration in
                 CodeBlockView(
                     language: configuration.language ?? "",
-                    code: configuration.content
+                    code: configuration.content,
+                    fontSize: codeSize
                 )
                 .markdownMargin(top: 6, bottom: 6)
             }

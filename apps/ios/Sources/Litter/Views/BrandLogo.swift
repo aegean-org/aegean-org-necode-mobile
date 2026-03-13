@@ -5,7 +5,7 @@ struct BrandLogo: View {
     var size: CGFloat
 
     private var bundledLogo: UIImage? {
-        UIImage(named: "brand_logo") ?? UIImage(named: "brand_logo.png")
+        UIImage(named: "brand_logo")
     }
 
     var body: some View {
@@ -30,6 +30,5 @@ struct BrandLogo: View {
         LitterTheme.backgroundGradient.ignoresSafeArea()
         BrandLogo(size: 128)
     }
-    .preferredColorScheme(.dark)
 }
 #endif

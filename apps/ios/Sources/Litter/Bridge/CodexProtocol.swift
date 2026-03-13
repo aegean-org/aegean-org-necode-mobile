@@ -541,6 +541,42 @@ struct ThreadResumeResponse: Decodable {
     }
 }
 
+// MARK: - Thread Read
+
+struct ThreadReadParams: Encodable {
+    let threadId: String
+    var includeTurns: Bool? = true
+}
+
+struct ThreadReadResponse: Decodable {
+    let thread: ResumedThread
+    let model: String?
+    let modelProvider: String?
+    let cwd: String?
+    let reasoningEffort: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case thread
+        case model
+        case modelProvider
+        case modelProviderSnake = "model_provider"
+        case cwd
+        case reasoningEffort
+        case reasoningEffortSnake = "reasoning_effort"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        thread = try container.decode(ResumedThread.self, forKey: .thread)
+        model = try? container.decodeIfPresent(String.self, forKey: .model)
+        modelProvider = (try? container.decodeIfPresent(String.self, forKey: .modelProvider))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .modelProviderSnake))
+        cwd = try? container.decodeIfPresent(String.self, forKey: .cwd)
+        reasoningEffort = (try? container.decodeIfPresent(String.self, forKey: .reasoningEffort))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .reasoningEffortSnake))
+    }
+}
+
 struct ThreadForkParams: Encodable {
     let threadId: String
     var cwd: String?
@@ -679,21 +715,25 @@ struct ResumedThread: Decodable {
 struct ResumedTurn: Decodable {
     let id: String
     let items: [ResumedThreadItem]
+    let status: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
         case items
+        case status
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
         items = (try? container.decodeIfPresent([ResumedThreadItem].self, forKey: .items)) ?? []
+        status = try? container.decodeIfPresent(String.self, forKey: .status)
     }
 
     init(id: String, items: [ResumedThreadItem]) {
         self.id = id
         self.items = items
+        self.status = nil
     }
 }
 
@@ -1384,6 +1424,16 @@ struct GetAccountResponse: Decodable {
     }
 }
 
+struct GetAuthStatusParams: Encodable {
+    let includeToken: Bool
+    let refreshToken: Bool
+}
+
+struct GetAuthStatusResponse: Decodable {
+    let authMethod: String?
+    let authToken: String?
+}
+
 struct CancelLoginParams: Encodable {
     let loginId: String
 }
@@ -1396,4 +1446,36 @@ struct AccountLoginCompletedNotification: Decodable {
 
 struct AccountUpdatedNotification: Decodable {
     let authMode: String?   // "apiKey" | "chatgpt" | nil
+}
+
+// MARK: - Rate Limits
+
+struct RateLimitWindow: Decodable {
+    let usedPercent: Double
+    let windowDurationMins: Int?
+    let resetsAt: Double?
+}
+
+struct CreditsSnapshot: Decodable {
+    let hasCredits: Bool
+    let unlimited: Bool
+    let balance: String?
+}
+
+struct RateLimitSnapshot: Decodable {
+    let limitId: String?
+    let limitName: String?
+    let primary: RateLimitWindow?
+    let secondary: RateLimitWindow?
+    let credits: CreditsSnapshot?
+    let planType: String?
+}
+
+struct GetAccountRateLimitsResponse: Decodable {
+    let rateLimits: RateLimitSnapshot
+    let rateLimitsByLimitId: [String: RateLimitSnapshot]?
+}
+
+struct AccountRateLimitsUpdatedNotification: Decodable {
+    let rateLimits: RateLimitSnapshot
 }

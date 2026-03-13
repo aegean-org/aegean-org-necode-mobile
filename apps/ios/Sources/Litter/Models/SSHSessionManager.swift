@@ -247,14 +247,18 @@ actor SSHSessionManager {
         return ports
     }
 
+    private func loginShell(_ script: String) -> String {
+        let base64 = Data(script.utf8).base64EncodedString()
+        return "$SHELL -l -c \"$(echo \(base64) | base64 -d)\""
+    }
+
     private func resolveServerLaunchCommand(client: SSHClient) async throws -> ServerLaunchCommand? {
         let script = """
-        for f in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zprofile" "$HOME/.zshrc"; do
-          [ -f "$f" ] && . "$f" 2>/dev/null
-        done
         codex_path="$(command -v codex 2>/dev/null || true)"
         if [ -n "$codex_path" ] && [ -f "$codex_path" ] && [ -x "$codex_path" ]; then
           printf 'codex:%s' "$codex_path"
+        elif [ -x "$HOME/.bun/bin/codex" ]; then
+          printf 'codex:%s' "$HOME/.bun/bin/codex"
         elif [ -x "$HOME/.volta/bin/codex" ]; then
           printf 'codex:%s' "$HOME/.volta/bin/codex"
         elif [ -x "$HOME/.cargo/bin/codex" ]; then
@@ -268,7 +272,7 @@ actor SSHSessionManager {
           fi
         fi
         """
-        let output = String(buffer: try await client.executeCommand(script))
+        let output = String(buffer: try await client.executeCommand(loginShell(script)))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else { return nil }
         let parts = output.split(separator: ":", maxSplits: 1).map(String.init)
@@ -338,7 +342,7 @@ actor SSHSessionManager {
             helpCommand = "\(shellQuote(executable)) --help 2>&1 || true"
         }
 
-        let helpText = String(buffer: try await client.executeCommand(helpCommand))
+        let helpText = String(buffer: try await client.executeCommand(loginShell(helpCommand)))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !helpText.isEmpty else { return nil }
 
@@ -353,8 +357,7 @@ actor SSHSessionManager {
     }
 
     private func backgroundedLaunch(_ launch: String, logPath: String) -> String {
-        let profileInit = "for f in \"$HOME/.profile\" \"$HOME/.bash_profile\" \"$HOME/.bashrc\" \"$HOME/.zprofile\" \"$HOME/.zshrc\"; do [ -f \"$f\" ] && . \"$f\" 2>/dev/null; done;"
-        return "\(profileInit) nohup \(launch) </dev/null >\(shellQuote(logPath)) 2>&1 & echo $!"
+        loginShell("nohup \(launch) </dev/null >\(shellQuote(logPath)) 2>&1 & echo $!")
     }
 
     private func isPortListening(client: SSHClient, port: UInt16) async throws -> Bool {

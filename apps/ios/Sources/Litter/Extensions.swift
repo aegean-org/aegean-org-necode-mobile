@@ -13,30 +13,61 @@ extension Color {
     }
 }
 
+extension UIColor {
+    convenience init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r = CGFloat((int >> 16) & 0xFF) / 255
+        let g = CGFloat((int >> 8) & 0xFF) / 255
+        let b = CGFloat(int & 0xFF) / 255
+        self.init(red: r, green: g, blue: b, alpha: 1)
+    }
+}
+
 // MARK: - Central Theme
 
 enum LitterTheme {
-    static let accent       = Color(hex: "#B0B0B0")
-    static let accentStrong = Color(hex: "#00FF9C")
-    static let textPrimary  = Color.white
-    static let textSecondary = Color(hex: "#888888")
-    static let textMuted    = Color(hex: "#555555")
-    static let textBody     = Color(hex: "#E0E0E0")
-    static let textSystem   = Color(hex: "#C6D0CA")
-    static let surface      = Color(hex: "#1A1A1A")
-    static let surfaceLight = Color(hex: "#2A2A2A")
-    static let border       = Color(hex: "#333333")
-    static let separator    = Color(hex: "#1E1E1E")
-    static let danger       = Color(hex: "#FF5555")
-    static let success      = Color(hex: "#6EA676")
-    static let warning      = Color(hex: "#E2A644")
-    static let overlayScrim = Color.black.opacity(0.5)
+    private static var light: ResolvedTheme { ThemeStore.shared.light }
+    private static var dark: ResolvedTheme { ThemeStore.shared.dark }
 
-    static let gradientColors: [Color] = [
-        Color(hex: "#0A0A0A"),
-        Color(hex: "#0F0F0F"),
-        Color(hex: "#080808")
-    ]
+    static func adaptive(light: String, dark: String) -> Color {
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: dark) : UIColor(hex: light) })
+    }
+
+    static var accent: Color        { adaptive(light: light.accent, dark: dark.accent) }
+    static var accentStrong: Color   { adaptive(light: light.accentStrong, dark: dark.accentStrong) }
+    static var textPrimary: Color    { adaptive(light: light.textPrimary, dark: dark.textPrimary) }
+    static var textSecondary: Color  { adaptive(light: light.textSecondary, dark: dark.textSecondary) }
+    static var textMuted: Color      { adaptive(light: light.textMuted, dark: dark.textMuted) }
+    static var textBody: Color       { adaptive(light: light.textBody, dark: dark.textBody) }
+    static var textSystem: Color     { adaptive(light: light.textSystem, dark: dark.textSystem) }
+    static var surface: Color        { adaptive(light: light.surface, dark: dark.surface) }
+    static var surfaceLight: Color   { adaptive(light: light.surfaceLight, dark: dark.surfaceLight) }
+    static var border: Color         { adaptive(light: light.border, dark: dark.border) }
+    static var separator: Color      { adaptive(light: light.separator, dark: dark.separator) }
+    static var danger: Color         { adaptive(light: light.danger, dark: dark.danger) }
+    static var success: Color        { adaptive(light: light.success, dark: dark.success) }
+    static var warning: Color        { adaptive(light: light.warning, dark: dark.warning) }
+    static var textOnAccent: Color   { adaptive(light: light.textOnAccent, dark: dark.textOnAccent) }
+    static var codeBackground: Color { adaptive(light: light.codeBackground, dark: dark.codeBackground) }
+
+    static let overlayScrim: Color = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.black.withAlphaComponent(0.5)
+            : UIColor.black.withAlphaComponent(0.3)
+    })
+
+    static var gradientColors: [Color] {
+        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
+        let theme = isDark ? dark : light
+        let bg = theme.background
+        return [
+            Color(hex: bg),
+            Color(hex: ResolvedTheme.adjustBrightness(bg, by: isDark ? 0.02 : -0.01)),
+            Color(hex: ResolvedTheme.adjustBrightness(bg, by: isDark ? -0.01 : 0.01)),
+        ]
+    }
 
     static var backgroundGradient: LinearGradient {
         LinearGradient(
@@ -45,14 +76,60 @@ enum LitterTheme {
             endPoint: .bottomTrailing
         )
     }
+
+    static var headerScrim: [Color] {
+        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
+        let bg = isDark ? dark.background : light.background
+        let bgColor = Color(hex: bg)
+        return [bgColor.opacity(0.7), bgColor.opacity(0.3), .clear]
+    }
+}
+
+enum FontFamilyOption: String, CaseIterable, Identifiable {
+    case mono = "mono"
+    case system = "system"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .mono: return "Monospaced"
+        case .system: return "System (SF Pro)"
+        }
+    }
+
+    var isMono: Bool { self == .mono }
 }
 
 enum LitterFont {
     private static let berkeleyRegular = "BerkeleyMono-Regular"
     private static let berkeleyBold = "BerkeleyMono-Bold"
 
+    static var storedFamily: FontFamilyOption {
+        let raw = UserDefaults.standard.string(forKey: "fontFamily") ?? "mono"
+        return FontFamilyOption(rawValue: raw) ?? .mono
+    }
+
     static var markdownFontName: String {
-        preferredFontName(weight: .regular) ?? "SFMono-Regular"
+        switch storedFamily {
+        case .mono:
+            return preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
+        case .system:
+            return ".AppleSystemUIFont"
+        }
+    }
+
+    static func styled(
+        _ style: Font.TextStyle,
+        weight: Font.Weight = .regular,
+        scale: CGFloat = 1.0
+    ) -> Font {
+        let pointSize = UIFont.preferredFont(forTextStyle: style.uiTextStyle).pointSize * scale
+        return styled(size: pointSize, weight: weight, relativeTo: style)
+    }
+
+    static func styled(size: CGFloat, weight: Font.Weight = .regular, scale: CGFloat = 1.0) -> Font {
+        styled(size: size * scale, weight: weight, relativeTo: nil)
     }
 
     static func monospaced(
@@ -61,15 +138,25 @@ enum LitterFont {
         scale: CGFloat = 1.0
     ) -> Font {
         let pointSize = UIFont.preferredFont(forTextStyle: style.uiTextStyle).pointSize * scale
-        return monospaced(size: pointSize, weight: weight, relativeTo: style)
+        return monoFont(size: pointSize, weight: weight, relativeTo: style)
     }
 
     static func monospaced(size: CGFloat, weight: Font.Weight = .regular, scale: CGFloat = 1.0) -> Font {
-        monospaced(size: size * scale, weight: weight, relativeTo: nil)
+        monoFont(size: size * scale, weight: weight, relativeTo: nil)
     }
 
-    private static func monospaced(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
-        if let fontName = preferredFontName(weight: weight) {
+    private static func styled(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
+        if storedFamily.isMono {
+            return monoFont(size: size, weight: weight, relativeTo: style)
+        }
+        if let style {
+            return .system(style, weight: weight)
+        }
+        return .system(size: size, weight: weight)
+    }
+
+    private static func monoFont(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
+        if let fontName = preferredMonoFontName(weight: weight) {
             if let style {
                 return .custom(fontName, size: size, relativeTo: style)
             }
@@ -81,7 +168,7 @@ enum LitterFont {
         return .system(size: size, weight: weight, design: .monospaced)
     }
 
-    private static func preferredFontName(weight: Font.Weight) -> String? {
+    private static func preferredMonoFontName(weight: Font.Weight) -> String? {
         let preferred = isBold(weight: weight) ? berkeleyBold : berkeleyRegular
         if UIFont(name: preferred, size: 12) != nil {
             return preferred
@@ -99,6 +186,20 @@ enum LitterFont {
         default:
             return false
         }
+    }
+
+    static func uiMonoFont(size: CGFloat, bold: Bool = false) -> UIFont {
+        let name = bold
+            ? preferredMonoFontName(weight: .bold) ?? "SFMono-Bold"
+            : preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
+        return UIFont(name: name, size: size) ?? UIFont.monospacedSystemFont(ofSize: size, weight: bold ? .bold : .regular)
+    }
+
+    static func sampleFont(family: FontFamilyOption, size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        if family.isMono {
+            return monoFont(size: size, weight: weight, relativeTo: nil)
+        }
+        return .system(size: size, weight: weight)
     }
 }
 
@@ -166,12 +267,26 @@ struct GlassRectModifier: ViewModifier {
             }
         } else {
             content
-                .background(LitterTheme.surface.opacity(0.9))
+                .background(LitterTheme.surfaceLight.opacity(0.9))
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke((tint ?? LitterTheme.surfaceLight).opacity(0.4), lineWidth: 1)
+                        .stroke((tint ?? LitterTheme.border).opacity(0.4), lineWidth: 1)
                 )
+        }
+    }
+}
+
+struct GlassRoundedRectModifier: ViewModifier {
+    var cornerRadius: CGFloat = 16
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content
+                .background(LitterTheme.surfaceLight)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
     }
 }
