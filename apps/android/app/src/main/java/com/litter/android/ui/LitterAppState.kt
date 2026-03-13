@@ -91,6 +91,7 @@ data class DiscoveryUiState(
     val isVisible: Boolean = false,
     val isLoading: Boolean = false,
     val servers: List<UiDiscoveredServer> = emptyList(),
+    val reconfiguringServerId: String? = null,
     val manualBackendKind: BackendKind = BackendKind.CODEX,
     val manualHost: String = "",
     val manualPort: String = "8390",
@@ -121,6 +122,7 @@ data class UiShellState(
     val isSidebarOpen: Boolean = false,
     val connectionStatus: ServerConnectionStatus = ServerConnectionStatus.DISCONNECTED,
     val connectionError: String? = null,
+    val activeThreadStatusMessage: String? = null,
     val connectedServers: List<ServerConfig> = emptyList(),
     val savedServers: List<SavedServer> = emptyList(),
     val activeServerId: String? = null,
@@ -223,7 +225,10 @@ interface LitterAppState : Closeable {
 
     fun clearRecentDirectories()
 
-    fun sendDraft(skillMentions: List<SkillMentionInput> = emptyList())
+    fun sendDraft(
+        draft: String? = null,
+        skillMentions: List<SkillMentionInput> = emptyList(),
+    )
 
     fun interrupt()
 
@@ -838,9 +843,12 @@ class DefaultLitterAppState(
         }
     }
 
-    override fun sendDraft(skillMentions: List<SkillMentionInput>) {
+    override fun sendDraft(
+        draft: String?,
+        skillMentions: List<SkillMentionInput>,
+    ) {
         val snapshot = _uiState.value
-        val prompt = snapshot.draft.trim()
+        val prompt = (draft ?: snapshot.draft).trim()
         if (prompt.isEmpty() || snapshot.isSending) {
             return
         }
@@ -1207,6 +1215,7 @@ class DefaultLitterAppState(
                 discovery =
                     it.discovery.copy(
                         isVisible = true,
+                        reconfiguringServerId = null,
                         manualBackendKind = server?.backendKind ?: it.discovery.manualBackendKind,
                         manualHost = server?.host ?: it.discovery.manualHost,
                         manualPort = server?.port?.toString() ?: it.discovery.manualPort,
@@ -1229,7 +1238,7 @@ class DefaultLitterAppState(
         discoveryScanVersion.incrementAndGet()
         _uiState.update {
             it.copy(
-                discovery = it.discovery.copy(isVisible = false, errorMessage = null),
+                discovery = it.discovery.copy(isVisible = false, errorMessage = null, reconfiguringServerId = null),
                 sshLogin = it.sshLogin.copy(isVisible = false, isConnecting = false, errorMessage = null),
             )
         }
@@ -1331,7 +1340,7 @@ class DefaultLitterAppState(
             }
             result.onSuccess {
                 _uiState.update {
-                    it.copy(discovery = it.discovery.copy(isVisible = false, errorMessage = null))
+                    it.copy(discovery = it.discovery.copy(isVisible = false, errorMessage = null, reconfiguringServerId = null))
                 }
                 postConnectPrime()
             }
@@ -1399,6 +1408,7 @@ class DefaultLitterAppState(
         val snapshot = _uiState.value.discovery
         val host = snapshot.manualHost.trim()
         val port = snapshot.manualPort.trim().toIntOrNull()
+        val reconfiguringServerId = snapshot.reconfiguringServerId?.trim()?.takeIf { it.isNotEmpty() }
         if (host.isEmpty() || port == null || port <= 0) {
             setUiError("Enter a valid host and port")
             return
@@ -1422,13 +1432,17 @@ class DefaultLitterAppState(
             result.onFailure { error ->
                 setUiError(error.message ?: "Manual connection failed")
             }
-            result.onSuccess {
+            result.onSuccess { connectedServer ->
+                if (reconfiguringServerId != null && reconfiguringServerId != connectedServer.id) {
+                    serverManager.removeSavedServer(reconfiguringServerId)
+                }
                 _uiState.update {
                     it.copy(
                         discovery =
                             it.discovery.copy(
                                 isVisible = false,
                                 errorMessage = null,
+                                reconfiguringServerId = null,
                                 manualHost = "",
                                 manualPort = if (snapshot.manualBackendKind == BackendKind.OPENCODE) "4096" else "8390",
                                 manualUsername = "",
@@ -1666,7 +1680,7 @@ class DefaultLitterAppState(
                     connectResult.onSuccess {
                         _uiState.update {
                             it.copy(
-                                discovery = it.discovery.copy(isVisible = false, errorMessage = null),
+                                discovery = it.discovery.copy(isVisible = false, errorMessage = null, reconfiguringServerId = null),
                                 sshLogin = SshLoginUiState(),
                             )
                         }
@@ -1722,6 +1736,7 @@ class DefaultLitterAppState(
                 discovery =
                     it.discovery.copy(
                         isVisible = true,
+                        reconfiguringServerId = saved?.id,
                         manualBackendKind = if (saved != null) BackendKind.from(saved.backendKind) else it.discovery.manualBackendKind,
                         manualHost = saved?.host ?: it.discovery.manualHost,
                         manualPort = saved?.port?.toString() ?: it.discovery.manualPort,
@@ -1733,10 +1748,6 @@ class DefaultLitterAppState(
                 showSettings = false,
                 showAccount = false,
             )
-        }
-        // Remove the old saved entry so connecting creates a fresh one with updated config
-        if (saved != null) {
-            serverManager.removeSavedServer(serverId)
         }
         refreshDiscovery()
     }
@@ -1971,6 +1982,7 @@ class DefaultLitterAppState(
             current.copy(
                 connectionStatus = backend.connectionStatus,
                 connectionError = backend.connectionError,
+                activeThreadStatusMessage = activeThread?.lastError ?: backend.connectionError,
                 connectedServers = backend.servers,
                 savedServers = backend.savedServers,
                 activeServerId = activeServerId,

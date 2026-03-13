@@ -1,5 +1,6 @@
 package com.litter.android.state
 
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -15,15 +16,22 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class OpenCodeClient(
     private val server: ServerConfig,
 ) : Closeable {
+    private companion object {
+        private const val DEFAULT_READ_TIMEOUT_MS = 20_000
+        private const val LOG_TAG = "LitterOpenCode"
+    }
+
     private val closed = AtomicBoolean(false)
     private var eventThread: Thread? = null
     private var eventConnection: HttpURLConnection? = null
 
     fun connect() {
+        Log.d(LOG_TAG, "health check start server=${server.id} host=${server.host}:${server.port}")
         val response = request("GET", "/global/health")
         if (!response.optBoolean("healthy", false)) {
             throw IllegalStateException("OpenCode server is not healthy")
         }
+        Log.d(LOG_TAG, "health check ok server=${server.id}")
     }
 
     fun currentDirectory(): String? =
@@ -103,16 +111,10 @@ internal class OpenCodeClient(
 
     fun sendPrompt(
         sessionId: String,
-        text: String,
+        parts: JSONArray,
         model: JSONObject? = null,
         agent: String? = null,
     ) {
-        val parts =
-            JSONArray().put(
-                JSONObject()
-                    .put("type", "text")
-                    .put("text", text),
-            )
         val body =
             JSONObject()
                 .put("parts", parts)
@@ -150,7 +152,7 @@ internal class OpenCodeClient(
         )
 
     fun abort(sessionId: String) {
-        request("POST", "/session/$sessionId/abort", JSONObject())
+        requestRaw("POST", "/session/$sessionId/abort", JSONObject(), expectedStatus = null)
     }
 
     fun shareSession(sessionId: String): JSONObject =
@@ -240,12 +242,13 @@ internal class OpenCodeClient(
                 while (!closed.get()) {
                     var connection: HttpURLConnection? = null
                     try {
-                        connection = openConnection("/event", "GET")
+                        connection = openConnection("/event", "GET", readTimeoutMs = 0)
                         connection.setRequestProperty("Accept", "text/event-stream")
                         connection.connect()
                         if (connection.responseCode !in 200..299) {
                             throw IllegalStateException("OpenCode event stream failed with HTTP ${connection.responseCode}")
                         }
+                        Log.d(LOG_TAG, "event stream connected server=${server.id}")
                         eventConnection = connection
                         val reader =
                             BufferedReader(
@@ -258,7 +261,11 @@ internal class OpenCodeClient(
                                 if (data.isNotEmpty()) {
                                     val payload = data.toString().trim()
                                     if (payload.isNotEmpty()) {
-                                        onEvent(JSONObject(payload))
+                                        val json = JSONObject(payload)
+                                        val eventPayload = json.optJSONObject("payload") ?: json
+                                        val eventType = eventPayload.optString("type").ifBlank { "unknown" }
+                                        Log.d(LOG_TAG, "event server=${server.id} type=$eventType")
+                                        onEvent(json)
                                     }
                                     data.setLength(0)
                                 }
@@ -272,6 +279,7 @@ internal class OpenCodeClient(
                         if (closed.get()) {
                             return@Thread
                         }
+                        Log.w(LOG_TAG, "event stream disconnected server=${server.id}, retrying")
                         Thread.sleep(500L)
                     } finally {
                         connection?.disconnect()
@@ -332,6 +340,7 @@ internal class OpenCodeClient(
         body: JSONObject?,
         expectedStatus: Int?,
     ): String {
+        Log.d(LOG_TAG, "request start server=${server.id} method=$method path=$path")
         val connection = openConnection(path, method)
         return try {
             if (body != null) {
@@ -343,11 +352,14 @@ internal class OpenCodeClient(
             val status = connection.responseCode
             if (expectedStatus != null) {
                 if (status != expectedStatus) {
+                    Log.w(LOG_TAG, "request failed server=${server.id} method=$method path=$path status=$status")
                     throw IllegalStateException(readError(connection, status))
                 }
             } else if (status !in 200..299) {
+                Log.w(LOG_TAG, "request failed server=${server.id} method=$method path=$path status=$status")
                 throw IllegalStateException(readError(connection, status))
             }
+            Log.d(LOG_TAG, "request ok server=${server.id} method=$method path=$path status=$status")
             BufferedReader(InputStreamReader(connection.inputStream, StandardCharsets.UTF_8)).use { reader ->
                 reader.readText()
             }
@@ -370,6 +382,7 @@ internal class OpenCodeClient(
     private fun openConnection(
         path: String,
         method: String,
+        readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS,
     ): HttpURLConnection {
         val baseUrl =
             if (server.host.contains("://")) {
@@ -388,7 +401,7 @@ internal class OpenCodeClient(
         return (baseUrl.openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 8_000
-            readTimeout = 0
+            readTimeout = readTimeoutMs
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json")
             server.username

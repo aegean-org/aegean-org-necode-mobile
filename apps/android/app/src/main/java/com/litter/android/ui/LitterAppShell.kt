@@ -303,10 +303,7 @@ fun LitterAppShell(
                     onForkConversation = appState::forkConversation,
                     onEditMessage = appState::editMessage,
                     onForkFromMessage = appState::forkConversationFromMessage,
-                    onSend = { payloadDraft, skillMentions ->
-                        appState.updateDraft(payloadDraft)
-                        appState.sendDraft(skillMentions)
-                    },
+                    onSend = { payloadDraft, skillMentions -> appState.sendDraft(payloadDraft, skillMentions) },
                     onInterrupt = appState::interrupt,
                 )
             }
@@ -4113,23 +4110,20 @@ private fun InputBar(
         }
 
     LaunchedEffect(draft) {
-        if (draft != lastCommittedDraft) {
-            lastCommittedDraft = draft
+        if (draft == composerValue.text) {
+            if (draft != lastCommittedDraft) {
+                lastCommittedDraft = draft
+            }
+            return@LaunchedEffect
         }
-        if (draft != composerValue.text && draft == lastCommittedDraft) {
-            val cursor = composerValue.selection.start.coerceIn(0, draft.length)
-            val synced = TextFieldValue(text = draft, selection = TextRange(cursor))
-            composerValue = synced
-            refreshComposerPopups(synced)
-        }
-    }
-
-    LaunchedEffect(composerValue.text) {
-        val pendingDraft = composerValue.text
-        delay(180L)
-        if (pendingDraft == composerValue.text) {
-            commitDraftIfNeeded(pendingDraft)
-        }
+        lastCommittedDraft = draft
+        val synced =
+            TextFieldValue(
+                text = draft,
+                selection = TextRange(draft.length),
+            )
+        composerValue = synced
+        refreshComposerPopups(synced)
     }
 
     DisposableEffect(Unit) {
@@ -5058,6 +5052,7 @@ private fun InputBar(
                         value = composerValue,
                         onValueChange = { nextValue ->
                             composerValue = nextValue
+                            commitDraftIfNeeded(nextValue.text)
                             refreshComposerPopups(nextValue)
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -5093,7 +5088,8 @@ private fun InputBar(
                             .clip(CircleShape)
                             .background(if (canSend) LitterTheme.accent else Color.Transparent)
                             .clickable(enabled = canSend) {
-                                val trimmed = composerValue.text.trim()
+                                val currentDraft = composerValue.text
+                                val trimmed = currentDraft.trim()
                                 if (attachedImagePath == null) {
                                     if (activeBackendKind == BackendKind.OPENCODE) {
                                         val invocation = parseOpenCodeSlashInvocation(trimmed, activeSlashEntries)
@@ -5129,9 +5125,10 @@ private fun InputBar(
                                 }
                                 focusManager.clearFocus(force = true)
                                 keyboardController?.hide()
-                                commitDraftIfNeeded(composerValue.text)
-                                val skillMentions = collectSkillMentionsForSubmission(composerValue.text)
-                                onSend(composerValue.text, skillMentions)
+                                composerValue = TextFieldValue(text = "", selection = TextRange(0))
+                                commitDraftIfNeeded("")
+                                val skillMentions = collectSkillMentionsForSubmission(currentDraft)
+                                onSend(currentDraft, skillMentions)
                                 hideComposerPopups()
                             },
                         contentAlignment = Alignment.Center,

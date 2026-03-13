@@ -2,11 +2,12 @@ package com.litter.android.state
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
-import android.net.Uri
+import android.util.Log
 import com.litter.android.core.bridge.CodexRpcClient
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,6 +50,9 @@ class ServerManager(
     companion object {
         private const val OPENAI_AUTH_ISSUER = "https://auth.openai.com"
         private const val OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+        private const val OPEN_CODE_LOG_TAG = "LitterOpenCode"
+        private const val OPEN_CODE_POLL_INTERVAL_MS = 1_000L
+        private const val OPEN_CODE_POLL_MAX_ATTEMPTS = 30
     }
     private val listeners = CopyOnWriteArrayList<(AppState) -> Unit>()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -65,6 +69,8 @@ class ServerManager(
     private val selectedAgentByServerId = LinkedHashMap<String, String?>()
     private val liveItemMessageIndices = LinkedHashMap<ThreadKey, MutableMap<String, Int>>()
     private val liveTurnDiffMessageIndices = LinkedHashMap<ThreadKey, MutableMap<String, Int>>()
+    private val openCodePollingKeys = HashSet<ThreadKey>()
+    private val openCodeInterruptedKeys = HashSet<ThreadKey>()
     private val serversUsingItemNotifications = HashSet<String>()
     private val threadTurnCounts = LinkedHashMap<ThreadKey, Int>()
     private val pendingApprovalsById = LinkedHashMap<String, PendingApproval>()
@@ -74,6 +80,8 @@ class ServerManager(
     private val appContext = context?.applicationContext
     private val bundledAuthStore: BundledAuthStore? =
         appContext?.let { ctx -> runCatching { BundledAuthStore(ctx) }.getOrNull() }
+    private val savedServerCredentialStore: SavedServerCredentialStore? =
+        appContext?.let(::SavedServerCredentialStore)
     private val savedServersPreferences by lazy {
         appContext?.getSharedPreferences("litter_saved_servers", Context.MODE_PRIVATE)
     }
@@ -834,6 +842,10 @@ class ServerManager(
                     val directory = normalizedServer.directory ?: initialClient.currentDirectory()
                     initialClient.close()
                     val scopedServer = normalizedServer.copy(directory = directory)
+                    Log.d(
+                        OPEN_CODE_LOG_TAG,
+                        "connect server=${scopedServer.id} host=${scopedServer.host}:${scopedServer.port} directory=${scopedServer.directory.orEmpty()}",
+                    )
                     val client = OpenCodeClient(scopedServer)
                     client.connect()
                     client.subscribeEvents { event ->
@@ -3164,7 +3176,11 @@ class ServerManager(
         if (serversById[serverId]?.backendKind == BackendKind.OPENCODE) {
             sendOpenCodeMessageInternal(
                 key = key,
-                text = trimmed,
+                parts = buildOpenCodePromptParts(
+                    text = trimmed,
+                    localImageDataUrl = localImageDataUrl,
+                    localImagePath = normalizedLocalImagePath,
+                ),
                 cwd = cwd,
                 userVisibleText = userVisibleText,
                 modelSelection = modelSelection,
@@ -3346,6 +3362,8 @@ class ServerManager(
     private fun interruptInternal() {
         val key = state.activeThreadKey ?: return
         if (serversById[key.serverId]?.backendKind == BackendKind.OPENCODE) {
+            openCodeInterruptedKeys.add(key)
+            openCodePollingKeys.remove(key)
             requireOpenCodeClient(key.serverId).abort(key.threadId)
             val existing = threadsByKey[key] ?: return
             threadsByKey[key] =
@@ -3354,8 +3372,9 @@ class ServerManager(
                     activeTurnId = null,
                     updatedAtEpochMillis = System.currentTimeMillis(),
                     messages = finalizeStreaming(existing.messages),
+                    lastError = null,
                 )
-            updateState { it }
+            updateState { it.copy(connectionError = null) }
             return
         }
         val activeTurnId = threadsByKey[key]?.activeTurnId?.trim().takeIf { !it.isNullOrEmpty() }
@@ -3394,14 +3413,7 @@ class ServerManager(
         if (!file.exists() || !file.isFile) {
             return null
         }
-        val mimeType =
-            when (file.extension.lowercase(Locale.US)) {
-                "png" -> "image/png"
-                "webp" -> "image/webp"
-                "gif" -> "image/gif"
-                "jpg", "jpeg" -> "image/jpeg"
-                else -> "image/jpeg"
-            }
+        val mimeType = localImageMimeType(path)
         return runCatching {
             val bytes = file.readBytes()
             if (bytes.isEmpty()) {
@@ -6035,23 +6047,39 @@ class ServerManager(
     ) {
         val payload = event.optJSONObject("payload") ?: event
         val type = payload.optString("type")
+        Log.d(OPEN_CODE_LOG_TAG, "handle event server=$serverId type=$type")
         if (type == "server.connected" || type == "server.heartbeat") {
             return
         }
         if (type == "session.status") {
             val props = payload.optJSONObject("properties")
             val threadId = props?.optString("sessionID")?.trim().orEmpty()
-            val status = props?.optJSONObject("status")
+            val status = props?.opt("status").asOpenCodeStatusObject()
+            Log.d(
+                OPEN_CODE_LOG_TAG,
+                "session status server=$serverId thread=$threadId status=${status?.optString("type").orEmpty()} interrupted=${openCodeInterruptedKeys.contains(ThreadKey(serverId, threadId))}",
+            )
             if (threadId.isNotEmpty()) {
                 val key = ThreadKey(serverId, threadId)
                 val thread = threadsByKey[key]
                 if (thread != null) {
+                    val (nextStatus, statusMessage) = resolveOpenCodeThreadUiState(key, status)
                     threadsByKey[key] =
                         thread.copy(
-                            status = mapOpenCodeThreadStatus(status),
+                            status = nextStatus,
+                            lastError = statusMessage,
                             updatedAtEpochMillis = System.currentTimeMillis(),
                         )
-                    updateState { it }
+                    updateState { current ->
+                        current.copy(
+                            connectionError =
+                                if (current.activeThreadKey == key) {
+                                    statusMessage
+                                } else {
+                                    current.connectionError
+                                },
+                        )
+                    }
                 }
             }
         }
@@ -6071,12 +6099,14 @@ class ServerManager(
             val key = ThreadKey(server.id, threadId)
             authoritativeKeys += key
             val existing = threadsByKey[key]
+            val status = statuses.optJSONObject(threadId)
+            val (nextStatus, statusMessage) = resolveOpenCodeThreadUiState(key, status)
             threadsByKey[key] =
                 ThreadState(
                     key = key,
                     serverName = server.name,
                     serverSource = server.source,
-                    status = mapOpenCodeThreadStatus(statuses.optJSONObject(threadId)),
+                    status = nextStatus,
                     messages = existing?.messages ?: emptyList(),
                     preview = item.optString("title").trim().ifBlank { existing?.preview.orEmpty() },
                     cwd = server.directory ?: existing?.cwd.orEmpty(),
@@ -6085,7 +6115,7 @@ class ServerManager(
                     rootThreadId = existing?.rootThreadId,
                     updatedAtEpochMillis = parseOpenCodeUpdatedAt(item),
                     activeTurnId = null,
-                    lastError = null,
+                    lastError = statusMessage,
                 )
         }
         refreshOpenCodeMetadataInternal(server.id)
@@ -6417,7 +6447,7 @@ class ServerManager(
 
     private fun sendOpenCodeMessageInternal(
         key: ThreadKey,
-        text: String,
+        parts: JSONArray,
         cwd: String,
         userVisibleText: String,
         modelSelection: ModelSelection,
@@ -6435,8 +6465,36 @@ class ServerManager(
         updateState { it.copy(activeThreadKey = key, activeServerId = key.serverId, currentCwd = cwd, connectionError = null) }
         val model = openCodePromptModel(modelSelection.modelId ?: state.selectedModel.modelId)
         val agent = selectedAgentByServerId[key.serverId]?.trim()?.takeIf { it.isNotEmpty() }
-        requireOpenCodeClient(key.serverId).sendPrompt(key.threadId, text, model = model, agent = agent)
-        refreshOpenCodeInteractions(key.serverId)
+        openCodeInterruptedKeys.remove(key)
+        try {
+            Log.d(
+                OPEN_CODE_LOG_TAG,
+                "send prompt server=${key.serverId} thread=${key.threadId} parts=${parts.length()} model=${model?.toString().orEmpty()} agent=${agent.orEmpty()}",
+            )
+            requireOpenCodeClient(key.serverId).sendPrompt(key.threadId, parts, model = model, agent = agent)
+        } catch (error: Throwable) {
+            Log.e(
+                OPEN_CODE_LOG_TAG,
+                "send prompt failed server=${key.serverId} thread=${key.threadId}: ${error.message}",
+                error,
+            )
+            val latest = threadsByKey[key] ?: return
+            threadsByKey[key] =
+                latest.copy(
+                    status = ThreadStatus.ERROR,
+                    lastError = error.message ?: "Failed to send prompt",
+                    activeTurnId = null,
+                    updatedAtEpochMillis = System.currentTimeMillis(),
+                    messages = finalizeStreaming(latest.messages),
+                )
+            updateState {
+                it.copy(connectionError = error.message ?: "Failed to send prompt")
+            }
+            throw error
+        }
+        Log.d(OPEN_CODE_LOG_TAG, "send prompt accepted server=${key.serverId} thread=${key.threadId}")
+        runCatching { refreshOpenCodeInteractions(key.serverId) }
+        startOpenCodePolling(key)
     }
 
     private fun parseOpenCodeUpdatedAt(item: JSONObject): Long {
@@ -6448,9 +6506,146 @@ class ServerManager(
 
     private fun mapOpenCodeThreadStatus(status: JSONObject?): ThreadStatus {
         return when (status?.optString("type")?.lowercase(Locale.ROOT)) {
-            "busy", "running", "pending" -> ThreadStatus.THINKING
+            "busy", "running", "pending", "retry" -> ThreadStatus.THINKING
             "error", "failed" -> ThreadStatus.ERROR
             else -> ThreadStatus.READY
+        }
+    }
+
+    private fun Any?.asOpenCodeStatusObject(): JSONObject? {
+        return when (this) {
+            is JSONObject -> this
+            is String -> this.trim().takeIf { it.isNotEmpty() }?.let { JSONObject().put("type", it) }
+            else -> null
+        }
+    }
+
+    private fun resolveOpenCodeThreadUiState(
+        key: ThreadKey,
+        status: JSONObject?,
+    ): Pair<ThreadStatus, String?> {
+        val nextStatus = mapOpenCodeThreadStatus(status)
+        val statusMessage = openCodeStatusMessage(status)
+        if (nextStatus == ThreadStatus.THINKING && openCodeInterruptedKeys.contains(key)) {
+            return ThreadStatus.READY to null
+        }
+        if (nextStatus != ThreadStatus.THINKING) {
+            openCodeInterruptedKeys.remove(key)
+        }
+        return nextStatus to statusMessage
+    }
+
+    private fun openCodeStatusMessage(status: JSONObject?): String? {
+        val type = status?.optString("type")?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        val message =
+            status?.optString("message")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: status?.optString("error")
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+        return when (type) {
+            "busy", "running", "pending" -> message ?: "Generating response..."
+            "retry" -> {
+                val attempt = status?.optInt("attempt", 0)?.takeIf { it > 0 }
+                val prefix = if (attempt != null) "Retrying request ($attempt)" else "Retrying request"
+                message?.let { "$prefix: $it" } ?: prefix
+            }
+            "error", "failed" -> message ?: "OpenCode request failed"
+            else -> null
+        }
+    }
+
+    private fun startOpenCodePolling(
+        key: ThreadKey,
+        remainingAttempts: Int = OPEN_CODE_POLL_MAX_ATTEMPTS,
+    ) {
+        if (!openCodePollingKeys.add(key)) {
+            return
+        }
+        scheduleOpenCodePoll(key, remainingAttempts)
+    }
+
+    private fun scheduleOpenCodePoll(
+        key: ThreadKey,
+        remainingAttempts: Int,
+    ) {
+        if (remainingAttempts <= 0 || closed) {
+            openCodePollingKeys.remove(key)
+            return
+        }
+        mainHandler.postDelayed(
+            {
+                if (closed) {
+                    openCodePollingKeys.remove(key)
+                    return@postDelayed
+                }
+                submit {
+                    val continuePolling = pollOpenCodeThreadStateInternal(key)
+                    if (continuePolling && openCodePollingKeys.contains(key)) {
+                        scheduleOpenCodePoll(key, remainingAttempts - 1)
+                    } else {
+                        openCodePollingKeys.remove(key)
+                    }
+                }
+            },
+            OPEN_CODE_POLL_INTERVAL_MS,
+        )
+    }
+
+    private fun pollOpenCodeThreadStateInternal(key: ThreadKey): Boolean {
+        val thread = threadsByKey[key] ?: return false
+        if (serversById[key.serverId]?.backendKind != BackendKind.OPENCODE) {
+            return false
+        }
+        val client =
+            runCatching { requireOpenCodeClient(key.serverId) }
+                .getOrElse { error ->
+                    Log.w(OPEN_CODE_LOG_TAG, "poll skipped server=${key.serverId} thread=${key.threadId}: ${error.message}")
+                    return false
+                }
+
+        return runCatching {
+            val statuses = client.listStatuses()
+            val status = statuses.optJSONObject(key.threadId)
+            val restoredMessages = mapOpenCodeMessages(client.loadMessages(key.threadId))
+            val (nextStatus, statusMessage) = resolveOpenCodeThreadUiState(key, status)
+            val latest = threadsByKey[key] ?: return@runCatching false
+            val changedMessages = !messagesEquivalent(latest.messages, restoredMessages)
+            val statusChanged = latest.status != nextStatus || latest.lastError != statusMessage
+            if (changedMessages || statusChanged) {
+                threadsByKey[key] =
+                    latest.copy(
+                        status = nextStatus,
+                        activeTurnId = null,
+                        messages = if (changedMessages) restoredMessages else latest.messages,
+                        preview = derivePreview(if (changedMessages) restoredMessages else latest.messages, latest.preview),
+                        updatedAtEpochMillis = System.currentTimeMillis(),
+                        lastError = statusMessage,
+                    )
+                updateState { current ->
+                    current.copy(
+                        connectionError =
+                            if (current.activeThreadKey == key) {
+                                statusMessage
+                            } else {
+                                current.connectionError
+                            },
+                    )
+                }
+                Log.d(
+                    OPEN_CODE_LOG_TAG,
+                    "poll update server=${key.serverId} thread=${key.threadId} status=${status?.optString("type").orEmpty()} messages=${restoredMessages.size}",
+                )
+            }
+            nextStatus == ThreadStatus.THINKING
+        }.getOrElse { error ->
+            Log.w(
+                OPEN_CODE_LOG_TAG,
+                "poll failed server=${key.serverId} thread=${key.threadId}: ${error.message}",
+                error,
+            )
+            true
         }
     }
 
@@ -6787,38 +6982,24 @@ class ServerManager(
         // Merge: start with existing saved servers (preserving offline ones), then overlay connected servers
         val existing = loadSavedServersInternal().associateBy { it.id }.toMutableMap()
         // Remove explicitly deleted servers
-        removedServerIds.forEach { existing.remove(it) }
+        removedServerIds.forEach {
+            existing.remove(it)
+            savedServerCredentialStore?.delete(it)
+        }
         // Overlay currently connected servers (they may have updated fields like directory)
         for (server in serversById.values) {
             val saved = SavedServer.from(server)
             existing[saved.id] = saved
+            persistSavedServerCredentials(saved)
         }
-        val payload = JSONArray()
-        for (saved in existing.values) {
-            payload.put(
-                JSONObject()
-                    .put("id", saved.id)
-                    .put("name", saved.name)
-                    .put("host", saved.host)
-                    .put("port", saved.port)
-                    .put("source", saved.source)
-                    .put("backendKind", saved.backendKind)
-                    .put("hasCodexServer", saved.hasCodexServer)
-                    .put("username", saved.username ?: JSONObject.NULL)
-                    .put("password", saved.password ?: JSONObject.NULL)
-                    .put("directory", saved.directory ?: JSONObject.NULL),
-            )
-        }
-        savedServersPreferences
-            ?.edit()
-            ?.putString(savedServersKey, payload.toString())
-            ?.apply()
+        writeSavedServersPayload(existing.values)
     }
 
     private fun loadSavedServersInternal(): List<SavedServer> {
         val raw = savedServersPreferences?.getString(savedServersKey, null) ?: return emptyList()
         val parsed = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
         val out = LinkedHashMap<String, SavedServer>()
+        var migratedLegacyCredentials = false
         for (index in 0 until parsed.length()) {
             val item = parsed.optJSONObject(index) ?: continue
             val name = item.optString("name").trim()
@@ -6841,6 +7022,21 @@ class ServerManager(
             if (id.isEmpty() || host.isEmpty() || port <= 0) {
                 continue
             }
+            val legacyCredentials =
+                SavedServerCredentials(
+                    username = nullableString(item, "username"),
+                    password = nullableString(item, "password"),
+                )
+            val storedCredentials = savedServerCredentialStore?.load(id)
+            val mergedCredentials =
+                SavedServerCredentials(
+                    username = storedCredentials?.username ?: legacyCredentials.username,
+                    password = storedCredentials?.password ?: legacyCredentials.password,
+                )
+            if (savedServerCredentialStore?.isAvailable == true && !legacyCredentials.isEmpty() && mergedCredentials != storedCredentials) {
+                savedServerCredentialStore?.save(id, mergedCredentials)
+                migratedLegacyCredentials = true
+            }
             out.remove(id)
             out[id] =
                 SavedServer(
@@ -6851,12 +7047,36 @@ class ServerManager(
                     source = source,
                     backendKind = backendKind,
                     hasCodexServer = hasCodexServer,
-                    username = nullableString(item, "username"),
-                    password = nullableString(item, "password"),
+                    username = mergedCredentials.username,
+                    password = mergedCredentials.password,
                     directory = nullableString(item, "directory"),
                 )
         }
+        if (migratedLegacyCredentials) {
+            writeSavedServersPayload(out.values)
+        }
         return out.values.toList()
+    }
+
+    private fun persistSavedServerCredentials(saved: SavedServer) {
+        val credentials =
+            SavedServerCredentials(
+                username = saved.username,
+                password = saved.password,
+            )
+        if (credentials.isEmpty()) {
+            savedServerCredentialStore?.delete(saved.id)
+            return
+        }
+        savedServerCredentialStore?.save(saved.id, credentials)
+    }
+
+    private fun writeSavedServersPayload(savedServers: Collection<SavedServer>) {
+        val includeFallbackCredentials = savedServerCredentialStore?.isAvailable != true
+        savedServersPreferences
+            ?.edit()
+            ?.putString(savedServersKey, buildSavedServersPersistencePayload(savedServers, includeFallbackCredentials).toString())
+            ?.apply()
     }
 }
 
@@ -6895,6 +7115,90 @@ internal fun computePlaceholderKeysToPrune(
 }
 
 private val LOCAL_IMAGE_MARKER_REGEX = Regex("\\[\\[litter_local_image:([^\\]]+)]]")
+
+internal fun buildOpenCodePromptParts(
+    text: String,
+    localImageDataUrl: String? = null,
+    localImagePath: String? = null,
+): JSONArray {
+    val parts = JSONArray()
+    val trimmedText = text.trim()
+    if (trimmedText.isNotEmpty()) {
+        parts.put(
+            JSONObject()
+                .put("type", "text")
+                .put("text", trimmedText),
+        )
+    }
+    val normalizedLocalImagePath = localImagePath?.trim()?.takeIf { it.isNotEmpty() }
+    if (localImageDataUrl != null && normalizedLocalImagePath != null) {
+        val file = File(normalizedLocalImagePath)
+        parts.put(
+            JSONObject()
+                .put("type", "file")
+                .put("mime", dataUrlMimeType(localImageDataUrl) ?: localImageMimeType(normalizedLocalImagePath))
+                .put("filename", file.name.ifEmpty { normalizedLocalImagePath })
+                .put("url", localImageDataUrl),
+        )
+    } else if (normalizedLocalImagePath != null) {
+        val file = File(normalizedLocalImagePath)
+        parts.put(
+            JSONObject()
+                .put("type", "file")
+                .put("mime", localImageMimeType(normalizedLocalImagePath))
+                .put("filename", file.name.ifEmpty { normalizedLocalImagePath })
+                .put("url", file.toURI().toASCIIString()),
+        )
+    }
+    return parts
+}
+
+internal fun buildSavedServersPersistencePayload(
+    savedServers: Collection<SavedServer>,
+    includeCredentials: Boolean = false,
+): JSONArray {
+    val payload = JSONArray()
+    for (saved in savedServers) {
+        val encoded =
+            JSONObject()
+                .put("id", saved.id)
+                .put("name", saved.name)
+                .put("host", saved.host)
+                .put("port", saved.port)
+                .put("source", saved.source)
+                .put("backendKind", saved.backendKind)
+                .put("hasCodexServer", saved.hasCodexServer)
+                .put("directory", saved.directory ?: JSONObject.NULL)
+        if (includeCredentials) {
+            encoded
+                .put("username", saved.username ?: JSONObject.NULL)
+                .put("password", saved.password ?: JSONObject.NULL)
+        }
+        payload.put(encoded)
+    }
+    return payload
+}
+
+internal fun localImageMimeType(path: String): String =
+    when (File(path).extension.lowercase(Locale.US)) {
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "jpg", "jpeg" -> "image/jpeg"
+        else -> "image/jpeg"
+    }
+
+private fun dataUrlMimeType(dataUrl: String): String? {
+    val trimmed = dataUrl.trim()
+    if (!trimmed.startsWith("data:", ignoreCase = true)) {
+        return null
+    }
+    return trimmed
+        .removePrefix("data:")
+        .substringBefore(';')
+        .trim()
+        .takeIf { it.isNotEmpty() }
+}
 
 private fun Any?.asLongOrNull(): Long? {
     return when (this) {
