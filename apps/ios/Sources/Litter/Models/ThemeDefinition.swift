@@ -75,9 +75,9 @@ struct ResolvedTheme {
         self.accentStrong = c["button.background"] ?? c["textLink.foreground"] ?? self.accent
         self.border = c["editorGroup.border"] ?? c["sideBar.border"] ?? Self.adjustBrightness(self.surface, by: d.type == .dark ? 0.05 : -0.05)
         self.separator = c["panel.border"] ?? Self.adjustBrightness(bg, by: d.type == .dark ? 0.04 : -0.04)
-        self.danger = c["gitDecoration.deletedResourceForeground"] ?? c["editorError.foreground"] ?? "#FF5555"
-        self.success = c["gitDecoration.addedResourceForeground"] ?? "#6EA676"
-        self.warning = c["editorWarning.foreground"] ?? "#E2A644"
+        self.danger = d.type == .dark ? "#FF5555" : "#D32F2F"
+        self.success = d.type == .dark ? "#6EA676" : "#2E7D32"
+        self.warning = d.type == .dark ? "#E2A644" : "#E65100"
         self.codeBackground = bg
 
         // Compute textOnAccent based on accent brightness

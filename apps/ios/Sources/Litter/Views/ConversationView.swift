@@ -1014,8 +1014,8 @@ private struct ConversationInputBar: View {
     }
 
     private func normalizedPercent(_ raw: Double) -> Int {
-        if raw > 1 { return min(Int(raw), 100) }
-        return min(Int(raw * 100), 100)
+        let used = raw > 1 ? min(Int(raw), 100) : min(Int(raw * 100), 100)
+        return max(0, 100 - used)
     }
 
     private func formatWindowLabel(_ window: RateLimitWindow) -> String {
@@ -1041,7 +1041,7 @@ private struct ConversationInputBar: View {
         switch percent {
         case ...15: return LitterTheme.danger
         case ...35: return LitterTheme.warning
-        default: return LitterTheme.accentStrong
+        default: return LitterTheme.success
         }
     }
 
