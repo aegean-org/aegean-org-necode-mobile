@@ -156,7 +156,7 @@ struct HeaderView: View {
     private var authDotColor: Color {
         let conn = activeConn ?? serverManager.connections.values.first(where: { $0.isConnected })
         switch conn?.authStatus {
-        case .chatgpt, .apiKey: return LitterTheme.accentStrong
+        case .chatgpt, .apiKey: return LitterTheme.success
         case .notLoggedIn: return LitterTheme.danger
         case .unknown, .none: return LitterTheme.textMuted
         }
