@@ -139,6 +139,7 @@ targets:
       - path: Sources/LitterLiveActivity
       - path: Sources/Litter/Models/CodexTurnAttributes.swift
       - path: Sources/Litter/Models/LitterPalette.swift
+      - path: Sources/Litter/Views/LockScreenCardView.swift
     resources:
       - path: Sources/LitterLiveActivity/Assets.xcassets
     settings:

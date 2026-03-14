@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppearanceSettingsView: View {
     @ObservedObject private var themeManager = ThemeManager.shared
+    @State private var activeThemePicker: ThemePickerKind?
 
     var body: some View {
         ZStack {
@@ -15,6 +16,17 @@ struct AppearanceSettingsView: View {
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $activeThemePicker) { pickerKind in
+            ThemePickerSheet(
+                title: pickerKind.title,
+                themes: themes(for: pickerKind),
+                selectedSlug: selectedSlug(for: pickerKind)
+            ) { slug in
+                selectTheme(slug, for: pickerKind)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Conversation Preview
@@ -64,10 +76,9 @@ struct AppearanceSettingsView: View {
         Section {
             themePicker(
                 themes: themeManager.lightThemes,
-                selectedSlug: themeManager.selectedLightSlug
-            ) { slug in
-                themeManager.selectLightTheme(slug)
-            }
+                selectedSlug: themeManager.selectedLightSlug,
+                pickerKind: .light
+            )
         } header: {
             Text("Light theme")
                 .foregroundColor(LitterTheme.textSecondary)
@@ -80,10 +91,9 @@ struct AppearanceSettingsView: View {
         Section {
             themePicker(
                 themes: themeManager.darkThemes,
-                selectedSlug: themeManager.selectedDarkSlug
-            ) { slug in
-                themeManager.selectDarkTheme(slug)
-            }
+                selectedSlug: themeManager.selectedDarkSlug,
+                pickerKind: .dark
+            )
         } header: {
             Text("Dark theme")
                 .foregroundColor(LitterTheme.textSecondary)
@@ -95,42 +105,238 @@ struct AppearanceSettingsView: View {
     private func themePicker(
         themes: [ThemeIndexEntry],
         selectedSlug: String,
-        onSelect: @escaping (String) -> Void
+        pickerKind: ThemePickerKind
     ) -> some View {
         let selected = themes.first(where: { $0.slug == selectedSlug }) ?? themes.first
-        return Menu {
-            ForEach(themes) { entry in
-                Button {
-                    onSelect(entry.slug)
-                } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
-                        Image(uiImage: ThemePreviewBadge.renderToImage(
-                            backgroundHex: entry.backgroundHex,
-                            foregroundHex: entry.foregroundHex,
-                            accentHex: entry.accentHex
-                        ))
-                    }
-                }
-            }
+        return Button {
+            activeThemePicker = pickerKind
         } label: {
-            HStack(spacing: 10) {
-                ThemePreviewBadge(
-                    backgroundHex: selected?.backgroundHex ?? "#000",
-                    foregroundHex: selected?.foregroundHex ?? "#FFF",
-                    accentHex: selected?.accentHex ?? "#0F0"
-                )
-                Text(selected?.name ?? "")
-                    .font(LitterFont.styled(.subheadline))
-                    .foregroundColor(LitterTheme.textPrimary)
-                Spacer()
+            ThemePickerRow(entry: selected, trailingAccessory: .chevron)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(LitterTheme.surface.opacity(0.6))
+    }
+
+    private func themes(for pickerKind: ThemePickerKind) -> [ThemeIndexEntry] {
+        switch pickerKind {
+        case .light:
+            themeManager.lightThemes
+        case .dark:
+            themeManager.darkThemes
+        }
+    }
+
+    private func selectedSlug(for pickerKind: ThemePickerKind) -> String {
+        switch pickerKind {
+        case .light:
+            themeManager.selectedLightSlug
+        case .dark:
+            themeManager.selectedDarkSlug
+        }
+    }
+
+    private func selectTheme(_ slug: String, for pickerKind: ThemePickerKind) {
+        switch pickerKind {
+        case .light:
+            themeManager.selectLightTheme(slug)
+        case .dark:
+            themeManager.selectDarkTheme(slug)
+        }
+    }
+}
+
+private enum ThemePickerKind: String, Identifiable {
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .light:
+            "Light Theme"
+        case .dark:
+            "Dark Theme"
+        }
+    }
+}
+
+private enum ThemePickerTrailingAccessory {
+    case none
+    case chevron
+    case checkmark
+}
+
+private struct ThemePickerRow: View {
+    let entry: ThemeIndexEntry?
+    let trailingAccessory: ThemePickerTrailingAccessory
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ThemePreviewBadge(
+                backgroundHex: entry?.backgroundHex ?? "#000000",
+                foregroundHex: entry?.foregroundHex ?? "#FFFFFF",
+                accentHex: entry?.accentHex ?? "#00FF00"
+            )
+
+            Text(entry?.name ?? "Unknown Theme")
+                .font(LitterFont.styled(.subheadline))
+                .foregroundColor(LitterTheme.textPrimary)
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            switch trailingAccessory {
+            case .none:
+                EmptyView()
+            case .chevron:
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 11))
                     .foregroundColor(LitterTheme.textMuted)
+            case .checkmark:
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(LitterTheme.accent)
             }
         }
-        .listRowBackground(LitterTheme.surface.opacity(0.6))
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ThemePickerSheet: View {
+    let title: String
+    let themes: [ThemeIndexEntry]
+    let selectedSlug: String
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchQuery = ""
+
+    private var trimmedSearchQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var filteredThemes: [ThemeIndexEntry] {
+        guard !trimmedSearchQuery.isEmpty else { return themes }
+        return themes.filter { entry in
+            entry.name.localizedCaseInsensitiveContains(trimmedSearchQuery) ||
+            entry.slug.localizedCaseInsensitiveContains(trimmedSearchQuery)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LitterTheme.backgroundGradient.ignoresSafeArea()
+
+                VStack(spacing: 12) {
+                    searchField
+
+                    if filteredThemes.isEmpty {
+                        emptyState
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 10) {
+                                ForEach(filteredThemes) { entry in
+                                    Button {
+                                        onSelect(entry.slug)
+                                        dismiss()
+                                    } label: {
+                                        ThemePickerRow(
+                                            entry: entry,
+                                            trailingAccessory: entry.slug == selectedSlug ? .checkmark : .none
+                                        )
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 11)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(LitterTheme.surface.opacity(0.72))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .stroke(
+                                                    entry.slug == selectedSlug
+                                                        ? LitterTheme.accent.opacity(0.6)
+                                                        : LitterTheme.border.opacity(0.85),
+                                                    lineWidth: 1
+                                                )
+                                        }
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
+                        }
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(LitterTheme.accent)
+                }
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(LitterTheme.textMuted)
+                .font(.system(size: 14, weight: .medium))
+
+            TextField("Search themes", text: $searchQuery)
+                .font(LitterFont.styled(.subheadline))
+                .foregroundColor(LitterTheme.textPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(LitterTheme.textMuted)
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(LitterTheme.surface.opacity(0.55))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(LitterTheme.border.opacity(0.85), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 16)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(LitterTheme.textMuted)
+
+            Text("No matching themes")
+                .font(LitterFont.styled(.subheadline))
+                .foregroundColor(LitterTheme.textPrimary)
+
+            if !trimmedSearchQuery.isEmpty {
+                Text(trimmedSearchQuery)
+                    .font(LitterFont.styled(.caption))
+                    .foregroundColor(LitterTheme.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 48)
+        .padding(.horizontal, 24)
     }
 }
 
