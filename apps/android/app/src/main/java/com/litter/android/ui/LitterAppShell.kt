@@ -16,13 +16,17 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -52,6 +56,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -124,8 +129,11 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -151,6 +159,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
@@ -213,6 +222,34 @@ private const val PERF_LOG_TAG = "LitterComposePerf"
 
 private fun Context.monospaceTypeface(): Typeface = Typeface.MONOSPACE
 
+private fun abbreviateHomePath(path: String): String {
+    val trimmed = path.trim()
+    if (trimmed.isEmpty()) {
+        return "~"
+    }
+    for (basePrefix in listOf("/Users/", "/home/")) {
+        if (!trimmed.startsWith(basePrefix)) {
+            continue
+        }
+        val remainder = trimmed.removePrefix(basePrefix)
+        val slashIndex = remainder.indexOf('/')
+        if (slashIndex >= 0) {
+            return "~${remainder.substring(slashIndex)}"
+        }
+        return "~"
+    }
+    return trimmed
+}
+
+private fun headerMiddleEllipsize(text: String, maxLength: Int = 28): String {
+    if (text.length <= maxLength) {
+        return text
+    }
+    val keepStart = (maxLength - 1) / 2
+    val keepEnd = maxLength - keepStart - 1
+    return text.take(keepStart) + "…" + text.takeLast(keepEnd)
+}
+
 @Composable
 private fun DebugRecomposeCheckpoint(name: String) {
     if (!BuildConfig.DEBUG) {
@@ -245,12 +282,14 @@ fun LitterAppShell(
                 models = uiState.models,
                 selectedModelId = uiState.selectedModelId,
                 selectedReasoningEffort = uiState.selectedReasoningEffort,
+                activeThreadModelId = uiState.sessions.firstOrNull { it.key == uiState.activeThreadKey }?.modelProvider,
+                activeThreadKey = uiState.activeThreadKey,
                 connectionStatus = uiState.connectionStatus,
+                currentCwd = uiState.currentCwd,
                 onToggleSidebar = appState::toggleSidebar,
                 onSelectModel = appState::selectModel,
                 onSelectReasoningEffort = appState::selectReasoningEffort,
             )
-            HorizontalDivider(color = LitterTheme.divider)
 
             if (uiState.activeThreadKey == null) {
                 EmptyState(
@@ -754,128 +793,400 @@ private fun HeaderBar(
     models: List<ModelOption>,
     selectedModelId: String?,
     selectedReasoningEffort: String?,
+    activeThreadModelId: String?,
+    activeThreadKey: ThreadKey?,
     connectionStatus: ServerConnectionStatus,
+    currentCwd: String = "",
     onToggleSidebar: () -> Unit,
     onSelectModel: (String) -> Unit,
     onSelectReasoningEffort: (String) -> Unit,
 ) {
-    Surface(
+    var showModelSelector by remember { mutableStateOf(false) }
+    val selectorAnimationSpec =
+        spring<Float>(
+            dampingRatio = 0.85f,
+            stiffness = Spring.StiffnessMediumLow,
+        )
+
+    LaunchedEffect(activeThreadKey) {
+        showModelSelector = false
+    }
+
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        color = Color.Transparent,
-        tonalElevation = 0.dp,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            IconButton(onClick = onToggleSidebar) {
-                Icon(Icons.Default.Menu, contentDescription = "Toggle sidebar", tint = LitterTheme.textSecondary)
-            }
-
-            if (backendKind == BackendKind.OPENCODE) {
-                OutlinedButton(
-                    onClick = {},
-                    enabled = false,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border),
-                    shape = RoundedCornerShape(22.dp),
-                ) {
-                    Text("OpenCode", color = LitterTheme.textSecondary)
-                }
-            } else {
-                ModelSelector(
-                    models = models,
-                    selectedModelId = selectedModelId,
-                    selectedReasoningEffort = selectedReasoningEffort,
-                    onSelectModel = onSelectModel,
-                    onSelectReasoningEffort = onSelectReasoningEffort,
+            // Menu button with glass circle
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(LitterTheme.surfaceLight)
+                    .border(1.dp, LitterTheme.border.copy(alpha = 0.4f), CircleShape)
+                    .clickable { onToggleSidebar() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Menu,
+                    contentDescription = "Toggle sidebar",
+                    tint = LitterTheme.textSecondary,
+                    modifier = Modifier.size(18.dp),
                 )
             }
 
             Spacer(modifier = Modifier.weight(1f))
 
-            StatusDot(connectionStatus = connectionStatus)
+            if (backendKind == BackendKind.OPENCODE) {
+                // OpenCode static button
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = LitterTheme.surfaceLight,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border.copy(alpha = 0.4f)),
+                ) {
+                    Text(
+                        "OpenCode",
+                        color = LitterTheme.textSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            } else {
+                // Model selector button - iOS style
+                ModelSelectorButton(
+                    models = models,
+                    selectedModelId = selectedModelId,
+                    selectedReasoningEffort = selectedReasoningEffort,
+                    activeThreadModelId = activeThreadModelId,
+                    connectionStatus = connectionStatus,
+                    currentCwd = currentCwd,
+                    isExpanded = showModelSelector,
+                    onClick = { showModelSelector = !showModelSelector },
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Reload button with glass circle
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(LitterTheme.surfaceLight)
+                    .border(1.dp, LitterTheme.border.copy(alpha = 0.4f), CircleShape)
+                    .clickable { /* TODO: reload action */ },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.ArrowUpward,
+                    contentDescription = "Reload",
+                    tint = LitterTheme.accent,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+
+        // Inline model selector panel - iOS style
+        AnimatedVisibility(
+            visible = showModelSelector && backendKind != BackendKind.OPENCODE,
+            enter = fadeIn(animationSpec = selectorAnimationSpec) + scaleIn(
+                animationSpec = selectorAnimationSpec,
+                initialScale = 0.95f,
+                transformOrigin = TransformOrigin(0.5f, 0f),
+            ),
+            exit = fadeOut(animationSpec = selectorAnimationSpec) + scaleOut(
+                animationSpec = selectorAnimationSpec,
+                targetScale = 0.95f,
+                transformOrigin = TransformOrigin(0.5f, 0f),
+            ),
+        ) {
+            InlineModelSelectorPanel(
+                models = models,
+                selectedModelId = selectedModelId,
+                selectedReasoningEffort = selectedReasoningEffort,
+                activeThreadModelId = activeThreadModelId,
+                onSelectModel = { modelId ->
+                    onSelectModel(modelId)
+                    showModelSelector = false
+                },
+                onSelectReasoningEffort = { effort ->
+                    onSelectReasoningEffort(effort)
+                    showModelSelector = false
+                },
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(horizontal = 16.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun ModelSelector(
+private fun ModelSelectorButton(
     models: List<ModelOption>,
     selectedModelId: String?,
     selectedReasoningEffort: String?,
-    onSelectModel: (String) -> Unit,
-    onSelectReasoningEffort: (String) -> Unit,
+    activeThreadModelId: String?,
+    connectionStatus: ServerConnectionStatus,
+    currentCwd: String,
+    isExpanded: Boolean,
+    onClick: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedModel = models.firstOrNull { it.id == selectedModelId } ?: models.firstOrNull()
-    val selectedModelName = (selectedModel?.id ?: "").ifBlank { "litter" }
+    val resolvedModelId =
+        selectedModelId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: activeThreadModelId?.trim().takeUnless { it.isNullOrEmpty() }
+    val selectedModel = models.firstOrNull { it.id == resolvedModelId }
+    val modelName = resolvedModelId ?: "litter"
+    val reasoningLabel = (selectedReasoningEffort ?: selectedModel?.defaultReasoningEffort ?: "").ifBlank { "default" }
+    val directoryLabel = headerMiddleEllipsize(abbreviateHomePath(currentCwd))
 
-    Box {
-        OutlinedButton(
-            onClick = { expanded = true },
-            border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border),
-            shape = RoundedCornerShape(22.dp),
+    // Animated status dot
+    val shouldPulse = connectionStatus == ServerConnectionStatus.CONNECTING
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulseAlpha",
+    )
+    val statusColor = when (connectionStatus) {
+        ServerConnectionStatus.CONNECTING -> LitterTheme.statusConnecting
+        ServerConnectionStatus.READY -> LitterTheme.statusReady
+        ServerConnectionStatus.ERROR -> LitterTheme.statusError
+        ServerConnectionStatus.DISCONNECTED -> LitterTheme.statusDisconnected
+    }
+
+    // Chevron rotation
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec =
+            spring(
+                dampingRatio = 0.85f,
+                stiffness = Spring.StiffnessMediumLow,
+            ),
+        label = "chevronRotation",
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = LitterTheme.surfaceLight,
+        border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border.copy(alpha = 0.4f)),
+    ) {
+        // VStack(spacing: 2) equivalent
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            // Top row: status dot, model name, reasoning, chevron (iOS: HStack(spacing: 6))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // Status dot (iOS: Circle().fill(statusDotColor).frame(width: 6, height: 6))
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                        .alpha(if (shouldPulse) pulseAlpha else 1f),
+                )
+
+                // Model name (iOS: Text(sessionModelLabel).foregroundColor(LitterTheme.textPrimary))
+                Text(
+                    text = modelName,
+                    color = LitterTheme.textPrimary,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+
+                // Reasoning effort (iOS: Text(sessionReasoningLabel).foregroundColor(LitterTheme.textSecondary))
+                Text(
+                    text = reasoningLabel,
+                    color = LitterTheme.textSecondary,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                // Chevron (iOS: Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)))
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(14.dp)
+                        .graphicsLayer { rotationZ = chevronRotation },
+                    tint = LitterTheme.textSecondary,
+                )
+            }
+
+            // Bottom row: directory (iOS: .caption2, .semibold, .truncationMode(.middle))
             Text(
-                selectedModelName,
-                color = LitterTheme.textPrimary,
+                text = directoryLabel,
+                color = LitterTheme.textSecondary,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Icon(
-                imageVector = Icons.Default.ArrowDropDown,
-                contentDescription = "Select model",
-                modifier = Modifier.size(16.dp),
-                tint = LitterTheme.textSecondary,
+                overflow = TextOverflow.Clip,
             )
         }
+    }
+}
 
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            models.forEach { model ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (model.isDefault) "${model.displayName} (default)" else model.displayName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    onClick = {
-                        onSelectModel(model.id)
-                        if (model.defaultReasoningEffort != null) {
-                            onSelectReasoningEffort(model.defaultReasoningEffort)
-                        }
-                        expanded = false
-                    },
-                )
-            }
+@Composable
+private fun InlineModelSelectorPanel(
+    models: List<ModelOption>,
+    selectedModelId: String?,
+    selectedReasoningEffort: String?,
+    activeThreadModelId: String?,
+    onSelectModel: (String) -> Unit,
+    onSelectReasoningEffort: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val resolvedModelId =
+        selectedModelId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: activeThreadModelId?.trim().takeUnless { it.isNullOrEmpty() }
+    val selectedModel = models.firstOrNull { it.id == resolvedModelId }
+    val scrollState = rememberScrollState()
 
-            val efforts = selectedModel?.supportedReasoningEfforts.orEmpty()
-            if (efforts.isNotEmpty()) {
-                DropdownMenuItem(
-                    text = { Text("Reasoning", color = LitterTheme.textSecondary) },
-                    onClick = {},
-                    enabled = false,
-                )
-                efforts.forEach { effort ->
-                    DropdownMenuItem(
-                        text = {
-                            val label =
-                                if (effort.effort == selectedReasoningEffort) {
-                                    "* ${effort.effort}"
-                                } else {
-                                    effort.effort
-                                }
-                            Text(label)
-                        },
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = LitterTheme.surfaceLight,
+        border = androidx.compose.foundation.BorderStroke(1.dp, LitterTheme.border.copy(alpha = 0.4f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 4.dp),
+        ) {
+            // Model list
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(scrollState),
+            ) {
+                models.forEachIndexed { index, model ->
+                    ModelListItem(
+                        model = model,
+                        isSelected = model.id == resolvedModelId,
                         onClick = {
-                            onSelectReasoningEffort(effort.effort)
-                            expanded = false
+                            onSelectModel(model.id)
+                            model.defaultReasoningEffort?.let(onSelectReasoningEffort)
                         },
                     )
+                    if (index < models.lastIndex) {
+                        HorizontalDivider(
+                            color = LitterTheme.divider,
+                            modifier = Modifier.padding(start = 16.dp),
+                        )
+                    }
                 }
             }
+
+            // Reasoning effort chips
+            val efforts = selectedModel?.supportedReasoningEfforts.orEmpty()
+            if (efforts.isNotEmpty()) {
+                HorizontalDivider(
+                    color = LitterTheme.divider,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    efforts.forEach { effort ->
+                        val isSelected = effort.effort == selectedReasoningEffort
+                        Surface(
+                            onClick = { onSelectReasoningEffort(effort.effort) },
+                            shape = RoundedCornerShape(50),
+                            color = if (isSelected) LitterTheme.accent else LitterTheme.surfaceLight,
+                        ) {
+                            Text(
+                                text = effort.effort,
+                                color = if (isSelected) LitterTheme.onAccentStrong else LitterTheme.textPrimary,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelListItem(
+    model: ModelOption,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = model.displayName,
+                    color = LitterTheme.textPrimary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (model.isDefault) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = LitterTheme.accent.copy(alpha = 0.15f),
+                    ) {
+                        Text(
+                            text = "default",
+                            color = LitterTheme.accent,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+            }
+            if (model.description.isNotBlank()) {
+                Text(
+                    text = model.description,
+                    color = LitterTheme.textSecondary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = LitterTheme.accent,
+            )
         }
     }
 }
