@@ -7,7 +7,6 @@ import Inject
 struct UserBubble: View {
     let text: String
     var images: [ChatImage] = []
-    var textScale: CGFloat = 1.0
     var compact: Bool = false
 
     var body: some View {
@@ -25,7 +24,7 @@ struct UserBubble: View {
                 }
                 if !text.isEmpty {
                     Text(text)
-                        .font(LitterFont.styled(compact ? .footnote : .callout, scale: textScale))
+                        .litterFont(compact ? .footnote : .callout)
                         .foregroundColor(LitterTheme.textPrimary)
                         .textSelection(.enabled)
                 }
@@ -51,26 +50,20 @@ struct AssistantBubble: View, Equatable {
     let markdownString: String
     let markdownIdentity: Int
     var label: String? = nil
-    var textScale: CGFloat = 1.0
     var compact: Bool = false
     var themeVersion: Int = 0
     @ScaledMetric(relativeTo: .body) private var mdBodySize: CGFloat = 14
     @ScaledMetric(relativeTo: .footnote) private var mdCodeSize: CGFloat = 13
 
-    private var bodySize: CGFloat { (compact ? 12 : mdBodySize) * textScale }
-    private var codeSize: CGFloat { (compact ? 11 : mdCodeSize) * textScale }
-
     init(
         text: String,
         label: String? = nil,
-        textScale: CGFloat = 1.0,
         compact: Bool = false,
         themeVersion: Int = 0
     ) {
         self.markdownString = text
         self.markdownIdentity = text.hashValue
         self.label = label
-        self.textScale = textScale
         self.compact = compact
         self.themeVersion = themeVersion
     }
@@ -79,14 +72,12 @@ struct AssistantBubble: View, Equatable {
         markdownString: String,
         markdownIdentity: Int,
         label: String? = nil,
-        textScale: CGFloat = 1.0,
         compact: Bool = false,
         themeVersion: Int = 0
     ) {
         self.markdownString = markdownString
         self.markdownIdentity = markdownIdentity
         self.label = label
-        self.textScale = textScale
         self.compact = compact
         self.themeVersion = themeVersion
     }
@@ -94,7 +85,6 @@ struct AssistantBubble: View, Equatable {
     static func == (lhs: AssistantBubble, rhs: AssistantBubble) -> Bool {
         lhs.markdownIdentity == rhs.markdownIdentity &&
         lhs.label == rhs.label &&
-        lhs.textScale == rhs.textScale &&
         lhs.compact == rhs.compact &&
         lhs.themeVersion == rhs.themeVersion
     }
@@ -104,14 +94,11 @@ struct AssistantBubble: View, Equatable {
             VStack(alignment: .leading, spacing: compact ? 4 : 8) {
                 if let label {
                     Text(label)
-                        .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                        .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
                 StructuredText(markdown: markdownString)
-                    .font(.custom(LitterFont.markdownFontName, size: bodySize))
-                    .foregroundStyle(LitterTheme.textBody)
-                    .textual.structuredTextStyle(LitterStructuredStyle(bodySize: bodySize, codeSize: codeSize))
-                    .textual.textSelection(.enabled)
+                    .litterContentMarkdown(bodySize: compact ? 12 : mdBodySize, codeSize: compact ? 11 : mdCodeSize)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -123,7 +110,6 @@ struct AssistantBubble: View, Equatable {
 struct StreamingAssistantBubble: View {
     let text: String
     var label: String? = nil
-    var textScale: CGFloat = 1.0
     var themeVersion: Int = 0
     var onSnapshotRendered: (() -> Void)? = nil
     @State private var renderedText: String = ""
@@ -138,7 +124,6 @@ struct StreamingAssistantBubble: View {
             markdownString: renderedText,
             markdownIdentity: renderedText.hashValue,
             label: label,
-            textScale: textScale,
             themeVersion: themeVersion
         )
             .equatable()
@@ -200,7 +185,6 @@ struct MessageBubbleView: View {
     let message: ChatMessage
     let serverId: String?
     let agentDirectoryVersion: Int
-    let textScale: CGFloat
     let isStreamingMessage: Bool
     let actionsDisabled: Bool
     let onStreamingSnapshotRendered: (() -> Void)?
@@ -217,7 +201,6 @@ struct MessageBubbleView: View {
         message: ChatMessage,
         serverId: String? = nil,
         agentDirectoryVersion: Int = 0,
-        textScale: CGFloat = 1.0,
         isStreamingMessage: Bool = false,
         actionsDisabled: Bool = false,
         onStreamingSnapshotRendered: (() -> Void)? = nil,
@@ -229,7 +212,6 @@ struct MessageBubbleView: View {
         self.message = message
         self.serverId = serverId
         self.agentDirectoryVersion = agentDirectoryVersion
-        self.textScale = textScale
         self.isStreamingMessage = isStreamingMessage
         self.actionsDisabled = actionsDisabled
         self.onStreamingSnapshotRendered = onStreamingSnapshotRendered
@@ -283,7 +265,7 @@ struct MessageBubbleView: View {
     }
 
     private var userBubbleWithActions: some View {
-        UserBubble(text: message.text, images: message.images, textScale: textScale)
+        UserBubble(text: message.text, images: message.images)
             .contextMenu {
                 if supportsUserActions {
                     Button("Edit Message") {
@@ -305,7 +287,6 @@ struct MessageBubbleView: View {
             StreamingAssistantBubble(
                 text: message.text,
                 label: assistantAgentLabel,
-                textScale: textScale,
                 onSnapshotRendered: onStreamingSnapshotRendered
             )
         } else {
@@ -318,11 +299,10 @@ struct MessageBubbleView: View {
                     AssistantBubble(
                         markdownString: content,
                         markdownIdentity: identity,
-                        label: assistantAgentLabel,
-                        textScale: textScale
+                        label: assistantAgentLabel
                     )
                 } else {
-                    AssistantBubble(text: message.text, label: assistantAgentLabel, textScale: textScale)
+                    AssistantBubble(text: message.text, label: assistantAgentLabel)
                 }
             } else {
                 // Inline images — need segment-based rendering
@@ -330,17 +310,14 @@ struct MessageBubbleView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         if let assistantLabel = assistantAgentLabel {
                             Text(assistantLabel)
-                                .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                                .litterFont(.caption2, weight: .semibold)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
                         ForEach(parsed) { segment in
                             switch segment.kind {
                             case .markdown(let content, _):
                                 StructuredText(markdown: content)
-                                    .font(.custom(LitterFont.markdownFontName, size: mdBodySize * textScale))
-                                    .foregroundStyle(LitterTheme.textBody)
-                                    .textual.structuredTextStyle(LitterStructuredStyle(bodySize: mdBodySize * textScale, codeSize: mdCodeSize * textScale))
-                                    .textual.textSelection(.enabled)
+                                    .litterContentMarkdown(bodySize: mdBodySize, codeSize: mdCodeSize)
                             case .image(let uiImage):
                                 Image(uiImage: uiImage)
                                     .resizable()
@@ -367,7 +344,7 @@ struct MessageBubbleView: View {
     private var reasoningContent: some View {
         let (_, body) = extractSystemTitleAndBody(message.text)
         return Text(normalizedReasoningText(body))
-            .font(LitterFont.styled(.footnote, scale: textScale))
+            .litterFont(.footnote)
             .italic()
             .foregroundColor(LitterTheme.textSecondary)
             .textSelection(.enabled)
@@ -379,14 +356,13 @@ struct MessageBubbleView: View {
         if let widget = message.widgetState {
             WidgetContainerView(
                 widget: widget,
-                onMessage: handleWidgetMessage,
-                textScale: textScale
+                onMessage: handleWidgetMessage
             )
         } else {
             let parsed = systemParseResultForRendering
             switch parsed {
             case .recognized(let model):
-                ToolCallCardView(model: model, textScale: textScale)
+                ToolCallCardView(model: model)
             case .unrecognized:
                 genericSystemBubble
             }
@@ -418,20 +394,17 @@ struct MessageBubbleView: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle.fill")
-                    .font(.system(size: 11 * textScale, weight: .semibold))
+                    .litterFont(size: 11, weight: .semibold)
                     .foregroundColor(LitterTheme.accent)
                 Text(displayTitle.uppercased())
-                    .font(LitterFont.styled(.caption2, weight: .bold, scale: textScale))
+                    .litterFont(.caption2, weight: .bold)
                     .foregroundColor(LitterTheme.accent)
                 Spacer()
             }
 
             if !markdown.isEmpty {
                 StructuredText(markdown: markdown)
-                    .font(.custom(LitterFont.markdownFontName, size: mdSystemBodySize * textScale))
-                    .foregroundStyle(LitterTheme.textSystem)
-                    .textual.structuredTextStyle(LitterSystemStructuredStyle(bodySize: mdSystemBodySize * textScale, codeSize: mdSystemCodeSize * textScale))
-                    .textual.textSelection(.enabled)
+                    .litterSystemMarkdown(bodySize: mdSystemBodySize, codeSize: mdSystemCodeSize)
                     .padding(.top, 8)
             }
         }
@@ -673,6 +646,50 @@ struct LitterSystemStructuredStyle: StructuredText.Style {
 
     var thematicBreakStyle: LitterThematicBreakStyle {
         LitterThematicBreakStyle(topBottom: 8)
+    }
+}
+
+// MARK: - Auto-Scaling Markdown Modifiers
+
+private struct ScaledContentMarkdownModifier: ViewModifier {
+    @Environment(\.textScale) private var textScale
+    let baseBodySize: CGFloat
+    let baseCodeSize: CGFloat
+
+    func body(content: Content) -> some View {
+        let scaledBody = baseBodySize * textScale
+        let scaledCode = baseCodeSize * textScale
+        content
+            .font(.custom(LitterFont.markdownFontName, size: scaledBody))
+            .foregroundStyle(LitterTheme.textBody)
+            .textual.structuredTextStyle(LitterStructuredStyle(bodySize: scaledBody, codeSize: scaledCode))
+            .textual.textSelection(.enabled)
+    }
+}
+
+private struct ScaledSystemMarkdownModifier: ViewModifier {
+    @Environment(\.textScale) private var textScale
+    let baseBodySize: CGFloat
+    let baseCodeSize: CGFloat
+
+    func body(content: Content) -> some View {
+        let scaledBody = baseBodySize * textScale
+        let scaledCode = baseCodeSize * textScale
+        content
+            .font(.custom(LitterFont.markdownFontName, size: scaledBody))
+            .foregroundStyle(LitterTheme.textSystem)
+            .textual.structuredTextStyle(LitterSystemStructuredStyle(bodySize: scaledBody, codeSize: scaledCode))
+            .textual.textSelection(.enabled)
+    }
+}
+
+extension View {
+    func litterContentMarkdown(bodySize: CGFloat = 14, codeSize: CGFloat = 13) -> some View {
+        modifier(ScaledContentMarkdownModifier(baseBodySize: bodySize, baseCodeSize: codeSize))
+    }
+
+    func litterSystemMarkdown(bodySize: CGFloat = 13, codeSize: CGFloat = 12) -> some View {
+        modifier(ScaledSystemMarkdownModifier(baseBodySize: bodySize, baseCodeSize: codeSize))
     }
 }
 

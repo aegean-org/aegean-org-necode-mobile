@@ -75,7 +75,7 @@ private struct AccountConnectionView: View {
     private var currentAccountSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("CURRENT ACCOUNT")
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .padding(.horizontal, 20)
 
@@ -85,11 +85,11 @@ private struct AccountConnectionView: View {
                     .frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(authTitle)
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                     if let sub = authSubtitle {
                         Text(sub)
-                            .font(LitterFont.styled(.caption))
+                            .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                 }
@@ -98,7 +98,7 @@ private struct AccountConnectionView: View {
                     Button("Logout") {
                         Task { await connection.logout() }
                     }
-                    .font(LitterFont.styled(.footnote))
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.danger)
                 }
             }
@@ -113,7 +113,7 @@ private struct AccountConnectionView: View {
     private var loginSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("LOGIN")
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .padding(.horizontal, 20)
 
@@ -131,7 +131,7 @@ private struct AccountConnectionView: View {
                     }
                     Image(systemName: "person.crop.circle.badge.checkmark")
                     Text("Login with ChatGPT")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                 }
                 .foregroundColor(LitterTheme.textOnAccent)
                 .frame(maxWidth: .infinity)
@@ -143,13 +143,13 @@ private struct AccountConnectionView: View {
             .disabled(isWorking)
 
             Text("— or use an API key —")
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 8) {
                 SecureField("sk-...", text: $apiKey)
-                    .font(LitterFont.styled(.subheadline))
+                    .litterFont(.subheadline)
                     .foregroundColor(LitterTheme.textPrimary)
                     .padding(12)
                     .background(LitterTheme.surface)
@@ -170,7 +170,7 @@ private struct AccountConnectionView: View {
                     }
                 } label: {
                     Text("Save API Key")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.accent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -245,10 +245,10 @@ private struct AccountDisconnectedView: View {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
                 VStack(spacing: 16) {
                     Text("Connect to a server first")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                     Text("Account settings are tied to the active server connection.")
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)

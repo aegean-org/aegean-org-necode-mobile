@@ -8,7 +8,6 @@ struct ConversationTurnTimeline: View {
     let renderMode: ConversationTurnRenderMode
     let serverId: String
     let agentDirectoryVersion: Int
-    let textScale: CGFloat
     let messageActionsDisabled: Bool
     let onStreamingSnapshotRendered: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
@@ -43,7 +42,6 @@ struct ConversationTurnTimeline: View {
                 item: item,
                 serverId: serverId,
                 agentDirectoryVersion: agentDirectoryVersion,
-                textScale: textScale,
                 renderMode: renderMode,
                 isStreamingMessage: item.id == streamingAssistantItemId,
                 messageActionsDisabled: messageActionsDisabled,
@@ -55,12 +53,11 @@ struct ConversationTurnTimeline: View {
                 onOpenConversation: onOpenConversation
             )
         case .exploration(let id, let items):
-            ConversationExplorationGroupRow(id: id, items: items, textScale: textScale)
+            ConversationExplorationGroupRow(id: id, items: items)
         case .subagentGroup(_, let merged, _):
             SubagentCardView(
                 data: merged,
-                serverId: serverId,
-                textScale: textScale
+                serverId: serverId
             )
         }
     }
@@ -183,7 +180,6 @@ private struct ConversationTimelineItemRow: View {
     let item: ConversationItem
     let serverId: String
     let agentDirectoryVersion: Int
-    let textScale: CGFloat
     let renderMode: ConversationTurnRenderMode
     let isStreamingMessage: Bool
     let messageActionsDisabled: Bool
@@ -201,46 +197,43 @@ private struct ConversationTimelineItemRow: View {
         case .assistant(let data):
             assistantRow(data)
         case .reasoning(let data):
-            ConversationReasoningRow(data: data, textScale: textScale)
+            ConversationReasoningRow(data: data)
         case .todoList(let data):
-            ConversationTodoListRow(data: data, textScale: textScale)
+            ConversationTodoListRow(data: data)
         case .proposedPlan(let data):
-            ConversationProposedPlanRow(data: data, textScale: textScale, renderMode: renderMode)
+            ConversationProposedPlanRow(data: data, renderMode: renderMode)
         case .commandExecution(let data):
-            ConversationCommandExecutionRow(item: item, data: data, textScale: textScale)
+            ConversationCommandExecutionRow(item: item, data: data)
         case .fileChange(let data):
-            ConversationToolCardRow(model: makeFileChangeModel(data), textScale: textScale)
+            ConversationToolCardRow(model: makeFileChangeModel(data))
         case .turnDiff(let data):
-            ConversationTurnDiffRow(data: data, textScale: textScale)
+            ConversationTurnDiffRow(data: data)
         case .mcpToolCall(let data):
-            ConversationToolCardRow(model: makeMcpModel(data), textScale: textScale)
+            ConversationToolCardRow(model: makeMcpModel(data))
         case .dynamicToolCall(let data):
-            ConversationToolCardRow(model: makeDynamicToolModel(data), textScale: textScale)
+            ConversationToolCardRow(model: makeDynamicToolModel(data))
         case .multiAgentAction(let data):
             SubagentCardView(
                 data: data,
-                serverId: serverId,
-                textScale: textScale
+                serverId: serverId
             )
         case .webSearch(let data):
-            ConversationToolCardRow(model: makeWebSearchModel(data), textScale: textScale)
+            ConversationToolCardRow(model: makeWebSearchModel(data))
         case .widget(let data):
             WidgetContainerView(
                 widget: data.widgetState,
-                onMessage: handleWidgetMessage,
-                textScale: textScale
+                onMessage: handleWidgetMessage
             )
         case .userInputResponse(let data):
-            ConversationUserInputResponseRow(data: data, textScale: textScale)
+            ConversationUserInputResponseRow(data: data)
         case .divider(let kind):
-            ConversationDividerRow(kind: kind, textScale: textScale)
+            ConversationDividerRow(kind: kind)
         case .error(let data):
             ConversationSystemCardRow(
                 title: data.title.isEmpty ? "Error" : data.title,
                 content: [data.message, data.details].compactMap { $0 }.joined(separator: "\n\n"),
                 accent: LitterTheme.danger,
                 iconName: "exclamationmark.triangle.fill",
-                textScale: textScale,
                 renderMode: renderMode
             )
         case .note(let data):
@@ -249,14 +242,13 @@ private struct ConversationTimelineItemRow: View {
                 content: data.body,
                 accent: LitterTheme.accent,
                 iconName: "info.circle.fill",
-                textScale: textScale,
                 renderMode: renderMode
             )
         }
     }
 
     private func userRow(_ data: ConversationUserMessageData) -> some View {
-        UserBubble(text: data.text, images: data.images, textScale: textScale)
+        UserBubble(text: data.text, images: data.images)
             .contextMenu {
                 if item.isFromUserTurnBoundary {
                     Button("Edit Message") {
@@ -283,15 +275,13 @@ private struct ConversationTimelineItemRow: View {
             StreamingAssistantBubble(
                 text: data.text,
                 label: assistantLabel,
-                textScale: textScale,
                 themeVersion: themeManager.themeVersion,
                 onSnapshotRendered: onStreamingSnapshotRendered
             )
         } else if renderMode == .lightweight {
             ConversationPlainAssistantRow(
                 data: data,
-                label: assistantLabel,
-                textScale: textScale
+                label: assistantLabel
             )
         } else {
             let revisionKey = MessageRenderCache.makeRevisionKey(
@@ -317,7 +307,6 @@ private struct ConversationTimelineItemRow: View {
                     markdownString: content,
                     markdownIdentity: identity,
                     label: assistantLabel,
-                    textScale: textScale,
                     themeVersion: themeManager.themeVersion
                 )
             } else {
@@ -325,17 +314,14 @@ private struct ConversationTimelineItemRow: View {
                     VStack(alignment: .leading, spacing: 8) {
                         if let assistantLabel {
                             Text(assistantLabel)
-                                .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                                .litterFont(.caption2, weight: .semibold)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
                         ForEach(parsed) { segment in
                             switch segment.kind {
                             case .markdown(let content, _):
                                 StructuredText(markdown: content)
-                                    .font(.custom(LitterFont.markdownFontName, size: 14 * textScale))
-                                    .foregroundStyle(LitterTheme.textBody)
-                                    .textual.structuredTextStyle(LitterStructuredStyle(bodySize: 14 * textScale, codeSize: 13 * textScale))
-                                    .textual.textSelection(.enabled)
+                                    .litterContentMarkdown()
                             case .image(let image):
                                 Image(uiImage: image)
                                     .resizable()
@@ -483,7 +469,6 @@ private struct ConversationTimelineItemRow: View {
 private struct ConversationExplorationGroupRow: View {
     let id: String
     let items: [ConversationItem]
-    let textScale: CGFloat
 
     @State private var expanded = false
 
@@ -492,14 +477,14 @@ private struct ConversationExplorationGroupRow: View {
             Button(action: toggleExpanded) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 12 * textScale, weight: .semibold))
+                        .litterFont(size: 12, weight: .semibold)
                         .foregroundColor(LitterTheme.textSecondary)
                     Text(summaryText)
-                        .font(LitterFont.styled(.caption, scale: textScale))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSystem)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11 * textScale, weight: .medium))
+                        .litterFont(size: 11, weight: .medium)
                         .foregroundColor(LitterTheme.textMuted)
                 }
             }
@@ -515,7 +500,7 @@ private struct ConversationExplorationGroupRow: View {
                                 .frame(width: 6, height: 6)
                                 .padding(.top, 5)
                             Text(explorationLabel(for: data))
-                                .font(LitterFont.styled(.caption, scale: textScale))
+                                .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textSecondary)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -524,7 +509,7 @@ private struct ConversationExplorationGroupRow: View {
                 }
                 if !expanded && items.count > visibleItems.count {
                     Text("+\(items.count - visibleItems.count) more")
-                        .font(LitterFont.styled(.caption2, scale: textScale))
+                        .litterFont(.caption2)
                         .foregroundColor(LitterTheme.textMuted)
                 }
             }
@@ -575,7 +560,6 @@ private struct ConversationExplorationGroupRow: View {
 private struct ConversationCommandExecutionRow: View {
     let item: ConversationItem
     let data: ConversationCommandExecutionData
-    let textScale: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -583,8 +567,7 @@ private struct ConversationCommandExecutionRow: View {
             ConversationCommandOutputViewport(
                 output: renderedOutput,
                 status: toolCallStatus(from: data.status),
-                durationText: formatDuration(data.durationMs),
-                textScale: textScale
+                durationText: formatDuration(data.durationMs)
             )
         }
         .padding(.horizontal, 10)
@@ -594,11 +577,11 @@ private struct ConversationCommandExecutionRow: View {
     private var shellLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("$")
-                .font(LitterFont.monospaced(size: 12 * textScale, weight: .semibold))
+                .litterMonoFont(size: 12, weight: .semibold)
                 .foregroundColor(LitterTheme.warning)
 
             Text(data.command.isEmpty ? "command" : data.command)
-                .font(LitterFont.monospaced(size: 12 * textScale))
+                .litterMonoFont(size: 12)
                 .foregroundColor(LitterTheme.textSystem)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -618,7 +601,7 @@ private struct ConversationCommandOutputViewport: View {
     let output: String
     let status: ToolCallStatus
     let durationText: String?
-    let textScale: CGFloat
+    @Environment(\.textScale) private var textScale
 
     private let bottomAnchorId = "command-output-bottom"
 
@@ -635,7 +618,7 @@ private struct ConversationCommandOutputViewport: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(verbatim: output)
-                        .font(LitterFont.monospaced(size: lineFontSize))
+                        .litterMonoFont(size: 11)
                         .foregroundColor(LitterTheme.textBody)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -666,7 +649,7 @@ private struct ConversationCommandOutputViewport: View {
                     Text(durationText)
                         .foregroundColor(statusColor)
                         .accessibilityLabel(durationAccessibilityLabel(durationText))
-                        .font(LitterFont.styled(.caption2, scale: textScale))
+                        .litterFont(.caption2)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(alignment: .bottom) {
@@ -726,12 +709,11 @@ private struct ConversationCommandOutputViewport: View {
 
 private struct ConversationReasoningRow: View {
     let data: ConversationReasoningData
-    let textScale: CGFloat
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             Text(reasoningText)
-                .font(LitterFont.styled(.footnote, scale: textScale))
+                .litterFont(.footnote)
                 .italic()
                 .foregroundColor(LitterTheme.textSecondary)
                 .textSelection(.enabled)
@@ -749,7 +731,6 @@ private struct ConversationReasoningRow: View {
 
 private struct ConversationTodoListRow: View {
     let data: ConversationTodoListData
-    let textScale: CGFloat
     private let bodySize: CGFloat = 13
     private let codeSize: CGFloat = 12
     @State private var expanded = true
@@ -759,17 +740,17 @@ private struct ConversationTodoListRow: View {
             Button(action: toggleExpanded) {
                 HStack(spacing: 8) {
                     Image(systemName: headerIconName)
-                        .font(.system(size: 12 * textScale, weight: .semibold))
+                        .litterFont(size: 12, weight: .semibold)
                         .foregroundColor(headerTint)
                     Text("To Do")
-                        .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                        .litterFont(.caption, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                     Text(summaryText)
-                        .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                        .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(progressTint)
                     Spacer(minLength: 8)
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11 * textScale, weight: .medium))
+                        .litterFont(size: 11, weight: .medium)
                         .foregroundColor(LitterTheme.textMuted)
                 }
             }
@@ -785,14 +766,11 @@ private struct ConversationTodoListRow: View {
                                 todoStatusView(for: step.status)
                                     .padding(.top, 2)
                                 Text("\(index + 1).")
-                                    .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                                    .litterFont(.caption, weight: .semibold)
                                     .foregroundColor(LitterTheme.textMuted)
                                     .padding(.top, 1)
                                 StructuredText(markdown: step.step)
-                                    .font(.custom(LitterFont.markdownFontName, size: bodySize * textScale))
-                                    .foregroundStyle(LitterTheme.textBody)
-                                    .textual.structuredTextStyle(LitterStructuredStyle(bodySize: bodySize * textScale, codeSize: codeSize * textScale))
-                                    .textual.textSelection(.enabled)
+                                    .litterContentMarkdown(bodySize: bodySize, codeSize: codeSize)
                                     .strikethrough(step.status == .completed, color: LitterTheme.textMuted)
                                     .opacity(step.status == .completed ? 0.78 : 1.0)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -857,16 +835,16 @@ private struct ConversationTodoListRow: View {
         switch status {
         case .pending:
             Image(systemName: "circle")
-                .font(.system(size: 11 * textScale, weight: .semibold))
+                .litterFont(size: 11, weight: .semibold)
                 .foregroundColor(LitterTheme.textMuted)
         case .inProgress:
             ProgressView()
                 .controlSize(.mini)
                 .tint(LitterTheme.warning)
-                .frame(width: 11 * textScale, height: 11 * textScale)
+                .frame(width: 11, height: 11)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 11 * textScale, weight: .semibold))
+                .litterFont(size: 11, weight: .semibold)
                 .foregroundColor(LitterTheme.success)
         }
     }
@@ -874,7 +852,6 @@ private struct ConversationTodoListRow: View {
 
 private struct ConversationProposedPlanRow: View {
     let data: ConversationProposedPlanData
-    let textScale: CGFloat
     let renderMode: ConversationTurnRenderMode
 
     private var trimmedContent: String? {
@@ -887,23 +864,19 @@ private struct ConversationProposedPlanRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "list.bullet.rectangle.portrait.fill")
-                        .font(.system(size: 12 * textScale, weight: .semibold))
+                        .litterFont(size: 12, weight: .semibold)
                         .foregroundColor(LitterTheme.accent)
                     Text("Plan")
-                        .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                        .litterFont(.caption, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
 
                 if renderMode == .rich {
                     StructuredText(markdown: trimmedContent)
-                        .font(.custom(LitterFont.markdownFontName, size: 13 * textScale))
-                        .foregroundStyle(LitterTheme.textSystem)
-                        .textual.structuredTextStyle(LitterSystemStructuredStyle(bodySize: 13 * textScale, codeSize: 12 * textScale))
-                        .textual.textSelection(.enabled)
+                        .litterSystemMarkdown()
                 } else {
                     ConversationPlainTextBlock(
                         text: trimmedContent,
-                        textScale: textScale,
                         font: .caption,
                         foregroundColor: LitterTheme.textSecondary
                     )
@@ -917,21 +890,19 @@ private struct ConversationProposedPlanRow: View {
 
 private struct ConversationTurnDiffRow: View {
     let data: ConversationTurnDiffData
-    let textScale: CGFloat
     @State private var showingDetails = false
 
     var body: some View {
         Button {
             showingDetails = true
         } label: {
-            DiffIndicatorLabel(diff: data.diff, textScale: textScale)
+            DiffIndicatorLabel(diff: data.diff)
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showingDetails) {
             ConversationDiffDetailSheet(
                 title: "Turn Diff",
-                diff: data.diff,
-                textScale: textScale
+                diff: data.diff
             )
         }
     }
@@ -939,25 +910,23 @@ private struct ConversationTurnDiffRow: View {
 
 private struct ConversationToolCardRow: View {
     let model: ToolCallCardModel
-    let textScale: CGFloat
 
     var body: some View {
-        ToolCallCardView(model: model, textScale: textScale)
+        ToolCallCardView(model: model)
     }
 }
 
 private struct ConversationUserInputResponseRow: View {
     let data: ConversationUserInputResponseData
-    let textScale: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "questionmark.bubble.fill")
-                    .font(.system(size: 12 * textScale, weight: .semibold))
+                    .litterFont(size: 12, weight: .semibold)
                     .foregroundColor(LitterTheme.warning)
                 Text("Requested Input")
-                    .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                    .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
             }
 
@@ -965,14 +934,14 @@ private struct ConversationUserInputResponseRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let header = question.header, !header.isEmpty {
                         Text(header.uppercased())
-                            .font(LitterFont.styled(.caption2, weight: .bold, scale: textScale))
+                            .litterFont(.caption2, weight: .bold)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     Text(question.question)
-                        .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                        .litterFont(.caption, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                     Text(question.answer)
-                        .font(LitterFont.styled(.caption, scale: textScale))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                         .textSelection(.enabled)
                 }
@@ -985,7 +954,6 @@ private struct ConversationUserInputResponseRow: View {
 
 private struct ConversationDividerRow: View {
     let kind: ConversationDividerKind
-    let textScale: CGFloat
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1009,7 +977,7 @@ private struct ConversationDividerRow: View {
             HStack(spacing: 6) {
                 if isComplete {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 10 * textScale, weight: .semibold))
+                        .litterFont(size: 10, weight: .semibold)
                         .foregroundColor(LitterTheme.success)
                 } else {
                     ProgressView()
@@ -1018,13 +986,13 @@ private struct ConversationDividerRow: View {
                 }
 
                 Text(title)
-                    .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                    .litterFont(.caption2, weight: .semibold)
                     .foregroundColor(isComplete ? LitterTheme.textMuted : LitterTheme.warning)
                     .lineLimit(1)
             }
         default:
             Text(title)
-                .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                .litterFont(.caption2, weight: .semibold)
                 .foregroundColor(LitterTheme.textMuted)
                 .lineLimit(1)
         }
@@ -1060,30 +1028,25 @@ private struct ConversationSystemCardRow: View {
     let content: String
     let accent: Color
     let iconName: String
-    let textScale: CGFloat
     var renderMode: ConversationTurnRenderMode = .rich
 
     var bodyView: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: iconName)
-                    .font(.system(size: 11 * textScale, weight: .semibold))
+                    .litterFont(size: 11, weight: .semibold)
                     .foregroundColor(accent)
                 Text(title.uppercased())
-                    .font(LitterFont.styled(.caption2, weight: .bold, scale: textScale))
+                    .litterFont(.caption2, weight: .bold)
                     .foregroundColor(accent)
             }
             if !content.isEmpty {
                 if renderMode == .rich {
                     StructuredText(markdown: content)
-                        .font(.custom(LitterFont.markdownFontName, size: 13 * textScale))
-                        .foregroundStyle(LitterTheme.textSystem)
-                        .textual.structuredTextStyle(LitterSystemStructuredStyle(bodySize: 13 * textScale, codeSize: 12 * textScale))
-                        .textual.textSelection(.enabled)
+                        .litterSystemMarkdown()
                 } else {
                     ConversationPlainTextBlock(
                         text: content,
-                        textScale: textScale,
                         font: .caption,
                         foregroundColor: LitterTheme.textSecondary
                     )
@@ -1100,7 +1063,6 @@ private struct ConversationSystemCardRow: View {
 
 struct ConversationPinnedContextStrip: View {
     let items: [ConversationItem]
-    let textScale: CGFloat
     @State private var todoExpanded = false
     @State private var selectedDiff: PresentedDiff?
 
@@ -1128,8 +1090,7 @@ struct ConversationPinnedContextStrip: View {
             .sheet(item: $selectedDiff) { presentedDiff in
                 ConversationDiffDetailSheet(
                     title: presentedDiff.title,
-                    diff: presentedDiff.diff,
-                    textScale: textScale
+                    diff: presentedDiff.diff
                 )
             }
         }
@@ -1171,15 +1132,15 @@ struct ConversationPinnedContextStrip: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: completed == total && total > 0 ? "checkmark.circle.fill" : "checklist")
-                            .font(.system(size: 11 * textScale, weight: .semibold))
+                            .litterFont(size: 11, weight: .semibold)
                             .foregroundColor(completed == total && total > 0 ? LitterTheme.success : LitterTheme.accent)
                         Text(summary)
-                            .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                            .litterFont(.caption, weight: .semibold)
                             .foregroundColor(LitterTheme.textPrimary)
                             .lineLimit(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 11 * textScale, weight: .medium))
+                            .litterFont(size: 11, weight: .medium)
                             .foregroundColor(LitterTheme.textMuted)
                             .rotationEffect(.degrees(todoExpanded ? 180 : 0))
                     }
@@ -1196,10 +1157,7 @@ struct ConversationPinnedContextStrip: View {
                                 compactTodoStatusView(for: step.status)
                                     .padding(.top, 2)
                                 StructuredText(markdown: step.step)
-                                    .font(.custom(LitterFont.markdownFontName, size: 12 * textScale))
-                                    .foregroundStyle(LitterTheme.textBody)
-                                    .textual.structuredTextStyle(LitterStructuredStyle(bodySize: 12 * textScale, codeSize: 11 * textScale))
-                                    .textual.textSelection(.enabled)
+                                    .litterContentMarkdown(bodySize: 12, codeSize: 11)
                                     .strikethrough(step.status == .completed, color: LitterTheme.textMuted)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -1218,16 +1176,16 @@ struct ConversationPinnedContextStrip: View {
         switch status {
         case .pending:
             Image(systemName: "circle")
-                .font(.system(size: 10 * textScale, weight: .semibold))
+                .litterFont(size: 10, weight: .semibold)
                 .foregroundColor(LitterTheme.textMuted)
         case .inProgress:
             ProgressView()
                 .controlSize(.mini)
                 .tint(LitterTheme.warning)
-                .frame(width: 10 * textScale, height: 10 * textScale)
+                .frame(width: 10, height: 10)
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 10 * textScale, weight: .semibold))
+                .litterFont(size: 10, weight: .semibold)
                 .foregroundColor(LitterTheme.success)
         }
     }
@@ -1242,7 +1200,7 @@ struct ConversationPinnedContextStrip: View {
                     diff: data.diff
                 )
             } label: {
-                DiffIndicatorLabel(diff: data.diff, textScale: textScale)
+                DiffIndicatorLabel(diff: data.diff)
             }
             .buttonStyle(.plain)
         }
@@ -1252,20 +1210,18 @@ struct ConversationPinnedContextStrip: View {
 private struct ConversationPlainAssistantRow: View {
     let data: ConversationAssistantMessageData
     let label: String?
-    let textScale: CGFloat
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 if let label {
                     Text(label)
-                        .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                        .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
 
                 ConversationPlainTextBlock(
                     text: data.text,
-                    textScale: textScale,
                     font: .body,
                     foregroundColor: LitterTheme.textBody
                 )
@@ -1278,14 +1234,13 @@ private struct ConversationPlainAssistantRow: View {
 
 private struct ConversationPlainTextBlock: View {
     let text: String
-    let textScale: CGFloat
     let font: Font.TextStyle
     var weight: Font.Weight = .regular
     let foregroundColor: Color
 
     var body: some View {
         Text(verbatim: text.isEmpty ? " " : text)
-            .font(LitterFont.styled(font, weight: weight, scale: textScale))
+            .litterFont(font, weight: weight)
             .foregroundColor(foregroundColor)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
@@ -1310,7 +1265,6 @@ private struct DiffStats {
 
 private struct DiffIndicatorLabel: View {
     let diff: String
-    let textScale: CGFloat
 
     private var stats: DiffStats {
         summarizeDiff(diff)
@@ -1319,21 +1273,21 @@ private struct DiffIndicatorLabel: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 11 * textScale, weight: .semibold))
+                .litterFont(size: 11, weight: .semibold)
                 .foregroundColor(LitterTheme.accent)
 
             if stats.hasChanges {
                 HStack(spacing: 6) {
                     Text("+\(stats.additions)")
-                        .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                        .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.success)
                     Text("-\(stats.deletions)")
-                        .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                        .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.danger)
                 }
             } else {
                 Text("Diff")
-                    .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                    .litterFont(.caption2, weight: .semibold)
                     .foregroundColor(LitterTheme.textSecondary)
             }
         }
@@ -1356,7 +1310,6 @@ private struct DiffIndicatorLabel: View {
 private struct ConversationDiffDetailSheet: View {
     let title: String
     let diff: String
-    let textScale: CGFloat
     @Environment(ThemeManager.self) private var themeManager
     @Environment(\.dismiss) private var dismiss
 
@@ -1374,18 +1327,17 @@ private struct ConversationDiffDetailSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
                         Text("+\(stats.additions)")
-                            .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                            .litterFont(.caption2, weight: .semibold)
                             .foregroundColor(LitterTheme.success)
                         Text("-\(stats.deletions)")
-                            .font(LitterFont.styled(.caption2, weight: .semibold, scale: textScale))
+                            .litterFont(.caption2, weight: .semibold)
                             .foregroundColor(LitterTheme.danger)
                     }
 
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                             ConversationDiffLineView(
-                                line: line,
-                                textScale: textScale
+                                line: line
                             )
                         }
                     }
@@ -1411,11 +1363,10 @@ private struct ConversationDiffDetailSheet: View {
 
 private struct ConversationDiffLineView: View {
     let line: String
-    let textScale: CGFloat
 
     var body: some View {
         Text(verbatim: line.isEmpty ? " " : line)
-            .font(LitterFont.monospaced(size: 12 * textScale))
+            .litterMonoFont(size: 12)
             .foregroundStyle(foregroundColor)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)

@@ -38,11 +38,11 @@ struct AppearanceSettingsView: View {
             VStack(spacing: 12) {
                 HStack {
                     Text("Font Size")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                     Spacer()
                     Text(ConversationTextSize.clamped(rawValue: textSizeStep).label)
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
 
@@ -72,7 +72,7 @@ struct AppearanceSettingsView: View {
             Text("Font Size")
                 .foregroundColor(LitterTheme.textSecondary)
         } footer: {
-            Text("Pinch in conversations to adjust, or use this slider. Applies to all conversations.")
+            Text("Pinch in conversations to adjust, or use this slider. Applies across the app.")
                 .foregroundColor(LitterTheme.textMuted)
         }
     }
@@ -109,6 +109,7 @@ struct AppearanceSettingsView: View {
                 UserBubble(text: "That was you, clanker", compact: true)
             }
             .padding(.vertical, 6)
+            .environment(\.textScale, ConversationTextSize.clamped(rawValue: textSizeStep).scale)
             .id(themeManager.themeVersion)
             .listRowBackground(LitterTheme.backgroundGradient)
             .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
@@ -228,7 +229,7 @@ private struct ThemePickerRow: View {
             )
 
             Text(entry?.name ?? "Unknown Theme")
-                .font(LitterFont.styled(.subheadline))
+                .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
 
@@ -239,11 +240,11 @@ private struct ThemePickerRow: View {
                 EmptyView()
             case .chevron:
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11))
+                    .litterFont(size: 11)
                     .foregroundColor(LitterTheme.textMuted)
             case .checkmark:
                 Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .semibold))
+                    .litterFont(size: 12, weight: .semibold)
                     .foregroundColor(LitterTheme.accent)
             }
         }
@@ -336,10 +337,10 @@ private struct ThemePickerSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(LitterTheme.textMuted)
-                .font(.system(size: 14, weight: .medium))
+                .litterFont(size: 14, weight: .medium)
 
             TextField("Search themes", text: $searchQuery)
-                .font(LitterFont.styled(.subheadline))
+                .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
@@ -350,7 +351,7 @@ private struct ThemePickerSheet: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(LitterTheme.textMuted)
-                        .font(.system(size: 14))
+                        .litterFont(size: 14)
                 }
                 .buttonStyle(.plain)
             }
@@ -369,16 +370,16 @@ private struct ThemePickerSheet: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .medium))
+                .litterFont(size: 18, weight: .medium)
                 .foregroundColor(LitterTheme.textMuted)
 
             Text("No matching themes")
-                .font(LitterFont.styled(.subheadline))
+                .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
 
             if !trimmedSearchQuery.isEmpty {
                 Text(trimmedSearchQuery)
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor(LitterTheme.textSecondary)
             }
         }

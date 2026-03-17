@@ -4,19 +4,16 @@ struct SubagentCardView: View {
     @Environment(ServerManager.self) private var serverManager
     let data: ConversationMultiAgentActionData
     let serverId: String
-    var textScale: CGFloat = 1.0
     @State private var expanded: Bool
     @State private var sheetThreadKey: ThreadKey?
     @State private var sheetAgentLabel: String?
 
     init(
         data: ConversationMultiAgentActionData,
-        serverId: String,
-        textScale: CGFloat = 1.0
+        serverId: String
     ) {
         self.data = data
         self.serverId = serverId
-        self.textScale = textScale
         _expanded = State(initialValue: true)
     }
 
@@ -55,12 +52,12 @@ struct SubagentCardView: View {
     private var headerRow: some View {
         HStack(spacing: 8) {
             Text(actionLabel)
-                .font(LitterFont.styled(.caption, scale: textScale))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textSystem)
                 .lineLimit(1)
 
             Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                .font(.system(size: 11 * textScale, weight: .medium))
+                .litterFont(size: 11, weight: .medium)
                 .foregroundColor(LitterTheme.textMuted)
 
             Spacer()
@@ -188,7 +185,7 @@ struct SubagentCardView: View {
                     + Text(" \(statusStr)")
                         .foregroundColor(LitterTheme.textSecondary)
                 )
-                .font(LitterFont.styled(.caption, scale: textScale))
+                .litterFont(.caption)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .modifier(ShimmerText(active: isActive))
@@ -205,7 +202,7 @@ struct SubagentCardView: View {
                         }
                     } label: {
                         Text("Open")
-                            .font(LitterFont.styled(.caption, scale: textScale))
+                            .litterFont(.caption)
                             .foregroundColor(resolvedKey != nil ? LitterTheme.textSecondary : LitterTheme.textMuted)
                     }
                     .buttonStyle(.plain)
@@ -215,13 +212,13 @@ struct SubagentCardView: View {
             // Line 2: Per-agent prompt if available, else shared prompt
             if let prompt = row.prompt, !prompt.isEmpty {
                 Text(prompt)
-                    .font(LitterFont.styled(.caption2, scale: textScale))
+                    .litterFont(.caption2)
                     .foregroundColor(LitterTheme.textMuted)
                     .lineLimit(2)
                     .truncationMode(.tail)
             } else if let prompt = data.prompt, !prompt.isEmpty {
                 Text(prompt)
-                    .font(LitterFont.styled(.caption2, scale: textScale))
+                    .litterFont(.caption2)
                     .foregroundColor(LitterTheme.textMuted)
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -351,7 +348,7 @@ private struct SubagentDetailSheet: View {
                                 ProgressView()
                                     .tint(LitterTheme.accent)
                                 Text(isLoading ? "Loading thread..." : "Waiting for agent output...")
-                                    .font(LitterFont.styled(.caption))
+                                    .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textMuted)
                                 Spacer()
                             }
@@ -363,7 +360,6 @@ private struct SubagentDetailSheet: View {
                                 renderMode: .rich,
                                 serverId: threadKey.serverId,
                                 agentDirectoryVersion: 0,
-                                textScale: 1.0,
                                 messageActionsDisabled: true,
                                 onStreamingSnapshotRendered: nil,
                                 resolveTargetLabel: { _ in nil },
@@ -379,13 +375,13 @@ private struct SubagentDetailSheet: View {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "person.fill.questionmark")
-                            .font(.system(size: 32))
+                            .litterFont(size: 32)
                             .foregroundColor(LitterTheme.textMuted)
                         Text("Thread not available yet")
-                            .font(LitterFont.styled(.footnote))
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textSecondary)
                         Text("The agent may still be initializing.")
-                            .font(LitterFont.styled(.caption))
+                            .litterFont(.caption)
                             .foregroundColor(LitterTheme.textMuted)
                         Spacer()
                     }
@@ -403,7 +399,7 @@ private struct SubagentDetailSheet: View {
                         + Text(parts.roleSuffix)
                             .foregroundColor(LitterTheme.textSecondary)
                     )
-                    .font(LitterFont.styled(.callout, weight: .semibold))
+                    .litterFont(.callout, weight: .semibold)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }

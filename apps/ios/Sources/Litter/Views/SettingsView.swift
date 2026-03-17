@@ -55,7 +55,7 @@ struct SettingsView: View {
                         .foregroundColor(LitterTheme.accent)
                         .frame(width: 20)
                     Text("Appearance")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
@@ -77,10 +77,10 @@ struct SettingsView: View {
                         .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Collapse Turns")
-                            .font(LitterFont.styled(.subheadline))
+                            .litterFont(.subheadline)
                             .foregroundColor(LitterTheme.textPrimary)
                         Text("Collapse previous turns into cards")
-                            .font(LitterFont.styled(.caption))
+                            .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                 }
@@ -104,7 +104,7 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(option.displayName)
-                                .font(LitterFont.styled(.subheadline))
+                                .litterFont(.subheadline)
                                 .foregroundColor(LitterTheme.textPrimary)
                             Text("The quick brown fox")
                                 .font(LitterFont.sampleFont(family: option, size: 14))
@@ -113,7 +113,7 @@ struct SettingsView: View {
                         Spacer()
                         if fontFamily == option.rawValue {
                             Image(systemName: "checkmark")
-                                .font(.system(.subheadline, weight: .semibold))
+                                .litterFont(.subheadline, weight: .semibold)
                                 .foregroundColor(LitterTheme.accentStrong)
                         }
                     }
@@ -138,7 +138,7 @@ struct SettingsView: View {
                         .foregroundColor(LitterTheme.accent)
                         .frame(width: 20)
                     Text("Experimental Features")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
@@ -167,7 +167,7 @@ struct SettingsView: View {
         Section {
             if connectedServers.isEmpty {
                 Text("No servers connected")
-                    .font(LitterFont.styled(.footnote))
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             } else {
@@ -178,17 +178,17 @@ struct SettingsView: View {
                             .frame(width: 20)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(conn.server.name)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                             Text(conn.connectionHealth.settingsLabel)
-                                .font(LitterFont.styled(.caption))
+                                .litterFont(.caption)
                                 .foregroundColor(conn.connectionHealth.settingsColor)
                         }
                         Spacer()
                         Button("Remove") {
                             serverManager.removeServer(id: conn.id)
                         }
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.danger)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -221,11 +221,11 @@ private struct SettingsConnectionAccountSection: View {
                     .frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(authTitle)
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                     if let sub = authSubtitle {
                         Text(sub)
-                            .font(LitterFont.styled(.caption))
+                            .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                 }
@@ -234,7 +234,7 @@ private struct SettingsConnectionAccountSection: View {
                     Button("Logout") {
                         Task { await connection.logout() }
                     }
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor(LitterTheme.danger)
                 }
             }
@@ -255,7 +255,7 @@ private struct SettingsConnectionAccountSection: View {
                         }
                         Image(systemName: "person.crop.circle.badge.checkmark")
                         Text("Login with ChatGPT")
-                            .font(LitterFont.styled(.subheadline))
+                            .litterFont(.subheadline)
                     }
                     .foregroundColor(LitterTheme.accent)
                 }
@@ -264,7 +264,7 @@ private struct SettingsConnectionAccountSection: View {
 
                 HStack(spacing: 8) {
                     SecureField("sk-...", text: $apiKey)
-                        .font(LitterFont.styled(.footnote))
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textPrimary)
                         .textInputAutocapitalization(.never)
                     Button("Save") {
@@ -277,7 +277,7 @@ private struct SettingsConnectionAccountSection: View {
                             isAuthWorking = false
                         }
                     }
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
                     .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isAuthWorking)
                 }
@@ -286,7 +286,7 @@ private struct SettingsConnectionAccountSection: View {
 
             if let authError {
                 Text(authError)
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor(LitterTheme.danger)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
@@ -363,7 +363,7 @@ private struct SettingsDisconnectedAccountSection: View {
     var body: some View {
         Section {
             Text("Connect to a server first")
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {

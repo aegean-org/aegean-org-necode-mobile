@@ -107,6 +107,11 @@ struct ContentView: View {
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var composerBottomInset: CGFloat = 0
+    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.medium.rawValue
+
+    private var textScale: CGFloat {
+        ConversationTextSize.clamped(rawValue: textSizeStep).scale
+    }
 
     var body: some View {
         @Bindable var bindableAppState = appState
@@ -154,6 +159,7 @@ struct ContentView: View {
         }
         .environment(appState)
         .environment(conversationWarmup)
+        .environment(\.textScale, textScale)
         .onAppear {
             let forceDiscoveryForUITest =
                 ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] == "1"
@@ -175,10 +181,12 @@ struct ContentView: View {
             }
             .environment(serverManager)
             .environment(appState)
+            .environment(\.textScale, textScale)
         }
         .sheet(isPresented: $bindableAppState.showSettings) {
             SettingsView()
                 .environment(serverManager)
+                .environment(\.textScale, textScale)
         }
     }
 
@@ -573,7 +581,7 @@ private struct ConversationDestinationScreen: View {
                     ProgressView()
                         .tint(LitterTheme.accent)
                     Text("Loading thread...")
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textMuted)
                     Spacer()
                 }
@@ -583,9 +591,9 @@ private struct ConversationDestinationScreen: View {
                     Button(action: onBack) {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold))
+                                .litterFont(size: 14, weight: .semibold)
                             Text("Back")
-                                .font(LitterFont.styled(.callout))
+                                .litterFont(.callout)
                         }
                         .foregroundColor(LitterTheme.accent)
                         .padding(.horizontal, 16)
@@ -648,12 +656,12 @@ private struct ApprovalPromptView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(title)
-                    .font(LitterFont.styled(.headline))
+                    .litterFont(.headline)
                     .foregroundColor(LitterTheme.textPrimary)
 
                 if let reason = approval.reason, !reason.isEmpty {
                     Text(reason)
-                        .font(LitterFont.styled(.footnote))
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
 
@@ -661,10 +669,10 @@ private struct ApprovalPromptView: View {
                     HStack(spacing: 8) {
                         HStack(spacing: 4) {
                             Image(systemName: "person.fill")
-                                .font(.system(size: 10, weight: .semibold))
+                                .litterFont(size: 10, weight: .semibold)
                                 .foregroundColor(LitterTheme.success)
                             Text(requesterLabel)
-                                .font(LitterFont.styled(.caption, weight: .medium))
+                                .litterFont(.caption, weight: .medium)
                                 .foregroundColor(LitterTheme.textPrimary)
                         }
                         .padding(.horizontal, 8)
@@ -678,9 +686,9 @@ private struct ApprovalPromptView: View {
                             } label: {
                                 HStack(spacing: 3) {
                                     Text("View Thread")
-                                        .font(LitterFont.styled(.caption, weight: .medium))
+                                        .litterFont(.caption, weight: .medium)
                                     Image(systemName: "arrow.right")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .litterFont(size: 9, weight: .semibold)
                                 }
                                 .foregroundColor(LitterTheme.accent)
                             }
@@ -694,11 +702,11 @@ private struct ApprovalPromptView: View {
                 if let command = approval.command, !command.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Command")
-                            .font(LitterFont.styled(.caption))
+                            .litterFont(.caption)
                             .foregroundColor(LitterTheme.textMuted)
                         ScrollView(.horizontal, showsIndicators: false) {
                             Text(command)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textBody)
                                 .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -710,13 +718,13 @@ private struct ApprovalPromptView: View {
 
                 if let cwd = approval.cwd, !cwd.isEmpty {
                     Text("CWD: \(cwd)")
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textMuted)
                 }
 
                 if let grantRoot = approval.grantRoot, !grantRoot.isEmpty {
                     Text("Grant Root: \(grantRoot)")
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textMuted)
                 }
 
@@ -741,7 +749,7 @@ private struct ApprovalPromptView: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
-                .font(LitterFont.styled(.callout))
+                .litterFont(.callout)
             }
             .padding(16)
             .modifier(GlassRectModifier(cornerRadius: 14))
@@ -762,7 +770,7 @@ struct LaunchView: View {
             VStack(spacing: 24) {
                 BrandLogo(size: 132)
                 Text("AI coding agent on iOS")
-                    .font(LitterFont.styled(.body))
+                    .litterFont(.body)
                     .foregroundColor(LitterTheme.textMuted)
             }
         }

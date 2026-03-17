@@ -213,7 +213,7 @@ struct SessionsScreen: View {
             } else if derived.allThreads.isEmpty {
                 Spacer()
                 Text("No sessions yet")
-                    .font(LitterFont.styled(.footnote))
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                     .frame(maxWidth: .infinity)
                 Spacer()
@@ -224,7 +224,7 @@ struct SessionsScreen: View {
                 if derived.filteredThreads.isEmpty {
                     Spacer()
                     Text("No matches for \"\(trimmedSessionSearchQuery)\"")
-                        .font(LitterFont.styled(.footnote))
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                         .frame(maxWidth: .infinity)
                     Spacer()
@@ -298,7 +298,7 @@ struct SessionsScreen: View {
         HStack(spacing: 10) {
             Button { appState.showSettings = true } label: {
                 Image(systemName: "gear")
-                    .font(.system(.subheadline, weight: .medium))
+                    .litterFont(.subheadline, weight: .medium)
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(width: 44, height: 44)
                     .modifier(GlassRectModifier(cornerRadius: 10))
@@ -325,9 +325,9 @@ struct SessionsScreen: View {
                             .tint(LitterTheme.textOnAccent)
                     } else {
                         Image(systemName: "plus")
-                            .font(.system(.subheadline, weight: .medium))
+                            .litterFont(.subheadline, weight: .medium)
                         Text("New Session")
-                            .font(LitterFont.styled(.subheadline))
+                            .litterFont(.subheadline)
                     }
                 }
                 .foregroundColor(LitterTheme.textOnAccent)
@@ -352,28 +352,28 @@ struct SessionsScreen: View {
                     .foregroundColor(LitterTheme.textMuted)
                     .frame(width: 20)
                 Text("Not connected")
-                    .font(LitterFont.styled(.footnote))
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                 Spacer()
                 Button("Connect") {
                     appState.showServerPicker = true
                 }
                 .accessibilityIdentifier("sessions.connectButton")
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.accent)
             } else {
                 Image(systemName: "server.rack")
                     .foregroundColor(LitterTheme.accent)
                     .frame(width: 20)
                 Text("\(connected.count) server\(connected.count == 1 ? "" : "s")")
-                    .font(LitterFont.styled(.footnote))
+                    .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
                 Button("Add") {
                     appState.showServerPicker = true
                 }
                 .accessibilityIdentifier("sessions.addServerButton")
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.accent)
                 if let activeThread {
                     Button {
@@ -388,7 +388,7 @@ struct SessionsScreen: View {
                         }
                     }
                     .disabled(isForkingActiveThread || (activeThreadEphemeralState?.hasTurnActive ?? activeThread.hasTurnActive))
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor((activeThreadEphemeralState?.hasTurnActive ?? activeThread.hasTurnActive) ? LitterTheme.textMuted : LitterTheme.accent)
                 }
             }
@@ -401,10 +401,10 @@ struct SessionsScreen: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(LitterTheme.textMuted)
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
 
             TextField("Search sessions", text: $sessionSearchQuery)
-                .font(LitterFont.styled(.footnote))
+                .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
@@ -415,7 +415,7 @@ struct SessionsScreen: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(LitterTheme.textMuted)
-                        .font(.system(size: 14))
+                        .litterFont(size: 14)
                 }
                 .buttonStyle(.plain)
             }
@@ -477,7 +477,7 @@ struct SessionsScreen: View {
                     selectedServerFilterId = nil
                     showOnlyForks = false
                 }
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.accent)
             }
             Spacer(minLength: 0)
@@ -494,11 +494,11 @@ struct SessionsScreen: View {
     private func filterChip(title: String, isActive: Bool, icon: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .semibold))
+                .litterFont(size: 10, weight: .semibold)
             Text(title)
                 .lineLimit(1)
         }
-        .font(LitterFont.styled(.caption))
+        .litterFont(.caption)
         .foregroundColor(isActive ? LitterTheme.textOnAccent : LitterTheme.textSecondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -522,27 +522,27 @@ struct SessionsScreen: View {
         } label: {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .litterFont(size: 10, weight: .semibold)
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(width: 12)
 
                 Image(systemName: "folder")
-                    .font(.system(size: 11, weight: .semibold))
+                    .litterFont(size: 11, weight: .semibold)
                     .foregroundColor(LitterTheme.accent)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(group.workspaceTitle)
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textPrimary)
                         .lineLimit(1)
 
                     Text(group.serverHost)
-                        .font(LitterFont.styled(.caption2))
+                        .litterFont(.caption2)
                         .foregroundColor(LitterTheme.textMuted)
                         .lineLimit(1)
 
                     Text(abbreviateHomePath(group.workspacePath))
-                        .font(LitterFont.styled(.caption2))
+                        .litterFont(.caption2)
                         .foregroundColor(LitterTheme.textMuted)
                         .lineLimit(1)
                 }
@@ -567,7 +567,7 @@ struct SessionsScreen: View {
                     ForEach(derived.workspaceSections) { section in
                         if let title = section.title {
                             Text(title)
-                                .font(LitterFont.styled(.caption2))
+                                .litterFont(.caption2)
                                 .foregroundColor(LitterTheme.textMuted)
                                 .padding(.horizontal, 2)
                         }
@@ -693,7 +693,7 @@ struct SessionsScreen: View {
                     if hasChildren {
                         Button(action: onToggleNode) {
                             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 9, weight: .semibold))
+                                .litterFont(size: 9, weight: .semibold)
                                 .foregroundColor(LitterTheme.textSecondary)
                                 .frame(width: 10, height: 10)
                         }
@@ -716,7 +716,7 @@ struct SessionsScreen: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(thread.sessionTitle)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
@@ -725,9 +725,9 @@ struct SessionsScreen: View {
                             if thread.isSubagent {
                                 HStack(spacing: 3) {
                                     Image(systemName: "person.2.fill")
-                                        .font(.system(size: 8, weight: .semibold))
+                                        .litterFont(size: 8, weight: .semibold)
                                     Text(thread.agentDisplayLabel ?? "Agent")
-                                        .font(LitterFont.styled(.caption2))
+                                        .litterFont(.caption2)
                                 }
                                 .foregroundColor(LitterTheme.textOnAccent)
                                 .padding(.horizontal, 5)
@@ -736,7 +736,7 @@ struct SessionsScreen: View {
                                 .cornerRadius(4)
                             } else if thread.isFork {
                                 Text("Fork")
-                                    .font(LitterFont.styled(.caption2))
+                                    .litterFont(.caption2)
                                     .foregroundColor(LitterTheme.textOnAccent)
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 2)
@@ -769,7 +769,7 @@ struct SessionsScreen: View {
                                     .foregroundColor(LitterTheme.textMuted)
                             }
                         }
-                        .font(LitterFont.styled(.caption2))
+                        .litterFont(.caption2)
                         .lineLimit(1)
                     }
                 }
@@ -849,7 +849,7 @@ struct SessionsScreen: View {
 
     private func lineageChip(title: String, count: Int, isInteractive: Bool) -> some View {
         Text("\(title) \(count)")
-            .font(LitterFont.styled(.caption2))
+            .litterFont(.caption2)
             .foregroundColor(isInteractive ? LitterTheme.accent : LitterTheme.textMuted)
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
@@ -866,22 +866,22 @@ struct SessionsScreen: View {
         switch status {
         case .completed:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 8))
+                .litterFont(size: 8)
                 .foregroundColor(LitterTheme.success)
                 .frame(width: 8, height: 8)
         case .errored:
             Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 8))
+                .litterFont(size: 8)
                 .foregroundColor(LitterTheme.danger)
                 .frame(width: 8, height: 8)
         case .shutdown:
             Image(systemName: "stop.circle.fill")
-                .font(.system(size: 8))
+                .litterFont(size: 8)
                 .foregroundColor(LitterTheme.textMuted)
                 .frame(width: 8, height: 8)
         case .interrupted:
             Image(systemName: "pause.circle.fill")
-                .font(.system(size: 8))
+                .litterFont(size: 8)
                 .foregroundColor(LitterTheme.warning)
                 .frame(width: 8, height: 8)
         default:

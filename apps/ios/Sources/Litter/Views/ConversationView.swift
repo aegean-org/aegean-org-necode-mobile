@@ -97,7 +97,6 @@ struct ConversationView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ConversationBottomChrome(
                 pinnedContextItems: pinnedContextItems,
-                textScale: ConversationTextSize.clamped(rawValue: conversationTextSizeStep).scale,
                 composer: composer,
                 connection: connection,
                 serverManager: serverManager,
@@ -205,7 +204,6 @@ struct ConversationView: View {
 
 private struct ConversationBottomChrome: View {
     let pinnedContextItems: [ConversationItem]
-    let textScale: CGFloat
     let composer: ConversationComposerSnapshot
     let connection: ServerConnection
     let serverManager: ServerManager
@@ -217,7 +215,7 @@ private struct ConversationBottomChrome: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ConversationPinnedContextStrip(items: pinnedContextItems, textScale: textScale)
+            ConversationPinnedContextStrip(items: pinnedContextItems)
             ConversationInputBar(
                 snapshot: composer,
                 connection: connection,
@@ -244,45 +242,6 @@ private struct ConversationBottomChrome: View {
     }
 }
 
-enum ConversationTextSize: Int, CaseIterable {
-    case xxSmall = -1
-    case xSmall = 0
-    case small = 1
-    case medium = 2
-    case large = 3
-    case xLarge = 4
-    case xxLarge = 5
-
-    var scale: CGFloat {
-        switch self {
-        case .xxSmall: return 0.78
-        case .xSmall: return 0.86
-        case .small: return 0.93
-        case .medium: return 1.0
-        case .large: return 1.1
-        case .xLarge: return 1.22
-        case .xxLarge: return 1.36
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .xxSmall: return "Smallest"
-        case .xSmall: return "Smaller"
-        case .small: return "Small"
-        case .medium: return "Default"
-        case .large: return "Large"
-        case .xLarge: return "Larger"
-        case .xxLarge: return "Largest"
-        }
-    }
-
-    static func clamped(rawValue: Int) -> ConversationTextSize {
-        let bounded = min(max(rawValue, xxSmall.rawValue), xxLarge.rawValue)
-        return ConversationTextSize(rawValue: bounded) ?? .medium
-    }
-}
-
 struct RateLimitBadgeView: View, Equatable {
     let label: String
     let percent: Int
@@ -296,7 +255,7 @@ struct RateLimitBadgeView: View, Equatable {
     var body: some View {
         HStack(spacing: 3) {
             Text(label)
-                .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
+                .litterMonoFont(size: 7.5, weight: .semibold)
                 .foregroundColor(LitterTheme.textSecondary)
             ContextBadgeView(percent: percent, tint: tint)
         }
@@ -354,14 +313,6 @@ private struct ConversationMessageList: View {
         return false
     }
 
-    private var targetTextScale: CGFloat {
-        ConversationTextSize.clamped(rawValue: textSizeStep).scale
-    }
-
-    private var textScale: CGFloat {
-        targetTextScale
-    }
-
     private var shouldShowScrollToBottom: Bool {
         !items.isEmpty && !isNearBottom
     }
@@ -415,7 +366,6 @@ private struct ConversationMessageList: View {
                                     renderMode: renderMode(for: turn),
                                     serverId: activeThreadKey.serverId,
                                     agentDirectoryVersion: agentDirectoryVersion,
-                                    textScale: textScale,
                                     messageActionsDisabled: messageActionsDisabled,
                                     onToggleExpansion: {
                                         toggleTurnExpansion(turn)
@@ -828,7 +778,7 @@ private struct ConversationTurnRow: View {
     let renderMode: ConversationTurnRenderMode
     let serverId: String
     let agentDirectoryVersion: Int
-    let textScale: CGFloat
+    @Environment(\.textScale) private var textScale
     let messageActionsDisabled: Bool
     let onToggleExpansion: () -> Void
     let onStreamingSnapshotRendered: (() -> Void)?
@@ -854,7 +804,6 @@ private struct ConversationTurnRow: View {
                 renderMode: renderMode,
                 serverId: serverId,
                 agentDirectoryVersion: agentDirectoryVersion,
-                textScale: textScale,
                 messageActionsDisabled: messageActionsDisabled,
                 onStreamingSnapshotRendered: onStreamingSnapshotRendered,
                 resolveTargetLabel: resolveTargetLabel,
@@ -870,7 +819,7 @@ private struct ConversationTurnRow: View {
 
             if canCollapse {
                 Button("Show Less", systemImage: "chevron.up", action: onToggleExpansion)
-                    .font(LitterFont.styled(.caption, weight: .semibold, scale: textScale))
+                    .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textSecondary)
                     .buttonStyle(.plain)
                     .padding(.top, 2)
@@ -897,7 +846,7 @@ private struct ConversationTurnRow: View {
     private var previewTextBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(turn.preview.primaryText)
-                .font(LitterFont.styled(.body, weight: .semibold, scale: textScale))
+                .litterFont(.body, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
@@ -907,7 +856,7 @@ private struct ConversationTurnRow: View {
 
             ZStack(alignment: .bottomLeading) {
                 Text(responsePreviewText)
-                    .font(LitterFont.styled(.body, scale: textScale))
+                    .litterFont(.body)
                     .foregroundColor(LitterTheme.textSecondary.opacity(0.82))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -932,8 +881,7 @@ private struct ConversationTurnRow: View {
                     ForEach(footerMetadataItems, id: \.id) { item in
                         CollapsedTurnMetaItem(
                             systemImage: item.systemImage,
-                            text: item.text,
-                            textScale: textScale
+                            text: item.text
                         )
                     }
                 }
@@ -941,7 +889,7 @@ private struct ConversationTurnRow: View {
             }
             Spacer(minLength: 8)
             Image(systemName: "chevron.down")
-                .font(.system(size: 11 * textScale, weight: .semibold))
+                .litterFont(size: 11, weight: .semibold)
                 .foregroundColor(LitterTheme.textMuted)
         }
         .padding(.horizontal, 2)
@@ -1049,15 +997,14 @@ private struct CollapsedTurnMeta: Identifiable {
 private struct CollapsedTurnMetaItem: View {
     let systemImage: String
     let text: String
-    let textScale: CGFloat
 
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
-                .font(.system(size: 9 * textScale, weight: .medium))
+                .litterFont(size: 9, weight: .medium)
                 .foregroundColor(LitterTheme.textMuted)
             Text(text)
-                .font(LitterFont.monospaced(size: 10 * textScale))
+                .litterMonoFont(size: 10)
                 .foregroundColor(LitterTheme.textSecondary)
                 .lineLimit(1)
         }
@@ -1072,10 +1019,10 @@ private struct ScrollToBottomIndicator: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down")
-                    .font(.system(.caption, weight: .bold))
+                    .litterFont(.caption, weight: .bold)
                     .offset(y: bob ? 1.5 : -1.5)
                 Text("Latest")
-                    .font(LitterFont.styled(.caption, weight: .semibold))
+                    .litterFont(.caption, weight: .semibold)
             }
             .foregroundColor(LitterTheme.textPrimary)
             .padding(.horizontal, 12)
@@ -2189,14 +2136,14 @@ struct PendingUserInputPromptView: View {
                 Image(systemName: "questionmark.bubble.fill")
                     .foregroundColor(LitterTheme.warning)
                 Text(promptTitle)
-                    .font(LitterFont.styled(.caption, weight: .semibold))
+                    .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
             }
 
             if let requesterLabel {
                 Text(requesterLabel)
-                    .font(LitterFont.styled(.caption2))
+                    .litterFont(.caption2)
                     .foregroundColor(LitterTheme.textMuted)
             }
 
@@ -2204,17 +2151,17 @@ struct PendingUserInputPromptView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if !question.header.isEmpty {
                         Text(question.header.uppercased())
-                            .font(LitterFont.styled(.caption2, weight: .bold))
+                            .litterFont(.caption2, weight: .bold)
                             .foregroundColor(LitterTheme.textMuted)
                     }
 
                     Text(question.question)
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textPrimary)
 
                     if question.options.isEmpty || question.isSecret || question.isOther {
                         Text("This prompt type is not fully supported in the current iOS client.")
-                            .font(LitterFont.styled(.caption2))
+                            .litterFont(.caption2)
                             .foregroundColor(LitterTheme.textSecondary)
                     } else {
                         HStack(spacing: 8) {
@@ -2224,7 +2171,7 @@ struct PendingUserInputPromptView: View {
                                     selectedAnswers[question.id] = option.label
                                 } label: {
                                     Text(option.label)
-                                        .font(LitterFont.styled(.caption2, weight: .semibold))
+                                        .litterFont(.caption2, weight: .semibold)
                                         .foregroundColor(isSelected ? Color.black : LitterTheme.textPrimary)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
@@ -2243,7 +2190,7 @@ struct PendingUserInputPromptView: View {
                     let answers = selectedAnswers.mapValues { [$0] }
                     onSubmit(answers)
                 }
-                .font(LitterFont.styled(.caption, weight: .semibold))
+                .litterFont(.caption, weight: .semibold)
                 .foregroundColor(Color.black)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -2321,9 +2268,9 @@ private struct SubagentBreadcrumbBar: View {
             Button(action: onNavigateToParent) {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 10, weight: .semibold))
+                        .litterFont(size: 10, weight: .semibold)
                     Text("Parent")
-                        .font(LitterFont.styled(.caption, weight: .medium))
+                        .litterFont(.caption, weight: .medium)
                 }
                 .foregroundColor(LitterTheme.accent)
             }
@@ -2335,10 +2282,10 @@ private struct SubagentBreadcrumbBar: View {
 
             HStack(spacing: 4) {
                 Image(systemName: "person.fill")
-                    .font(.system(size: 10, weight: .semibold))
+                    .litterFont(size: 10, weight: .semibold)
                     .foregroundColor(LitterTheme.success)
                 Text(thread.agentDisplayLabel ?? "Agent")
-                    .font(LitterFont.styled(.caption, weight: .medium))
+                    .litterFont(.caption, weight: .medium)
                     .foregroundColor(LitterTheme.textPrimary)
                     .lineLimit(1)
             }

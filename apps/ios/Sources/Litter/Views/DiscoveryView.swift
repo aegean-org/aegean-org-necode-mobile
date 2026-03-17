@@ -271,13 +271,13 @@ struct DiscoveryView: View {
                     HStack {
                         ProgressView().tint(LitterTheme.textMuted).scaleEffect(0.7)
                         Text("Scanning...")
-                            .font(LitterFont.styled(.footnote))
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textMuted)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                 } else {
                     Text("No servers found")
-                        .font(LitterFont.styled(.footnote))
+                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                         .listRowBackground(LitterTheme.surface.opacity(0.6))
                 }
@@ -293,7 +293,7 @@ struct DiscoveryView: View {
                         .foregroundColor(LitterTheme.textSecondary)
                         .frame(width: 18, alignment: .top)
                     Text(notice)
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -323,7 +323,7 @@ struct DiscoveryView: View {
                     Image(systemName: "plus.circle")
                         .foregroundColor(LitterTheme.accent)
                     Text("Add Server")
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -345,17 +345,17 @@ struct DiscoveryView: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(server.name)
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                     Text(serverSubtitle(server))
-                        .font(LitterFont.styled(.caption))
+                        .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
                 Spacer()
                 if let health = serverManager.connections[server.id]?.connectionHealth,
                    health != .disconnected {
                     Text(health.settingsLabel.lowercased())
-                        .font(LitterFont.styled(.caption2))
+                        .litterFont(.caption2)
                         .foregroundColor(health.settingsColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -714,29 +714,29 @@ struct DiscoveryView: View {
                     Section {
                         if manualConnectionMode == .codex {
                             TextField("ws://host:port or wss://...", text: $manualCodexURL)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled(true)
                                 .keyboardType(.URL)
                         } else {
                             TextField("hostname or IP", text: $manualHost)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled(true)
                             TextField("ssh port", text: $manualSSHPort)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .keyboardType(.numberPad)
                             Toggle(isOn: $manualUseSSHPortForward) {
                                 Text("Use SSH port forward")
-                                    .font(LitterFont.styled(.footnote))
+                                    .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textPrimary)
                             }
                             .tint(LitterTheme.accent)
                             TextField("wake MAC (optional)", text: $manualWakeMAC)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled(true)
@@ -747,7 +747,7 @@ struct DiscoveryView: View {
                     } footer: {
                         if manualConnectionMode == .codex {
                             Text("Run: codex app-server --listen ws://0.0.0.0:8390\nFor reverse proxies: wss://example.com/ws?token=SECRET\nDo not expose directly to the internet unless you know what you are doing.")
-                                .font(LitterFont.styled(.caption2))
+                                .litterFont(.caption2)
                                 .foregroundColor(LitterTheme.textMuted)
                         }
                     }
@@ -758,7 +758,7 @@ struct DiscoveryView: View {
                             submitManualEntry()
                         }
                         .foregroundColor(LitterTheme.accent)
-                        .font(LitterFont.styled(.subheadline))
+                        .litterFont(.subheadline)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                 }

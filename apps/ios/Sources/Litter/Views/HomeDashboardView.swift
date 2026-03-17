@@ -151,7 +151,7 @@ struct HomeDashboardView: View {
     ) -> some View {
         HStack(alignment: .center, spacing: 12) {
             Text(title)
-                .font(LitterFont.styled(.headline))
+                .litterFont(.headline)
                 .foregroundColor(LitterTheme.textPrimary)
 
             Spacer(minLength: 0)
@@ -165,7 +165,7 @@ struct HomeDashboardView: View {
                             .frame(width: 74)
                     } else {
                         Label(buttonTitle, systemImage: systemImage)
-                            .font(LitterFont.styled(.caption))
+                            .litterFont(.caption)
                             .foregroundColor(LitterTheme.accent)
                     }
                 }
@@ -186,7 +186,7 @@ struct HomeDashboardView: View {
     private func recentSessionCard(_ thread: ThreadState) -> some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: thread.hasTurnActive ? "sparkles" : "text.bubble")
-                .font(.system(size: 16, weight: .medium))
+                .litterFont(size: 16, weight: .medium)
                 .foregroundColor(LitterTheme.accent)
                 .frame(width: 28, height: 28)
                 .background(LitterTheme.accent.opacity(0.12))
@@ -194,7 +194,7 @@ struct HomeDashboardView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(thread.sessionTitle)
-                    .font(LitterFont.styled(.subheadline))
+                    .litterFont(.subheadline)
                     .foregroundColor(LitterTheme.textPrimary)
                     .lineLimit(1)
 
@@ -209,7 +209,7 @@ struct HomeDashboardView: View {
                     metadataDivider
                     Text(thread.updatedAt, style: .relative)
                 }
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .lineLimit(1)
             }
@@ -224,7 +224,7 @@ struct HomeDashboardView: View {
                 statusBadge("Thinking")
             } else {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .litterFont(size: 12, weight: .semibold)
                     .foregroundColor(LitterTheme.textMuted)
             }
         }
@@ -243,7 +243,7 @@ struct HomeDashboardView: View {
     private func connectedServerRow(_ connection: ServerConnection) -> some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: connection.server.source == .local ? "iphone" : "server.rack")
-                .font(.system(size: 16, weight: .medium))
+                .litterFont(size: 16, weight: .medium)
                 .foregroundColor(LitterTheme.accent)
                 .frame(width: 28, height: 28)
                 .background(LitterTheme.accent.opacity(0.12))
@@ -251,12 +251,12 @@ struct HomeDashboardView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(connection.server.name)
-                    .font(LitterFont.styled(.subheadline))
+                    .litterFont(.subheadline)
                     .foregroundColor(LitterTheme.textPrimary)
                     .lineLimit(1)
 
                 Text(HomeDashboardSupport.serverSubtitle(for: connection.server))
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
                     .lineLimit(1)
             }
@@ -269,11 +269,11 @@ struct HomeDashboardView: View {
                     .frame(width: 8, height: 8)
 
                 Text("Connected")
-                    .font(LitterFont.styled(.caption))
+                    .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .litterFont(size: 12, weight: .semibold)
                     .foregroundColor(LitterTheme.textMuted)
             }
         }
@@ -292,11 +292,11 @@ struct HomeDashboardView: View {
     private func emptyStateCard(title: String, message: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(LitterFont.styled(.subheadline))
+                .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
 
             Text(message)
-                .font(LitterFont.styled(.caption))
+                .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -312,7 +312,7 @@ struct HomeDashboardView: View {
 
     private func statusBadge(_ title: String) -> some View {
         Text(title)
-            .font(LitterFont.styled(.caption))
+            .litterFont(.caption)
             .foregroundColor(LitterTheme.accent)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

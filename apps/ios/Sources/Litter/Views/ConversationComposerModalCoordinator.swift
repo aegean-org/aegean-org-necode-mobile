@@ -96,7 +96,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                     HStack {
                                         Text(preset.title)
                                             .foregroundColor(LitterTheme.textPrimary)
-                                            .font(LitterFont.styled(.subheadline))
+                                            .litterFont(.subheadline)
                                         Spacer()
                                         if preset.approvalPolicy == appState.approvalPolicy && preset.sandboxMode == appState.sandboxMode {
                                             Image(systemName: "checkmark")
@@ -105,7 +105,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                     }
                                     Text(preset.description)
                                         .foregroundColor(LitterTheme.textSecondary)
-                                        .font(LitterFont.styled(.caption))
+                                        .litterFont(.caption)
                                 }
                             }
                             .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -130,7 +130,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                             ProgressView().tint(LitterTheme.accent)
                         } else if experimentalFeatures.isEmpty {
                             Text("No experimental features available")
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textMuted)
                         } else {
                             List {
@@ -138,10 +138,10 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                     HStack(alignment: .top, spacing: 10) {
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(feature.displayName ?? feature.name)
-                                                .font(LitterFont.styled(.subheadline))
+                                                .litterFont(.subheadline)
                                                 .foregroundColor(LitterTheme.textPrimary)
                                             Text(feature.description ?? feature.stage)
-                                                .font(LitterFont.styled(.caption))
+                                                .litterFont(.caption)
                                                 .foregroundColor(LitterTheme.textSecondary)
                                         }
                                         Spacer(minLength: 0)
@@ -186,7 +186,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                             ProgressView().tint(LitterTheme.accent)
                         } else if skills.isEmpty {
                             Text("No skills available for this workspace")
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textMuted)
                         } else {
                             List {
@@ -194,20 +194,20 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack {
                                             Text(skill.name)
-                                                .font(LitterFont.styled(.subheadline))
+                                                .litterFont(.subheadline)
                                                 .foregroundColor(LitterTheme.textPrimary)
                                             Spacer()
                                             if skill.enabled {
                                                 Text("enabled")
-                                                    .font(LitterFont.styled(.caption2))
+                                                    .litterFont(.caption2)
                                                     .foregroundColor(LitterTheme.accent)
                                             }
                                         }
                                         Text(skill.description)
-                                            .font(LitterFont.styled(.caption))
+                                            .litterFont(.caption)
                                             .foregroundColor(LitterTheme.textSecondary)
                                         Text(skill.path)
-                                            .font(LitterFont.styled(.caption2))
+                                            .litterFont(.caption2)
                                             .foregroundColor(LitterTheme.textMuted)
                                     }
                                     .listRowBackground(LitterTheme.surface.opacity(0.6))

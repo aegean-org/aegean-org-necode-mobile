@@ -27,10 +27,10 @@ struct ConversationComposerPopupOverlayView: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Text("/\(command.rawValue)")
-                                    .font(LitterFont.styled(.body))
+                                    .litterFont(.body)
                                     .foregroundColor(LitterTheme.success)
                                 Text(command.description)
-                                    .font(LitterFont.styled(.body))
+                                    .litterFont(.body)
                                     .foregroundColor(LitterTheme.textSecondary)
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
@@ -63,10 +63,10 @@ struct ConversationComposerPopupOverlayView: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "folder")
-                                        .font(.system(.caption))
+                                        .litterFont(.caption)
                                         .foregroundColor(LitterTheme.textSecondary)
                                     Text(suggestion.path)
-                                        .font(LitterFont.styled(.footnote))
+                                        .litterFont(.footnote)
                                         .foregroundColor(LitterTheme.textPrimary)
                                         .lineLimit(1)
                                     Spacer(minLength: 0)
@@ -98,10 +98,10 @@ struct ConversationComposerPopupOverlayView: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     Text("$\(skill.name)")
-                                        .font(LitterFont.styled(.footnote))
+                                        .litterFont(.footnote)
                                         .foregroundColor(LitterTheme.success)
                                     Text(skill.description)
-                                        .font(LitterFont.styled(.footnote))
+                                        .litterFont(.footnote)
                                         .foregroundColor(LitterTheme.textSecondary)
                                         .lineLimit(1)
                                     Spacer(minLength: 0)
@@ -124,7 +124,7 @@ struct ConversationComposerPopupOverlayView: View {
     @ViewBuilder
     private func popupStateText(_ text: String, color: Color = LitterTheme.textSecondary) -> some View {
         Text(text)
-            .font(LitterFont.styled(.footnote))
+            .litterFont(.footnote)
             .foregroundColor(color)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)

@@ -149,9 +149,6 @@ enum LitterFont {
         if storedFamily.isMono {
             return monoFont(size: size, weight: weight, relativeTo: style)
         }
-        if let style {
-            return .system(style, weight: weight)
-        }
         return .system(size: size, weight: weight)
     }
 
@@ -161,9 +158,6 @@ enum LitterFont {
                 return .custom(fontName, size: size, relativeTo: style)
             }
             return .custom(fontName, size: size)
-        }
-        if let style {
-            return .system(style, design: .monospaced, weight: weight)
         }
         return .system(size: size, weight: weight, design: .monospaced)
     }
@@ -200,6 +194,104 @@ enum LitterFont {
             return monoFont(size: size, weight: weight, relativeTo: nil)
         }
         return .system(size: size, weight: weight)
+    }
+}
+
+// MARK: - App-Wide Text Scaling
+
+enum ConversationTextSize: Int, CaseIterable {
+    case xxSmall = -1
+    case xSmall = 0
+    case small = 1
+    case medium = 2
+    case large = 3
+    case xLarge = 4
+    case xxLarge = 5
+
+    var scale: CGFloat {
+        switch self {
+        case .xxSmall: return 0.78
+        case .xSmall: return 0.86
+        case .small: return 0.93
+        case .medium: return 1.0
+        case .large: return 1.1
+        case .xLarge: return 1.22
+        case .xxLarge: return 1.36
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .xxSmall: return "Smallest"
+        case .xSmall: return "Smaller"
+        case .small: return "Small"
+        case .medium: return "Default"
+        case .large: return "Large"
+        case .xLarge: return "Larger"
+        case .xxLarge: return "Largest"
+        }
+    }
+
+    static func clamped(rawValue: Int) -> ConversationTextSize {
+        let bounded = min(max(rawValue, xxSmall.rawValue), xxLarge.rawValue)
+        return ConversationTextSize(rawValue: bounded) ?? .medium
+    }
+}
+
+private struct TextScaleKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1.0
+}
+
+extension EnvironmentValues {
+    var textScale: CGFloat {
+        get { self[TextScaleKey.self] }
+        set { self[TextScaleKey.self] = newValue }
+    }
+}
+
+// MARK: - Auto-Scaling Font View Modifiers
+
+extension View {
+    func litterFont(size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledSizeFontModifier(size: size, weight: weight))
+    }
+
+    func litterFont(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledStyleFontModifier(style: style, weight: weight))
+    }
+
+    func litterMonoFont(size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledMonoFontModifier(size: size, weight: weight))
+    }
+}
+
+private struct ScaledSizeFontModifier: ViewModifier {
+    @Environment(\.textScale) private var textScale
+    let size: CGFloat
+    let weight: Font.Weight
+
+    func body(content: Content) -> some View {
+        content.font(LitterFont.styled(size: size, weight: weight, scale: textScale))
+    }
+}
+
+private struct ScaledStyleFontModifier: ViewModifier {
+    @Environment(\.textScale) private var textScale
+    let style: Font.TextStyle
+    let weight: Font.Weight
+
+    func body(content: Content) -> some View {
+        content.font(LitterFont.styled(style, weight: weight, scale: textScale))
+    }
+}
+
+private struct ScaledMonoFontModifier: ViewModifier {
+    @Environment(\.textScale) private var textScale
+    let size: CGFloat
+    let weight: Font.Weight
+
+    func body(content: Content) -> some View {
+        content.font(LitterFont.monospaced(size: size, weight: weight, scale: textScale))
     }
 }
 

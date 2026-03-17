@@ -20,7 +20,7 @@ struct ConversationComposerEntryRowView: View {
             if !voiceManager.isRecording && !voiceManager.isTranscribing && !isTurnActive {
                 Button(action: onShowAttachMenu) {
                     Image(systemName: "plus")
-                        .font(.system(.body, weight: .semibold))
+                        .litterFont(.body, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                         .frame(width: 36, height: 36)
                         .modifier(GlassCircleModifier())
@@ -30,7 +30,7 @@ struct ConversationComposerEntryRowView: View {
 
             HStack(spacing: 0) {
                 TextField("Message litter...", text: $inputText, axis: .vertical)
-                    .font(.system(.body))
+                    .litterFont(.body)
                     .foregroundColor(LitterTheme.textPrimary)
                     .lineLimit(1...5)
                     .focused(isComposerFocused)
@@ -42,7 +42,7 @@ struct ConversationComposerEntryRowView: View {
                 if hasText {
                     Button(action: onSendText) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(.title2))
+                            .litterFont(.title2)
                             .foregroundColor(LitterTheme.accent)
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
@@ -54,7 +54,7 @@ struct ConversationComposerEntryRowView: View {
 
                     Button(action: onStopRecording) {
                         Image(systemName: "stop.circle.fill")
-                            .font(.system(.title2))
+                            .litterFont(.title2)
                             .foregroundColor(LitterTheme.accentStrong)
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())
@@ -67,7 +67,7 @@ struct ConversationComposerEntryRowView: View {
                 } else {
                     Button(action: onStartRecording) {
                         Image(systemName: "mic.fill")
-                            .font(.system(.subheadline))
+                            .litterFont(.subheadline)
                             .foregroundColor(LitterTheme.textSecondary)
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())
@@ -81,7 +81,7 @@ struct ConversationComposerEntryRowView: View {
             if isTurnActive {
                 Button(action: onInterrupt) {
                     Text("Cancel")
-                        .font(.system(.subheadline, weight: .medium))
+                        .litterFont(.subheadline, weight: .medium)
                         .foregroundColor(LitterTheme.textPrimary)
                         .padding(.horizontal, 14)
                         .frame(height: 36)

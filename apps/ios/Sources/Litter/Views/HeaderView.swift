@@ -21,7 +21,7 @@ struct HeaderView: View {
                     onBack()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
+                        .litterFont(size: 16, weight: .medium)
                         .foregroundColor(LitterTheme.textSecondary)
                         .frame(width: 44, height: 44)
                         .modifier(GlassCircleModifier())
@@ -50,16 +50,16 @@ struct HeaderView: View {
                             Text(sessionReasoningLabel)
                                 .foregroundColor(LitterTheme.textSecondary)
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
+                                .litterFont(size: 10, weight: .semibold)
                                 .foregroundColor(LitterTheme.textSecondary)
                                 .rotationEffect(.degrees(appState.showModelSelector ? 180 : 0))
                         }
-                        .font(LitterFont.styled(.subheadline, weight: .semibold))
+                        .litterFont(.subheadline, weight: .semibold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
 
                         Text(sessionDirectoryLabel)
-                            .font(LitterFont.styled(.caption2, weight: .semibold))
+                            .litterFont(.caption2, weight: .semibold)
                             .foregroundColor(LitterTheme.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -248,7 +248,7 @@ struct HeaderView: View {
                         .tint(LitterTheme.accent)
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 16, weight: .semibold))
+                        .litterFont(size: 16, weight: .semibold)
                         .foregroundColor(connection.isConnected ? LitterTheme.accent : LitterTheme.textMuted)
                 }
             }
@@ -285,11 +285,11 @@ struct InlineModelSelectorView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
                                         Text(model.displayName)
-                                            .font(LitterFont.styled(.footnote))
+                                            .litterFont(.footnote)
                                             .foregroundColor(LitterTheme.textPrimary)
                                         if model.isDefault {
                                             Text("default")
-                                                .font(LitterFont.styled(.caption2, weight: .medium))
+                                                .litterFont(.caption2, weight: .medium)
                                                 .foregroundColor(LitterTheme.accent)
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 1)
@@ -298,13 +298,13 @@ struct InlineModelSelectorView: View {
                                         }
                                     }
                                     Text(model.description)
-                                        .font(LitterFont.styled(.caption2))
+                                        .litterFont(.caption2)
                                         .foregroundColor(LitterTheme.textSecondary)
                                 }
                                 Spacer()
                                 if model.id == selectedModel {
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: 12, weight: .medium))
+                                        .litterFont(size: 12, weight: .medium)
                                         .foregroundColor(LitterTheme.accent)
                                 }
                             }
@@ -330,7 +330,7 @@ struct InlineModelSelectorView: View {
                                 onDismiss()
                             } label: {
                                 Text(effort.reasoningEffort)
-                                    .font(LitterFont.styled(.caption2, weight: .medium))
+                                    .litterFont(.caption2, weight: .medium)
                                     .foregroundColor(effort.reasoningEffort == reasoningEffort ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
@@ -370,11 +370,11 @@ struct ModelSelectorSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(model.displayName)
-                                    .font(LitterFont.styled(.footnote))
+                                    .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textPrimary)
                                 if model.isDefault {
                                     Text("default")
-                                        .font(LitterFont.styled(.caption2, weight: .medium))
+                                        .litterFont(.caption2, weight: .medium)
                                         .foregroundColor(LitterTheme.accent)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 1)
@@ -383,13 +383,13 @@ struct ModelSelectorSheet: View {
                                 }
                             }
                             Text(model.description)
-                                .font(LitterFont.styled(.caption2))
+                                .litterFont(.caption2)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
                         Spacer()
                         if model.id == selectedModel {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .medium))
+                                .litterFont(size: 12, weight: .medium)
                                 .foregroundColor(LitterTheme.accent)
                         }
                     }
@@ -407,7 +407,7 @@ struct ModelSelectorSheet: View {
                                 reasoningEffort = effort.reasoningEffort
                             } label: {
                                 Text(effort.reasoningEffort)
-                                    .font(LitterFont.styled(.caption2, weight: .medium))
+                                    .litterFont(.caption2, weight: .medium)
                                     .foregroundColor(effort.reasoningEffort == reasoningEffort ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)

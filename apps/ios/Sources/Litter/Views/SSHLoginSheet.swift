@@ -51,10 +51,10 @@ struct SSHLoginSheet: View {
                                 .foregroundColor(LitterTheme.accent)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(server.name)
-                                    .font(LitterFont.styled(.subheadline))
+                                    .litterFont(.subheadline)
                                     .foregroundColor(LitterTheme.textPrimary)
                                 Text(hostDisplay)
-                                    .font(LitterFont.styled(.caption))
+                                    .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
                         }
@@ -63,7 +63,7 @@ struct SSHLoginSheet: View {
 
                     Section {
                         TextField("username", text: $username)
-                            .font(LitterFont.styled(.footnote))
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textPrimary)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
@@ -83,14 +83,14 @@ struct SSHLoginSheet: View {
 
                         if useKey {
                             TextEditor(text: $privateKey)
-                                .font(LitterFont.styled(.caption))
+                                .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .scrollContentBackground(.hidden)
                                 .frame(minHeight: 100)
                                 .overlay(alignment: .topLeading) {
                                     if privateKey.isEmpty {
                                         Text("Paste private key here...")
-                                            .font(LitterFont.styled(.caption))
+                                            .litterFont(.caption)
                                             .foregroundColor(LitterTheme.textMuted)
                                             .padding(.top, 8)
                                             .padding(.leading, 4)
@@ -98,11 +98,11 @@ struct SSHLoginSheet: View {
                                     }
                                 }
                             SecureField("passphrase (optional)", text: $passphrase)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                         } else {
                             SecureField("password", text: $password)
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                         }
                     } header: {
@@ -114,7 +114,7 @@ struct SSHLoginSheet: View {
                     Section {
                         Toggle(isOn: $rememberCredentials) {
                             Text("Remember credentials on this device")
-                                .font(LitterFont.styled(.footnote))
+                                .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                         }
                         .tint(LitterTheme.accent)
@@ -124,7 +124,7 @@ struct SSHLoginSheet: View {
                                 forgetSavedCredentials()
                             } label: {
                                 Text("Forget saved credentials")
-                                    .font(LitterFont.styled(.footnote))
+                                    .litterFont(.footnote)
                             }
                         }
                     } header: {
@@ -143,7 +143,7 @@ struct SSHLoginSheet: View {
                                 }
                                 Text("Connect")
                                     .foregroundColor(LitterTheme.accent)
-                                    .font(LitterFont.styled(.subheadline))
+                                    .litterFont(.subheadline)
                             }
                         }
                         .disabled(isConnecting || username.isEmpty || (!useKey && password.isEmpty) || (useKey && privateKey.isEmpty))
@@ -154,7 +154,7 @@ struct SSHLoginSheet: View {
                         Section {
                             Text(err)
                                 .foregroundColor(.red)
-                                .font(LitterFont.styled(.caption))
+                                .litterFont(.caption)
                         }
                         .listRowBackground(LitterTheme.surface.opacity(0.6))
                     }
