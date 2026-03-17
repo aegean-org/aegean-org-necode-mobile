@@ -200,40 +200,46 @@ enum LitterFont {
 // MARK: - App-Wide Text Scaling
 
 enum ConversationTextSize: Int, CaseIterable {
-    case xxSmall = -1
-    case xSmall = 0
+    case smallest = -1
+    case tiny = 0
     case small = 1
     case medium = 2
     case large = 3
-    case xLarge = 4
-    case xxLarge = 5
+    case larger = 4
+    case xLarge = 5
+    case huge = 6
+    case largest = 7
 
     var scale: CGFloat {
         switch self {
-        case .xxSmall: return 0.78
-        case .xSmall: return 0.86
-        case .small: return 0.93
-        case .medium: return 1.0
-        case .large: return 1.1
-        case .xLarge: return 1.22
-        case .xxLarge: return 1.36
+        case .smallest: return 0.5
+        case .tiny:     return 0.65
+        case .small:    return 0.8
+        case .medium:   return 1.0
+        case .large:    return 1.2
+        case .larger:   return 1.4
+        case .xLarge:   return 1.6
+        case .huge:     return 1.8
+        case .largest:  return 2.0
         }
     }
 
     var label: String {
         switch self {
-        case .xxSmall: return "Smallest"
-        case .xSmall: return "Smaller"
-        case .small: return "Small"
-        case .medium: return "Default"
-        case .large: return "Large"
-        case .xLarge: return "Larger"
-        case .xxLarge: return "Largest"
+        case .smallest: return "Smallest"
+        case .tiny:     return "Tiny"
+        case .small:    return "Small"
+        case .medium:   return "Medium"
+        case .large:    return "Large"
+        case .larger:   return "Larger"
+        case .xLarge:   return "X-Large"
+        case .huge:     return "Huge"
+        case .largest:  return "Largest"
         }
     }
 
     static func clamped(rawValue: Int) -> ConversationTextSize {
-        let bounded = min(max(rawValue, xxSmall.rawValue), xxLarge.rawValue)
+        let bounded = min(max(rawValue, smallest.rawValue), largest.rawValue)
         return ConversationTextSize(rawValue: bounded) ?? .medium
     }
 }
