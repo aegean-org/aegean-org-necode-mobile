@@ -23,7 +23,7 @@ struct ConversationView: View {
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
     var onResumeSessions: ((String) -> Void)? = nil
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
-    @AppStorage("conversationTextSizeStep") private var conversationTextSizeStep = ConversationTextSize.medium.rawValue
+    @AppStorage("conversationTextSizeStep") private var conversationTextSizeStep = ConversationTextSize.large.rawValue
     @State private var messageActionError: String?
     @State private var hasLoggedFirstRender = false
 

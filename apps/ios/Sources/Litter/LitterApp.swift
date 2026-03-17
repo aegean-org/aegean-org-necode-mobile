@@ -107,7 +107,7 @@ struct ContentView: View {
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var composerBottomInset: CGFloat = 0
-    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.medium.rawValue
+    @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
 
     private var textScale: CGFloat {
         ConversationTextSize.clamped(rawValue: textSizeStep).scale
