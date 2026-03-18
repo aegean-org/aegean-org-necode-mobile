@@ -513,6 +513,7 @@ final class ServerManager {
         liveItemMessageIndices[key] = nil
         liveTurnDiffMessageIndices[key] = nil
         activeThreadKey = key
+        _ = RecentDirectoryStore.shared.record(path: resp.cwd, for: serverId)
         scheduleThreadMetadataRefresh(for: key, cwd: resp.cwd)
         return key
     }
@@ -614,6 +615,7 @@ final class ServerManager {
             thread.requiresOpenHydration = false
             activeThreadKey = key
             let cwd = thread.cwd.isEmpty ? "/tmp" : thread.cwd
+            _ = RecentDirectoryStore.shared.record(path: cwd, for: key.serverId)
             scheduleThreadMetadataRefresh(for: key, cwd: cwd)
             return true
         }
@@ -1260,8 +1262,21 @@ final class ServerManager {
         guard let conn = connections[serverId], conn.isConnected else { return }
         do {
             let resp = try await conn.listThreads()
+            var recentDirectoryEntries: [RecentDirectoryEntry] = []
             for summary in resp.data {
                 let key = ThreadKey(serverId: serverId, threadId: summary.id)
+                let updatedAt = Date(timeIntervalSince1970: TimeInterval(summary.updatedAt))
+                let normalizedPath = summary.cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalizedPath.isEmpty {
+                    recentDirectoryEntries.append(
+                        RecentDirectoryEntry(
+                            serverId: serverId,
+                            path: normalizedPath,
+                            lastUsedAt: updatedAt,
+                            useCount: 0
+                        )
+                    )
+                }
                 if let existing = threads[key] {
                     if existing.preview != summary.preview {
                         existing.preview = summary.preview
@@ -1299,9 +1314,8 @@ final class ServerManager {
                         nickname: existing.agentNickname,
                         role: existing.agentRole
                     )
-                    let nextUpdatedAt = Date(timeIntervalSince1970: TimeInterval(summary.updatedAt))
-                    if existing.updatedAt != nextUpdatedAt {
-                        existing.updatedAt = nextUpdatedAt
+                    if existing.updatedAt != updatedAt {
+                        existing.updatedAt = updatedAt
                     }
                 } else {
                     let state = ThreadState(
@@ -1325,11 +1339,12 @@ final class ServerManager {
                         nickname: state.agentNickname,
                         role: state.agentRole
                     )
-                    state.updatedAt = Date(timeIntervalSince1970: TimeInterval(summary.updatedAt))
+                    state.updatedAt = updatedAt
                     threads[key] = state
                     threadTurnCounts[key] = threadTurnCounts[key] ?? 0
                 }
             }
+            _ = RecentDirectoryStore.shared.mergeSessionDirectories(recentDirectoryEntries, for: serverId)
         } catch {}
     }
 
@@ -1814,6 +1829,7 @@ final class ServerManager {
         liveTurnDiffMessageIndices[key] = nil
         state.status = .ready
         state.updatedAt = Date()
+        _ = RecentDirectoryStore.shared.record(path: resp.cwd, for: serverId)
         scheduleThreadMetadataRefresh(for: key, cwd: resp.cwd)
     }
 

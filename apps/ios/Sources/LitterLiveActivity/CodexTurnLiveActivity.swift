@@ -46,9 +46,9 @@ struct CodexTurnLiveActivity: Widget {
                 }
             } compactLeading: {
                 litterLogo(size: 16)
+                    .frame(maxWidth: 16, alignment: .leading)
             } compactTrailing: {
-                liveTimer(context: context, size: 12)
-                    .foregroundStyle(.white.opacity(0.5))
+                compactTimer(context: context)
             } minimal: {
                 litterLogo(size: 16)
             }
@@ -151,6 +151,16 @@ struct CodexTurnLiveActivity: Widget {
         }
     }
 
+    private func compactTimer(context: ActivityViewContext<CodexTurnAttributes>) -> some View {
+        Text(compactElapsedText(context: context))
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .foregroundStyle(.white.opacity(0.5))
+            .frame(width: 20, alignment: .trailing)
+    }
+
     // MARK: - Helpers
 
     private func isActive(_ state: CodexTurnAttributes.ContentState) -> Bool {
@@ -207,6 +217,27 @@ struct CodexTurnLiveActivity: Widget {
         let m = seconds / 60
         let s = seconds % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    private func compactElapsedText(context: ActivityViewContext<CodexTurnAttributes>) -> String {
+        if isActive(context.state) {
+            let elapsed = max(0, Int(Date().timeIntervalSince(context.attributes.startDate)))
+            return compactDurationText(elapsed)
+        }
+        return compactDurationText(context.state.elapsedSeconds)
+    }
+
+    private func compactDurationText(_ seconds: Int) -> String {
+        if seconds < 60 {
+            return "\(seconds)s"
+        }
+
+        let minutes = seconds / 60
+        if minutes < 60 {
+            return "\(minutes)m"
+        }
+
+        return "\(minutes / 60)h"
     }
 
 }

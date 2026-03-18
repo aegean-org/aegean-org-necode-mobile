@@ -434,7 +434,6 @@ private struct HomeNavigationView: View {
             return
         }
 
-        _ = RecentDirectoryStore.shared.record(path: cwd, for: serverId)
         openConversation(startedKey)
     }
 

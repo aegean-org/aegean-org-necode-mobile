@@ -560,8 +560,8 @@ struct LitterStructuredStyle: StructuredText.Style {
             .code(
                 .monospaced,
                 .fontScale(codeSize / bodySize),
-                .foregroundColor(LitterTheme.accent),
-                .backgroundColor(LitterTheme.surface)
+                .foregroundColor(LitterTheme.textPrimary),
+                .backgroundColor(LitterTheme.surfaceLight)
             )
             .strong(.fontWeight(.semibold), .foregroundColor(LitterTheme.textPrimary))
             .emphasis(.italic)
@@ -609,8 +609,8 @@ struct LitterSystemStructuredStyle: StructuredText.Style {
             .code(
                 .monospaced,
                 .fontScale(codeSize / bodySize),
-                .foregroundColor(LitterTheme.accent),
-                .backgroundColor(LitterTheme.surface)
+                .foregroundColor(LitterTheme.textPrimary),
+                .backgroundColor(LitterTheme.surfaceLight)
             )
             .strong(.fontWeight(.semibold), .foregroundColor(LitterTheme.textPrimary))
             .emphasis(.italic)

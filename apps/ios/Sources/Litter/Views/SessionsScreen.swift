@@ -55,6 +55,11 @@ struct SessionsScreen: View {
     private func screenContent(derived: SessionsDerivedData) -> some View {
         let base = screenLayout(derived: derived)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    refreshToolbarButton
+                }
+            }
             .enableInjection()
 
         let lifecycle = attachLifecycleHandlers(to: base, derived: derived)
@@ -295,51 +300,59 @@ struct SessionsScreen: View {
     }
 
     private var newSessionButton: some View {
-        HStack(spacing: 10) {
-            Button { appState.showSettings = true } label: {
-                Image(systemName: "gear")
-                    .litterFont(.subheadline, weight: .medium)
-                    .foregroundColor(LitterTheme.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .modifier(GlassRectModifier(cornerRadius: 10))
-            }
-            .accessibilityIdentifier("sessions.settingsButton")
-
-            Button {
-                if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
-                    // For local on-device server, skip directory picker and use /home/codex.
-                    if let conn = serverManager.connections[defaultServerId], conn.target == .local {
-                        let cwd = codex_ios_default_cwd() as String? ?? NSHomeDirectory()
-                        Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
-                    } else {
-                        directoryPickerSheet = SessionLaunchSupport.DirectoryPickerSheetModel(selectedServerId: defaultServerId)
-                    }
+        Button {
+            if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
+                // For local on-device server, skip directory picker and use /home/codex.
+                if let conn = serverManager.connections[defaultServerId], conn.target == .local {
+                    let cwd = codex_ios_default_cwd() as String? ?? NSHomeDirectory()
+                    Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
                 } else {
-                    appState.showServerPicker = true
+                    directoryPickerSheet = SessionLaunchSupport.DirectoryPickerSheetModel(selectedServerId: defaultServerId)
                 }
-            } label: {
-                HStack {
-                    if isStartingNewSession {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(LitterTheme.textOnAccent)
-                    } else {
-                        Image(systemName: "plus")
-                            .litterFont(.subheadline, weight: .medium)
-                        Text("New Session")
-                            .litterFont(.subheadline)
-                    }
-                }
-                .foregroundColor(LitterTheme.textOnAccent)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(LitterTheme.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                appState.showServerPicker = true
             }
-            .disabled(isStartingNewSession)
-            .accessibilityIdentifier("sessions.newSessionButton")
+        } label: {
+            HStack {
+                if isStartingNewSession {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(LitterTheme.textOnAccent)
+                } else {
+                    Image(systemName: "plus")
+                        .litterFont(.subheadline, weight: .medium)
+                    Text("New Session")
+                        .litterFont(.subheadline)
+                }
+            }
+            .foregroundColor(LitterTheme.textOnAccent)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(LitterTheme.accent)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
+        .disabled(isStartingNewSession)
+        .accessibilityIdentifier("sessions.newSessionButton")
         .padding(16)
+    }
+
+    private var refreshToolbarButton: some View {
+        Button(action: refreshSessions) {
+            Group {
+                if isLoading && hasLoadedInitialSessions {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(LitterTheme.accent)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .litterFont(.subheadline, weight: .semibold)
+                        .foregroundColor(serverManager.hasAnyConnection ? LitterTheme.accent : LitterTheme.textMuted)
+                }
+            }
+        }
+        .disabled(isLoading || !serverManager.hasAnyConnection)
+        .accessibilityLabel("Refresh sessions")
+        .accessibilityIdentifier("sessions.refreshButton")
     }
 
     private var serversRow: some View {
@@ -984,6 +997,12 @@ struct SessionsScreen: View {
         isLoading = false
     }
 
+    private func refreshSessions() {
+        Task {
+            await loadSessions()
+        }
+    }
+
     private func resumeSession(_ thread: ThreadState) async {
         guard resumingKey == nil else { return }
         resumingKey = thread.key
@@ -1027,7 +1046,6 @@ struct SessionsScreen: View {
         )
         if let startedKey {
             onOpenConversation(startedKey)
-            _ = RecentDirectoryStore.shared.record(path: cwd, for: serverId)
         } else {
             sessionActionErrorMessage = "Failed to start a new session."
         }
