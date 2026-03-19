@@ -16,7 +16,7 @@
    - `./apps/ios/scripts/build-rust.sh`
    - Add `--with-intel-sim` only if you need an Intel Mac simulator slice.
 3. Generate project:
-   - `xcodegen generate --spec apps/ios/project.yml --project apps/ios/Litter.xcodeproj`
+   - `./apps/ios/scripts/regenerate-project.sh`
 4. Build app:
    - `xcodebuild -project apps/ios/Litter.xcodeproj -scheme Litter -configuration Debug -destination 'generic/platform=iOS Simulator' build`
 

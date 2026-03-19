@@ -976,12 +976,45 @@ final class ServerManager {
             return true
         case "item/tool/call":
             return handleDynamicToolCall(serverId: serverId, requestId: requestId, params: params)
+        case "account/chatgptAuthTokens/refresh":
+            let previousAccountID = extractString(params, keys: ["previousAccountId", "previous_account_id"])
+            Task { @MainActor [weak self] in
+                await self?.handleChatGPTAuthTokensRefresh(
+                    serverId: serverId,
+                    requestId: requestId,
+                    previousAccountID: previousAccountID
+                )
+            }
+            return true
         default:
             return false
         }
 
         pendingApprovals.append(pending)
         return true
+    }
+
+    private func handleChatGPTAuthTokensRefresh(
+        serverId: String,
+        requestId: String,
+        previousAccountID: String?
+    ) async {
+        guard let connection = connections[serverId] else { return }
+
+        do {
+            let tokens = try await ChatGPTOAuth.refreshStoredTokens(previousAccountID: previousAccountID)
+            connection.respondToServerRequest(
+                id: requestId,
+                result: [
+                    "accessToken": tokens.accessToken,
+                    "chatgptAccountId": tokens.accountID,
+                    "chatgptPlanType": tokens.planType ?? NSNull()
+                ]
+            )
+        } catch {
+            NSLog("[auth] ChatGPT token refresh failed: %@", error.localizedDescription)
+            connection.respondToServerRequestError(id: requestId, message: error.localizedDescription)
+        }
     }
 
     // MARK: - Dynamic Tool Calls

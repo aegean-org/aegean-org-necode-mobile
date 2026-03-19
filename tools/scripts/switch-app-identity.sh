@@ -208,7 +208,7 @@ regenerate_xcode_project() {
 
   (
     cd "$REPO_DIR"
-    xcodegen generate --spec apps/ios/project.yml --project apps/ios >/dev/null
+    apps/ios/scripts/regenerate-project.sh >/dev/null
   )
   echo "Regenerated apps/ios/Litter.xcodeproj from apps/ios/project.yml"
 }

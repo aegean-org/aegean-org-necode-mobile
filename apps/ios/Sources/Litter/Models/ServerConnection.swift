@@ -42,6 +42,8 @@ final class ServerConnection: Identifiable {
     var connectionPhase: String = ""
     var authStatus: AuthStatus = .unknown
     var oauthURL: URL? = nil
+    var lastAuthError: String?
+    var isChatGPTLoginInProgress = false
     var loginCompleted = false {
         didSet {
             guard loginCompleted else { return }
@@ -415,6 +417,12 @@ final class ServerConnection: Identifiable {
         }
     }
 
+    func respondToServerRequestError(id: String, code: Int = -32000, message: String) {
+        Task {
+            routedSendError(id: id, code: code, message: message)
+        }
+    }
+
     func listExperimentalFeatures(cursor: String? = nil, limit: Int? = 100) async throws -> ExperimentalFeatureListResponse {
         try await routedSendRequest(
             method: "experimentalFeature/list",
@@ -507,32 +515,48 @@ final class ServerConnection: Identifiable {
     }
 
     func loginWithChatGPT() async {
+        guard !isChatGPTLoginInProgress else { return }
+        isChatGPTLoginInProgress = true
+        defer { isChatGPTLoginInProgress = false }
+
         await checkAuth()
         guard authStatus == .notLoggedIn else { return }
 
         do {
-            let resp: LoginStartResponse = try await routedSendRequest(
+            lastAuthError = nil
+            oauthURL = nil
+            pendingLoginId = nil
+            let tokens = try await ChatGPTOAuth.login()
+            let _: LoginStartResponse = try await routedSendRequest(
                 method: "account/login/start",
-                params: LoginStartChatGPTParams(),
+                params: LoginStartChatGPTAuthTokensParams(
+                    accessToken: tokens.accessToken,
+                    chatgptAccountId: tokens.accountID,
+                    chatgptPlanType: tokens.planType
+                ),
                 responseType: LoginStartResponse.self
             )
-            guard resp.type == "chatgpt",
-                  let urlStr = resp.authUrl,
-                  let url = URL(string: urlStr) else { return }
-            pendingLoginId = resp.loginId
-            oauthURL = url
-        } catch {}
+            await checkAuth()
+        } catch ChatGPTOAuthError.cancelled {
+            return
+        } catch {
+            lastAuthError = error.localizedDescription
+            NSLog("[auth] ChatGPT login failed: %@", error.localizedDescription)
+        }
     }
 
     func loginWithApiKey(_ key: String) async {
         do {
+            lastAuthError = nil
             let _: LoginStartResponse = try await routedSendRequest(
                 method: "account/login/start",
                 params: LoginStartApiKeyParams(apiKey: key),
                 responseType: LoginStartResponse.self
             )
             await checkAuth()
-        } catch {}
+        } catch {
+            lastAuthError = error.localizedDescription
+        }
     }
 
     func logout() async {
@@ -544,8 +568,10 @@ final class ServerConnection: Identifiable {
             responseType: Empty.self
         )
         authStatus = .notLoggedIn
+        lastAuthError = nil
         oauthURL = nil
         pendingLoginId = nil
+        isChatGPTLoginInProgress = false
     }
 
     func cancelLogin() async {
@@ -577,14 +603,20 @@ final class ServerConnection: Identifiable {
     func handleAccountNotification(method: String, data: Data) {
         switch method {
         case "account/login/completed":
-            if let notif = try? JSONDecoder().decode(AccountLoginCompletedNotification.self, from: extractParams(data)),
-               notif.success {
+            if let notif = try? JSONDecoder().decode(AccountLoginCompletedNotification.self, from: extractParams(data)) {
                 oauthURL = nil
                 pendingLoginId = nil
-                loginCompleted = true
-                Task { await self.checkAuth() }
+                isChatGPTLoginInProgress = false
+                if notif.success {
+                    lastAuthError = nil
+                    loginCompleted = true
+                    Task { await self.checkAuth() }
+                } else {
+                    lastAuthError = notif.error ?? "ChatGPT login failed."
+                }
             }
         case "account/updated":
+            lastAuthError = nil
             Task { await self.checkAuth() }
         case "account/rateLimits/updated":
             if let notif = try? JSONDecoder().decode(AccountRateLimitsUpdatedNotification.self, from: extractParams(data)) {
@@ -653,6 +685,14 @@ final class ServerConnection: Identifiable {
             Task { await channelClient.sendResult(id: id, result: result) }
         } else {
             Task { await self.client.sendResult(id: id, result: result) }
+        }
+    }
+
+    private func routedSendError(id: String, code: Int, message: String) {
+        if let channelClient {
+            Task { await channelClient.sendError(id: id, code: code, message: message) }
+        } else {
+            Task { await self.client.sendError(id: id, code: code, message: message) }
         }
     }
 
@@ -772,7 +812,7 @@ final class ServerConnection: Identifiable {
                 try await self.client.sendRequest(
                     method: "initialize",
                     params: InitializeParams(
-                        clientInfo: .init(name: "Litter", version: "1.0", title: nil),
+                        clientInfo: .init(name: "litter", version: "1.0", title: nil),
                         capabilities: .init(experimentalApi: true)
                     ),
                     responseType: InitializeResponse.self

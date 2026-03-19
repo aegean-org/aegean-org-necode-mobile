@@ -1681,6 +1681,13 @@ struct LoginStartApiKeyParams: Encodable {
     let apiKey: String
 }
 
+struct LoginStartChatGPTAuthTokensParams: Encodable {
+    let type = "chatgptAuthTokens"
+    let accessToken: String
+    let chatgptAccountId: String
+    let chatgptPlanType: String?
+}
+
 struct LoginStartResponse: Decodable {
     let type: String
     let loginId: String?
@@ -1724,6 +1731,17 @@ struct AccountLoginCompletedNotification: Decodable {
 
 struct AccountUpdatedNotification: Decodable {
     let authMode: String?   // "apiKey" | "chatgpt" | nil
+}
+
+struct ChatGPTAuthTokensRefreshParams: Decodable {
+    let reason: String?
+    let previousAccountId: String?
+}
+
+struct ChatGPTAuthTokensRefreshResponse: Encodable {
+    let accessToken: String
+    let chatgptAccountId: String
+    let chatgptPlanType: String?
 }
 
 // MARK: - Rate Limits

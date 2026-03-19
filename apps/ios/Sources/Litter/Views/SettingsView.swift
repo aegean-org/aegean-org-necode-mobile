@@ -40,7 +40,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .oauthLoginPresenter(connection: connection)
     }
 
     // MARK: - Appearance Section
@@ -207,7 +206,6 @@ private struct SettingsConnectionAccountSection: View {
     let connection: ServerConnection
     @State private var apiKey = ""
     @State private var isAuthWorking = false
-    @State private var authError: String?
 
     private var authStatus: AuthStatus {
         connection.authStatus
@@ -244,13 +242,12 @@ private struct SettingsConnectionAccountSection: View {
                 Button {
                     Task {
                         isAuthWorking = true
-                        authError = nil
                         await connection.loginWithChatGPT()
                         isAuthWorking = false
                     }
                 } label: {
                     HStack {
-                        if isAuthWorking {
+                        if isAuthWorking || connection.isChatGPTLoginInProgress {
                             ProgressView().tint(LitterTheme.textPrimary).scaleEffect(0.8)
                         }
                         Image(systemName: "person.crop.circle.badge.checkmark")
@@ -259,7 +256,7 @@ private struct SettingsConnectionAccountSection: View {
                     }
                     .foregroundColor(LitterTheme.accent)
                 }
-                .disabled(isAuthWorking)
+                .disabled(isAuthWorking || connection.isChatGPTLoginInProgress)
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
 
                 HStack(spacing: 8) {
@@ -272,7 +269,6 @@ private struct SettingsConnectionAccountSection: View {
                         guard !key.isEmpty else { return }
                         Task {
                             isAuthWorking = true
-                            authError = nil
                             await connection.loginWithApiKey(key)
                             isAuthWorking = false
                         }
@@ -284,7 +280,7 @@ private struct SettingsConnectionAccountSection: View {
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
-            if let authError {
+            if let authError = connection.lastAuthError {
                 Text(authError)
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.danger)

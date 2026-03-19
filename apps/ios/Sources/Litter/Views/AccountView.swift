@@ -23,7 +23,6 @@ private struct AccountConnectionView: View {
 
     @State private var apiKey = ""
     @State private var isWorking = false
-    @State private var errorMsg: String?
 
     private var authStatus: AuthStatus {
         connection.authStatus
@@ -38,7 +37,7 @@ private struct AccountConnectionView: View {
                         currentAccountSection
                         Divider().background(LitterTheme.surfaceLight)
                         loginSection
-                        if let err = errorMsg {
+                        if let err = connection.lastAuthError {
                             Text(err)
                                 .font(.caption)
                                 .foregroundColor(.red)
@@ -57,7 +56,6 @@ private struct AccountConnectionView: View {
                 }
             }
         }
-        .oauthLoginPresenter(connection: connection)
     }
 
     private var currentAccountSection: some View {
@@ -108,13 +106,12 @@ private struct AccountConnectionView: View {
             Button {
                 Task {
                     isWorking = true
-                    errorMsg = nil
                     await connection.loginWithChatGPT()
                     isWorking = false
                 }
             } label: {
                 HStack {
-                    if isWorking {
+                    if isWorking || connection.isChatGPTLoginInProgress {
                         ProgressView().tint(LitterTheme.textOnAccent).scaleEffect(0.8)
                     }
                     Image(systemName: "person.crop.circle.badge.checkmark")
@@ -128,7 +125,7 @@ private struct AccountConnectionView: View {
                 .cornerRadius(10)
             }
             .padding(.horizontal, 16)
-            .disabled(isWorking)
+            .disabled(isWorking || connection.isChatGPTLoginInProgress)
 
             Text("— or use an API key —")
                 .litterFont(.caption)
@@ -149,7 +146,6 @@ private struct AccountConnectionView: View {
                     guard !key.isEmpty else { return }
                     Task {
                         isWorking = true
-                        errorMsg = nil
                         await connection.loginWithApiKey(key)
                         isWorking = false
                         if case .apiKey = connection.authStatus {

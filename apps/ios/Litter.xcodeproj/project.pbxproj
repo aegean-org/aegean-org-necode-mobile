@@ -288,6 +288,7 @@
 		B9D0C28D0ED9D03FC97C7D93 /* github-light-high-contrast.json in Resources */ = {isa = PBXBuildFile; fileRef = 70AB8E0BCCF3384EE9B4A0BF /* github-light-high-contrast.json */; };
 		B9E55FF9587CE7F50F5B07CF /* ConversationScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */; };
 		BAB0343536C6CFD8EF952DE0 /* BerkeleyMono-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */; };
+		BDC09E8F6B156DB1FD6A0059 /* ChatGPTOAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */; };
 		BDD00F77D6868A0501810E51 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 35949923355BB19A7209FD65 /* Assets.xcassets */; };
 		BE5E0622DD0501EE8352AC54 /* github-light-default.json in Resources */ = {isa = PBXBuildFile; fileRef = 34141C0068C950ECBC391996 /* github-light-default.json */; };
 		BECD5B29DC0CF3EAEFA144AE /* ssh_cmd.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F3E5EA401672455EF2B1B5F1 /* ssh_cmd.xcframework */; };
@@ -349,6 +350,7 @@
 		DEA6917F19B51C79024C052F /* slack-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 5DF2C84DD77E7A8282AE9831 /* slack-dark.json */; };
 		DEB027917A158E5C5CF0CC8B /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF245554F39E59E68B72EB22 /* ConversationView.swift */; };
 		DEBE0B3B860D8BC5C72FE632 /* one-dark-pro-D.json in Resources */ = {isa = PBXBuildFile; fileRef = 289E852E220BF379FBFA6BCD /* one-dark-pro-D.json */; };
+		DEE9B0E5B853BE925A371178 /* ChatGPTOAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */; };
 		E010B8AEEBFF38A28018121D /* ConversationItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF5635331A74B2D510911B8E /* ConversationItem.swift */; };
 		E01BA3E3DBF499BA93616A8F /* ConversationWarmupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */; };
 		E14F69072A6935662800C0D1 /* vitesse-black.json in Resources */ = {isa = PBXBuildFile; fileRef = C7ADFC239B833D53726499FC /* vitesse-black.json */; };
@@ -585,6 +587,7 @@
 		7779BD02F3B304F9C3AD32A1 /* DiscoveredServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveredServer.swift; sourceTree = "<group>"; };
 		779157C60F55F38A05F3CD1A /* absolutely-dark.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "absolutely-dark.json"; sourceTree = "<group>"; };
 		77D950991BD0F0199209EB68 /* ExperimentalFeaturesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalFeaturesView.swift; sourceTree = "<group>"; };
+		77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGPTOAuth.swift; sourceTree = "<group>"; };
 		78C802F9A5B896D6415A236B /* GenerativeUITools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerativeUITools.swift; sourceTree = "<group>"; };
 		795964BC1D4B7081B774B65E /* one-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "one-light.json"; sourceTree = "<group>"; };
 		7F79D1C06A25D0ABAA5042BA /* SafariView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariView.swift; sourceTree = "<group>"; };
@@ -979,6 +982,7 @@
 			isa = PBXGroup;
 			children = (
 				50CFDCB6C4655E3D2D76B41B /* AppState.swift */,
+				77F28A803AA2BF325B0F88B9 /* ChatGPTOAuth.swift */,
 				125E05AE5CC346C8D2ED2FED /* ChatTypes.swift */,
 				D887FC87082710CC7B75CC8A /* CodexTurnAttributes.swift */,
 				4925417F70C546B80DBD9EFF /* ConnectionTarget.swift */,
@@ -1473,6 +1477,7 @@
 				51ACB65E38EED904AEC3B7ED /* AppearanceSettingsView.swift in Sources */,
 				F3280D586DF6ABC6EC3FC818 /* AudioWaveformView.swift in Sources */,
 				D2AB8A7F991FD28255C56CD3 /* BrandLogo.swift in Sources */,
+				DEE9B0E5B853BE925A371178 /* ChatGPTOAuth.swift in Sources */,
 				176D9DB2C19A759EE50DFE57 /* ChatTypes.swift in Sources */,
 				5F3B965EDA58D389B2761F05 /* CodeBlockView.swift in Sources */,
 				B2AD11FCB018EFE781CE172F /* CodexBridge.swift in Sources */,
@@ -1564,6 +1569,7 @@
 				70835F6848317358DA94F963 /* AppearanceSettingsView.swift in Sources */,
 				1E4B6194A06FB712657A24C7 /* AudioWaveformView.swift in Sources */,
 				E41F675D5DA4CB9AAF30EDC4 /* BrandLogo.swift in Sources */,
+				BDC09E8F6B156DB1FD6A0059 /* ChatGPTOAuth.swift in Sources */,
 				5342E9DEE1FB318F01E27F7E /* ChatTypes.swift in Sources */,
 				8445E0A9CDF58E2E9A509018 /* CodeBlockView.swift in Sources */,
 				9F89180D64C6397DBBFA7CED /* CodexBridge.swift in Sources */,
