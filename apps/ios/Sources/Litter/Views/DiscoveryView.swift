@@ -539,7 +539,7 @@ struct DiscoveryView: View {
         if let preferred {
             ports.append(preferred)
         }
-        ports.append(contentsOf: [8390, 4222])
+        ports.append(contentsOf: [8390, 9234, 4222])
 
         var seen = Set<UInt16>()
         return ports.filter { seen.insert($0).inserted }

@@ -21,7 +21,7 @@ import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-private val CODEX_DISCOVERY_PORTS = intArrayOf(8390, 4222)
+private val CODEX_DISCOVERY_PORTS = intArrayOf(8390, 9234, 4222)
 
 enum class DiscoverySource {
     LOCAL,

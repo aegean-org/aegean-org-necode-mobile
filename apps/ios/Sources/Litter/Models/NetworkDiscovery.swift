@@ -3,7 +3,7 @@ import Network
 import Observation
 import UIKit
 
-private let codexDiscoveryPorts: [UInt16] = [8390, 4222]
+private let codexDiscoveryPorts: [UInt16] = [8390, 9234, 4222]
 
 private struct DiscoveryCandidate: Hashable {
     let ip: String
