@@ -733,6 +733,83 @@ struct ThreadArchiveParams: Encodable {
 
 struct ThreadArchiveResponse: Decodable {}
 
+struct ThreadRealtimeAudioChunk: Codable, Equatable {
+    let data: String
+    let sampleRate: UInt32
+    let numChannels: UInt16
+    let samplesPerChannel: UInt32?
+}
+
+struct ThreadRealtimeStartParams: Encodable {
+    let threadId: String
+    let prompt: String
+    let sessionId: String?
+    let clientControlledHandoff: Bool?
+    let dynamicTools: [DynamicToolSpec]?
+}
+
+struct ThreadRealtimeStartResponse: Decodable {}
+
+struct ThreadRealtimeAppendAudioParams: Encodable {
+    let threadId: String
+    let audio: ThreadRealtimeAudioChunk
+}
+
+struct ThreadRealtimeAppendAudioResponse: Decodable {}
+
+struct ThreadRealtimeAppendTextParams: Encodable {
+    let threadId: String
+    let text: String
+}
+
+struct ThreadRealtimeAppendTextResponse: Decodable {}
+
+struct ThreadRealtimeStopParams: Encodable {
+    let threadId: String
+}
+
+struct ThreadRealtimeStopResponse: Decodable {}
+
+struct ThreadRealtimeResolveHandoffParams: Encodable {
+    let threadId: String
+    let handoffId: String
+    let outputText: String
+}
+
+struct ThreadRealtimeResolveHandoffResponse: Decodable {}
+
+struct ThreadRealtimeFinalizeHandoffParams: Encodable {
+    let threadId: String
+    let handoffId: String
+}
+
+struct ThreadRealtimeFinalizeHandoffResponse: Decodable {}
+
+struct ThreadRealtimeStartedNotification: Decodable {
+    let threadId: String
+    let sessionId: String?
+}
+
+struct ThreadRealtimeItemAddedNotification: Decodable {
+    let threadId: String
+    let item: AnyCodable
+}
+
+struct ThreadRealtimeOutputAudioDeltaNotification: Decodable {
+    let threadId: String
+    let audio: ThreadRealtimeAudioChunk
+}
+
+struct ThreadRealtimeErrorNotification: Decodable {
+    let threadId: String
+    let message: String
+}
+
+struct ThreadRealtimeClosedNotification: Decodable {
+    let threadId: String
+    let reason: String?
+}
+
 struct ResumedThread: Decodable {
     let id: String
     let path: String?
@@ -1498,6 +1575,19 @@ struct ConfigWriteResponse: Decodable {
     let status: String
     let version: String
     let filePath: String
+}
+
+struct ConfigEdit: Encodable {
+    let keyPath: String
+    let value: AnyEncodable
+    let mergeStrategy: String
+}
+
+struct ConfigBatchWriteParams: Encodable {
+    let edits: [ConfigEdit]
+    let filePath: String?
+    let expectedVersion: String?
+    let reloadUserConfig: Bool
 }
 
 // MARK: - Experimental Features

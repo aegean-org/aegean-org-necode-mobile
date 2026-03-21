@@ -14,6 +14,32 @@ struct ConversationComposerEntryRowView: View {
     let onStartRecording: () -> Void
     let onInterrupt: () -> Void
 
+    init(
+        showAttachMenu: Binding<Bool>,
+        inputText: Binding<String>,
+        isComposerFocused: Binding<Bool>,
+        voiceManager: VoiceTranscriptionManager,
+        isTurnActive: Bool,
+        hasAttachment: Bool,
+        onPasteImage: @escaping (UIImage) -> Void,
+        onSendText: @escaping () -> Void,
+        onStopRecording: @escaping () -> Void,
+        onStartRecording: @escaping () -> Void,
+        onInterrupt: @escaping () -> Void
+    ) {
+        _showAttachMenu = showAttachMenu
+        _inputText = inputText
+        _isComposerFocused = isComposerFocused
+        self.voiceManager = voiceManager
+        self.isTurnActive = isTurnActive
+        self.hasAttachment = hasAttachment
+        self.onPasteImage = onPasteImage
+        self.onSendText = onSendText
+        self.onStopRecording = onStopRecording
+        self.onStartRecording = onStartRecording
+        self.onInterrupt = onInterrupt
+    }
+
     private var hasText: Bool {
         !inputText.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -105,6 +131,7 @@ struct ConversationComposerEntryRowView: View {
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
+
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isTurnActive)
         .padding(.horizontal, 12)

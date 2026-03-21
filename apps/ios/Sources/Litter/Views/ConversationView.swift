@@ -1048,6 +1048,7 @@ private struct ConversationInputBar: View {
     let connection: ServerConnection
     let serverManager: ServerManager
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
+    @AppStorage("fastMode") private var fastMode = false
 
     let onSend: (String, UIImage?, [SkillMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FuzzyFileSearchResult]
@@ -1187,31 +1188,33 @@ private struct ConversationInputBar: View {
     }
 
     private var composerSurface: some View {
-        ConversationComposerContentView(
-            attachedImage: attachedImage,
-            pendingUserInputRequest: pendingUserInputRequest,
-            rateLimits: snapshot.rateLimits,
-            contextPercent: contextPercent(),
-            isTurnActive: isTurnActive,
-            voiceManager: voiceManager,
-            showAttachMenu: $showAttachMenu,
-            onClearAttachment: clearAttachment,
-            onRespondToPendingUserInput: respondToPendingUserInput,
-            onPasteImage: { image in attachedImage = image },
-            onSendText: handleSend,
-            onStopRecording: stopVoiceRecording,
-            onStartRecording: startVoiceRecording,
-            onInterrupt: interruptActiveTurn,
-            inputText: $inputText,
-            isComposerFocused: $isComposerFocused
-        )
-        .overlay(alignment: .bottom) {
-            ConversationComposerPopupOverlayView(
-                state: popupState,
-                onApplySlashSuggestion: applySlashSuggestion,
-                onApplyFileSuggestion: applyFileSuggestion,
-                onApplySkillSuggestion: applySkillSuggestion
+        VStack(spacing: 0) {
+            ConversationComposerContentView(
+                attachedImage: attachedImage,
+                pendingUserInputRequest: pendingUserInputRequest,
+                rateLimits: snapshot.rateLimits,
+                contextPercent: contextPercent(),
+                isTurnActive: isTurnActive,
+                voiceManager: voiceManager,
+                showAttachMenu: $showAttachMenu,
+                onClearAttachment: clearAttachment,
+                onRespondToPendingUserInput: respondToPendingUserInput,
+                onPasteImage: { image in attachedImage = image },
+                onSendText: handleSend,
+                onStopRecording: stopVoiceRecording,
+                onStartRecording: startVoiceRecording,
+                onInterrupt: interruptActiveTurn,
+                inputText: $inputText,
+                isComposerFocused: $isComposerFocused
             )
+            .overlay(alignment: .bottom) {
+                ConversationComposerPopupOverlayView(
+                    state: popupState,
+                    onApplySlashSuggestion: applySlashSuggestion,
+                    onApplyFileSuggestion: applyFileSuggestion,
+                    onApplySkillSuggestion: applySkillSuggestion
+                )
+            }
         }
     }
 

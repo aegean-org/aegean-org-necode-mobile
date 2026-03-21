@@ -238,6 +238,34 @@ private struct SettingsConnectionAccountSection: View {
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
 
+            if connection.target == .local, connection.hasOpenAIApiKey {
+                HStack(spacing: 10) {
+                    Image(systemName: "key.fill")
+                        .foregroundColor(Color(hex: "#00AAFF"))
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Realtime API Key Saved")
+                            .litterFont(.subheadline)
+                            .foregroundColor(LitterTheme.textPrimary)
+                        Text("Realtime can use the saved OpenAI API key while keeping your current account auth.")
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textSecondary)
+                    }
+                    Spacer()
+                    Button("Delete") {
+                        Task {
+                            isAuthWorking = true
+                            await connection.clearOpenAIApiKey()
+                            isAuthWorking = false
+                        }
+                    }
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.danger)
+                    .disabled(isAuthWorking)
+                }
+                .listRowBackground(LitterTheme.surface.opacity(0.6))
+            }
+
             if case .notLoggedIn = authStatus {
                 Button {
                     Task {
@@ -258,18 +286,27 @@ private struct SettingsConnectionAccountSection: View {
                 }
                 .disabled(isAuthWorking || connection.isChatGPTLoginInProgress)
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
+            }
 
+            if connection.target == .local, authStatus == .notLoggedIn || authStatus.isChatGPT {
                 HStack(spacing: 8) {
-                    SecureField("sk-...", text: $apiKey)
-                        .litterFont(.footnote)
-                        .foregroundColor(LitterTheme.textPrimary)
-                        .textInputAutocapitalization(.never)
+                    VStack(alignment: .leading, spacing: 6) {
+                        if authStatus.isChatGPT {
+                            Text(connection.hasOpenAIApiKey ? "Update API key for local realtime" : "Save API key for local realtime")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+                        SecureField("sk-...", text: $apiKey)
+                            .litterFont(.footnote)
+                            .foregroundColor(LitterTheme.textPrimary)
+                            .textInputAutocapitalization(.never)
+                    }
                     Button("Save") {
                         let key = apiKey.trimmingCharacters(in: .whitespaces)
                         guard !key.isEmpty else { return }
                         Task {
                             isAuthWorking = true
-                            await connection.loginWithApiKey(key)
+                            await connection.saveOpenAIApiKey(key)
                             isAuthWorking = false
                         }
                     }
@@ -311,10 +348,23 @@ private struct SettingsConnectionAccountSection: View {
 
     private var authSubtitle: String? {
         switch authStatus {
-        case .chatgpt: return "ChatGPT account"
-        case .apiKey: return "OpenAI API key"
+        case .chatgpt:
+            return connection.hasOpenAIApiKey
+                ? "ChatGPT account with saved realtime API key"
+                : "ChatGPT account"
+        case .apiKey:
+            return connection.hasOpenAIApiKey ? "OpenAI API key saved" : "OpenAI API key"
         default: return nil
         }
+    }
+}
+
+private extension AuthStatus {
+    var isChatGPT: Bool {
+        if case .chatgpt = self {
+            return true
+        }
+        return false
     }
 }
 

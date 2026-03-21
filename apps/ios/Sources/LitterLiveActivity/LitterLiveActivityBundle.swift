@@ -5,5 +5,6 @@ import WidgetKit
 struct LitterLiveActivityBundle: WidgetBundle {
     var body: some Widget {
         CodexTurnLiveActivity()
+        CodexVoiceCallLiveActivity()
     }
 }

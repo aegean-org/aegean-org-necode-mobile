@@ -93,6 +93,28 @@ private struct AccountConnectionView: View {
             .background(.ultraThinMaterial)
             .cornerRadius(10)
             .padding(.horizontal, 16)
+
+            if connection.target == .local, connection.hasOpenAIApiKey {
+                HStack(spacing: 10) {
+                    Image(systemName: "key.fill")
+                        .foregroundColor(Color(hex: "#00AAFF"))
+                    Text("Realtime API key saved")
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                    Spacer()
+                    Button("Delete") {
+                        Task {
+                            isWorking = true
+                            await connection.clearOpenAIApiKey()
+                            isWorking = false
+                        }
+                    }
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.danger)
+                    .disabled(isWorking)
+                }
+                .padding(.horizontal, 20)
+            }
         }
     }
 
@@ -127,44 +149,54 @@ private struct AccountConnectionView: View {
             .padding(.horizontal, 16)
             .disabled(isWorking || connection.isChatGPTLoginInProgress)
 
-            Text("— or use an API key —")
-                .litterFont(.caption)
-                .foregroundColor(LitterTheme.textMuted)
-                .frame(maxWidth: .infinity)
+            if connection.target == .local {
+                Text("— or save an API key for local realtime —")
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textMuted)
+                    .frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 8) {
-                SecureField("sk-...", text: $apiKey)
-                    .litterFont(.subheadline)
-                    .foregroundColor(LitterTheme.textPrimary)
-                    .padding(12)
-                    .background(LitterTheme.surface)
-                    .cornerRadius(8)
-                    .padding(.horizontal, 16)
-
-                Button {
-                    let key = apiKey.trimmingCharacters(in: .whitespaces)
-                    guard !key.isEmpty else { return }
-                    Task {
-                        isWorking = true
-                        await connection.loginWithApiKey(key)
-                        isWorking = false
-                        if case .apiKey = connection.authStatus {
-                            dismiss()
-                        }
-                    }
-                } label: {
-                    Text("Save API Key")
+                VStack(alignment: .leading, spacing: 8) {
+                    SecureField("sk-...", text: $apiKey)
                         .litterFont(.subheadline)
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(LitterTheme.accent.opacity(0.4), lineWidth: 1)
-                        )
+                        .foregroundColor(LitterTheme.textPrimary)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .padding(12)
+                        .background(LitterTheme.surface)
+                        .cornerRadius(8)
+                        .padding(.horizontal, 16)
+
+                    Button {
+                        let key = apiKey.trimmingCharacters(in: .whitespaces)
+                        guard !key.isEmpty else { return }
+                        Task {
+                            isWorking = true
+                            await connection.saveOpenAIApiKey(key)
+                            isWorking = false
+                            if connection.lastAuthError == nil, connection.hasOpenAIApiKey {
+                                apiKey = ""
+                                dismiss()
+                            }
+                        }
+                    } label: {
+                        Text("Save API Key")
+                            .litterFont(.subheadline)
+                            .foregroundColor(LitterTheme.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(LitterTheme.accent.opacity(0.4), lineWidth: 1)
+                            )
+                    }
+                    .padding(.horizontal, 16)
+                    .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
+
+                    Text("If both are saved, Litter will keep ChatGPT OAuth for normal Codex requests and use the API key for local realtime.")
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 16)
-                .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || isWorking)
             }
         }
     }
@@ -188,8 +220,12 @@ private struct AccountConnectionView: View {
 
     private var authSubtitle: String? {
         switch authStatus {
-        case .chatgpt: return "ChatGPT account"
-        case .apiKey: return "OpenAI API key"
+        case .chatgpt:
+            return connection.hasOpenAIApiKey
+                ? "ChatGPT account with saved realtime API key"
+                : "ChatGPT account"
+        case .apiKey:
+            return connection.hasOpenAIApiKey ? "OpenAI API key saved" : "OpenAI API key"
         default: return nil
         }
     }

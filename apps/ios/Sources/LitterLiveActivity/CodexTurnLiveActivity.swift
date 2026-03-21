@@ -51,6 +51,7 @@ struct CodexTurnLiveActivity: Widget {
                     .frame(maxWidth: 16, alignment: .leading)
             } compactTrailing: {
                 compactTimer(context: context)
+                    .frame(width: 42)
             } minimal: {
                 litterLogo(size: 16)
             }

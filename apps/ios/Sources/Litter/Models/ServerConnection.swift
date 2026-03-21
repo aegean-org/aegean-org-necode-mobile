@@ -41,6 +41,7 @@ final class ServerConnection: Identifiable {
     var isConnected: Bool { connectionHealth == .connected }
     var connectionPhase: String = ""
     var authStatus: AuthStatus = .unknown
+    var hasOpenAIApiKey = false
     var oauthURL: URL? = nil
     var lastAuthError: String?
     var isChatGPTLoginInProgress = false
@@ -68,6 +69,7 @@ final class ServerConnection: Identifiable {
         self.id = server.id
         self.server = server
         self.target = target
+        self.hasOpenAIApiKey = Self.localRealtimeAPIKeyIsSaved(for: target)
     }
 
     private struct ConnectionRetryPolicy {
@@ -78,7 +80,7 @@ final class ServerConnection: Identifiable {
     }
 
     func connect() async {
-        guard connectionHealth != .connected else { return }
+        guard connectionHealth != .connected, connectionHealth != .connecting else { return }
         connectionHealth = .connecting
         connectionPhase = "start"
         do {
@@ -89,6 +91,7 @@ final class ServerConnection: Identifiable {
                     connectionHealth = .disconnected
                     return
                 }
+                applyLocalRealtimeAPIKeyEnvironment()
                 connectionPhase = "local-channel-starting"
                 let channel = try await CodexBridge.shared.ensureChannelStarted()
                 channelClient = channel
@@ -96,12 +99,11 @@ final class ServerConnection: Identifiable {
                 await setupChannelNotifications(channel)
                 await setupChannelDisconnect(channel)
                 // Initialize handshake already done by Rust in_process::start
+                await restoreLocalChatGPTAuthIfNeeded()
+                await checkAuth()
+                await fetchRateLimits()
                 connectionHealth = .connected
                 connectionPhase = "ready"
-                Task { [weak self] in
-                    await self?.checkAuth()
-                    await self?.fetchRateLimits()
-                }
                 return
             case .remote(let host, let port):
                 guard let url = websocketURL(host: host, port: port) else {
@@ -130,6 +132,7 @@ final class ServerConnection: Identifiable {
             await setupHealthHandler()
             connectionPhase = "connect-and-initialize"
             try await connectAndInitialize()
+            await configureLocalRealtimeConversationFeatureIfNeeded()
             connectionHealth = .connected
             connectionPhase = "ready"
             Task { [weak self] in
@@ -363,6 +366,77 @@ final class ServerConnection: Identifiable {
         )
     }
 
+    func prepareLocalRealtimeConversationIfNeeded() async {
+        await configureLocalRealtimeConversationFeatureIfNeeded()
+    }
+
+    func startRealtimeConversation(
+        threadId: String,
+        prompt: String,
+        sessionId: String? = nil,
+        clientControlledHandoff: Bool = false,
+        dynamicTools: [DynamicToolSpec]? = nil
+    ) async throws {
+        let _: ThreadRealtimeStartResponse = try await routedSendRequest(
+            method: "thread/realtime/start",
+            params: ThreadRealtimeStartParams(
+                threadId: threadId,
+                prompt: prompt,
+                sessionId: sessionId,
+                clientControlledHandoff: clientControlledHandoff ? true : nil,
+                dynamicTools: dynamicTools
+            ),
+            responseType: ThreadRealtimeStartResponse.self
+        )
+    }
+
+    func resolveRealtimeHandoff(threadId: String, handoffId: String, outputText: String) async throws {
+        let _: ThreadRealtimeResolveHandoffResponse = try await routedSendRequest(
+            method: "thread/realtime/resolveHandoff",
+            params: ThreadRealtimeResolveHandoffParams(
+                threadId: threadId,
+                handoffId: handoffId,
+                outputText: outputText
+            ),
+            responseType: ThreadRealtimeResolveHandoffResponse.self
+        )
+    }
+
+    func finalizeRealtimeHandoff(threadId: String, handoffId: String) async throws {
+        let _: ThreadRealtimeFinalizeHandoffResponse = try await routedSendRequest(
+            method: "thread/realtime/finalizeHandoff",
+            params: ThreadRealtimeFinalizeHandoffParams(
+                threadId: threadId,
+                handoffId: handoffId
+            ),
+            responseType: ThreadRealtimeFinalizeHandoffResponse.self
+        )
+    }
+
+    func appendRealtimeAudio(threadId: String, audio: ThreadRealtimeAudioChunk) async throws {
+        let _: ThreadRealtimeAppendAudioResponse = try await routedSendRequest(
+            method: "thread/realtime/appendAudio",
+            params: ThreadRealtimeAppendAudioParams(threadId: threadId, audio: audio),
+            responseType: ThreadRealtimeAppendAudioResponse.self
+        )
+    }
+
+    func appendRealtimeText(threadId: String, text: String) async throws {
+        let _: ThreadRealtimeAppendTextResponse = try await routedSendRequest(
+            method: "thread/realtime/appendText",
+            params: ThreadRealtimeAppendTextParams(threadId: threadId, text: text),
+            responseType: ThreadRealtimeAppendTextResponse.self
+        )
+    }
+
+    func stopRealtimeConversation(threadId: String) async throws {
+        let _: ThreadRealtimeStopResponse = try await routedSendRequest(
+            method: "thread/realtime/stop",
+            params: ThreadRealtimeStopParams(threadId: threadId),
+            responseType: ThreadRealtimeStopResponse.self
+        )
+    }
+
     func rollbackThread(threadId: String, numTurns: Int) async throws -> ThreadRollbackResponse {
         try await routedSendRequest(
             method: "thread/rollback",
@@ -451,6 +525,40 @@ final class ServerConnection: Identifiable {
         )
     }
 
+    func writeConfigBatch(
+        edits: [ConfigEdit],
+        reloadUserConfig: Bool = false
+    ) async throws -> ConfigWriteResponse {
+        try await routedSendRequest(
+            method: "config/batchWrite",
+            params: ConfigBatchWriteParams(
+                edits: edits,
+                filePath: nil,
+                expectedVersion: nil,
+                reloadUserConfig: reloadUserConfig
+            ),
+            responseType: ConfigWriteResponse.self
+        )
+    }
+
+    @discardableResult
+    func setExperimentalFeature(
+        named featureName: String,
+        enabled: Bool,
+        reloadUserConfig: Bool = true
+    ) async throws -> ConfigWriteResponse {
+        try await writeConfigBatch(
+            edits: [
+                ConfigEdit(
+                    keyPath: "features.\(featureName)",
+                    value: AnyEncodable(enabled),
+                    mergeStrategy: "upsert"
+                )
+            ],
+            reloadUserConfig: reloadUserConfig
+        )
+    }
+
     func setThreadName(threadId: String, name: String) async throws {
         let _: ThreadSetNameResponse = try await routedSendRequest(
             method: "thread/name/set",
@@ -496,8 +604,10 @@ final class ServerConnection: Identifiable {
             } else {
                 authStatus = .notLoggedIn
             }
+            hasOpenAIApiKey = Self.realtimeAPIKeyIsSaved(for: target)
         } catch {
             authStatus = .notLoggedIn
+            hasOpenAIApiKey = Self.realtimeAPIKeyIsSaved(for: target)
         }
     }
 
@@ -559,6 +669,46 @@ final class ServerConnection: Identifiable {
         }
     }
 
+    func saveOpenAIApiKey(_ key: String) async {
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else {
+            lastAuthError = "API key cannot be empty"
+            return
+        }
+
+        guard target == .local else {
+            lastAuthError = "Realtime API key is only used for on-device Codex."
+            return
+        }
+
+        do {
+            lastAuthError = nil
+            try RealtimeAPIKeyStore.shared.save(trimmedKey)
+            try RealtimeAPIKeyStore.shared.applyProcessEnvironment()
+            hasOpenAIApiKey = Self.realtimeAPIKeyIsSaved(for: target)
+        } catch {
+            lastAuthError = error.localizedDescription
+            hasOpenAIApiKey = Self.realtimeAPIKeyIsSaved(for: target)
+        }
+    }
+
+    func clearOpenAIApiKey() async {
+        guard target == .local else {
+            lastAuthError = "Realtime API key is only used for on-device Codex."
+            return
+        }
+
+        do {
+            lastAuthError = nil
+            try RealtimeAPIKeyStore.shared.clear()
+            try RealtimeAPIKeyStore.shared.applyProcessEnvironment()
+            hasOpenAIApiKey = Self.realtimeAPIKeyIsSaved(for: target)
+        } catch {
+            lastAuthError = error.localizedDescription
+            hasOpenAIApiKey = Self.realtimeAPIKeyIsSaved(for: target)
+        }
+    }
+
     func logout() async {
         struct Empty: Decodable {}
         struct EmptyParams: Encodable {}
@@ -567,7 +717,11 @@ final class ServerConnection: Identifiable {
             params: EmptyParams(),
             responseType: Empty.self
         )
+        if target == .local {
+            try? ChatGPTOAuth.clearStoredTokens()
+        }
         authStatus = .notLoggedIn
+        hasOpenAIApiKey = Self.localRealtimeAPIKeyIsSaved(for: target)
         lastAuthError = nil
         oauthURL = nil
         pendingLoginId = nil
@@ -839,6 +993,7 @@ final class ServerConnection: Identifiable {
                 self.onDisconnect?()
                 do {
                     try await self.connectAndInitialize()
+                    await self.configureLocalRealtimeConversationFeatureIfNeeded()
                     self.connectionHealth = .connected
                     NSLog("[ws] auto-reconnect SUCCESS id=%@", self.id)
                 } catch {
@@ -889,5 +1044,233 @@ final class ServerConnection: Identifiable {
             return (try? JSONSerialization.data(withJSONObject: params)) ?? data
         }
         return data
+    }
+
+    private func configureLocalRealtimeConversationFeatureIfNeeded() async {
+        guard target == .local else { return }
+
+        do {
+            let didEnableFeature = try await ensureExperimentalFeatureEnabled(
+                named: VoiceSessionControl.realtimeFeatureName,
+                enabled: true
+            )
+            let didConfigureRealtimeDefaults = try await ensureLocalRealtimeDefaultsConfigured()
+            if didEnableFeature || didConfigureRealtimeDefaults {
+                connectionPhase = "local-realtime-ready"
+            }
+        } catch {
+            NSLog(
+                "[ws] failed enabling local realtime defaults id=%@ err=%@",
+                id,
+                error.localizedDescription
+            )
+        }
+    }
+
+    private func ensureExperimentalFeatureEnabled(
+        named featureName: String,
+        enabled: Bool
+    ) async throws -> Bool {
+        let response = try await listExperimentalFeatures(limit: 200)
+        guard let feature = response.data.first(where: { $0.name == featureName }) else {
+            return false
+        }
+        guard feature.enabled != enabled else {
+            return false
+        }
+
+        connectionPhase = "configuring-\(featureName)"
+        _ = try await setExperimentalFeature(
+            named: featureName,
+            enabled: enabled,
+            reloadUserConfig: true
+        )
+
+        let updated = try await listExperimentalFeatures(limit: 200)
+        guard updated.data.contains(where: { $0.name == featureName && $0.enabled == enabled }) else {
+            throw NSError(
+                domain: "Litter",
+                code: 3201,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Failed to enable experimental feature \(featureName)"
+                ]
+            )
+        }
+
+        return true
+    }
+
+    private func ensureLocalRealtimeDefaultsConfigured() async throws -> Bool {
+        let desiredModel = "gpt-realtime-1.5"
+        let desiredRealtimeVersion = "v2"
+        let desiredRealtimeType = "conversational"
+        let currentConfig = try await readConfig(cwd: nil)
+
+        var edits: [ConfigEdit] = []
+        let currentModel = configStringValue(
+            currentConfig.config.value,
+            keyPath: ["experimental_realtime_ws_model"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if currentModel != desiredModel {
+            edits.append(
+                ConfigEdit(
+                    keyPath: "experimental_realtime_ws_model",
+                    value: AnyEncodable(desiredModel),
+                    mergeStrategy: "upsert"
+                )
+            )
+        }
+
+        let currentRealtimeVersion = configStringValue(
+            currentConfig.config.value,
+            keyPath: ["realtime", "version"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if currentRealtimeVersion?.lowercased() != desiredRealtimeVersion {
+            edits.append(
+                ConfigEdit(
+                    keyPath: "realtime.version",
+                    value: AnyEncodable(desiredRealtimeVersion),
+                    mergeStrategy: "upsert"
+                )
+            )
+        }
+
+        let currentRealtimeType = configStringValue(
+            currentConfig.config.value,
+            keyPath: ["realtime", "type"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if currentRealtimeType?.lowercased() != desiredRealtimeType {
+            edits.append(
+                ConfigEdit(
+                    keyPath: "realtime.type",
+                    value: AnyEncodable(desiredRealtimeType),
+                    mergeStrategy: "upsert"
+                )
+            )
+        }
+
+        guard !edits.isEmpty else {
+            return false
+        }
+
+        connectionPhase = "configuring-local-realtime-defaults"
+        _ = try await writeConfigBatch(
+            edits: edits,
+            reloadUserConfig: true
+        )
+
+        let updatedConfig = try await readConfig(cwd: nil)
+        let updatedModel = configStringValue(
+            updatedConfig.config.value,
+            keyPath: ["experimental_realtime_ws_model"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let updatedRealtimeVersion = configStringValue(
+            updatedConfig.config.value,
+            keyPath: ["realtime", "version"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let updatedRealtimeType = configStringValue(
+            updatedConfig.config.value,
+            keyPath: ["realtime", "type"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard updatedModel == desiredModel,
+              updatedRealtimeVersion?.lowercased() == desiredRealtimeVersion,
+              updatedRealtimeType?.lowercased() == desiredRealtimeType else {
+            throw NSError(
+                domain: "Litter",
+                code: 3203,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Failed to configure local realtime defaults"
+                ]
+            )
+        }
+
+        return true
+    }
+
+    private func configStringValue(_ root: Any, keyPath: [String]) -> String? {
+        var current: Any = root
+        for component in keyPath {
+            guard let dictionary = current as? [String: Any],
+                  let next = dictionary[component] else {
+                return nil
+            }
+            current = next
+        }
+        return current as? String
+    }
+
+    private static func localRealtimeAPIKeyIsSaved(for target: ConnectionTarget) -> Bool {
+        guard target == .local else { return false }
+        let storedKey = (try? RealtimeAPIKeyStore.shared.load()) ?? nil
+        return storedKey?.isEmpty == false
+    }
+
+    private static func realtimeAPIKeyIsSaved(for target: ConnectionTarget) -> Bool {
+        localRealtimeAPIKeyIsSaved(for: target)
+    }
+
+    private func applyLocalRealtimeAPIKeyEnvironment() {
+        guard target == .local else { return }
+        do {
+            try RealtimeAPIKeyStore.shared.applyProcessEnvironment()
+            hasOpenAIApiKey = Self.localRealtimeAPIKeyIsSaved(for: target)
+        } catch {
+            lastAuthError = error.localizedDescription
+            hasOpenAIApiKey = false
+        }
+    }
+
+    private func restoreLocalChatGPTAuthIfNeeded() async {
+        guard target == .local else { return }
+
+        do {
+            let currentAuth: GetAccountResponse = try await routedSendRequest(
+                method: "account/read",
+                params: GetAccountParams(refreshToken: false),
+                responseType: GetAccountResponse.self
+            )
+            if currentAuth.account?.type == "chatgpt" {
+                return
+            }
+        } catch {
+            // Fall through and attempt local auth replay.
+        }
+
+        guard let storedTokens = try? ChatGPTOAuth.loadStoredTokens(),
+              !storedTokens.accountID.isEmpty else {
+            return
+        }
+
+        let tokensForRestore: ChatGPTOAuthTokenBundle
+        if let refreshToken = storedTokens.refreshToken, !refreshToken.isEmpty {
+            if let refreshed = try? await ChatGPTOAuth.refreshStoredTokens(previousAccountID: storedTokens.accountID) {
+                tokensForRestore = refreshed
+            } else {
+                tokensForRestore = storedTokens
+            }
+        } else {
+            tokensForRestore = storedTokens
+        }
+
+        guard !tokensForRestore.accessToken.isEmpty else {
+            return
+        }
+
+        do {
+            let _: LoginStartResponse = try await routedSendRequest(
+                method: "account/login/start",
+                params: LoginStartChatGPTAuthTokensParams(
+                    accessToken: tokensForRestore.accessToken,
+                    chatgptAccountId: tokensForRestore.accountID,
+                    chatgptPlanType: tokensForRestore.planType
+                ),
+                responseType: LoginStartResponse.self
+            )
+        } catch {
+            NSLog("[auth] Local ChatGPT auth restore failed: %@", error.localizedDescription)
+        }
     }
 }

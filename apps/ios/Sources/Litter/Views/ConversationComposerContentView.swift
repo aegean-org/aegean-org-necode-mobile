@@ -19,6 +19,42 @@ struct ConversationComposerContentView: View {
     @Binding var inputText: String
     @Binding var isComposerFocused: Bool
 
+    init(
+        attachedImage: UIImage?,
+        pendingUserInputRequest: ServerManager.PendingUserInputRequest?,
+        rateLimits: RateLimitSnapshot?,
+        contextPercent: Int64?,
+        isTurnActive: Bool,
+        voiceManager: VoiceTranscriptionManager,
+        showAttachMenu: Binding<Bool>,
+        onClearAttachment: @escaping () -> Void,
+        onRespondToPendingUserInput: @escaping ([String: [String]]) -> Void,
+        onPasteImage: @escaping (UIImage) -> Void,
+        onSendText: @escaping () -> Void,
+        onStopRecording: @escaping () -> Void,
+        onStartRecording: @escaping () -> Void,
+        onInterrupt: @escaping () -> Void,
+        inputText: Binding<String>,
+        isComposerFocused: Binding<Bool>
+    ) {
+        self.attachedImage = attachedImage
+        self.pendingUserInputRequest = pendingUserInputRequest
+        self.rateLimits = rateLimits
+        self.contextPercent = contextPercent
+        self.isTurnActive = isTurnActive
+        self.voiceManager = voiceManager
+        _showAttachMenu = showAttachMenu
+        self.onClearAttachment = onClearAttachment
+        self.onRespondToPendingUserInput = onRespondToPendingUserInput
+        self.onPasteImage = onPasteImage
+        self.onSendText = onSendText
+        self.onStopRecording = onStopRecording
+        self.onStartRecording = onStartRecording
+        self.onInterrupt = onInterrupt
+        _inputText = inputText
+        _isComposerFocused = isComposerFocused
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let attachedImage {
