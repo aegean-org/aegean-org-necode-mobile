@@ -3760,6 +3760,8 @@ final class ServerManager {
     private func updateLiveActivityBGWake(key: ThreadKey) {
         guard let activity = liveActivities[key] else { return }
         let thread = threads[key]
+        // If session already completed, don't update — let endLiveActivity's dismissal finish
+        guard thread?.hasTurnActive == true else { return }
         let elapsed = Int(Date().timeIntervalSince(liveActivityStartDates[key] ?? Date()))
 
         let toolCount = liveActivityToolCallCounts[key, default: 0]
