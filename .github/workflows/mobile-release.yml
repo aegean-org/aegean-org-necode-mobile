@@ -482,6 +482,9 @@ jobs:
           mkdir -p .build-stamps
           touch .build-stamps/sync .build-stamps/bindings-swift
 
+      - name: Download ios_system frameworks
+        run: ./apps/ios/scripts/download-ios-system.sh
+
       - name: Decode App Store Connect API key
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}

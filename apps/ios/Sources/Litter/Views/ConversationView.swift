@@ -2353,6 +2353,7 @@ struct PendingUserInputPromptView: View {
     let onSubmit: ([String: [String]]) -> Void
 
     @State private var selectedAnswers: [String: String] = [:]
+    @State private var otherAnswers: [String: String] = [:]
 
     private var promptTitle: String {
         let firstQuestion = request.questions.first?.question.lowercased() ?? ""
@@ -2370,12 +2371,14 @@ struct PendingUserInputPromptView: View {
     }
 
     private var unsupportedQuestions: [PendingUserInputQuestion] {
-        request.questions.filter { $0.options.isEmpty || $0.isSecret || $0.isOtherAllowed }
+        request.questions.filter { question in
+            question.isSecret || (!question.isOtherAllowed && question.options.isEmpty)
+        }
     }
 
     private var canSubmit: Bool {
         unsupportedQuestions.isEmpty &&
-        request.questions.allSatisfy { selectedAnswers[$0.id]?.isEmpty == false }
+        request.questions.allSatisfy { !resolvedAnswer(for: $0).isEmpty }
     }
 
     var body: some View {
@@ -2407,26 +2410,46 @@ struct PendingUserInputPromptView: View {
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textPrimary)
 
-                    if question.options.isEmpty || question.isSecret || question.isOtherAllowed {
+                    if question.isSecret || (!question.isOtherAllowed && question.options.isEmpty) {
                         Text("This prompt type is not fully supported in the current iOS client.")
                             .litterFont(.caption2)
                             .foregroundColor(LitterTheme.textSecondary)
                     } else {
-                        HStack(spacing: 8) {
-                            ForEach(question.options, id: \.label) { option in
-                                let isSelected = selectedAnswers[question.id] == option.label
-                                Button {
-                                    selectedAnswers[question.id] = option.label
-                                } label: {
-                                    Text(option.label)
-                                        .litterFont(.caption2, weight: .semibold)
-                                        .foregroundColor(isSelected ? Color.black : LitterTheme.textPrimary)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(isSelected ? LitterTheme.accent : LitterTheme.surface.opacity(0.8))
-                                        .clipShape(Capsule())
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !question.options.isEmpty {
+                                HStack(spacing: 8) {
+                                    ForEach(question.options, id: \.label) { option in
+                                        let isSelected =
+                                            selectedAnswers[question.id] == option.label &&
+                                            trimmedOtherAnswer(for: question).isEmpty
+                                        Button {
+                                            selectedAnswers[question.id] = option.label
+                                            otherAnswers[question.id] = ""
+                                        } label: {
+                                            Text(option.label)
+                                                .litterFont(.caption2, weight: .semibold)
+                                                .foregroundColor(isSelected ? Color.black : LitterTheme.textPrimary)
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 6)
+                                                .background(isSelected ? LitterTheme.accent : LitterTheme.surface.opacity(0.8))
+                                                .clipShape(Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
-                                .buttonStyle(.plain)
+                            }
+
+                            if question.isOtherAllowed {
+                                TextField(
+                                    question.options.isEmpty ? "Enter response" : "Other response",
+                                    text: otherAnswerBinding(for: question)
+                                )
+                                .litterFont(.caption2)
+                                .foregroundColor(LitterTheme.textPrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(LitterTheme.surface.opacity(0.8))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                         }
                     }
@@ -2435,7 +2458,11 @@ struct PendingUserInputPromptView: View {
 
             if canSubmit {
                 Button("Submit") {
-                    let answers = selectedAnswers.mapValues { [$0] }
+                    let answers = request.questions.reduce(into: [String: [String]]()) { result, question in
+                        let answer = resolvedAnswer(for: question)
+                        guard !answer.isEmpty else { return }
+                        result[question.id] = [answer]
+                    }
                     onSubmit(answers)
                 }
                 .litterFont(.caption, weight: .semibold)
@@ -2448,6 +2475,29 @@ struct PendingUserInputPromptView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    private func otherAnswerBinding(for question: PendingUserInputQuestion) -> Binding<String> {
+        Binding(
+            get: { otherAnswers[question.id, default: ""] },
+            set: { newValue in
+                otherAnswers[question.id] = newValue
+            }
+        )
+    }
+
+    private func trimmedOtherAnswer(for question: PendingUserInputQuestion) -> String {
+        otherAnswers[question.id, default: ""]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func resolvedAnswer(for question: PendingUserInputQuestion) -> String {
+        let other = trimmedOtherAnswer(for: question)
+        if !other.isEmpty {
+            return other
+        }
+        return selectedAnswers[question.id, default: ""]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

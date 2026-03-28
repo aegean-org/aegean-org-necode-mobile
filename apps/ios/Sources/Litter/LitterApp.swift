@@ -219,7 +219,9 @@ struct ContentView: View {
                     }
                 }
 
-                if let approval = appModel.snapshot?.pendingApprovals.first {
+                if let approval = appModel.snapshot?.pendingApprovals.first(where: {
+                    $0.kind != .mcpElicitation
+                }) {
                     ApprovalPromptView(approval: approval) { decision in
                         Task {
                             try? await appModel.store.respondToApproval(
