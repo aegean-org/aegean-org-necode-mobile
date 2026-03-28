@@ -92,8 +92,16 @@ jobs:
           sccache --start-server
           sccache --show-stats || true
 
-      - name: Download ios_system frameworks
-        run: ./apps/ios/scripts/download-ios-system.sh
+      - name: Prepare iOS release artifacts
+        env:
+          CARGO_BUILD_JOBS: "2"
+          RUSTC_WRAPPER: sccache
+        run: |
+          set -euo pipefail
+          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
+          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
+          sccache --zero-stats || true
+          make ios-release-prep
 
       - name: Decode App Store Connect API key
         env:
@@ -165,8 +173,6 @@ jobs:
 
       - name: Build TestFlight IPA
         env:
-          CARGO_BUILD_JOBS: "2"
-          RUSTC_WRAPPER: sccache
           SCHEME: ${{ env.SCHEME }}
           APP_BUNDLE_ID: ${{ env.APP_BUNDLE_ID }}
           APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
@@ -181,9 +187,6 @@ jobs:
           TESTFLIGHT_SKIP_UPLOAD: "1"
         run: |
           set -euo pipefail
-          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
-          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
-          sccache --zero-stats || true
           ./apps/ios/scripts/testflight-upload.sh
 
       - name: Upload to TestFlight

@@ -87,7 +87,7 @@ $(shell mkdir -p $(STAMPS))
 
 .PHONY: all ios ios-sim ios-sim-fast ios-sim-run ios-device ios-device-fast ios-device-run ios-run verify-ios-project \
 	android android-fast android-emulator-fast android-emulator-run android-device-run android-release android-debug android-install android-emulator-install \
-	rust-ios rust-ios-package rust-ios-device-fast rust-ios-sim-fast rust-android rust-check rust-test rust-host-dev \
+	rust-ios rust-ios-package rust-ios-device-release rust-ios-device-fast rust-ios-sim-fast rust-android rust-check rust-test rust-host-dev \
 	bindings bindings-swift bindings-kotlin \
 	sync patch unpatch xcgen ios-frameworks \
 	ios-build ios-build-sim ios-build-sim-fast ios-build-device ios-build-device-fast \
@@ -178,6 +178,10 @@ rust-ios: rust-ios-package
 rust-ios-package: $(STAMP_SYNC)
 	@echo "==> Packaging Rust for iOS (device + simulator + xcframework)..."
 	@cd $(ROOT) && $(PACKAGE_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current $(CARGO_FEATURES)
+
+rust-ios-device-release: $(STAMP_SYNC)
+	@echo "==> Building Rust for iOS release archive prep (device staticlib + headers)..."
+	@cd $(ROOT) && $(PACKAGE_CARGO_ENV) $(IOS_SCRIPTS)/build-rust.sh --preserve-current --device-only $(CARGO_FEATURES)
 
 rust-ios-device-fast: $(STAMP_SYNC)
 	@echo "==> Building Rust for fast iOS device iteration (raw staticlib + headers)..."
@@ -368,7 +372,7 @@ test-android:
 	@echo "==> Running Android tests..."
 	@cd $(ANDROID_DIR) && ./gradlew :app:testDebugUnitTest
 
-ios-release-prep: rust-ios-package ios-frameworks xcgen
+ios-release-prep: rust-ios-device-release ios-frameworks xcgen
 
 testflight: ios-release-prep
 	@echo "==> Uploading to TestFlight..."
