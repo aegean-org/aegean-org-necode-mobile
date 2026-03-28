@@ -584,7 +584,7 @@ jobs:
           ASC_PRIVATE_KEY_P8_B64: ${{ secrets.ASC_PRIVATE_KEY_P8_B64 }}
         run: |
           set -euo pipefail
-          ASC_KEY_PATH="$RUNNER_TEMp/AuthKey_${ASC_KEY_ID}.p8"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
           echo "$ASC_PRIVATE_KEY_P8_B64" | base64 --decode > "$ASC_KEY_PATH"
           chmod 600 "$ASC_KEY_PATH"
           echo "ASC_PRIVATE_KEY_PATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
@@ -598,7 +598,7 @@ jobs:
           set -euo pipefail
 
           CERT_PATH="$RUNNER_TEMP/dist-cert.p12"
-          PROFILE_PATH="$RUNNER_TEMp/app-store.mobileprovision"
+          PROFILE_PATH="$RUNNER_TEMP/app-store.mobileprovision"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
 
