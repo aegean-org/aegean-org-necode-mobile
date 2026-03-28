@@ -18,7 +18,81 @@ permissions:
   contents: read
 
 jobs:
+  prepare-release-assets:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      SCCACHE_BUCKET: rust-cache
+      SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
+      SCCACHE_REGION: auto
+      SCCACHE_S3_USE_SSL: "true"
+      SCCACHE_S3_KEY_PREFIX: ci/ios-release
+      SCCACHE_LOG: info
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.3'
+
+      - name: Install build dependencies
+        run: brew install xcodegen meson ninja
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Prime sccache
+        run: |
+          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
+          rm -f "$SCCACHE_ERROR_LOG"
+          sccache --stop-server || true
+          sccache --start-server
+          sccache --show-stats || true
+
+      - name: Prepare iOS release assets
+        env:
+          CARGO_BUILD_JOBS: "2"
+          RUSTC_WRAPPER: sccache
+        run: |
+          set -euo pipefail
+          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
+          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
+          sccache --zero-stats || true
+          make ios-release-prep
+          echo "==> sccache stats after iOS release prep"
+          sccache --show-stats || true
+
+      - name: Package iOS release prep artifact
+        run: |
+          mkdir -p .ci-prep/ios
+          tar -czf .ci-prep/ios/ios-release-prep.tgz -C . \
+            apps/ios/Frameworks/ios_system \
+            apps/ios/GeneratedRust \
+            apps/ios/Sources/Litter/Bridge/UniFFICodexClient.generated.swift
+
+      - name: Upload iOS release prep artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-prep
+          path: .ci-prep/ios
+          if-no-files-found: error
+
   upload-testflight:
+    needs: prepare-release-assets
     runs-on: macos-15
     timeout-minutes: 150
     environment: release
@@ -72,36 +146,24 @@ jobs:
       - name: Install build dependencies
         run: |
           set -euo pipefail
-          brew install xcodegen jq asc meson ninja
+          brew install xcodegen jq asc
           xcodebuild -version
           asc --version
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Download iOS release prep artifact
+        uses: actions/download-artifact@v4
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          name: ios-release-prep
+          path: .ci-prep/ios
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Prime sccache
+      - name: Restore iOS release prep
         run: |
-          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
-          rm -f "$SCCACHE_ERROR_LOG"
-          sccache --stop-server || true
-          sccache --start-server
-          sccache --show-stats || true
+          IOS_PREP_ROOT=.ci-prep/ios
+          if [ -d "$IOS_PREP_ROOT/ios" ]; then
+            IOS_PREP_ROOT="$IOS_PREP_ROOT/ios"
+          fi
 
-      - name: Prepare iOS release artifacts
-        env:
-          CARGO_BUILD_JOBS: "2"
-          RUSTC_WRAPPER: sccache
-        run: |
-          set -euo pipefail
-          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
-          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
-          sccache --zero-stats || true
-          make ios-release-prep
+          tar -xzf "$IOS_PREP_ROOT/ios-release-prep.tgz" -C .
 
       - name: Decode App Store Connect API key
         env:
@@ -151,7 +213,6 @@ jobs:
 
           SCHEME="Litter"
           APP_BUNDLE_ID="com.sigkitten.litter"
-          MARKETING_VERSION="1.0.1"
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             BETA_GROUP_NAMES="${{ inputs.beta_group_names }}"

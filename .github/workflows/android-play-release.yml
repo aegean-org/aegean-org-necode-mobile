@@ -208,61 +208,38 @@ jobs:
           VERSION_CODE="$((200000000 + GITHUB_RUN_NUMBER))"
           echo "LITTER_VERSION_CODE_OVERRIDE=$VERSION_CODE" >> "$GITHUB_ENV"
 
-      - name: Build Android release APK
+      - name: Apply Android versionCode
+        env:
+          LITTER_VERSION_CODE_OVERRIDE: ${{ env.LITTER_VERSION_CODE_OVERRIDE }}
+        run: ./apps/android/scripts/bump-version.sh
+
+      - name: Build and publish Android release
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
           CARGO_BUILD_JOBS: "2"
           GRADLE_MAX_WORKERS: "2"
-          ANDROID_RELEASE_ABIS: arm64-v8a
+          ANDROID_ABIS: arm64-v8a
+          ANDROID_RUST_PROFILE: release
           RUSTC_WRAPPER: sccache
           LITTER_VERSION_CODE_OVERRIDE: ${{ env.LITTER_VERSION_CODE_OVERRIDE }}
-        run: |
-          set -euo pipefail
-          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-android.log"
-          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
-          sccache --zero-stats || true
-          make android-release
-          echo "==> sccache stats after Android release APK build"
-          sccache --show-stats || true
-
-      - name: Build Android release bundle
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
-          CARGO_BUILD_JOBS: "2"
-          GRADLE_MAX_WORKERS: "2"
-          ANDROID_RELEASE_ABIS: arm64-v8a
-          RUSTC_WRAPPER: sccache
-          LITTER_VERSION_CODE_OVERRIDE: ${{ env.LITTER_VERSION_CODE_OVERRIDE }}
-          UPLOAD: "0"
-        run: |
-          set -euo pipefail
-          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-android.log"
-          trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
-          sccache --zero-stats || true
-          ./apps/android/scripts/play-upload.sh
-          echo "==> sccache stats after Android release bundle build"
-          sccache --show-stats || true
-
-      - name: Publish Android bundle to Google Play
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
-          GRADLE_MAX_WORKERS: "2"
           LITTER_UPLOAD_STORE_FILE: ${{ env.LITTER_UPLOAD_STORE_FILE }}
           LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
           LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
           LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
           LITTER_PLAY_SERVICE_ACCOUNT_JSON: ${{ env.LITTER_PLAY_SERVICE_ACCOUNT_JSON }}
           LITTER_PLAY_TRACK: internal
-          GRADLE_EXCLUDED_TASKS: ":app:bundleRelease"
+          EXTRA_GRADLE_TASKS: ":app:assembleRelease"
         run: |
           set -euo pipefail
+          export SCCACHE_ERROR_LOG="$RUNNER_TEMP/scccache-android.log"
+          trap 'status=$?; echo "==> sccache stats"; scccache --show-stats || true; ef [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> scccache error log"; tail -200 "$SCCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
+          sccache --zero-stats || true
+          make rust-android
           ./apps/android/scripts/play-upload.sh
+          echo "==> sccache stats after Android publish"
+          scccache --show-stats || true
 
       - name: Generate checksums
         run: |
@@ -278,7 +255,7 @@ jobs:
           name: android-play-release-${{ github.run_number }}
           if-no-files-found: error
           path: |
-            apps/android/app/build/outputs/apk/release/app-release.apk
+            apps/android/app/build/outputs/apk/release/app-release.apk"
             apps/android/app/build/outputs/apk/release/app-release.apk.sha256
             apps/android/app/build/outputs/bundle/release/app-release.aab
             apps/android/app/build/outputs/bundle/release/app-release.aab.sha256
