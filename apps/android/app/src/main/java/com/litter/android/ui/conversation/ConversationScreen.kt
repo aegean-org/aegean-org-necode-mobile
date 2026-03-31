@@ -183,6 +183,7 @@ fun ConversationScreen(
     var showExperimentalSheet by remember { mutableStateOf(false) }
     var showSkillsSheet by remember { mutableStateOf(false) }
     var slashErrorMessage by remember { mutableStateOf<String?>(null) }
+    var reloadErrorMessage by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(showModelSelector, server?.health, server?.account, server?.availableModels, server?.rateLimits) {
         if (showModelSelector || (server?.account != null && server.rateLimits == null)) {
             appModel.loadConversationMetadataIfNeeded(threadKey.serverId)
@@ -285,6 +286,7 @@ fun ConversationScreen(
                     onInfo = onInfo,
                     showModelSelector = showModelSelector,
                     onToggleModelSelector = { showModelSelector = !showModelSelector },
+                    onReloadError = { reloadErrorMessage = it },
                     transparentBackground = hasWallpaper,
                 )
             }
@@ -615,6 +617,19 @@ fun ConversationScreen(
                 text = { Text(message) },
                 confirmButton = {
                     TextButton(onClick = { slashErrorMessage = null }) {
+                        Text("OK")
+                    }
+                },
+            )
+        }
+
+        reloadErrorMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = { reloadErrorMessage = null },
+                title = { Text("Reload Failed") },
+                text = { Text(message) },
+                confirmButton = {
+                    TextButton(onClick = { reloadErrorMessage = null }) {
                         Text("OK")
                     }
                 },

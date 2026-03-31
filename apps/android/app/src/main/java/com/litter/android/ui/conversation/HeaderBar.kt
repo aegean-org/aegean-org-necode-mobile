@@ -77,6 +77,7 @@ fun HeaderBar(
     onInfo: (() -> Unit)? = null,
     showModelSelector: Boolean,
     onToggleModelSelector: () -> Unit,
+    onReloadError: ((String) -> Unit)? = null,
     transparentBackground: Boolean = false,
 ) {
     val appModel = LocalAppModel.current
@@ -272,6 +273,9 @@ fun HeaderBar(
                                     ),
                                 )
                             }
+                            appModel.refreshSnapshot()
+                        } catch (e: Exception) {
+                            onReloadError?.invoke(e.message ?: "Failed to reload conversation")
                         } finally {
                             isReloading = false
                         }
