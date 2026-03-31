@@ -1,6 +1,11 @@
 package com.litter.android.ui
 
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.os.Build
 import android.view.ViewGroup
+import android.net.Uri
+import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -17,11 +22,19 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import java.io.File
 
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoWallpaperPlayer(
     filePath: String,
+    blurAmount: Float = 0f,
+    brightnessAlpha: Float = 1f,
+    motionTransform: WallpaperMotionTransform = WallpaperMotionTransform(
+        scale = 1f,
+        translationX = 0f,
+        translationY = 0f,
+    ),
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -29,7 +42,7 @@ fun VideoWallpaperPlayer(
 
     val player = remember(filePath) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(filePath))
+            setMediaItem(MediaItem.fromUri(Uri.fromFile(File(filePath))))
             repeatMode = Player.REPEAT_MODE_ONE
             volume = 0f
             prepare()
@@ -48,24 +61,43 @@ fun VideoWallpaperPlayer(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            player.clearVideoTextureView(null)
             player.release()
         }
     }
 
     AndroidView(
         factory = { ctx ->
-            PlayerView(ctx).apply {
-                this.player = player
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            TextureView(ctx).apply {
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
+                player.setVideoTextureView(this)
             }
         },
         update = { view ->
-            view.player = player
+            player.setVideoTextureView(view)
+            view.alpha = brightnessAlpha.coerceIn(0f, 1f)
+            view.scaleX = motionTransform.scale
+            view.scaleY = motionTransform.scale
+            view.translationX = motionTransform.translationX
+            view.translationY = motionTransform.translationY
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blurRadiusPx = blurAmount.coerceIn(0f, 1f) * 48f
+                view.setRenderEffect(
+                    if (blurRadiusPx > 0f) {
+                        RenderEffect.createBlurEffect(
+                            blurRadiusPx,
+                            blurRadiusPx,
+                            Shader.TileMode.CLAMP,
+                        )
+                    } else {
+                        null
+                    },
+                )
+            }
         },
         modifier = modifier,
     )

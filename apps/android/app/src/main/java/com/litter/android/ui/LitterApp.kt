@@ -236,8 +236,16 @@ fun LitterApp(appModel: AppModel) {
                 is Route.WallpaperSelection -> {
                     com.litter.android.ui.settings.WallpaperSelectionScreen(
                         threadKey = route.key,
-                        onBack = navigateBack,
-                        onAdjust = { navigate(Route.WallpaperAdjust(route.key)) },
+                        onBack = {
+                            WallpaperManager.clearPendingWallpaper()
+                            navigateBack()
+                        },
+                        onApplied = {
+                            navStack = navStack.filter {
+                                it !is Route.WallpaperSelection &&
+                                    it !is Route.WallpaperAdjust
+                            }
+                        },
                     )
                 }
 
@@ -268,8 +276,16 @@ fun LitterApp(appModel: AppModel) {
                     com.litter.android.ui.settings.WallpaperSelectionScreen(
                         threadKey = null,
                         serverId = route.serverId,
-                        onBack = navigateBack,
-                        onAdjust = { navigate(Route.ServerWallpaperAdjust(route.serverId)) },
+                        onBack = {
+                            WallpaperManager.clearPendingWallpaper()
+                            navigateBack()
+                        },
+                        onApplied = {
+                            navStack = navStack.filter {
+                                it !is Route.ServerWallpaperSelection &&
+                                    it !is Route.ServerWallpaperAdjust
+                            }
+                        },
                     )
                 }
 

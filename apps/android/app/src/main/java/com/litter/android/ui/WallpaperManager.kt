@@ -67,12 +67,12 @@ data class WallpaperConfig(
                 "video_url" -> WallpaperType.VIDEO_URL
                 else -> WallpaperType.NONE
             },
-            themeSlug = json.optString("themeSlug", null),
-            colorHex = json.optString("colorHex", null),
+            themeSlug = json.optString("themeSlug").trim().ifEmpty { null },
+            colorHex = json.optString("colorHex").trim().ifEmpty { null },
             blur = json.optDouble("blur", 0.0).toFloat(),
             brightness = json.optDouble("brightness", 1.0).toFloat(),
             motionEnabled = json.optBoolean("motionEnabled", false),
-            videoURL = json.optString("videoURL", null),
+            videoURL = json.optString("videoURL").trim().ifEmpty { null },
             videoDuration = if (json.has("videoDuration")) json.optDouble("videoDuration").toFloat() else null,
         )
     }
@@ -81,6 +81,7 @@ data class WallpaperConfig(
 sealed class WallpaperScope {
     data class Thread(val key: ThreadKey) : WallpaperScope()
     data class Server(val serverId: String) : WallpaperScope()
+    data object Pending : WallpaperScope()
 }
 
 object WallpaperManager {
@@ -133,7 +134,34 @@ object WallpaperManager {
         return null
     }
 
+    fun resolvedScope(threadKey: ThreadKey?): WallpaperScope? {
+        if (threadKey == null) return null
+        val threads = prefsData.optJSONObject("threads")
+        val threadScopeKey = "${threadKey.serverId}::${threadKey.threadId}"
+        if (threads?.optJSONObject(threadScopeKey) != null) {
+            return WallpaperScope.Thread(threadKey)
+        }
+        val servers = prefsData.optJSONObject("servers")
+        if (servers?.optJSONObject(threadKey.serverId) != null) {
+            return WallpaperScope.Server(threadKey.serverId)
+        }
+        return null
+    }
+
+    fun resolvedScopeForServer(serverId: String): WallpaperScope? {
+        val servers = prefsData.optJSONObject("servers")
+        return if (servers?.optJSONObject(serverId) != null) {
+            WallpaperScope.Server(serverId)
+        } else {
+            null
+        }
+    }
+
     fun setWallpaper(config: WallpaperConfig, scope: WallpaperScope) {
+        if (scope == WallpaperScope.Pending) {
+            pendingConfig = config
+            return
+        }
         when (scope) {
             is WallpaperScope.Thread -> {
                 val key = "${scope.key.serverId}::${scope.key.threadId}"
@@ -146,6 +174,7 @@ object WallpaperManager {
                 servers.put(scope.serverId, config.toJson())
                 prefsData.put("servers", servers)
             }
+            WallpaperScope.Pending -> Unit
         }
         savePrefs()
         refreshResolved()
@@ -153,23 +182,135 @@ object WallpaperManager {
     }
 
     fun clearWallpaper(scope: WallpaperScope) {
+        if (scope == WallpaperScope.Pending) {
+            clearPendingWallpaper()
+            return
+        }
         when (scope) {
             is WallpaperScope.Thread -> {
                 val key = "${scope.key.serverId}::${scope.key.threadId}"
                 prefsData.optJSONObject("threads")?.remove(key)
                 // Also remove custom image and video files
-                customImageFile(key)?.delete()
+                imageFileForScope(scope)?.delete()
                 videoFileForScope(scope)?.delete()
             }
             is WallpaperScope.Server -> {
                 prefsData.optJSONObject("servers")?.remove(scope.serverId)
-                customImageFile("server_${scope.serverId}")?.delete()
+                imageFileForScope(scope)?.delete()
                 videoFileForScope(scope)?.delete()
             }
+            WallpaperScope.Pending -> Unit
         }
         savePrefs()
         refreshResolved()
         version++
+    }
+
+    fun clearPendingWallpaper() {
+        pendingConfig = null
+        imageFileForScope(WallpaperScope.Pending)?.delete()
+        videoFileForScope(WallpaperScope.Pending)?.delete()
+        thumbnailFileForScope(WallpaperScope.Pending)?.delete()
+    }
+
+    suspend fun stagePendingImageFromUri(uri: Uri): Boolean {
+        val bitmap = decodeBitmap(appContext ?: return false, uri) ?: return false
+        val file = imageFileForScope(WallpaperScope.Pending) ?: return false
+        val wrote = withContext(Dispatchers.IO) {
+            runCatching {
+                file.parentFile?.mkdirs()
+                FileOutputStream(file).use { stream ->
+                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream))
+                    stream.fd.sync()
+                }
+            }.onFailure { Log.e(TAG, "Failed to write pending wallpaper image", it) }.isSuccess
+        }
+        if (!wrote) return false
+        pendingConfig = WallpaperConfig(type = WallpaperType.CUSTOM_IMAGE)
+        return true
+    }
+
+    fun previewBitmapForConfig(
+        config: WallpaperConfig,
+        threadKey: ThreadKey? = null,
+        serverId: String? = null,
+    ): Bitmap? {
+        if (pendingConfig == config && config.type == WallpaperType.CUSTOM_IMAGE) {
+            val pendingFile = imageFileForScope(WallpaperScope.Pending)
+            if (pendingFile?.exists() == true) {
+                return BitmapFactory.decodeFile(pendingFile.absolutePath)
+            }
+        }
+        return resolvedBitmapForConfig(config, threadKey = threadKey, serverId = serverId)
+    }
+
+    fun previewVideoPathForConfig(
+        config: WallpaperConfig,
+        threadKey: ThreadKey? = null,
+        serverId: String? = null,
+    ): String? {
+        if (pendingConfig == config &&
+            (config.type == WallpaperType.CUSTOM_VIDEO || config.type == WallpaperType.VIDEO_URL)
+        ) {
+            val pendingFile = videoFileForScope(WallpaperScope.Pending)
+            if (pendingFile?.exists() == true) {
+                return pendingFile.absolutePath
+            }
+        }
+        return if (threadKey != null) {
+            videoFilePath(threadKey)
+        } else {
+            serverId?.let(::videoFilePathForServer)
+        }
+    }
+
+    fun applyWallpaper(
+        config: WallpaperConfig,
+        targetScope: WallpaperScope,
+        sourceScope: WallpaperScope? = null,
+    ): Boolean {
+        if (targetScope == WallpaperScope.Pending) {
+            pendingConfig = config
+            return true
+        }
+
+        when (config.type) {
+            WallpaperType.CUSTOM_IMAGE -> {
+                val source = imageFileForScope(WallpaperScope.Pending)
+                    ?.takeIf(File::exists)
+                    ?: sourceScope?.let(::imageFileForScope)?.takeIf(File::exists)
+                val target = imageFileForScope(targetScope)
+                if (source != null && target != null && source.absolutePath != target.absolutePath) {
+                    copyFile(source, target) ?: return false
+                } else if (source == null && target?.exists() != true) {
+                    return false
+                }
+            }
+            WallpaperType.CUSTOM_VIDEO, WallpaperType.VIDEO_URL -> {
+                val source = videoFileForScope(WallpaperScope.Pending)
+                    ?.takeIf(File::exists)
+                    ?: sourceScope?.let(::videoFileForScope)?.takeIf(File::exists)
+                val target = videoFileForScope(targetScope)
+                if (source != null && target != null && source.absolutePath != target.absolutePath) {
+                    copyFile(source, target) ?: return false
+                } else if (source == null && target?.exists() != true) {
+                    return false
+                }
+
+                val sourceThumb = thumbnailFileForScope(WallpaperScope.Pending)
+                    ?.takeIf(File::exists)
+                    ?: sourceScope?.let(::thumbnailFileForScope)?.takeIf(File::exists)
+                val targetThumb = thumbnailFileForScope(targetScope)
+                if (sourceThumb != null && targetThumb != null && sourceThumb.absolutePath != targetThumb.absolutePath) {
+                    copyFile(sourceThumb, targetThumb)
+                }
+            }
+            else -> Unit
+        }
+
+        setWallpaper(config, targetScope)
+        clearPendingWallpaper()
+        return true
     }
 
     fun setActiveThread(key: ThreadKey?) {
@@ -190,11 +331,7 @@ object WallpaperManager {
     suspend fun setCustomImageFromUri(uri: Uri, scope: WallpaperScope): Boolean {
         val context = appContext ?: return false
         val bitmap = decodeBitmap(context, uri) ?: return false
-        val fileKey = when (scope) {
-            is WallpaperScope.Thread -> "${scope.key.serverId}_${scope.key.threadId}"
-            is WallpaperScope.Server -> "server_${scope.serverId}"
-        }
-        val file = File(context.filesDir, "wallpaper_$fileKey.jpg")
+        val file = imageFileForScope(scope) ?: return false
         val wrote = withContext(Dispatchers.IO) {
             runCatching {
                 file.parentFile?.mkdirs()
@@ -324,12 +461,7 @@ object WallpaperManager {
     }
 
     fun videoFilePath(scope: WallpaperScope): String? {
-        val context = appContext ?: return null
-        val fileKey = when (scope) {
-            is WallpaperScope.Thread -> "${scope.key.serverId}_${scope.key.threadId}"
-            is WallpaperScope.Server -> "server_${scope.serverId}"
-        }
-        val file = File(context.filesDir, "wallpaper_$fileKey.mp4")
+        val file = videoFileForScope(scope) ?: return null
         return if (file.exists()) file.absolutePath else null
     }
 
@@ -348,11 +480,7 @@ object WallpaperManager {
 
     fun videoFileForScope(scope: WallpaperScope): File? {
         val context = appContext ?: return null
-        val fileKey = when (scope) {
-            is WallpaperScope.Thread -> "${scope.key.serverId}_${scope.key.threadId}"
-            is WallpaperScope.Server -> "server_${scope.serverId}"
-        }
-        return File(context.filesDir, "wallpaper_$fileKey.mp4")
+        return File(context.filesDir, "wallpaper_${fileKeyForScope(scope)}.mp4")
     }
 
     fun resolvedBitmapForConfig(config: WallpaperConfig, threadKey: ThreadKey?): Bitmap? {
@@ -466,15 +594,41 @@ object WallpaperManager {
         }
     }
 
-    private fun customImageFile(key: String): File? {
+    private fun imageFileForScope(scope: WallpaperScope): File? {
         val context = appContext ?: return null
-        return File(context.filesDir, "wallpaper_$key.jpg")
+        return File(context.filesDir, "wallpaper_${fileKeyForScope(scope)}.jpg")
     }
 
     private fun activeScope(): WallpaperScope? {
         val key = activeThreadKey ?: return null
         return WallpaperScope.Thread(key)
     }
+
+    private fun thumbnailFileForScope(scope: WallpaperScope): File? {
+        val context = appContext ?: return null
+        return File(context.filesDir, "wallpaper_${fileKeyForScope(scope)}_thumb.jpg")
+    }
+
+    private fun fileKeyForScope(scope: WallpaperScope): String =
+        when (scope) {
+            is WallpaperScope.Thread -> "${scope.key.serverId}_${scope.key.threadId}"
+            is WallpaperScope.Server -> "server_${scope.serverId}"
+            WallpaperScope.Pending -> "pending"
+        }
+
+    private fun copyFile(source: File, dest: File): File? =
+        runCatching {
+            dest.parentFile?.mkdirs()
+            source.inputStream().use { input ->
+                FileOutputStream(dest).use { output ->
+                    input.copyTo(output)
+                    output.fd.sync()
+                }
+            }
+            dest
+        }.onFailure {
+            Log.e(TAG, "Failed to copy wallpaper asset from ${source.absolutePath} to ${dest.absolutePath}", it)
+        }.getOrNull()
 
     private fun drawHexagon(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {
         val path = android.graphics.Path()

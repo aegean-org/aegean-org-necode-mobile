@@ -195,6 +195,7 @@ object VideoWallpaperProcessor {
         val fileKey = when (scope) {
             is WallpaperScope.Thread -> "${scope.key.serverId}_${scope.key.threadId}"
             is WallpaperScope.Server -> "server_${scope.serverId}"
+            WallpaperScope.Pending -> "pending"
         }
         return File(context.filesDir, "wallpaper_${fileKey}_thumb.jpg")
     }
