@@ -273,15 +273,35 @@ TEAM_ID=<APPLE_TEAM_ID> \
 ASC_KEY_ID=<KEY_ID> \
 ASC_ISSUER_ID=<ISSUER_ID> \
 ASC_PRIVATE_KEY_PATH="$HOME/AppStore.p8" \
-MARKETING_VERSION=1.0.0 \
 ./apps/ios/scripts/testflight-upload.sh
 ```
 
 Notes:
 
+- `testflight-upload.sh` reads `MARKETING_VERSION` from `apps/ios/project.yml`.
+- If that repo version is already the live App Store version, the script automatically uploads the next patch version to TestFlight and updates `apps/ios/project.yml` after a successful upload.
 - `testflight-upload.sh` auto-increments build number from the latest App Store Connect build.
 - It archives, exports an IPA, uploads via `asc builds upload`, and assigns the build to `Internal Testers` by default.
 - Override `SCHEME` if needed (default is `Litter`).
+
+## App Store Release (iOS)
+
+Use the current committed `MARKETING_VERSION` from `apps/ios/project.yml`:
+
+```bash
+APP_BUNDLE_ID=<BUNDLE_ID> \
+APP_STORE_APP_ID=<APP_STORE_CONNECT_APP_ID> \
+TEAM_ID=<APPLE_TEAM_ID> \
+ASC_KEY_ID=<KEY_ID> \
+ASC_ISSUER_ID=<ISSUER_ID> \
+ASC_PRIVATE_KEY_PATH="$HOME/AppStore.p8" \
+./apps/ios/scripts/app-store-release.sh
+```
+
+Notes:
+
+- App Store metadata is sourced from `apps/ios/fastlane/metadata/en-US/`.
+- The production script creates or reuses the committed App Store version, imports repo metadata, validates readiness, and submits the attached build for review.
 
 ## Important paths
 

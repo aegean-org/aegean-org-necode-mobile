@@ -2,19 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ROOT_DIR="$(cd "$REPO_DIR/../.." && pwd)"
+# shellcheck source=release-common.sh
+source "$SCRIPT_DIR/release-common.sh"
 
 SCHEME="${SCHEME:-Litter}"
 CONFIGURATION="${CONFIGURATION:-Release}"
-PROJECT_DIR="${PROJECT_DIR:-$REPO_DIR}"
+PROJECT_DIR="${PROJECT_DIR:-$IOS_DIR}"
 PROJECT_PATH="${PROJECT_PATH:-$PROJECT_DIR/Litter.xcodeproj}"
 APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.sigkitten.litter}"
 APP_STORE_APP_ID="${APP_STORE_APP_ID:-}"
 TEAM_ID="${TEAM_ID:-}"
 PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_SPECIFIER:-Litter App Store}"
 EXPORT_SIGNING_STYLE="${EXPORT_SIGNING_STYLE:-automatic}"
-MARKETING_VERSION="${MARKETING_VERSION:-1.0.1}"
+MARKETING_VERSION="${MARKETING_VERSION:-}"
 BUILD_NUMBER="${BUILD_NUMBER:-}"
 ASSIGN_BETA_GROUP="${ASSIGN_BETA_GROUP:-1}"
 INTERNAL_BETA_GROUP_NAME="${INTERNAL_BETA_GROUP_NAME:-Internal Testers}"
@@ -33,29 +33,25 @@ BUILD_POLL_TIMEOUT_SECONDS="${BUILD_POLL_TIMEOUT_SECONDS:-900}"
 BUILD_POLL_INTERVAL_SECONDS="${BUILD_POLL_INTERVAL_SECONDS:-15}"
 WHAT_TO_TEST="${WHAT_TO_TEST:-}"
 WHAT_TO_TEST_LOCALE="${WHAT_TO_TEST_LOCALE:-en-US}"
-WHAT_TO_TEST_FILE="${WHAT_TO_TEST_FILE:-$ROOT_DIR/docs/releases/testflight-whats-new.md}"
+WHAT_TO_TEST_FILE="${WHAT_TO_TEST_FILE:-$TESTFLIGHT_WHATS_NEW_FILE}"
 AUTO_GENERATE_WHAT_TO_TEST="${AUTO_GENERATE_WHAT_TO_TEST:-1}"
 WHAT_TO_TEST_MAX_COMMITS="${WHAT_TO_TEST_MAX_COMMITS:-8}"
 AUTO_ASSIGN_ENCRYPTION_DECLARATION="${AUTO_ASSIGN_ENCRYPTION_DECLARATION:-1}"
 TESTFLIGHT_SKIP_BUILD="${TESTFLIGHT_SKIP_BUILD:-0}"
 TESTFLIGHT_SKIP_UPLOAD="${TESTFLIGHT_SKIP_UPLOAD:-0}"
+TESTFLIGHT_AUTO_BUMP_VERSION="${TESTFLIGHT_AUTO_BUMP_VERSION:-1}"
+PROJECT_VERSION_BUMP_REQUIRED="${PROJECT_VERSION_BUMP_REQUIRED:-0}"
+PROJECT_VERSION_BUMP_TARGET="${PROJECT_VERSION_BUMP_TARGET:-}"
 
 AUTH_KEY_PATH="${AUTH_KEY_PATH:-${ASC_PRIVATE_KEY_PATH:-}}"
 AUTH_KEY_ID="${AUTH_KEY_ID:-${ASC_KEY_ID:-}}"
 AUTH_ISSUER_ID="${AUTH_ISSUER_ID:-${ASC_ISSUER_ID:-}}"
 
-BUILD_DIR="${BUILD_DIR:-$REPO_DIR/build/testflight}"
+BUILD_DIR="${BUILD_DIR:-$IOS_DIR/build/testflight}"
 ARCHIVE_PATH="$BUILD_DIR/$SCHEME.xcarchive"
 EXPORT_OPTIONS_PLIST="$BUILD_DIR/ExportOptions.plist"
 IPA_PATH="$BUILD_DIR/$SCHEME.ipa"
 BUILD_METADATA_PATH="${BUILD_METADATA_PATH:-$BUILD_DIR/testflight-build.env}"
-
-require_cmd() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        echo "Missing required command: $1" >&2
-        exit 1
-    fi
-}
 
 require_cmd asc
 require_cmd jq
@@ -68,76 +64,57 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
-if [[ -f "$BUILD_METADATA_PATH" ]]; then
+if [[ "$TESTFLIGHT_SKIP_BUILD" == "1" && -f "$BUILD_METADATA_PATH" ]]; then
     # shellcheck disable=SC1090
     source "$BUILD_METADATA_PATH"
-fi
-
-if [[ "$MARKETING_VERSION" != "1.0.1" ]]; then
-    echo "TestFlight uploads must use MARKETING_VERSION=1.0.1 (got $MARKETING_VERSION)" >&2
+elif [[ "$TESTFLIGHT_SKIP_BUILD" == "1" ]]; then
+    echo "Missing build metadata at $BUILD_METADATA_PATH for TESTFLIGHT_SKIP_BUILD=1." >&2
     exit 1
 fi
 
-trim() {
-    local value="$1"
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    printf '%s' "$value"
+resolve_requested_testflight_version() {
+    local project_version resolved_version next_version
+
+    if [[ -n "$MARKETING_VERSION" ]]; then
+        ensure_semver "$MARKETING_VERSION"
+        PROJECT_VERSION_BUMP_REQUIRED="${PROJECT_VERSION_BUMP_REQUIRED:-0}"
+        PROJECT_VERSION_BUMP_TARGET="${PROJECT_VERSION_BUMP_TARGET:-}"
+        echo "$MARKETING_VERSION"
+        return 0
+    fi
+
+    project_version="$(read_project_marketing_version)"
+    ensure_semver "$project_version"
+    resolved_version="$project_version"
+    PROJECT_VERSION_BUMP_REQUIRED=0
+    PROJECT_VERSION_BUMP_TARGET=""
+
+    if [[ "$TESTFLIGHT_AUTO_BUMP_VERSION" == "1" ]] && testflight_version_requires_bump "$APP_STORE_APP_ID" "$project_version"; then
+        next_version="$(next_patch_version "$project_version")"
+        echo "==> Repo version $project_version is already in App Store distribution; using next TestFlight version $next_version" >&2
+        resolved_version="$next_version"
+        PROJECT_VERSION_BUMP_REQUIRED=1
+        PROJECT_VERSION_BUMP_TARGET="$next_version"
+    fi
+
+    echo "$resolved_version"
 }
 
-resolve_team_from_profile() {
-    local profile_name="$1"
-    local profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-    local profile_path profile_display team_id
-
-    [[ -d "$profile_dir" ]] || return 1
-    for profile_path in "$profile_dir"/*.mobileprovision; do
-        [[ -e "$profile_path" ]] || continue
-        profile_display="$(
-            security cms -D -i "$profile_path" 2>/dev/null |
-                plutil -extract Name raw - 2>/dev/null || true
-        )"
-        [[ "$profile_display" == "$profile_name" ]] || continue
-        team_id="$(
-            security cms -D -i "$profile_path" 2>/dev/null |
-                plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true
-        )"
-        if [[ -n "$team_id" ]]; then
-            echo "$team_id"
-            return 0
-        fi
-    done
-    return 1
+persist_build_metadata() {
+    cat >"$BUILD_METADATA_PATH" <<EOF
+BUILD_NUMBER=$(printf '%q' "$BUILD_NUMBER")
+APP_STORE_APP_ID=$(printf '%q' "$APP_STORE_APP_ID")
+TEAM_ID=$(printf '%q' "$TEAM_ID")
+PROVISIONING_PROFILE_SPECIFIER=$(printf '%q' "$PROVISIONING_PROFILE_SPECIFIER")
+MARKETING_VERSION=$(printf '%q' "$MARKETING_VERSION")
+WHAT_TO_TEST_LOCALE=$(printf '%q' "$WHAT_TO_TEST_LOCALE")
+PROJECT_VERSION_BUMP_REQUIRED=$(printf '%q' "$PROJECT_VERSION_BUMP_REQUIRED")
+PROJECT_VERSION_BUMP_TARGET=$(printf '%q' "$PROJECT_VERSION_BUMP_TARGET")
+EOF
 }
 
-if [[ -z "$APP_STORE_APP_ID" ]]; then
-    APP_STORE_APP_ID="$(
-        asc apps list --bundle-id "$APP_BUNDLE_ID" --output json |
-            jq -r '.data[0].id // empty'
-    )"
-fi
-
-if [[ -z "$TEAM_ID" ]]; then
-    TEAM_ID="$(
-        xcodebuild -project "$PROJECT_PATH" -scheme "$SCHEME" -configuration "$CONFIGURATION" -showBuildSettings |
-            awk -F' = ' '/ DEVELOPMENT_TEAM = / {print $2; exit}'
-    )"
-fi
-
-if [[ -z "$TEAM_ID" && "$EXPORT_SIGNING_STYLE" == "manual" ]]; then
-    TEAM_ID="$(resolve_team_from_profile "$PROVISIONING_PROFILE_SPECIFIER" || true)"
-fi
-
-if [[ -z "$APP_STORE_APP_ID" ]]; then
-    echo "Unable to resolve App Store Connect app id for bundle id: $APP_BUNDLE_ID" >&2
-    exit 1
-fi
-
-if [[ -z "$TEAM_ID" ]]; then
-    echo "Unable to resolve DEVELOPMENT_TEAM for signing." >&2
-    echo "Set TEAM_ID explicitly or ensure the project build settings or provisioning profile can resolve it." >&2
-    exit 1
-fi
+APP_STORE_APP_ID="$(resolve_app_store_app_id "$APP_STORE_APP_ID" "$APP_BUNDLE_ID")"
+TEAM_ID="$(resolve_team_id "$TEAM_ID" "$PROJECT_PATH" "$SCHEME" "$CONFIGURATION" "$EXPORT_SIGNING_STYLE" "$PROVISIONING_PROFILE_SPECIFIER")"
 
 if [[ "$EXPORT_SIGNING_STYLE" != "automatic" && "$EXPORT_SIGNING_STYLE" != "manual" ]]; then
     echo "Unsupported EXPORT_SIGNING_STYLE: $EXPORT_SIGNING_STYLE" >&2
@@ -150,16 +127,10 @@ if [[ "$EXPORT_SIGNING_STYLE" == "manual" && -z "$PROVISIONING_PROFILE_SPECIFIER
     exit 1
 fi
 
+MARKETING_VERSION="$(resolve_requested_testflight_version)"
+
 if [[ -z "$BUILD_NUMBER" ]]; then
-    latest_build="$(
-        asc builds list --app "$APP_STORE_APP_ID" --limit 1 --sort "-uploadedDate" --output json |
-            jq -r '.data[0].attributes.version // empty'
-    )"
-    if [[ "$latest_build" =~ ^[0-9]+$ ]]; then
-        BUILD_NUMBER="$((latest_build + 1))"
-    else
-        BUILD_NUMBER="$(date +%Y%m%d%H%M)"
-    fi
+    BUILD_NUMBER="$(resolve_next_build_number "$APP_STORE_APP_ID")"
 fi
 
 if [[ -z "$WHAT_TO_TEST" && -f "$WHAT_TO_TEST_FILE" ]]; then
@@ -179,14 +150,7 @@ if [[ -z "$WHAT_TO_TEST" ]]; then
     exit 1
 fi
 
-cat >"$BUILD_METADATA_PATH" <<EOF
-BUILD_NUMBER=$(printf '%q' "$BUILD_NUMBER")
-APP_STORE_APP_ID=$(printf '%q' "$APP_STORE_APP_ID")
-TEAM_ID=$(printf '%q' "$TEAM_ID")
-PROVISIONING_PROFILE_SPECIFIER=$(printf '%q' "$PROVISIONING_PROFILE_SPECIFIER")
-MARKETING_VERSION=$(printf '%q' "$MARKETING_VERSION")
-WHAT_TO_TEST_LOCALE=$(printf '%q' "$WHAT_TO_TEST_LOCALE")
-EOF
+persist_build_metadata
 
 auth_args=()
 if [[ -n "$AUTH_KEY_PATH" && -n "$AUTH_KEY_ID" && -n "$AUTH_ISSUER_ID" ]]; then
@@ -286,6 +250,7 @@ fi
 if [[ "$TESTFLIGHT_SKIP_UPLOAD" == "1" ]]; then
     echo "==> TestFlight build prepared"
     echo "    IPA:         $IPA_PATH"
+    echo "    Version:     $MARKETING_VERSION"
     echo "    Build:       $BUILD_NUMBER"
     exit 0
 fi
@@ -303,7 +268,10 @@ if [[ "$WAIT_FOR_PROCESSING" == "1" ]]; then
     upload_cmd+=(--wait)
 fi
 
-upload_json="$("${upload_cmd[@]}")"
+if ! upload_json="$("${upload_cmd[@]}")"; then
+    echo "TestFlight upload failed for version $MARKETING_VERSION / build $BUILD_NUMBER." >&2
+    exit 1
+fi
 echo "$upload_json" >"$BUILD_DIR/upload_result.json"
 
 build_id="$(
@@ -311,22 +279,14 @@ build_id="$(
         jq -r '.data.id // .data[0].id // empty'
 )"
 if [[ -z "$build_id" ]]; then
-    build_id="$(
-        asc builds list --app "$APP_STORE_APP_ID" --limit 20 --sort "-uploadedDate" --output json |
-            jq -r --arg num "$BUILD_NUMBER" '.data[] | select(.attributes.version == $num) | .id' |
-            head -n 1
-    )"
+    build_id="$(find_build_id "$APP_STORE_APP_ID" "$MARKETING_VERSION" "$BUILD_NUMBER" 20)"
 fi
 
 if [[ -z "$build_id" && "$ASSIGN_BETA_GROUP" == "1" ]]; then
     deadline="$(( $(date +%s) + BUILD_POLL_TIMEOUT_SECONDS ))"
     while [[ -z "$build_id" && "$(date +%s)" -lt "$deadline" ]]; do
         sleep "$BUILD_POLL_INTERVAL_SECONDS"
-        build_id="$(
-            asc builds list --app "$APP_STORE_APP_ID" --limit 50 --sort "-uploadedDate" --output json |
-                jq -r --arg num "$BUILD_NUMBER" '.data[] | select(.attributes.version == $num) | .id' |
-                head -n 1
-        )"
+        build_id="$(find_build_id "$APP_STORE_APP_ID" "$MARKETING_VERSION" "$BUILD_NUMBER" 50)"
     done
 fi
 
@@ -437,6 +397,17 @@ if [[ "$ASSIGN_BETA_GROUP" == "1" && -n "$build_id" ]]; then
     fi
 fi
 
+if [[ -n "$build_id" ]]; then
+    echo "==> Validating TestFlight readiness"
+    asc validate testflight --app "$APP_STORE_APP_ID" --build "$build_id" --strict --output json >/dev/null
+fi
+
+if [[ "$PROJECT_VERSION_BUMP_REQUIRED" == "1" ]]; then
+    echo "==> Updating repo version to $PROJECT_VERSION_BUMP_TARGET for the next beta cycle"
+    write_project_marketing_version "$PROJECT_VERSION_BUMP_TARGET"
+    seed_testflight_whats_new_template "$WHAT_TO_TEST_FILE"
+fi
+
 echo "==> TestFlight upload complete"
 echo "    App ID:      $APP_STORE_APP_ID"
 echo "    Scheme:      $SCHEME"
@@ -445,4 +416,7 @@ echo "    Build:       $BUILD_NUMBER"
 echo "    IPA:         $IPA_PATH"
 if [[ -n "${build_id:-}" ]]; then
     echo "    Build record: $build_id"
+fi
+if [[ "$PROJECT_VERSION_BUMP_REQUIRED" == "1" ]]; then
+    echo "    Next repo version: $PROJECT_VERSION_BUMP_TARGET"
 fi

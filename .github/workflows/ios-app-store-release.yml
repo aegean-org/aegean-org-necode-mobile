@@ -1,21 +1,10 @@
-name: iOS TestFlight Release
+name: iOS App Store Release
 
 on:
   workflow_dispatch:
-    inputs:
-      beta_group_names:
-        description: "Comma-separated TestFlight beta groups"
-        required: false
-        default: "Internal Testers,External Testers"
-        type: string
-      wait_for_processing:
-        description: "Wait for ASC processing before finishing"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   prepare-release-assets:
@@ -27,7 +16,7 @@ jobs:
       SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
       SCCACHE_REGION: auto
       SCCACHE_S3_USE_SSL: "true"
-      SCCACHE_S3_KEY_PREFIX: ci/ios-release
+      SCCACHE_S3_KEY_PREFIX: ci/ios-appstore-release
       SCCACHE_LOG: info
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
@@ -94,7 +83,7 @@ jobs:
           path: .ci-prep/ios
           if-no-files-found: error
 
-  upload-testflight:
+  submit-app-store:
     needs: prepare-release-assets
     runs-on: macos-26
     timeout-minutes: 150
@@ -105,7 +94,7 @@ jobs:
       SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_R2_ENDPOINT }}
       SCCACHE_REGION: auto
       SCCACHE_S3_USE_SSL: "true"
-      SCCACHE_S3_KEY_PREFIX: ci/ios-release
+      SCCACHE_S3_KEY_PREFIX: ci/ios-appstore-release
       SCCACHE_LOG: info
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
@@ -215,75 +204,16 @@ jobs:
 
           echo "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME" >> "$GITHUB_ENV"
 
-      - name: Resolve release inputs
-        run: |
-          set -euo pipefail
-
-          SCHEME="Litter"
-          APP_BUNDLE_ID="com.sigkitten.litter"
-
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            BETA_GROUP_NAMES="${{ inputs.beta_group_names }}"
-            if [[ "${{ inputs.wait_for_processing }}" == "true" ]]; then
-              WAIT_FOR_PROCESSING="1"
-            else
-              WAIT_FOR_PROCESSING="0"
-            fi
-          else
-            BETA_GROUP_NAMES="Internal Testers,External Testers"
-            WAIT_FOR_PROCESSING="1"
-          fi
-
-          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
-          echo "APP_BUNDLE_ID=$APP_BUNDLE_ID" >> "$GITHUB_ENV"
-          echo "BETA_GROUP_NAMES=$BETA_GROUP_NAMES" >> "$GITHUB_ENV"
-          echo "WAIT_FOR_PROCESSING=$WAIT_FOR_PROCESSING" >> "$GITHUB_ENV"
-
-      - name: Build TestFlight IPA
+      - name: Submit current repo version to the App Store
         env:
-          SCHEME: ${{ env.SCHEME }}
-          APP_BUNDLE_ID: ${{ env.APP_BUNDLE_ID }}
+          SCHEME: Litter
+          APP_BUNDLE_ID: com.sigkitten.litter
           APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
           TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
           PROVISIONING_PROFILE_SPECIFIER: ${{ env.PROVISIONING_PROFILE_SPECIFIER }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
-          BETA_GROUP_NAMES: ${{ env.BETA_GROUP_NAMES }}
-          WAIT_FOR_PROCESSING: ${{ env.WAIT_FOR_PROCESSING }}
-          TESTFLIGHT_SKIP_UPLOAD: "1"
         run: |
           set -euo pipefail
-          ./apps/ios/scripts/testflight-upload.sh
-
-      - name: Upload to TestFlight
-        env:
-          SCHEME: ${{ env.SCHEME }}
-          APP_BUNDLE_ID: ${{ env.APP_BUNDLE_ID }}
-          APP_STORE_APP_ID: ${{ secrets.IOS_APP_STORE_APP_ID }}
-          TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
-          PROVISIONING_PROFILE_SPECIFIER: ${{ env.PROVISIONING_PROFILE_SPECIFIER }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
-          BETA_GROUP_NAMES: ${{ env.BETA_GROUP_NAMES }}
-          WAIT_FOR_PROCESSING: ${{ env.WAIT_FOR_PROCESSING }}
-          TESTFLIGHT_SKIP_BUILD: "1"
-        run: |
-          set -euo pipefail
-          ./apps/ios/scripts/testflight-upload.sh
-
-      - name: Commit TestFlight version bump
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- apps/ios/project.yml docs/releases/testflight-whats-new.md; then
-            echo "No TestFlight version bump to commit."
-            exit 0
-          fi
-
-          version="$(awk -F'"' '/MARKETING_VERSION:/ {print $2; exit}' apps/ios/project.yml)"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/ios/project.yml docs/releases/testflight-whats-new.md
-          git commit -m "ios: start TestFlight ${version} [skip mobile-release]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          ./apps/ios/scripts/app-store-release.sh

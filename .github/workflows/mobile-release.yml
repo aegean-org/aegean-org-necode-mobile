@@ -17,7 +17,7 @@ on:
       - tools/scripts/build-android-rust.sh
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: mobile-release-${{ github.ref }}
@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   detect-release-changes:
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip mobile-release]')
     runs-on: ubuntu-latest
     outputs:
       release_android: ${{ steps.filter.outputs.release_android }}
@@ -623,13 +624,11 @@ jobs:
 
           SCHEME="Litter"
           APP_BUNDLE_ID="com.sigkitten.litter"
-          MARKETING_VERSION="1.0.1"
           BETA_GROUP_NAMES="Internal Testers,External Testers"
           WAIT_FOR_PROCESSING="1"
 
           echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
           echo "APP_BUNDLE_ID=$APP_BUNDLE_ID" >> "$GITHUB_ENV"
-          echo "MARKETING_VERSION=$MARKETING_VERSION" >> "$GITHUB_ENV"
           echo "BETA_GROUP_NAMES=$BETA_GROUP_NAMES" >> "$GITHUB_ENV"
           echo "WAIT_FOR_PROCESSING=$WAIT_FOR_PROCESSING" >> "$GITHUB_ENV"
 
@@ -643,7 +642,6 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
-          MARKETING_VERSION: ${{ env.MARKETING_VERSION }}
           BETA_GROUP_NAMES: ${{ env.BETA_GROUP_NAMES }}
           WAIT_FOR_PROCESSING: ${{ env.WAIT_FOR_PROCESSING }}
           TESTFLIGHT_SKIP_UPLOAD: "1"
@@ -661,10 +659,24 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_PATH: ${{ env.ASC_PRIVATE_KEY_PATH }}
-          MARKETING_VERSION: ${{ env.MARKETING_VERSION }}
           BETA_GROUP_NAMES: ${{ env.BETA_GROUP_NAMES }}
           WAIT_FOR_PROCESSING: ${{ env.WAIT_FOR_PROCESSING }}
           TESTFLIGHT_SKIP_BUILD: "1"
         run: |
           set -euo pipefail
           ./apps/ios/scripts/testflight-upload.sh
+
+      - name: Commit TestFlight version bump
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- apps/ios/project.yml docs/releases/testflight-whats-new.md; then
+            echo "No TestFlight version bump to commit."
+            exit 0
+          fi
+
+          version="$(awk -F'"' '/MARKETING_VERSION:/ {print $2; exit}' apps/ios/project.yml)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/ios/project.yml docs/releases/testflight-whats-new.md
+          git commit -m "ios: start TestFlight ${version} [skip mobile-release]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -118,7 +118,7 @@ $(shell mkdir -p $(STAMPS))
 	sync patch unpatch xcgen ios-frameworks \
 	ios-build ios-build-sim ios-build-sim-fast ios-build-device ios-build-device-fast \
 	test test-rust test-ios test-android \
-	testflight play-upload play-release \
+	testflight appstore-release play-upload play-release \
 	clean clean-rust clean-ios clean-android \
 	rebuild-bindings tui tui-run help
 
@@ -402,7 +402,11 @@ ios-release-prep: rust-ios-device-release ios-frameworks xcgen
 
 testflight: ios-release-prep
 	@echo "==> Uploading to TestFlight..."
-	@MARKETING_VERSION=1.0.1 $(IOS_SCRIPTS)/testflight-upload.sh
+	@$(IOS_SCRIPTS)/testflight-upload.sh
+
+appstore-release: ios-release-prep
+	@echo "==> Submitting current repo version to the App Store..."
+	@$(IOS_SCRIPTS)/app-store-release.sh
 
 play-upload: android-release
 	@echo "==> Uploading to Google Play..."
