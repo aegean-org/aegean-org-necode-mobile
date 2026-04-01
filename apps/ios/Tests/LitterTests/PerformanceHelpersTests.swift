@@ -84,38 +84,6 @@ final class PerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(turns[0].preview.durationText, "840ms")
     }
 
-    func testResumedThreadItemDecodesTimestamp() throws {
-        let data = Data(
-            """
-            {
-              "type": "agentMessage",
-              "text": "Done",
-              "timestamp": "2025-01-05T12:00:00Z"
-            }
-            """.utf8
-        )
-
-        let item = try JSONDecoder().decode(ResumedThreadItem.self, from: data)
-        let timestamp = try XCTUnwrap(item.timestamp)
-        XCTAssertEqual(timestamp.timeIntervalSince1970, 1_736_078_400, accuracy: 0.001)
-    }
-
-    func testResumedThreadItemDecodesCreatedAtMillisecondsTimestamp() throws {
-        let data = Data(
-            """
-            {
-              "type": "agentMessage",
-              "text": "Done",
-              "created_at": 1736078400000
-            }
-            """.utf8
-        )
-
-        let item = try JSONDecoder().decode(ResumedThreadItem.self, from: data)
-        let timestamp = try XCTUnwrap(item.timestamp)
-        XCTAssertEqual(timestamp.timeIntervalSince1970, 1_736_078_400, accuracy: 0.001)
-    }
-
     func testMessageRenderCacheReusesStableAssistantRevisionKey() {
         let cache = MessageRenderCache()
         let base64Pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn8Vf0AAAAASUVORK5CYII="
@@ -130,13 +98,13 @@ final class PerformanceHelpersTests: XCTestCase {
         )
         XCTAssertEqual(cache.assistantEntryCount, 0)
 
-        _ = cache.assistantSegments(for: message, key: key)
+        let initialSegments = cache.assistantSegments(for: message, key: key)
         XCTAssertEqual(cache.assistantEntryCount, 1)
-        XCTAssertEqual(cache.markdownEntryCount, 1)
+        XCTAssertEqual(initialSegments.count, 2)
 
-        _ = cache.assistantSegments(for: message, key: key)
+        let cachedSegments = cache.assistantSegments(for: message, key: key)
         XCTAssertEqual(cache.assistantEntryCount, 1)
-        XCTAssertEqual(cache.markdownEntryCount, 1)
+        XCTAssertEqual(cachedSegments.map(\.id), initialSegments.map(\.id))
 
         message.text += "\nMore"
         let changedKey = MessageRenderCache.makeRevisionKey(
@@ -145,9 +113,9 @@ final class PerformanceHelpersTests: XCTestCase {
             agentDirectoryVersion: 0,
             isStreaming: false
         )
-        _ = cache.assistantSegments(for: message, key: changedKey)
+        let changedSegments = cache.assistantSegments(for: message, key: changedKey)
         XCTAssertEqual(cache.assistantEntryCount, 2)
-        XCTAssertEqual(cache.markdownEntryCount, 3)
+        XCTAssertEqual(changedSegments.count, 3)
     }
 
     func testMessageRenderCacheScopesSystemEntriesByAgentDirectoryRevision() {

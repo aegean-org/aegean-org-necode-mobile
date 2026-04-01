@@ -36,14 +36,14 @@ struct LitterMarkdownView: View {
     private func renderedMarkdown(selectionEnabled: Bool) -> some View {
         switch style {
         case .content:
-            StructuredText(markdown: markdown)
+            StructuredText(markdown: markdown, syntaxExtensions: [.math])
                 .litterContentMarkdown(
                     bodySize: bodySize,
                     codeSize: codeSize,
                     selectionEnabled: selectionEnabled
                 )
         case .system:
-            StructuredText(markdown: markdown)
+            StructuredText(markdown: markdown, syntaxExtensions: [.math])
                 .litterSystemMarkdown(
                     bodySize: bodySize,
                     codeSize: codeSize,
@@ -283,7 +283,7 @@ struct StreamingAssistantBubble: View {
             .equatable()
             .opacity(snapshotOpacity)
             .onAppear {
-                renderedText = text
+                renderedText = normalizedMarkdown(from: text)
                 onSnapshotRendered?()
             }
             .onChange(of: text) {
@@ -298,13 +298,14 @@ struct StreamingAssistantBubble: View {
     }
 
     private func scheduleRenderUpdate(with newText: String) {
-        guard newText != renderedText else { return }
+        let normalizedText = normalizedMarkdown(from: newText)
+        guard normalizedText != renderedText else { return }
         if renderedText.isEmpty {
-            renderedText = newText
+            renderedText = normalizedText
             return
         }
 
-        pendingText = newText
+        pendingText = normalizedText
         guard flushWorkItem == nil else { return }
         scheduleFlush()
     }
@@ -328,6 +329,10 @@ struct StreamingAssistantBubble: View {
         withAnimation(.easeOut(duration: 0.14)) {
             snapshotOpacity = 1.0
         }
+    }
+
+    private func normalizedMarkdown(from text: String) -> String {
+        MessageContentBridge.normalizedAssistantMarkdown(text)
     }
 }
 
@@ -833,6 +838,13 @@ private struct ScaledContentMarkdownModifier: ViewModifier {
         let styledContent = content
             .font(.custom(LitterFont.markdownFontName, size: scaledBody))
             .foregroundStyle(LitterTheme.textBody)
+            .textual.mathProperties(
+                MathProperties(
+                    fontName: .latinModern,
+                    fontScale: 1.0,
+                    textAlignment: .leading
+                )
+            )
             .textual.structuredTextStyle(LitterStructuredStyle(bodySize: scaledBody, codeSize: scaledCode))
 
         if selectionEnabled {
@@ -855,6 +867,13 @@ private struct ScaledSystemMarkdownModifier: ViewModifier {
         let styledContent = content
             .font(.custom(LitterFont.markdownFontName, size: scaledBody))
             .foregroundStyle(LitterTheme.textSystem)
+            .textual.mathProperties(
+                MathProperties(
+                    fontName: .latinModern,
+                    fontScale: 1.0,
+                    textAlignment: .leading
+                )
+            )
             .textual.structuredTextStyle(LitterSystemStructuredStyle(bodySize: scaledBody, codeSize: scaledCode))
 
         if selectionEnabled {

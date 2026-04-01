@@ -26,6 +26,9 @@ packages:
   Textual:
     url: https://github.com/gonzalezreal/textual
     from: "0.1.0"
+  SwiftUIMath:
+    url: https://github.com/gonzalezreal/swiftui-math
+    from: "0.1.0"
 targets:
   Litter:
     type: application
@@ -60,6 +63,7 @@ targets:
       - sdk: SystemConfiguration.framework
       - sdk: Network.framework
       - package: Textual
+      - package: SwiftUIMath
       - framework: Frameworks/ios_system/ios_system.xcframework
         embed: true
       - framework: Frameworks/ios_system/shell.xcframework
@@ -155,6 +159,7 @@ schemes:
     test:
       config: Debug
       targets:
+        - LitterTests
         - LitterUITests
     profile:
       config: Release

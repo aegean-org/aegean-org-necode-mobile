@@ -3,45 +3,31 @@ import XCTest
 
 @MainActor
 final class ConversationPlanSemanticsTests: XCTestCase {
-    func testResumedPlanItemDecodesAsProposedPlan() throws {
-        let data = """
-        {
-          "type": "plan",
-          "id": "plan-1",
-          "text": "# Final plan\\n- first\\n- second\\n"
-        }
-        """.data(using: .utf8)!
+    func testProposedPlanPreservesMarkdownContent() {
+        let item = ConversationItem(
+            id: "plan-1",
+            content: .proposedPlan(
+                ConversationProposedPlanData(
+                    content: "# Final plan\n- first\n- second\n"
+                )
+            )
+        )
 
-        let item = try JSONDecoder().decode(ResumedThreadItem.self, from: data)
-
-        guard case .proposedPlan(let content, _) = item else {
-            return XCTFail("Expected proposed plan item")
+        guard case .proposedPlan(let data) = item.content else {
+            return XCTFail("Expected proposed plan content")
         }
-        XCTAssertEqual(content, "# Final plan\n- first\n- second\n")
+        XCTAssertEqual(data.content, "# Final plan\n- first\n- second\n")
     }
 
-    func testResumedTodoListDecodesChecklistEntries() throws {
-        let data = """
-        {
-          "type": "todo-list",
-          "id": "todo-1",
-          "plan": [
-            { "step": "Inspect renderer", "status": "completed" },
-            { "step": "Patch iOS client", "status": "in_progress" }
-          ]
-        }
-        """.data(using: .utf8)!
+    func testTodoListTracksCompletionState() {
+        let data = ConversationTodoListData(
+            steps: [
+                ConversationPlanStep(step: "Inspect renderer", status: .completed),
+                ConversationPlanStep(step: "Patch iOS client", status: .inProgress),
+            ]
+        )
 
-        let item = try JSONDecoder().decode(ResumedThreadItem.self, from: data)
-
-        guard case .todoList(let entries, _) = item else {
-            return XCTFail("Expected todo list item")
-        }
-        XCTAssertEqual(entries.count, 2)
-        XCTAssertEqual(entries[0].step, "Inspect renderer")
-        XCTAssertEqual(entries[0].status, "completed")
-        XCTAssertEqual(entries[1].step, "Patch iOS client")
-        XCTAssertEqual(entries[1].status, "in_progress")
+        XCTAssertEqual(data.completedCount, 1)
+        XCTAssertFalse(data.isComplete)
     }
-
 }

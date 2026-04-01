@@ -11,6 +11,17 @@ enum MessageContentBridge {
         return parsed.isEmpty ? [.markdown(text)] : parsed
     }
 
+    static func normalizedAssistantMarkdown(_ text: String) -> String {
+        let segments = segmentAssistantText(text)
+        let fragments = segments.compactMap { segment -> String? in
+            guard case .markdown(let content) = segment else { return nil }
+            return content
+        }
+        let normalized = combinedMarkdownFragments(fragments)
+
+        return normalized.isEmpty ? text : normalized
+    }
+
     static func parseToolCalls(text: String) -> [ToolCallCardModel] {
         store.parseToolCallsTyped(text: text).compactMap { $0.toToolCallCardModel() }
     }
@@ -18,23 +29,72 @@ enum MessageContentBridge {
     private static let store = MessageParser()
 
     private static func assistantContentSegments(from rustSegments: [AppMessageSegment]) -> [AssistantContentSegment] {
-        rustSegments.compactMap { segment -> AssistantContentSegment? in
+        var segments: [AssistantContentSegment] = []
+        var markdownBuffer = ""
+
+        func flushMarkdownBuffer() {
+            guard !markdownBuffer.isEmpty else { return }
+            segments.append(.markdown(markdownBuffer))
+            markdownBuffer = ""
+        }
+
+        for segment in rustSegments {
             switch segment {
             case .text(text: let text):
-                guard !text.isEmpty else { return nil }
-                return .markdown(text)
+                guard !text.isEmpty else { continue }
+                markdownBuffer += text
+            case .inlineMath(latex: let latex):
+                markdownBuffer += inlineMathMarkdown(latex: latex)
+            case .displayMath(latex: let latex):
+                flushMarkdownBuffer()
+                segments.append(.markdown(displayMathMarkdown(latex: latex)))
             case .codeBlock(language: let language, code: let code):
-                return .markdown(fencedMarkdown(code: code, language: language))
+                flushMarkdownBuffer()
+                segments.append(.markdown(fencedMarkdown(code: code, language: language)))
             case .inlineImage(data: let data, mimeType: _):
-                return .inlineImage(data)
+                flushMarkdownBuffer()
+                segments.append(.inlineImage(data))
             }
         }
+
+        flushMarkdownBuffer()
+        return segments.isEmpty ? [.markdown("")] : segments
     }
 
     private static func fencedMarkdown(code: String, language: String?) -> String {
         let trimmedLanguage = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let fenceHeader = trimmedLanguage.isEmpty ? "```" : "```\(trimmedLanguage)"
         return "\(fenceHeader)\n\(code)\n```"
+    }
+
+    private static func inlineMathMarkdown(latex: String) -> String {
+        "$\(latex)$"
+    }
+
+    private static func displayMathMarkdown(latex: String) -> String {
+        let trimmed = latex.trimmingCharacters(in: .newlines)
+        return "```math\n\(trimmed)\n```"
+    }
+
+    private static func combinedMarkdownFragments(_ fragments: [String]) -> String {
+        var combined = ""
+
+        for fragment in fragments where !fragment.isEmpty {
+            if combined.isEmpty {
+                combined = fragment
+                continue
+            }
+
+            if combined.hasSuffix("\n\n") || fragment.hasPrefix("\n\n") {
+                combined += fragment
+            } else if combined.hasSuffix("\n") || fragment.hasPrefix("\n") {
+                combined += "\n" + fragment
+            } else {
+                combined += "\n\n" + fragment
+            }
+        }
+
+        return combined
     }
 }
 
@@ -142,12 +202,19 @@ private extension AppToolCallCard {
 
     private func sectionText(named names: Set<String>, in sections: [ToolCallSection]) -> String? {
         for section in sections {
-            guard names.contains(normalizedLabel(for: section)) else { continue }
             switch section {
+            case .kv(_, let entries):
+                for entry in entries {
+                    guard names.contains(normalizedText(entry.key)) else { continue }
+                    let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { return trimmed }
+                }
             case .text(_, let content):
+                guard names.contains(normalizedLabel(for: section)) else { continue }
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { return trimmed }
             case .code(_, _, let content):
+                guard names.contains(normalizedLabel(for: section)) else { continue }
                 let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { return trimmed }
             default:
@@ -166,11 +233,15 @@ private extension AppToolCallCard {
              .text(let label, _),
              .list(let label, _),
              .progress(let label, _):
-            return label
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-                .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalizedText(label)
         }
+    }
+
+    private func normalizedText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

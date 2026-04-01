@@ -4,7 +4,7 @@ import XCTest
 
 final class ConversationAttachmentSupportTests: XCTestCase {
     func testBuildTurnInputsOmitsWhitespaceOnlyTextAndKeepsAttachmentInput() {
-        let attachment = AppUserInput(type: "image", imageURL: "data:image/png;base64,abc")
+        let attachment = AppUserInput.image(url: "data:image/png;base64,abc")
 
         let inputs = ConversationAttachmentSupport.buildTurnInputs(
             text: "   \n",
@@ -12,19 +12,25 @@ final class ConversationAttachmentSupportTests: XCTestCase {
         )
 
         XCTAssertEqual(inputs.count, 1)
-        XCTAssertEqual(inputs.first?.type, "image")
-        XCTAssertEqual(inputs.first?.imageURL, "data:image/png;base64,abc")
+        guard case .image(let url)? = inputs.first else {
+            return XCTFail("Expected image input")
+        }
+        XCTAssertEqual(url, "data:image/png;base64,abc")
     }
 
-    func testImageUserInputEncodesURLForTurnStartProtocol() throws {
-        let attachment = AppUserInput(type: "image", imageURL: "data:image/png;base64,abc")
+    func testPreparedAttachmentCreatesImageUserInput() throws {
+        let attachment = try XCTUnwrap(
+            PreparedImageAttachment(
+                data: Data([0x01, 0x02, 0x03]),
+                mimeType: "image/png"
+            ) as PreparedImageAttachment?
+        )
 
-        let data = try JSONEncoder().encode(attachment)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        guard case .image(let url) = attachment.userInput else {
+            return XCTFail("Expected image user input")
+        }
 
-        XCTAssertEqual(json["type"], "image")
-        XCTAssertEqual(json["url"], "data:image/png;base64,abc")
-        XCTAssertNil(json["image_url"])
+        XCTAssertEqual(url, "data:image/png;base64,AQID")
     }
 
     func testPrepareImageUsesPNGWhenImageHasTransparency() {

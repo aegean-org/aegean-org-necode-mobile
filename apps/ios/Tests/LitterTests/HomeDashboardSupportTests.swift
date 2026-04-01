@@ -238,16 +238,21 @@ final class HomeDashboardSupportTests: XCTestCase {
                 modelProvider: nil,
                 agentNickname: nil,
                 agentRole: nil,
+                parentThreadId: nil,
+                agentStatus: nil,
                 createdAt: nil,
                 updatedAt: Int64(updatedAt)
             ),
             model: nil,
             reasoningEffort: nil,
+            effectiveApprovalPolicy: nil,
+            effectiveSandboxPolicy: nil,
             hydratedConversationItems: [],
+            queuedFollowUps: [],
             activeTurnId: nil,
             contextTokensUsed: nil,
             modelContextWindow: nil,
-            rateLimitsJson: nil,
+            rateLimits: nil,
             realtimeSessionId: nil
         )
     }
@@ -311,11 +316,13 @@ final class HomeDashboardSupportTests: XCTestCase {
             host: host ?? "\(id).local",
             port: port,
             isLocal: isLocal,
+            hasIpc: false,
             health: health,
             account: nil,
             requiresOpenaiAuth: false,
             rateLimits: nil,
-            availableModels: nil
+            availableModels: nil,
+            connectionProgress: nil
         )
     }
 

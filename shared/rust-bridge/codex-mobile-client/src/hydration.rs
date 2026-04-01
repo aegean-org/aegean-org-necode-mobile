@@ -93,6 +93,12 @@ pub enum MessageSegment {
         data: Vec<u8>,
         mime_type: String,
     },
+    InlineMath {
+        latex: String,
+    },
+    DisplayMath {
+        latex: String,
+    },
     CodeBlock {
         language: Option<String>,
         code: String,
@@ -108,6 +114,12 @@ pub enum AppMessageSegment {
         data: Vec<u8>,
         mime_type: String,
     },
+    InlineMath {
+        latex: String,
+    },
+    DisplayMath {
+        latex: String,
+    },
     CodeBlock {
         language: Option<String>,
         code: String,
@@ -121,6 +133,8 @@ impl From<MessageSegment> for AppMessageSegment {
             MessageSegment::InlineImage { data, mime_type } => {
                 Self::InlineImage { data, mime_type }
             }
+            MessageSegment::InlineMath { latex } => Self::InlineMath { latex },
+            MessageSegment::DisplayMath { latex } => Self::DisplayMath { latex },
             MessageSegment::CodeBlock { language, code } => Self::CodeBlock { language, code },
         }
     }
@@ -326,6 +340,235 @@ fn line_byte_offsets(text: &str) -> Vec<(usize, &str)> {
     result
 }
 
+fn overlaps_range(start: usize, end: usize, ranges: &[(usize, usize)]) -> bool {
+    ranges.iter().any(|(range_start, range_end)| start < *range_end && end > *range_start)
+}
+
+fn is_escaped(text: &str, index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+
+    let bytes = text.as_bytes();
+    let mut slash_count = 0usize;
+    let mut cursor = index;
+    while cursor > 0 {
+        cursor -= 1;
+        if bytes[cursor] == b'\\' {
+            slash_count += 1;
+        } else {
+            break;
+        }
+    }
+
+    slash_count % 2 == 1
+}
+
+fn find_inline_code_spans(text: &str, excluded_ranges: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        if let Some((_, range_end)) = excluded_ranges
+            .iter()
+            .find(|(range_start, range_end)| cursor >= *range_start && cursor < *range_end)
+        {
+            cursor = *range_end;
+            continue;
+        }
+
+        if bytes[cursor] != b'`' {
+            cursor += 1;
+            continue;
+        }
+
+        let opener_len = bytes[cursor..]
+            .iter()
+            .take_while(|&&byte| byte == b'`')
+            .count();
+        let mut search = cursor + opener_len;
+        let mut closing_end = None;
+
+        while search < bytes.len() {
+            if let Some((_, range_end)) = excluded_ranges
+                .iter()
+                .find(|(range_start, range_end)| search >= *range_start && search < *range_end)
+            {
+                search = *range_end;
+                continue;
+            }
+
+            if bytes[search] == b'`' {
+                let run_len = bytes[search..]
+                    .iter()
+                    .take_while(|&&byte| byte == b'`')
+                    .count();
+                if run_len == opener_len {
+                    closing_end = Some(search + run_len);
+                    break;
+                }
+                search += run_len;
+            } else {
+                search += 1;
+            }
+        }
+
+        if let Some(end) = closing_end {
+            spans.push((cursor, end));
+            cursor = end;
+        } else {
+            cursor += opener_len;
+        }
+    }
+
+    spans
+}
+
+fn find_closing_math_delimiter(
+    text: &str,
+    start: usize,
+    delimiter: &[u8],
+    allow_newlines: bool,
+) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut cursor = start;
+
+    while cursor + delimiter.len() <= bytes.len() {
+        if !allow_newlines && bytes[cursor] == b'\n' {
+            return None;
+        }
+
+        if bytes[cursor..].starts_with(delimiter) && !is_escaped(text, cursor) {
+            return Some(cursor);
+        }
+
+        cursor += 1;
+    }
+
+    None
+}
+
+fn find_math_spans(text: &str, excluded_ranges: &[(usize, usize)]) -> Vec<(usize, usize, MessageSegment)> {
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+
+    while cursor < bytes.len() {
+        if let Some((_, range_end)) = excluded_ranges
+            .iter()
+            .find(|(range_start, range_end)| cursor >= *range_start && cursor < *range_end)
+        {
+            cursor = *range_end;
+            continue;
+        }
+
+        if bytes[cursor] == b'\\' && !is_escaped(text, cursor) {
+            if bytes[cursor..].starts_with(br"\[") {
+                if let Some(close_start) =
+                    find_closing_math_delimiter(text, cursor + 2, br"\]", true)
+                {
+                    let latex = &text[cursor + 2..close_start];
+                    if !latex.is_empty() {
+                        spans.push((
+                            cursor,
+                            close_start + 2,
+                            MessageSegment::DisplayMath {
+                                latex: latex.to_owned(),
+                            },
+                        ));
+                        cursor = close_start + 2;
+                        continue;
+                    }
+                }
+            } else if bytes[cursor..].starts_with(br"\(") {
+                if let Some(close_start) =
+                    find_closing_math_delimiter(text, cursor + 2, br"\)", false)
+                {
+                    let latex = &text[cursor + 2..close_start];
+                    if !latex.is_empty() && !latex.contains('\n') {
+                        spans.push((
+                            cursor,
+                            close_start + 2,
+                            MessageSegment::InlineMath {
+                                latex: latex.to_owned(),
+                            },
+                        ));
+                        cursor = close_start + 2;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if bytes[cursor] == b'$' && !is_escaped(text, cursor) {
+            if cursor + 1 < bytes.len() && bytes[cursor + 1] == b'$' {
+                if let Some(close_start) =
+                    find_closing_math_delimiter(text, cursor + 2, b"$$", true)
+                {
+                    let latex = &text[cursor + 2..close_start];
+                    if !latex.is_empty() {
+                        spans.push((
+                            cursor,
+                            close_start + 2,
+                            MessageSegment::DisplayMath {
+                                latex: latex.to_owned(),
+                            },
+                        ));
+                        cursor = close_start + 2;
+                        continue;
+                    }
+                }
+            } else if cursor + 1 < bytes.len() && !bytes[cursor + 1].is_ascii_whitespace() {
+                let mut search = cursor + 1;
+                let mut close_start = None;
+
+                while search < bytes.len() {
+                    if bytes[search] == b'\n' {
+                        break;
+                    }
+
+                    if bytes[search] == b'$'
+                        && !is_escaped(text, search)
+                        && (search == cursor + 1 || bytes[search - 1] != b'$')
+                    {
+                        let previous = bytes[search - 1];
+                        let next_is_digit = bytes
+                            .get(search + 1)
+                            .map(|byte| byte.is_ascii_digit())
+                            .unwrap_or(false);
+                        if !previous.is_ascii_whitespace() && !next_is_digit {
+                            close_start = Some(search);
+                            break;
+                        }
+                    }
+
+                    search += 1;
+                }
+
+                if let Some(close_start) = close_start {
+                    let latex = &text[cursor + 1..close_start];
+                    if !latex.is_empty() {
+                        spans.push((
+                            cursor,
+                            close_start + 1,
+                            MessageSegment::InlineMath {
+                                latex: latex.to_owned(),
+                            },
+                        ));
+                        cursor = close_start + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        cursor += 1;
+    }
+
+    spans
+}
+
 /// Extract inline base64 images and code blocks from message text,
 /// splitting into typed segments.
 ///
@@ -340,10 +583,22 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
 
     // Collect all "spans" (start, end, segment) sorted by start position.
     let mut spans: Vec<(usize, usize, MessageSegment)> = Vec::new();
+    let code_fences = find_code_fences(text);
+    let code_fence_ranges: Vec<(usize, usize)> =
+        code_fences.iter().map(|(start, end, _, _)| (*start, *end)).collect();
+    let inline_code_ranges = find_inline_code_spans(text, &code_fence_ranges);
+    let opaque_ranges: Vec<(usize, usize)> = code_fence_ranges
+        .iter()
+        .copied()
+        .chain(inline_code_ranges.iter().copied())
+        .collect();
 
     // Markdown inline images: ![...](data:image/...;base64,...)
     for cap in INLINE_IMAGE_RE.captures_iter(text) {
         let m = cap.get(0).unwrap();
+        if overlaps_range(m.start(), m.end(), &opaque_ranges) {
+            continue;
+        }
         if let Some((mime_type, bytes)) = decode_image_capture(&cap) {
             spans.push((
                 m.start(),
@@ -359,7 +614,8 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
     // Bare data URIs — only add if they don't overlap with markdown image matches
     for cap in BARE_DATA_URI_RE.captures_iter(text) {
         let m = cap.get(0).unwrap();
-        let overlaps = spans.iter().any(|(s, e, _)| m.start() < *e && m.end() > *s);
+        let overlaps = overlaps_range(m.start(), m.end(), &opaque_ranges)
+            || spans.iter().any(|(s, e, _)| m.start() < *e && m.end() > *s);
         if overlaps {
             continue;
         }
@@ -375,13 +631,16 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
         }
     }
 
-    // Code fences (line-based scan)
-    for (start, end, language, code) in find_code_fences(text) {
+    for (start, end, language, code) in code_fences {
+        spans.push((start, end, MessageSegment::CodeBlock { language, code }));
+    }
+
+    for (start, end, segment) in find_math_spans(text, &opaque_ranges) {
         let overlaps = spans.iter().any(|(s, e, _)| start < *e && end > *s);
         if overlaps {
             continue;
         }
-        spans.push((start, end, MessageSegment::CodeBlock { language, code }));
+        spans.push((start, end, segment));
     }
 
     if spans.is_empty() {
@@ -406,7 +665,7 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
 
     for (start, end, segment) in deduped {
         if cursor < start {
-            let preceding = text[cursor..start].trim();
+            let preceding = &text[cursor..start];
             if !preceding.is_empty() {
                 segments.push(MessageSegment::Text(preceding.to_owned()));
             }
@@ -417,7 +676,7 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
 
     // Trailing text
     if cursor < text.len() {
-        let remaining = text[cursor..].trim();
+        let remaining = &text[cursor..];
         if !remaining.is_empty() {
             segments.push(MessageSegment::Text(remaining.to_owned()));
         }
@@ -712,7 +971,7 @@ mod tests {
         let segs = extract_message_segments(text);
 
         assert_eq!(segs.len(), 3);
-        assert_eq!(segs[0], MessageSegment::Text("Before".to_owned()));
+        assert_eq!(segs[0], MessageSegment::Text("Before\n".to_owned()));
         assert_eq!(
             segs[1],
             MessageSegment::CodeBlock {
@@ -720,7 +979,7 @@ mod tests {
                 code: "print('hi')".to_owned(),
             }
         );
-        assert_eq!(segs[2], MessageSegment::Text("After".to_owned()));
+        assert_eq!(segs[2], MessageSegment::Text("\nAfter".to_owned()));
     }
 
     #[test]
@@ -750,7 +1009,7 @@ mod tests {
         let segs = extract_message_segments(&text);
         assert_eq!(segs.len(), 3);
 
-        assert_eq!(segs[0], MessageSegment::Text("Before image".to_owned()));
+        assert_eq!(segs[0], MessageSegment::Text("Before image ".to_owned()));
 
         match &segs[1] {
             MessageSegment::InlineImage { data, mime_type } => {
@@ -762,7 +1021,7 @@ mod tests {
             other => panic!("Expected InlineImage, got {:?}", other),
         }
 
-        assert_eq!(segs[2], MessageSegment::Text("after image".to_owned()));
+        assert_eq!(segs[2], MessageSegment::Text(" after image".to_owned()));
     }
 
     #[test]
@@ -865,6 +1124,107 @@ mod tests {
             .iter()
             .any(|s| matches!(s, MessageSegment::InlineImage { .. }));
         assert!(has_image, "whitespace in base64 should still decode");
+    }
+
+    #[test]
+    fn test_extract_inline_math() {
+        let segs = extract_message_segments("Euler: $e^{i\\pi}+1=0$ wow");
+
+        assert_eq!(
+            segs,
+            vec![
+                MessageSegment::Text("Euler: ".to_owned()),
+                MessageSegment::InlineMath {
+                    latex: "e^{i\\pi}+1=0".to_owned(),
+                },
+                MessageSegment::Text(" wow".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_display_math() {
+        let segs = extract_message_segments("Before\n$$\\int_0^1 x^2 dx$$\nAfter");
+
+        assert_eq!(
+            segs,
+            vec![
+                MessageSegment::Text("Before\n".to_owned()),
+                MessageSegment::DisplayMath {
+                    latex: "\\int_0^1 x^2 dx".to_owned(),
+                },
+                MessageSegment::Text("\nAfter".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_escaped_math_delimiters_as_text() {
+        let segs = extract_message_segments("Price is \\$5 and not math");
+        assert_eq!(
+            segs,
+            vec![MessageSegment::Text("Price is \\$5 and not math".to_owned())]
+        );
+    }
+
+    #[test]
+    fn test_extract_currency_and_unclosed_delimiters_as_text() {
+        let segs = extract_message_segments("Price is $5 and $unfinished");
+        assert_eq!(
+            segs,
+            vec![MessageSegment::Text("Price is $5 and $unfinished".to_owned())]
+        );
+    }
+
+    #[test]
+    fn test_extract_math_skips_inline_code() {
+        let segs = extract_message_segments("Use `$x$` literally and $y$ for math");
+        assert_eq!(
+            segs,
+            vec![
+                MessageSegment::Text("Use `$x$` literally and ".to_owned()),
+                MessageSegment::InlineMath {
+                    latex: "y".to_owned(),
+                },
+                MessageSegment::Text(" for math".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_math_skips_fenced_code() {
+        let segs = extract_message_segments("```tex\n$x$\n```\n\n$y$");
+        assert_eq!(
+            segs,
+            vec![
+                MessageSegment::CodeBlock {
+                    language: Some("tex".to_owned()),
+                    code: "$x$".to_owned(),
+                },
+                MessageSegment::Text("\n\n".to_owned()),
+                MessageSegment::InlineMath {
+                    latex: "y".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_backslash_math_delimiters() {
+        let segs = extract_message_segments(r"Inline \(a+b\) and block \[c+d\]");
+        assert_eq!(
+            segs,
+            vec![
+                MessageSegment::Text("Inline ".to_owned()),
+                MessageSegment::InlineMath {
+                    latex: "a+b".to_owned(),
+                },
+                MessageSegment::Text(" and block ".to_owned()),
+                MessageSegment::DisplayMath {
+                    latex: "c+d".to_owned(),
+                },
+            ]
+        );
     }
 
     // -- FollowScrollTracker --

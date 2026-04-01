@@ -44,6 +44,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "DA07A1EAC6173D09F6FB99D9"
+               BuildableName = "LitterTests.xctest"
+               BlueprintName = "LitterTests"
+               ReferencedContainer = "container:Litter.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "7BB0106D190F10717D781234"
                BuildableName = "LitterUITests.xctest"
                BlueprintName = "LitterUITests"

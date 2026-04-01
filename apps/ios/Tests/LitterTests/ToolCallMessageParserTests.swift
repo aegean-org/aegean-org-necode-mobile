@@ -16,81 +16,33 @@ final class ToolCallMessageParserTests: XCTestCase {
         ]
 
         for (text, expectedKind) in fixtures {
-            let model = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)))
-            XCTAssertEqual(model.kind, expectedKind)
+            XCTAssertEqual(parseFirst(text).kind, expectedKind)
         }
     }
 
     func testWebSearchWithoutStatusDefaultsToCompleted() {
-        let text = """
-        ### Web Search
-        Query: codex parser
-        """
-        let model = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)))
+        let model = parseFirst(
+            """
+            ### Web Search
+            Query: codex parser
+            """
+        )
+
         XCTAssertEqual(model.kind, .webSearch)
         XCTAssertEqual(model.status, .completed)
         XCTAssertEqual(model.summary, "codex parser")
     }
 
-    func testWebSearchTypeAliasesDecodeInResumedItems() throws {
-        let aliases = ["webSearch", "web_search", "web-search", "websearch"]
-
-        for alias in aliases {
-            let json = """
-            {
-              "type": "\(alias)",
-              "query": "swift async",
-              "action": { "type": "search", "source": "web" }
-            }
-            """
-            let item = try JSONDecoder().decode(ResumedThreadItem.self, from: Data(json.utf8))
-
-            guard case .webSearch(let query, let action, _, _) = item else {
-                XCTFail("Expected .webSearch for alias \(alias)")
-                continue
-            }
-
-            XCTAssertEqual(query, "swift async")
-            XCTAssertNotNil(action)
-        }
-    }
-
-    func testAgentMessageDecodesNestedThreadSpawnIdMetadata() throws {
-        let json = """
-        {
-          "type": "agentMessage",
-          "text": "hello",
-          "source": {
-            "subAgent": {
-              "thread_spawn": {
-                "id": "agent-scout",
-                "agent_nickname": "Scout",
-                "agent_role": "researcher"
-              }
-            }
-          }
-        }
-        """
-
-        let item = try JSONDecoder().decode(ResumedThreadItem.self, from: Data(json.utf8))
-        guard case .agentMessage(_, _, let agentId, let nickname, let role, _) = item else {
-            XCTFail("Expected .agentMessage")
-            return
-        }
-
-        XCTAssertEqual(agentId, "agent-scout")
-        XCTAssertEqual(nickname, "Scout")
-        XCTAssertEqual(role, "researcher")
-    }
-
     func testMalformedFenceFallsBackToTextSection() {
-        let text = """
-        ### Command Output
-        Output:
-        ```text
-        partial line
-        """
-        let model = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)))
+        let model = parseFirst(
+            """
+            ### Command Output
+            Output:
+            ```text
+            partial line
+            """
+        )
+
         XCTAssertEqual(model.kind, .commandOutput)
         XCTAssertTrue(model.sections.contains { section in
             if case .text(let label, _) = section {
@@ -100,41 +52,43 @@ final class ToolCallMessageParserTests: XCTestCase {
         })
     }
 
-    func testMissingHeadingReturnsUnrecognized() {
-        let text = """
-        Command Execution
-        Status: completed
-        """
-        XCTAssertEqual(
-            ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)),
-            .unrecognized
+    func testMissingHeadingReturnsNoCards() {
+        let cards = MessageContentBridge.parseToolCalls(
+            text: """
+            Command Execution
+            Status: completed
+            """
         )
+
+        XCTAssertTrue(cards.isEmpty)
     }
 
     func testFileChangeMultipleEntriesParsesRepeatedSections() {
-        let text = """
-        ### File Change
-        Status: completed
+        let model = parseFirst(
+            """
+            ### File Change
+            Status: completed
 
-        Path: /tmp/a.txt
-        Kind: update
+            Path: /tmp/a.txt
+            Kind: update
 
-        ```diff
-        @@ -1 +1 @@
-        -a
-        +b
-        ```
+            ```diff
+            @@ -1 +1 @@
+            -a
+            +b
+            ```
 
-        ---
+            ---
 
-        Path: /tmp/b.txt
-        Kind: delete
+            Path: /tmp/b.txt
+            Kind: delete
 
-        ```text
-        old content
-        ```
-        """
-        let model = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)))
+            ```text
+            old content
+            ```
+            """
+        )
+
         XCTAssertEqual(model.summary, "a.txt +1 files")
         let changeMetadataCount = model.sections.filter {
             if case .kv(let label, _) = $0 {
@@ -146,26 +100,29 @@ final class ToolCallMessageParserTests: XCTestCase {
     }
 
     func testMcpWithoutArgumentsStillRecognized() {
-        let text = """
-        ### MCP Tool Call
-        Status: inProgress
-        Tool: fs/read
-        """
-        let model = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)))
+        let model = parseFirst(
+            """
+            ### MCP Tool Call
+            Status: inProgress
+            Tool: fs/read
+            """
+        )
+
         XCTAssertEqual(model.kind, .mcpToolCall)
         XCTAssertEqual(model.status, .inProgress)
         XCTAssertEqual(model.summary, "fs/read")
     }
 
     func testScalarAndInvalidJsonHandling() {
-        let scalar = """
-        ### Web Search
-        Query: numbers
+        let scalarModel = parseFirst(
+            """
+            ### Web Search
+            Query: numbers
 
-        Action:
-        42
-        """
-        let scalarModel = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: scalar)))
+            Action:
+            42
+            """
+        )
         XCTAssertTrue(scalarModel.sections.contains { section in
             if case .json(let label, let content) = section {
                 return label == "Action" && content == "42"
@@ -173,15 +130,16 @@ final class ToolCallMessageParserTests: XCTestCase {
             return false
         })
 
-        let invalid = """
-        ### MCP Tool Call
-        Status: completed
-        Tool: server/tool
+        let invalidModel = parseFirst(
+            """
+            ### MCP Tool Call
+            Status: completed
+            Tool: server/tool
 
-        Result:
-        { this is not valid json
-        """
-        let invalidModel = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: invalid)))
+            Result:
+            { this is not valid json
+            """
+        )
         XCTAssertTrue(invalidModel.sections.contains { section in
             if case .text(let label, _) = section {
                 return label == "Result"
@@ -190,57 +148,50 @@ final class ToolCallMessageParserTests: XCTestCase {
         })
     }
 
-    func testFailedCardsDefaultExpandedAndSectionOrder() {
-        let text = """
-        ### Command Execution
-        Status: failed
-        Duration: 12 ms
-        Directory: /tmp
+    func testFailedCardsDefaultExpandedAndSectionOrder() throws {
+        let model = parseFirst(
+            """
+            ### Command Execution
+            Status: failed
+            Duration: 12 ms
+            Directory: /tmp
 
-        Command:
-        ```bash
-        ls
-        ```
+            Command:
+            ```bash
+            ls
+            ```
 
-        Output:
-        ```text
-        nope
-        ```
+            Output:
+            ```text
+            nope
+            ```
 
-        Progress:
-        step one
-        """
-        let model = unwrap(ToolCallMessageParser.parse(message: ChatMessage(role: .system, text: text)))
+            Progress:
+            step one
+            """
+        )
+
         XCTAssertEqual(model.status, .failed)
         XCTAssertTrue(model.defaultExpanded)
+        XCTAssertEqual(model.commandContext?.command, "ls")
+        XCTAssertEqual(model.commandContext?.directory, "/tmp")
 
         let labels = model.sections.compactMap(sectionLabel)
+        let outputIndex = try XCTUnwrap(labels.firstIndex(of: "Output"))
+        let progressIndex = try XCTUnwrap(labels.firstIndex(of: "Progress"))
+
         XCTAssertEqual(labels.first, "Metadata")
-        XCTAssertLessThan(labels.firstIndex(of: "Command") ?? .max, labels.firstIndex(of: "Output") ?? .max)
-        XCTAssertLessThan(labels.firstIndex(of: "Output") ?? .max, labels.firstIndex(of: "Progress") ?? .max)
+        XCTAssertLessThan(outputIndex, progressIndex)
     }
 
-    func testTargetListUsesResolverLabelsWhenProvided() {
-        let text = """
-        ### Collaboration
-        Status: completed
-        Tool: ask_agent
-        Targets: thread-alpha, agent-beta, unknown-id
-        """
-        let model = unwrap(
-            ToolCallMessageParser.parse(
-                message: ChatMessage(role: .system, text: text),
-                resolveTargetLabel: { target in
-                    switch target {
-                    case "thread-alpha":
-                        return "Planner [lead]"
-                    case "agent-beta":
-                        return "Builder [worker]"
-                    default:
-                        return nil
-                    }
-                }
-            )
+    func testCollaborationTargetsParseIntoListSection() {
+        let model = parseFirst(
+            """
+            ### Collaboration
+            Status: completed
+            Tool: ask_agent
+            Targets: thread-alpha, agent-beta, unknown-id
+            """
         )
 
         let targets = model.sections.compactMap { section -> [String]? in
@@ -248,136 +199,38 @@ final class ToolCallMessageParserTests: XCTestCase {
             return items
         }.first
 
-        XCTAssertEqual(targets, ["Planner [lead]", "Builder [worker]", "unknown-id"])
+        XCTAssertEqual(targets, ["thread-alpha", "agent-beta", "unknown-id"])
     }
 
-    func testTargetSectionListUsesResolverLabelsWhenProvided() {
-        let text = """
-        ### Collaboration
-        Status: completed
-        Tool: spawnAgent
-
-        Targets:
-        - thread-alpha
-        - agent-beta
-        """
-        let model = unwrap(
-            ToolCallMessageParser.parse(
-                message: ChatMessage(role: .system, text: text),
-                resolveTargetLabel: { target in
-                    switch target {
-                    case "thread-alpha":
-                        return "Planner [lead]"
-                    case "agent-beta":
-                        return "Builder [worker]"
-                    default:
-                        return nil
-                    }
-                }
-            )
-        )
-
-        let targets = model.sections.compactMap { section -> [String]? in
-            guard case .list(let label, let items) = section, label == "Targets" else { return nil }
-            return items
-        }.first
-
-        XCTAssertEqual(targets, ["Planner [lead]", "Builder [worker]"])
-    }
-
-    func testCollaborationSummaryPrefersTargetLabels() {
-        let text = """
-        ### Collaboration
-        Status: completed
-        Tool: spawnAgent
-        Targets: thread-alpha, agent-beta
-        """
-        let model = unwrap(
-            ToolCallMessageParser.parse(
-                message: ChatMessage(role: .system, text: text),
-                resolveTargetLabel: { target in
-                    switch target {
-                    case "thread-alpha":
-                        return "Harvey [explorer]"
-                    case "agent-beta":
-                        return "Sartre [explorer]"
-                    default:
-                        return nil
-                    }
-                }
-            )
-        )
-
-        XCTAssertEqual(model.summary, "Harvey [explorer] +1")
-    }
-
-    func testTargetListSkipsResolverForPreformattedLabels() {
-        let text = """
-        ### Collaboration
-        Status: completed
-        Tool: spawnAgent
-        Targets: Harvey [explorer], thread-alpha
-        """
-        let model = unwrap(
-            ToolCallMessageParser.parse(
-                message: ChatMessage(role: .system, text: text),
-                resolveTargetLabel: { target in
-                    switch target {
-                    case "thread-alpha":
-                        return "Sartre [explorer]"
-                    case "Harvey [explorer]":
-                        return "incorrect"
-                    default:
-                        return nil
-                    }
-                }
-            )
-        )
-
-        let targets = model.sections.compactMap { section -> [String]? in
-            guard case .list(let label, let items) = section, label == "Targets" else { return nil }
-            return items
-        }.first
-
-        XCTAssertEqual(targets, ["Harvey [explorer]", "Sartre [explorer]"])
-    }
-
-    func testUsesResolvedTargetsOnlyWhenToolCardContainsTargets() {
-        let targetCard = ChatMessage(
-            role: .system,
-            text: """
+    func testCollaborationTargetBlockParsesIntoListSection() {
+        let model = parseFirst(
+            """
             ### Collaboration
             Status: completed
             Tool: spawnAgent
-            Targets: thread-alpha, agent-beta
+
+            Targets:
+            - thread-alpha
+            - agent-beta
             """
         )
-        XCTAssertTrue(ToolCallMessageParser.usesResolvedTargets(targetCard))
 
-        let noTargetCard = ChatMessage(
-            role: .system,
-            text: """
-            ### Command Execution
-            Status: completed
-            Command:
-            ```bash
-            pwd
-            ```
-            """
-        )
-        XCTAssertFalse(ToolCallMessageParser.usesResolvedTargets(noTargetCard))
+        let targets = model.sections.compactMap { section -> [String]? in
+            guard case .list(let label, let items) = section, label == "Targets" else { return nil }
+            return items
+        }.first
 
-        let userMessage = ChatMessage(role: .user, text: "Targets: thread-alpha")
-        XCTAssertFalse(ToolCallMessageParser.usesResolvedTargets(userMessage))
+        XCTAssertEqual(targets, ["thread-alpha", "agent-beta"])
     }
 
-    private func unwrap(
-        _ result: ToolCallParseResult,
+    private func parseFirst(
+        _ text: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> ToolCallCardModel {
-        guard case .recognized(let model) = result else {
-            XCTFail("Expected recognized parse result", file: file, line: line)
+        let cards = MessageContentBridge.parseToolCalls(text: text)
+        guard let model = cards.first else {
+            XCTFail("Expected at least one parsed tool call", file: file, line: line)
             return ToolCallCardModel(
                 kind: .commandExecution,
                 title: "",

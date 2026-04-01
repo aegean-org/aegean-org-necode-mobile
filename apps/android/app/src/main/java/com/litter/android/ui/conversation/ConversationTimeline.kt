@@ -343,15 +343,16 @@ private fun AssistantMessageRow(
         if (isStreamingMessage || segments.isEmpty()) {
             MarkdownText(text = renderedText)
         } else {
+            val renderSegments = remember(segments) { coalesceRenderableAssistantSegments(segments) }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                segments.forEachIndexed { index, segment ->
+                renderSegments.forEachIndexed { index, segment ->
                     when (segment) {
-                        is AppMessageSegment.Text -> MarkdownText(text = segment.text)
-                        is AppMessageSegment.CodeBlock -> CodeBlockSegment(
+                        is RenderableAssistantSegment.Markdown -> MarkdownText(text = segment.text)
+                        is RenderableAssistantSegment.CodeBlock -> CodeBlockSegment(
                             language = segment.language,
                             code = segment.code,
                         )
-                        is AppMessageSegment.InlineImage -> {
+                        is RenderableAssistantSegment.InlineImage -> {
                             val bitmap = remember(segment.data) {
                                 BitmapFactory.decodeByteArray(segment.data, 0, segment.data.size)
                             }
@@ -371,6 +372,51 @@ private fun AssistantMessageRow(
             }
         }
     }
+}
+
+private sealed interface RenderableAssistantSegment {
+    data class Markdown(val text: String) : RenderableAssistantSegment
+    data class CodeBlock(val language: String?, val code: String) : RenderableAssistantSegment
+    data class InlineImage(val data: ByteArray) : RenderableAssistantSegment
+}
+
+private fun coalesceRenderableAssistantSegments(
+    segments: List<AppMessageSegment>,
+): List<RenderableAssistantSegment> {
+    val result = mutableListOf<RenderableAssistantSegment>()
+    val markdownBuffer = StringBuilder()
+
+    fun flushMarkdown() {
+        if (markdownBuffer.isNotEmpty()) {
+            result += RenderableAssistantSegment.Markdown(markdownBuffer.toString())
+            markdownBuffer.clear()
+        }
+    }
+
+    segments.forEach { segment ->
+        when (segment) {
+            is AppMessageSegment.Text -> markdownBuffer.append(segment.text)
+            is AppMessageSegment.InlineMath -> markdownBuffer.append('$').append(segment.latex).append('$')
+            is AppMessageSegment.DisplayMath -> markdownBuffer
+                .append("$$\n")
+                .append(segment.latex)
+                .append("\n$$")
+            is AppMessageSegment.CodeBlock -> {
+                flushMarkdown()
+                result += RenderableAssistantSegment.CodeBlock(
+                    language = segment.language,
+                    code = segment.code,
+                )
+            }
+            is AppMessageSegment.InlineImage -> {
+                flushMarkdown()
+                result += RenderableAssistantSegment.InlineImage(segment.data)
+            }
+        }
+    }
+
+    flushMarkdown()
+    return result
 }
 
 // ── Reasoning ────────────────────────────────────────────────────────────────

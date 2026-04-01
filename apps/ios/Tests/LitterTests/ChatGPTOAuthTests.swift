@@ -1,6 +1,7 @@
 import XCTest
 @testable import Litter
 
+@MainActor
 final class ChatGPTOAuthTests: XCTestCase {
     func testAuthorizeURLUsesFixedLocalhostRedirect() throws {
         let url = try ChatGPTOAuth.buildAuthorizeURL(
