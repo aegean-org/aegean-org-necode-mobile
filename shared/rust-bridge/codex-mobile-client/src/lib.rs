@@ -15,6 +15,7 @@ pub mod hydration;
 pub mod immer_patch;
 pub mod logging;
 pub mod parser;
+pub mod permissions;
 pub mod session;
 pub mod ssh;
 pub mod store;

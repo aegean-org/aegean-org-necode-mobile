@@ -322,6 +322,8 @@ enum LitterPreviewData {
             ),
             model: model,
             reasoningEffort: reasoningEffort,
+            effectiveApprovalPolicy: nil,
+            effectiveSandboxPolicy: nil,
             hydratedConversationItems: makeHydratedConversationItems(from: messages),
             queuedFollowUps: [],
             activeTurnId: status == .active ? "turn-preview" : nil,

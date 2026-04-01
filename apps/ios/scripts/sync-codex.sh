@@ -63,17 +63,25 @@ for PATCH_FILE in "${PATCH_FILES[@]}"; do
     else
         # When multiple patches touch the same files, reverse-check may fail even
         # if the patch is applied.  Fall back to checking whether the added lines
-        # are already present in the working tree.
+        # are already present in the files the patch actually touches.
+        patch_targets=()
+        while IFS= read -r pf; do
+            [ -f "$SUBMODULE_DIR/$pf" ] && patch_targets+=("$SUBMODULE_DIR/$pf")
+        done < <(grep '^diff --git' "$PATCH_FILE" | sed 's|.*b/||')
         added_lines=$(grep '^+[^+]' "$PATCH_FILE" | sed 's/^+//' | head -5)
         all_present=true
-        while IFS= read -r line; do
-            trimmed="${line#"${line%%[![:space:]]*}"}"
-            [ -z "$trimmed" ] && continue
-            if ! grep -rqF "$trimmed" "$SUBMODULE_DIR" 2>/dev/null; then
-                all_present=false
-                break
-            fi
-        done <<< "$added_lines"
+        if [ "${#patch_targets[@]}" -eq 0 ]; then
+            all_present=false
+        else
+            while IFS= read -r line; do
+                trimmed="${line#"${line%%[![:space:]]*}"}"
+                [ -z "$trimmed" ] && continue
+                if ! grep -qF "$trimmed" "${patch_targets[@]}" 2>/dev/null; then
+                    all_present=false
+                    break
+                fi
+            done <<< "$added_lines"
+        fi
         if [ "$all_present" = true ]; then
             echo "==> $PATCH_NAME already applied (content check)."
         else

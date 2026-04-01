@@ -174,6 +174,7 @@ fun ConversationInfoScreen(
                                         appModel.launchState.threadForkRequest(
                                             sourceThreadId = tk.threadId,
                                             cwdOverride = t.info.cwd,
+                                            threadKey = tk,
                                         ),
                                     )
                                     appModel.store.setActiveThread(newKey)

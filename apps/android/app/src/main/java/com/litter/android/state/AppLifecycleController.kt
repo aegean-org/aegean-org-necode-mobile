@@ -12,6 +12,16 @@ import uniffi.codex_mobile_client.AppServerHealth
  * background turn tracking on pause, and push notification handling.
  */
 class AppLifecycleController {
+    companion object {
+        internal fun reconnectCandidates(
+            savedServers: List<SavedServer>,
+            activeServerIds: Set<String>,
+        ): List<SavedServer> =
+            savedServers.filter { server ->
+                server.source != "local" && server.id !in activeServerIds
+            }
+    }
+
     private val reconnectMutex = Mutex()
 
     /** Threads that were active when the app went to background. */
@@ -35,32 +45,18 @@ class AppLifecycleController {
         }
         try {
             ExperimentalFeatures.initialize(context.applicationContext)
-            val saved = SavedServerStore.load(context)
             val sshCredentials = SshCredentialStore(context)
             val activeServerIds = appModel.store.snapshot()
                 .servers
                 .filter { it.health != AppServerHealth.DISCONNECTED }
                 .mapTo(mutableSetOf()) { it.serverId }
+            val saved = reconnectCandidates(
+                savedServers = SavedServerStore.load(context),
+                activeServerIds = activeServerIds,
+            )
             for (server in saved) {
-                if (server.id in activeServerIds) {
-                    LLog.t(
-                        "AppLifecycleController",
-                        "server already active; skipping reconnect",
-                        fields = mapOf("serverId" to server.id),
-                    )
-                    continue
-                }
                 try {
                     when {
-                        server.source == "local" -> {
-                            appModel.serverBridge.connectLocalServer(
-                                serverId = server.id,
-                                displayName = server.name,
-                                host = server.hostname,
-                                port = server.port.toUShort(),
-                            )
-                            appModel.restoreStoredLocalChatGptAuth(server.id)
-                        }
                         server.websocketURL != null -> {
                             appModel.serverBridge.connectRemoteUrlServer(
                                 serverId = server.id,
@@ -158,10 +154,39 @@ class AppLifecycleController {
         }
     }
 
+    private suspend fun ensureLocalServerConnected(appModel: AppModel) {
+        val currentLocal = appModel.store.snapshot()
+            .servers
+            .firstOrNull { it.isLocal && it.health != AppServerHealth.DISCONNECTED }
+        if (currentLocal != null) {
+            return
+        }
+
+        try {
+            appModel.serverBridge.connectLocalServer(
+                serverId = "local",
+                displayName = "This Device",
+                host = "127.0.0.1",
+                port = 0u,
+            )
+            appModel.restoreStoredLocalChatGptAuth("local")
+            appModel.refreshSessions(listOf("local"))
+            appModel.refreshSnapshot()
+            LLog.i("AppLifecycleController", "Local in-process server connected")
+        } catch (e: Exception) {
+            LLog.w(
+                "AppLifecycleController",
+                "local server reconnect failed",
+                fields = mapOf("error" to e.message),
+            )
+        }
+    }
+
     /**
      * Called when the app enters the foreground.
      */
     suspend fun onResume(context: Context, appModel: AppModel) {
+        ensureLocalServerConnected(appModel)
         reconnectSavedServers(context, appModel)
         backgroundedTurnKeys.clear()
     }

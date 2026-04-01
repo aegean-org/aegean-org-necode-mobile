@@ -214,6 +214,7 @@ fun ComposerBar(
                             sourceThreadId = threadKey.threadId,
                             cwdOverride = cwd,
                             modelOverride = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
+                            threadKey = threadKey,
                         ),
                     )
                     appModel.store.setActiveThread(newKey)
@@ -539,8 +540,8 @@ fun ComposerBar(
                                 val payload = AppComposerPayload(
                                     text = text.trim(),
                                     additionalInputs = listOfNotNull(attachmentToSend?.toUserInput()),
-                                    approvalPolicy = appModel.launchState.approvalPolicyValue(),
-                                    sandboxPolicy = appModel.launchState.turnSandboxPolicy(),
+                                    approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
+                                    sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
                                     model = pendingModel,
                                     reasoningEffort = effort,
                                     serviceTier = tier,

@@ -38,6 +38,7 @@ import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.AppListThreadsRequest
 import uniffi.codex_mobile_client.AppRefreshModelsRequest
 import uniffi.codex_mobile_client.AppReadThreadRequest
+import uniffi.codex_mobile_client.threadPermissionsAreAuthoritative
 
 /**
  * Central app state singleton. Thin wrapper over Rust [AppStore] — all business
@@ -774,7 +775,10 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun hasAuthoritativePermissions(thread: AppThreadSnapshot): Boolean =
-        thread.effectiveApprovalPolicy != null || thread.effectiveSandboxPolicy != null
+        threadPermissionsAreAuthoritative(
+            approvalPolicy = thread.effectiveApprovalPolicy,
+            sandboxPolicy = thread.effectiveSandboxPolicy,
+        )
 
     private fun removeThreadSnapshot(key: ThreadKey, agentDirectoryVersion: ULong? = null) {
         val current = _snapshot.value ?: return

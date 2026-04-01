@@ -8,11 +8,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.litter.android.state.AppLifecycleController
@@ -29,7 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    private lateinit var appModel: AppModel
+    private var appModel: AppModel? = null
     private val lifecycleController = AppLifecycleController()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,7 +45,7 @@ class MainActivity : ComponentActivity() {
         try {
             appModel = AppModel.init(this)
             WallpaperManager.initialize(this)
-            appModel.start()
+            appModel?.start()
         } catch (e: Exception) {
             LLog.e("MainActivity", "AppModel.start() failed", e)
         }
@@ -54,10 +57,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             LitterAppTheme {
                 Box(Modifier.fillMaxSize()) {
-                    LitterApp(appModel = appModel)
+                    val model = appModel
+                    if (model != null) {
+                        LitterApp(appModel = model)
+                    } else {
+                        Text(
+                            text = "Litter couldn't finish starting.",
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                        )
+                    }
 
                     // Signal content ready when LitterApp composes
-                    LaunchedEffect(Unit) { contentReady = true }
+                    LaunchedEffect(model) {
+                        if (model != null) {
+                            contentReady = true
+                        }
+                    }
 
                     // Minimum display time
                     LaunchedEffect(Unit) {
@@ -83,61 +98,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-        lifecycleScope.launch {
-            // Connect local in-process server (same as iOS — no separate process)
-            connectLocalServer()
-        }
     }
 
     override fun onResume() {
         super.onResume()
         TurnForegroundService.stop(this)
+        val model = appModel ?: return
         lifecycleScope.launch {
-            lifecycleController.onResume(this@MainActivity, appModel)
+            lifecycleController.onResume(this@MainActivity, model)
         }
     }
 
     override fun onPause() {
         super.onPause()
-        lifecycleController.onPause(appModel)
+        val model = appModel ?: return
+        lifecycleController.onPause(model)
         if (lifecycleController.getBackgroundedTurnKeys().isNotEmpty()) {
             TurnForegroundService.start(this)
         }
     }
 
     override fun onDestroy() {
-        appModel.stop()
+        appModel?.stop()
         super.onDestroy()
-    }
-
-    /**
-     * Start the Codex server in-process via Rust (same as iOS).
-     * No separate binary, no WebSocket — uses internal async channels.
-     */
-    private suspend fun connectLocalServer() {
-        try {
-            appModel.serverBridge.connectLocalServer(
-                serverId = "local",
-                displayName = "This Device",
-                host = "127.0.0.1",
-                port = 0u, // port 0 = in-process, Rust handles it
-            )
-            appModel.restoreStoredLocalChatGptAuth("local")
-            // Load thread list for the local server
-            appModel.client.listThreads(
-                "local",
-                uniffi.codex_mobile_client.AppListThreadsRequest(
-                    cursor = null,
-                    limit = null,
-                    archived = false,
-                    cwd = null,
-                    searchTerm = null,
-                ),
-            )
-            LLog.i("MainActivity", "Local in-process server connected")
-        } catch (e: Exception) {
-            LLog.w("MainActivity", "Local server failed", fields = mapOf("error" to e.message))
-        }
     }
 }

@@ -195,6 +195,21 @@ extension AppSandboxPolicy {
     }
 }
 
+extension AppThreadPermissionPreset {
+    var title: String {
+        switch self {
+        case .supervised:
+            return "Supervised"
+        case .fullAccess:
+            return "Full Access"
+        case .custom:
+            return "Custom"
+        case .unknown:
+            return "Unknown"
+        }
+    }
+}
+
 extension ReasoningEffort {
     init?(wireValue: String?) {
         switch wireValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {

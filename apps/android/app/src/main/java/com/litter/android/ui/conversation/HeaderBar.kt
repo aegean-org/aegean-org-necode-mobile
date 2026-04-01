@@ -261,6 +261,7 @@ fun HeaderBar(
                                         appModel.launchState.threadResumeRequest(
                                             thread.key.threadId,
                                             cwdOverride = thread.info.cwd,
+                                            threadKey = thread.key,
                                         ),
                                     )
                                 }
@@ -270,6 +271,7 @@ fun HeaderBar(
                                     appModel.launchState.threadResumeRequest(
                                         thread.key.threadId,
                                         cwdOverride = thread.info.cwd,
+                                        threadKey = thread.key,
                                     ),
                                 )
                             }

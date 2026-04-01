@@ -49,7 +49,11 @@ import uniffi.codex_mobile_client.AppListSkillsRequest
 import uniffi.codex_mobile_client.AppWriteConfigValueRequest
 import uniffi.codex_mobile_client.ExperimentalFeature
 import uniffi.codex_mobile_client.AppMergeStrategy
+import uniffi.codex_mobile_client.AppThreadPermissionPreset
 import uniffi.codex_mobile_client.SkillMetadata
+import uniffi.codex_mobile_client.ThreadKey
+import uniffi.codex_mobile_client.threadPermissionPreset
+import uniffi.codex_mobile_client.threadPermissionsAreAuthoritative
 
 private data class ComposerPermissionPreset(
     val title: String,
@@ -79,10 +83,44 @@ private val composerPermissionPresets = listOf(
     ),
 )
 
+private fun selectedPermissionLabel(approvalPolicy: String, sandboxMode: String): String =
+    composerPermissionPresets.firstOrNull {
+        it.approvalPolicy == approvalPolicy && it.sandboxMode == sandboxMode
+    }?.title ?: "Custom"
+
+private fun AppThreadPermissionPreset.title(): String =
+    when (this) {
+        AppThreadPermissionPreset.SUPERVISED -> "Supervised"
+        AppThreadPermissionPreset.FULL_ACCESS -> "Full Access"
+        AppThreadPermissionPreset.CUSTOM -> "Custom"
+        AppThreadPermissionPreset.UNKNOWN -> "Unknown"
+    }
+
 @Composable
-fun ComposerPermissionsSheet(onDismiss: () -> Unit) {
+fun ComposerPermissionsSheet(threadKey: ThreadKey? = null, onDismiss: () -> Unit) {
     val appModel = LocalAppModel.current
-    val launchState by appModel.launchState.snapshot.collectAsState()
+    appModel.launchState.snapshot.collectAsState()
+    val selectedApproval = appModel.launchState.selectedApprovalPolicy(threadKey)
+    val selectedSandbox = appModel.launchState.selectedSandboxMode(threadKey)
+    val effectiveThread = appModel.snapshot.value?.threads?.firstOrNull { it.key == threadKey }
+    val currentThreadPermissionLabel = if (
+        threadPermissionsAreAuthoritative(
+            approvalPolicy = effectiveThread?.effectiveApprovalPolicy,
+            sandboxPolicy = effectiveThread?.effectiveSandboxPolicy,
+        )
+    ) {
+        threadPermissionPreset(
+            approvalPolicy = effectiveThread?.effectiveApprovalPolicy,
+            sandboxPolicy = effectiveThread?.effectiveSandboxPolicy,
+        ).title()
+    } else {
+        "Checking..."
+    }
+
+    LaunchedEffect(threadKey) {
+        threadKey ?: return@LaunchedEffect
+        appModel.hydrateThreadPermissions(threadKey)
+    }
 
     Column(
         modifier = Modifier
@@ -92,17 +130,42 @@ fun ComposerPermissionsSheet(onDismiss: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SheetHeader(title = "Permissions", onDismiss = onDismiss)
+        if (threadKey != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "Next turn policy: ${selectedPermissionLabel(selectedApproval, selectedSandbox)}",
+                    color = LitterTheme.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = "Current thread policy: $currentThreadPermissionLabel",
+                    color = LitterTheme.textSecondary,
+                    fontSize = 12.sp,
+                )
+                Text(
+                    text = "Changes apply on your next turn and later turns.",
+                    color = LitterTheme.textMuted,
+                    fontSize = 11.sp,
+                )
+            }
+        }
         composerPermissionPresets.forEachIndexed { index, preset ->
             val isSelected =
-                preset.approvalPolicy == launchState.approvalPolicy &&
-                    preset.sandboxMode == launchState.sandboxMode
+                preset.approvalPolicy == selectedApproval &&
+                    preset.sandboxMode == selectedSandbox
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(LitterTheme.surface.copy(alpha = 0.72f), RoundedCornerShape(12.dp))
                     .clickable {
-                        appModel.launchState.updateApprovalPolicy(preset.approvalPolicy)
-                        appModel.launchState.updateSandboxMode(preset.sandboxMode)
+                        appModel.launchState.updateThreadPermissions(threadKey, preset.approvalPolicy, preset.sandboxMode)
                         onDismiss()
                     }
                     .padding(horizontal = 14.dp, vertical = 12.dp),

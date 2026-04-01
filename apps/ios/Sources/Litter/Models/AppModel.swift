@@ -626,7 +626,10 @@ final class AppModel {
     }
 
     private func hasAuthoritativePermissions(_ thread: AppThreadSnapshot) -> Bool {
-        thread.effectiveApprovalPolicy != nil || thread.effectiveSandboxPolicy != nil
+        threadPermissionsAreAuthoritative(
+            approvalPolicy: thread.effectiveApprovalPolicy,
+            sandboxPolicy: thread.effectiveSandboxPolicy
+        )
     }
 }
 

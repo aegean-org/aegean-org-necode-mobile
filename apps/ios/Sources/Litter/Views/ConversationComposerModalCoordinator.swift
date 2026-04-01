@@ -3,6 +3,7 @@ import PhotosUI
 import UIKit
 
 struct ConversationComposerModalCoordinator<Content: View>: View {
+    @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
 
     let snapshot: ConversationComposerSnapshot
@@ -59,6 +60,29 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
         )
     }
 
+    private var selectedPermissionLabel: String {
+        ComposerPermissionPreset.allCases.first {
+            $0.approvalPolicy == appState.approvalPolicy(for: snapshot.threadKey)
+                && $0.sandboxMode == appState.sandboxMode(for: snapshot.threadKey)
+        }?.title ?? "Custom"
+    }
+
+    private var currentThreadPermissionLabel: String {
+        guard let thread = appModel.snapshot?.threads.first(where: { $0.key == snapshot.threadKey }) else {
+            return "Checking..."
+        }
+        guard threadPermissionsAreAuthoritative(
+            approvalPolicy: thread.effectiveApprovalPolicy,
+            sandboxPolicy: thread.effectiveSandboxPolicy
+        ) else {
+            return "Checking..."
+        }
+        return threadPermissionPreset(
+            approvalPolicy: thread.effectiveApprovalPolicy,
+            sandboxPolicy: thread.effectiveSandboxPolicy
+        ).title
+    }
+
     var body: some View {
         content
             .sheet(isPresented: $showAttachMenu) {
@@ -94,44 +118,10 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showPermissionsSheet) {
-                NavigationStack {
-                    List {
-                        ForEach(ComposerPermissionPreset.allCases) { preset in
-                            Button {
-                                appState.approvalPolicy = preset.approvalPolicy
-                                appState.sandboxMode = preset.sandboxMode
-                                showPermissionsSheet = false
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(preset.title)
-                                            .foregroundColor(LitterTheme.textPrimary)
-                                            .litterFont(.subheadline)
-                                        Spacer()
-                                        if preset.approvalPolicy == appState.approvalPolicy && preset.sandboxMode == appState.sandboxMode {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(LitterTheme.accent)
-                                        }
-                                    }
-                                    Text(preset.description)
-                                        .foregroundColor(LitterTheme.textSecondary)
-                                        .litterFont(.caption)
-                                }
-                            }
-                            .listRowBackground(LitterTheme.surface.opacity(0.6))
-                        }
+                permissionsSheetContent
+                    .task(id: snapshot.threadKey.threadId) {
+                        _ = await appModel.hydrateThreadPermissions(for: snapshot.threadKey, appState: appState)
                     }
-                    .scrollContentBackground(.hidden)
-                    .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-                    .navigationTitle("Permissions")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showPermissionsSheet = false }
-                                .foregroundColor(LitterTheme.accent)
-                        }
-                    }
-                }
             }
             .sheet(isPresented: $showExperimentalSheet) {
                 experimentalSheetContent
@@ -175,6 +165,68 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             } message: {
                 Text("Microphone permission is required for voice input. Enable it in Settings.")
             }
+    }
+
+    @ViewBuilder
+    private var permissionsSheetContent: some View {
+        NavigationStack {
+            List {
+                Section(
+                    content: {
+                        LabeledContent("Next turn policy", value: selectedPermissionLabel)
+                            .foregroundStyle(LitterTheme.textPrimary)
+                        LabeledContent("Current thread policy", value: currentThreadPermissionLabel)
+                            .foregroundStyle(LitterTheme.textSecondary)
+                    },
+                    header: {
+                        Text("Current")
+                    },
+                    footer: {
+                        Text("Changes apply on your next turn and later turns.")
+                            .foregroundStyle(LitterTheme.textMuted)
+                            .litterFont(.caption)
+                    })
+                .listRowBackground(LitterTheme.surface.opacity(0.6))
+                ForEach(ComposerPermissionPreset.allCases) { preset in
+                    Button {
+                        appState.setPermissions(
+                            approvalPolicy: preset.approvalPolicy,
+                            sandboxMode: preset.sandboxMode,
+                            for: snapshot.threadKey
+                        )
+                        showPermissionsSheet = false
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(preset.title)
+                                    .foregroundColor(LitterTheme.textPrimary)
+                                    .litterFont(.subheadline)
+                                Spacer()
+                                if preset.approvalPolicy == appState.approvalPolicy(for: snapshot.threadKey)
+                                    && preset.sandboxMode == appState.sandboxMode(for: snapshot.threadKey) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(LitterTheme.accent)
+                                }
+                            }
+                            Text(preset.description)
+                                .foregroundColor(LitterTheme.textSecondary)
+                                .litterFont(.caption)
+                        }
+                    }
+                    .listRowBackground(LitterTheme.surface.opacity(0.6))
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(LitterTheme.backgroundGradient.ignoresSafeArea())
+            .navigationTitle("Permissions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { showPermissionsSheet = false }
+                        .foregroundColor(LitterTheme.accent)
+                }
+            }
+        }
     }
 
     @ViewBuilder
