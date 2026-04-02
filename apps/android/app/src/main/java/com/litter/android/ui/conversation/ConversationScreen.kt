@@ -397,6 +397,21 @@ fun ConversationScreen(
                                 val timelineEntries = remember(turn.items, turn.isActiveTurn) {
                                     buildTimelineEntries(turn.items, turn.isActiveTurn)
                                 }
+                                val latestCommandExecutionItemId = remember(timelineEntries) {
+                                    timelineEntries.asReversed().firstNotNullOfOrNull { entry ->
+                                        when (entry) {
+                                            is TimelineEntry.Single -> {
+                                                if (entry.item.content is HydratedConversationItemContent.CommandExecution) {
+                                                    entry.item.id
+                                                } else {
+                                                    null
+                                                }
+                                            }
+
+                                            is TimelineEntry.Exploration -> null
+                                        }
+                                    }
+                                }
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     timelineEntries.forEachIndexed { index, entry ->
                                         when (entry) {
@@ -405,6 +420,7 @@ fun ConversationScreen(
                                                     item = entry.item,
                                                     serverId = threadKey.serverId,
                                                     agentDirectoryVersion = agentDirectoryVersion,
+                                                    latestCommandExecutionItemId = latestCommandExecutionItemId,
                                                     isLiveTurn = turn.isActiveTurn,
                                                     isStreamingMessage = entry.item.id == streamingAssistantItemId,
                                                     onStreamingSnapshotRendered = if (entry.item.id == streamingAssistantItemId) {

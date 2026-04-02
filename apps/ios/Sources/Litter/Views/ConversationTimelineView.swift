@@ -18,10 +18,20 @@ struct ConversationTurnTimeline: View {
 
     var body: some View {
         let rows = rowDescriptors
+        let latestCommandExecutionItemId = rows.reversed().compactMap { row -> String? in
+            guard case .item(let item) = row,
+                  case .commandExecution(let data) = item.content,
+                  !data.isPureExploration else { return nil }
+            return item.id
+        }.first
 
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                rowView(row, isLastRow: index == rows.indices.last)
+                rowView(
+                    row,
+                    isLastRow: index == rows.indices.last,
+                    latestCommandExecutionItemId: latestCommandExecutionItemId
+                )
                     .id(row.id)
             }
         }
@@ -39,13 +49,18 @@ struct ConversationTurnTimeline: View {
     }
 
     @ViewBuilder
-    private func rowView(_ row: ConversationTimelineRowDescriptor, isLastRow: Bool) -> some View {
+    private func rowView(
+        _ row: ConversationTimelineRowDescriptor,
+        isLastRow: Bool,
+        latestCommandExecutionItemId: String?
+    ) -> some View {
         switch row {
         case .item(let item):
             ConversationTimelineItemRow(
                 item: item,
                 serverId: serverId,
                 agentDirectoryVersion: agentDirectoryVersion,
+                latestCommandExecutionItemId: latestCommandExecutionItemId,
                 renderMode: renderMode,
                 isLiveTurn: isLive,
                 isStreamingMessage: item.id == streamingAssistantItemId,
@@ -230,6 +245,7 @@ private struct ConversationTimelineItemRow: View {
     let item: ConversationItem
     let serverId: String
     let agentDirectoryVersion: UInt64
+    let latestCommandExecutionItemId: String?
     let renderMode: ConversationTurnRenderMode
     let isLiveTurn: Bool
     let isStreamingMessage: Bool
@@ -257,7 +273,10 @@ private struct ConversationTimelineItemRow: View {
             case .proposedPlan(let data):
                 ConversationProposedPlanRow(data: data, renderMode: renderMode)
             case .commandExecution(let data):
-                ConversationCommandExecutionRow(item: item, data: data)
+                ConversationCommandExecutionRow(
+                    data: data,
+                    isPreferredExpanded: item.id == latestCommandExecutionItemId || data.isInProgress
+                )
             case .fileChange(let data):
                 ConversationToolCardRow(model: makeFileChangeModel(data))
             case .turnDiff(let data):
@@ -1053,33 +1072,70 @@ private struct ConversationTurnDiffRow: View {
 }
 
 private struct ConversationCommandExecutionRow: View {
-    let item: ConversationItem
     let data: ConversationCommandExecutionData
+    let isPreferredExpanded: Bool
+
+    @State private var expanded: Bool
+
+    init(
+        data: ConversationCommandExecutionData,
+        isPreferredExpanded: Bool
+    ) {
+        self.data = data
+        self.isPreferredExpanded = isPreferredExpanded
+        _expanded = State(initialValue: isPreferredExpanded)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            shellLine
-            ConversationCommandOutputViewport(
-                output: renderedOutput,
-                status: data.status.toolCallStatus,
-                durationText: formatDuration(data.durationMs)
-            )
+        VStack(alignment: .leading, spacing: expanded ? 8 : 0) {
+            shellHeader
+            if expanded {
+                ConversationCommandOutputViewport(
+                    output: renderedOutput,
+                    status: data.status.toolCallStatus,
+                    durationText: nil
+                )
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .onChange(of: isPreferredExpanded) { _, newValue in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                expanded = newValue
+            }
+        }
     }
 
-    private var shellLine: some View {
+    private var shellHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("$")
                 .litterMonoFont(size: 12, weight: .semibold)
                 .foregroundColor(LitterTheme.warning)
 
-            Text(data.command.isEmpty ? "command" : data.command)
+            Text(expanded ? displayedCommand : collapsedCommand)
                 .litterMonoFont(size: 12)
                 .foregroundColor(LitterTheme.textSystem)
                 .textSelection(.enabled)
+                .lineLimit(expanded ? nil : 1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let durationText = formatDuration(data.durationMs), !durationText.isEmpty {
+                Text(durationText)
+                    .litterFont(.caption2)
+                    .foregroundColor(statusColor)
+                    .accessibilityLabel(durationAccessibilityLabel(durationText))
+            }
+
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                .litterFont(size: 11, weight: .medium)
+                .foregroundColor(LitterTheme.textMuted)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                expanded.toggle()
+            }
         }
     }
 
@@ -1089,6 +1145,45 @@ private struct ConversationCommandExecutionRow: View {
             return trimmed
         }
         return data.isInProgress ? "Waiting for output…" : "No output"
+    }
+
+    private var displayedCommand: String {
+        let trimmed = data.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "command" : trimmed
+    }
+
+    private var collapsedCommand: String {
+        let collapsed = displayedCommand
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return collapsed.isEmpty ? "command" : collapsed
+    }
+
+    private var statusColor: Color {
+        switch data.status.toolCallStatus {
+        case .completed:
+            return LitterTheme.success
+        case .inProgress:
+            return LitterTheme.warning
+        case .failed:
+            return LitterTheme.danger
+        case .unknown:
+            return LitterTheme.textSecondary
+        }
+    }
+
+    private func durationAccessibilityLabel(_ duration: String) -> String {
+        switch data.status.toolCallStatus {
+        case .completed:
+            return "\(duration), completed"
+        case .inProgress:
+            return "\(duration), in progress"
+        case .failed:
+            return "\(duration), failed"
+        case .unknown:
+            return duration
+        }
     }
 }
 

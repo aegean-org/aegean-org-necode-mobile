@@ -104,11 +104,9 @@ fn normalize_pending_user_input_answers(
 }
 
 fn ipc_pending_user_input_submission_id(request: &PendingUserInputRequest) -> &str {
-    if request.turn_id.is_empty() {
-        &request.id
-    } else {
-        &request.turn_id
-    }
+    // Desktop thread-follower user-input replies resolve the pending app-server request,
+    // not the turn id that originally emitted it.
+    &request.id
 }
 
 fn normalize_pending_user_input_answer_entries(
@@ -5473,7 +5471,7 @@ mod mobile_client_tests {
     }
 
     #[test]
-    fn ipc_pending_user_input_submission_id_prefers_turn_id() {
+    fn ipc_pending_user_input_submission_id_uses_request_id() {
         let request = make_user_input_request(PendingUserInputQuestion {
             id: "q-1".to_string(),
             header: None,
@@ -5482,21 +5480,6 @@ mod mobile_client_tests {
             is_secret: false,
             options: Vec::new(),
         });
-
-        assert_eq!(ipc_pending_user_input_submission_id(&request), "turn-1");
-    }
-
-    #[test]
-    fn ipc_pending_user_input_submission_id_falls_back_to_request_id() {
-        let mut request = make_user_input_request(PendingUserInputQuestion {
-            id: "q-1".to_string(),
-            header: None,
-            question: "Choose one".to_string(),
-            is_other_allowed: false,
-            is_secret: false,
-            options: Vec::new(),
-        });
-        request.turn_id.clear();
 
         assert_eq!(ipc_pending_user_input_submission_id(&request), "req-1");
     }

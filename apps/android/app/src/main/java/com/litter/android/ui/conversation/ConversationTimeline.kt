@@ -94,6 +94,7 @@ fun ConversationTimelineItem(
     item: HydratedConversationItem,
     serverId: String,
     agentDirectoryVersion: ULong,
+    latestCommandExecutionItemId: String? = null,
     isLiveTurn: Boolean = false,
     isStreamingMessage: Boolean = false,
     onStreamingSnapshotRendered: (() -> Unit)? = null,
@@ -137,6 +138,9 @@ fun ConversationTimelineItem(
 
         is HydratedConversationItemContent.CommandExecution -> CommandExecutionRow(
             data = content.v1,
+            keepExpanded = item.id == latestCommandExecutionItemId ||
+                content.v1.status == AppOperationStatus.PENDING ||
+                content.v1.status == AppOperationStatus.IN_PROGRESS,
         )
 
         is HydratedConversationItemContent.FileChange -> FileChangeRow(
@@ -559,7 +563,9 @@ private fun ReasoningRow(
 @Composable
 private fun CommandExecutionRow(
     data: uniffi.codex_mobile_client.HydratedCommandExecutionData,
+    keepExpanded: Boolean,
 ) {
+    var expanded by remember(data.command) { mutableStateOf(keepExpanded) }
     val outputScrollState = rememberScrollState()
     val outputText =
         data.output
@@ -570,8 +576,15 @@ private fun CommandExecutionRow(
             } else {
                 "No output"
             }
+    val displayedCommand = remember(data.command) { displayCommandText(data.command) }
+    val collapsedCommand = remember(data.command) { collapseCommandText(data.command) }
 
-    LaunchedEffect(outputText, outputScrollState.maxValue) {
+    LaunchedEffect(keepExpanded) {
+        expanded = keepExpanded
+    }
+
+    LaunchedEffect(outputText, outputScrollState.maxValue, expanded) {
+        if (!expanded) return@LaunchedEffect
         if (outputScrollState.maxValue <= 0) return@LaunchedEffect
         outputScrollState.animateScrollTo(outputScrollState.maxValue)
     }
@@ -582,7 +595,9 @@ private fun CommandExecutionRow(
             .padding(vertical = 1.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -594,10 +609,12 @@ private fun CommandExecutionRow(
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                text = data.command,
+                text = if (expanded) displayedCommand else collapsedCommand,
                 color = LitterTheme.textSystem,
                 fontFamily = LitterTheme.monoFont,
                 fontSize = LitterTextStyle.caption.scaled,
+                maxLines = if (expanded) Int.MAX_VALUE else 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             data.durationMs?.takeIf { it > 0 }?.let { ms ->
@@ -608,25 +625,34 @@ private fun CommandExecutionRow(
                     fontSize = LitterTextStyle.caption2.scaled,
                 )
             }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (expanded) "▲" else "▼",
+                color = LitterTheme.warning,
+                fontSize = LitterTextStyle.caption2.scaled,
+                fontWeight = FontWeight.Bold,
+            )
         }
 
-        Spacer(Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp, max = 116.dp)
-                .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-        ) {
-            Text(
-                text = outputText,
-                color = LitterTheme.textSecondary,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.caption.scaled,
+        if (expanded) {
+            Spacer(Modifier.height(6.dp))
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(outputScrollState),
-            )
+                    .heightIn(min = 56.dp, max = 116.dp)
+                    .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = outputText,
+                    color = LitterTheme.textSecondary,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = LitterTextStyle.caption.scaled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(outputScrollState),
+                )
+            }
         }
     }
 }
@@ -1287,6 +1313,18 @@ private fun ToolCardShell(
             )
         }
     }
+}
+
+private fun displayCommandText(command: String): String {
+    val trimmed = command.trim()
+    return if (trimmed.isEmpty()) "command" else trimmed
+}
+
+private fun collapseCommandText(command: String): String {
+    val collapsed = displayCommandText(command)
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    return if (collapsed.isEmpty()) "command" else collapsed
 }
 
 @Composable
