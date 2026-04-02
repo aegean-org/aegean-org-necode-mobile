@@ -385,48 +385,11 @@ private struct ConversationTimelineItemRow: View {
                 messageId: item.id,
                 key: revisionKey
             )
-            let hasImages = parsed.contains { segment in
-                if case .image = segment.kind { return true }
-                return false
-            }
-            let canUseSingleBubble = parsed.count == 1 && !hasImages
 
-            if canUseSingleBubble,
-               let first = parsed.first,
-               case .markdown(let content, let identity) = first.kind {
-                AssistantBubble(
-                    markdownString: content,
-                    markdownIdentity: identity,
-                    label: assistantLabel,
-                    themeVersion: themeManager.themeVersion
-                )
-            } else {
-                InlineSelectableMarkdownMessage(markdown: data.text) {
-                    HStack(alignment: .top, spacing: 0) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let assistantLabel {
-                                Text(assistantLabel)
-                                    .litterFont(.caption2, weight: .semibold)
-                                    .foregroundColor(LitterTheme.textSecondary)
-                            }
-                            ForEach(parsed) { segment in
-                                switch segment.kind {
-                                case .markdown(let content, _):
-                                    LitterMarkdownView(markdown: content)
-                                case .image(let image):
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxHeight: 300)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Spacer(minLength: 20)
-                    }
-                }
-            }
+            AssistantBlocksBubble(
+                segments: parsed,
+                label: assistantLabel
+            )
         }
     }
 

@@ -103,6 +103,8 @@ class AppModel private constructor(context: android.content.Context) {
     private val loadingModelServerIds = mutableSetOf<String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
     private val sessionListMutex = Mutex()
+    private var pendingActiveThreadHydrationKey: ThreadKey? = null
+    private var pendingActiveThreadHydrationJob: Job? = null
 
     // --- Composer prefill queue (for edit message / slash commands) -----------
 
@@ -154,6 +156,9 @@ class AppModel private constructor(context: android.content.Context) {
     fun stop() {
         subscriptionJob?.cancel()
         subscriptionJob = null
+        pendingActiveThreadHydrationJob?.cancel()
+        pendingActiveThreadHydrationJob = null
+        pendingActiveThreadHydrationKey = null
     }
 
     // --- Snapshot refresh -----------------------------------------------------
@@ -337,21 +342,44 @@ class AppModel private constructor(context: android.content.Context) {
             return key
         }
 
+        if (existing != null) {
+            launchState.syncFromThread(existing)
+            scheduleBackgroundThreadPermissionHydration(key)
+            return key
+        }
+
+        if (snapshot.value?.sessionSummaries?.any { it.key == key } == true) {
+            scheduleBackgroundThreadPermissionHydration(key)
+            return key
+        }
+
         return try {
             val nextKey = client.readThread(
                 key.serverId,
                 AppReadThreadRequest(
                     threadId = key.threadId,
-                    includeTurns = true,
+                    includeTurns = false,
                 ),
             )
-            refreshSnapshot()
-            launchState.syncFromThread(snapshot.value?.threads?.firstOrNull { it.key == nextKey })
+            val threadSnapshot = store.threadSnapshot(nextKey)
+            if (threadSnapshot != null) {
+                applyThreadSnapshot(threadSnapshot)
+                launchState.syncFromThread(threadSnapshot)
+            } else {
+                refreshSnapshot()
+                launchState.syncFromThread(snapshot.value?.threads?.firstOrNull { it.key == nextKey })
+            }
             nextKey
         } catch (e: Exception) {
             _lastError.value = e.message
             null
         }
+    }
+
+    fun activateThread(key: ThreadKey?) {
+        updateActiveThread(key)
+        store.setActiveThread(key)
+        scheduleDeferredActiveThreadHydrationIfNeeded(key)
     }
 
     suspend fun startTurn(
@@ -487,6 +515,7 @@ class AppModel private constructor(context: android.content.Context) {
                 if (update.key != null && snapshot.value?.threads?.any { it.key == update.key } != true) {
                     refreshThreadSnapshot(update.key)
                 }
+                scheduleDeferredActiveThreadHydrationIfNeeded(update.key)
             }
             is AppStoreUpdateRecord.PendingApprovalsChanged -> refreshSnapshot()
             is AppStoreUpdateRecord.PendingUserInputsChanged -> refreshSnapshot()
@@ -532,6 +561,98 @@ class AppModel private constructor(context: android.content.Context) {
             _lastError.value = e.message
             refreshSnapshot()
         }
+    }
+
+    private fun scheduleBackgroundThreadPermissionHydration(key: ThreadKey) {
+        scope.launch {
+            try {
+                val nextKey = client.readThread(
+                    key.serverId,
+                    AppReadThreadRequest(
+                        threadId = key.threadId,
+                        includeTurns = false,
+                    ),
+                )
+                val threadSnapshot = store.threadSnapshot(nextKey)
+                if (threadSnapshot != null) {
+                    applyThreadSnapshot(threadSnapshot)
+                    launchState.syncFromThread(threadSnapshot)
+                } else {
+                    refreshSnapshot()
+                    launchState.syncFromThread(snapshot.value?.threads?.firstOrNull { it.key == nextKey })
+                }
+            } catch (e: Exception) {
+                _lastError.value = e.message
+            }
+        }
+    }
+
+    private fun scheduleDeferredActiveThreadHydrationIfNeeded(key: ThreadKey?) {
+        if (key == null) {
+            pendingActiveThreadHydrationJob?.cancel()
+            pendingActiveThreadHydrationJob = null
+            pendingActiveThreadHydrationKey = null
+            return
+        }
+
+        val thread = snapshot.value?.threads?.firstOrNull { it.key == key }
+        if (thread == null || !shouldAttemptDeferredHydration(thread)) {
+            if (pendingActiveThreadHydrationKey == key) {
+                pendingActiveThreadHydrationJob?.cancel()
+                pendingActiveThreadHydrationJob = null
+                pendingActiveThreadHydrationKey = null
+            }
+            return
+        }
+
+        if (pendingActiveThreadHydrationKey == key && pendingActiveThreadHydrationJob != null) {
+            return
+        }
+
+        pendingActiveThreadHydrationJob?.cancel()
+        pendingActiveThreadHydrationKey = key
+        pendingActiveThreadHydrationJob = scope.launch {
+            delay(300)
+            hydrateActiveThreadIfNeeded(key)
+        }
+    }
+
+    private suspend fun hydrateActiveThreadIfNeeded(key: ThreadKey) {
+        try {
+            val current = snapshot.value
+            val thread = current?.threads?.firstOrNull { it.key == key }
+            if (current?.activeThread != key || thread == null || !shouldAttemptDeferredHydration(thread)) {
+                return
+            }
+
+            val nextKey = client.readThread(
+                key.serverId,
+                AppReadThreadRequest(
+                    threadId = key.threadId,
+                    includeTurns = true,
+                ),
+            )
+            val threadSnapshot = store.threadSnapshot(nextKey)
+            if (threadSnapshot != null) {
+                applyThreadSnapshot(threadSnapshot)
+            } else {
+                refreshThreadSnapshot(nextKey)
+            }
+        } catch (e: Exception) {
+            _lastError.value = e.message
+        } finally {
+            if (pendingActiveThreadHydrationKey == key) {
+                pendingActiveThreadHydrationJob = null
+                pendingActiveThreadHydrationKey = null
+            }
+        }
+    }
+
+    private fun shouldAttemptDeferredHydration(thread: AppThreadSnapshot): Boolean {
+        if (thread.hydratedConversationItems.isNotEmpty()) return false
+        val preview = thread.info.preview?.trim().orEmpty()
+        val title = thread.info.title?.trim().orEmpty()
+        return preview.isNotEmpty() || title.isNotEmpty() || thread.hasActiveTurn
     }
 
     private fun applyThreadSnapshot(thread: AppThreadSnapshot) {

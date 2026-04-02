@@ -145,23 +145,10 @@ fun ConversationScreen(
     LaunchedEffect(threadKey) {
         try {
             val resolvedThreadKey = appModel.hydrateThreadPermissions(threadKey) ?: threadKey
-            appModel.store.setActiveThread(resolvedThreadKey)
+            appModel.activateThread(resolvedThreadKey)
             val server = appModel.snapshot.value?.servers?.find { it.serverId == resolvedThreadKey.serverId }
             val cwdOverride = thread?.info?.cwd
-            if (server?.isIpcConnected == true) {
-                try {
-                    appModel.externalResumeThread(resolvedThreadKey)
-                } catch (_: Exception) {
-                    appModel.client.resumeThread(
-                        resolvedThreadKey.serverId,
-                        appModel.launchState.threadResumeRequest(
-                            resolvedThreadKey.threadId,
-                            cwdOverride = cwdOverride,
-                            threadKey = resolvedThreadKey,
-                        ),
-                    )
-                }
-            } else {
+            if (server?.isIpcConnected != true) {
                 appModel.client.resumeThread(
                     resolvedThreadKey.serverId,
                     appModel.launchState.threadResumeRequest(

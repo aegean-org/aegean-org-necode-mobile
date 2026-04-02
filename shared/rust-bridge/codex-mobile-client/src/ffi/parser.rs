@@ -1,3 +1,4 @@
+use crate::hydration::AppMessageRenderBlock;
 use crate::hydration::AppMessageSegment;
 use crate::parser::{AppCodeReviewPayload, AppToolCallCard};
 
@@ -28,6 +29,13 @@ impl MessageParser {
         crate::hydration::extract_message_segments(&text)
             .into_iter()
             .map(AppMessageSegment::from)
+            .collect()
+    }
+
+    pub fn extract_render_blocks_typed(&self, text: String) -> Vec<AppMessageRenderBlock> {
+        crate::hydration::extract_message_render_blocks(&text)
+            .into_iter()
+            .map(AppMessageRenderBlock::from)
             .collect()
     }
 }

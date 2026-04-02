@@ -140,6 +140,49 @@ impl From<MessageSegment> for AppMessageSegment {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "camelCase")]
+pub enum MessageRenderBlock {
+    Markdown {
+        markdown: String,
+    },
+    CodeBlock {
+        language: Option<String>,
+        code: String,
+    },
+    InlineImage {
+        data: Vec<u8>,
+        mime_type: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum AppMessageRenderBlock {
+    Markdown {
+        markdown: String,
+    },
+    CodeBlock {
+        language: Option<String>,
+        code: String,
+    },
+    InlineImage {
+        data: Vec<u8>,
+        mime_type: String,
+    },
+}
+
+impl From<MessageRenderBlock> for AppMessageRenderBlock {
+    fn from(value: MessageRenderBlock) -> Self {
+        match value {
+            MessageRenderBlock::Markdown { markdown } => Self::Markdown { markdown },
+            MessageRenderBlock::CodeBlock { language, code } => Self::CodeBlock { language, code },
+            MessageRenderBlock::InlineImage { data, mime_type } => {
+                Self::InlineImage { data, mime_type }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CachedMessage
 // ---------------------------------------------------------------------------
@@ -696,6 +739,59 @@ pub fn extract_message_segments(text: &str) -> Vec<MessageSegment> {
     }
 }
 
+pub fn extract_message_render_blocks(text: &str) -> Vec<MessageRenderBlock> {
+    let mut blocks = Vec::new();
+
+    for segment in extract_message_segments(text) {
+        match segment {
+            MessageSegment::Text(text) => {
+                for markdown in crate::markdown_blocks::render_markdown_blocks(&text) {
+                    match markdown {
+                        crate::markdown_blocks::MarkdownBlock::Markdown(markdown) => {
+                            if !markdown.is_empty() {
+                                blocks.push(MessageRenderBlock::Markdown { markdown });
+                            }
+                        }
+                        crate::markdown_blocks::MarkdownBlock::CodeBlock { language, code } => {
+                            blocks.push(MessageRenderBlock::CodeBlock { language, code });
+                        }
+                        crate::markdown_blocks::MarkdownBlock::ThematicBreak => {
+                            blocks.push(MessageRenderBlock::Markdown {
+                                markdown: "---".to_owned(),
+                            });
+                        }
+                    }
+                }
+            }
+            MessageSegment::InlineMath { latex } => {
+                blocks.push(MessageRenderBlock::Markdown {
+                    markdown: format!("${latex}$"),
+                });
+            }
+            MessageSegment::DisplayMath { latex } => {
+                blocks.push(MessageRenderBlock::CodeBlock {
+                    language: Some("math".to_owned()),
+                    code: latex.trim_matches('\n').to_owned(),
+                });
+            }
+            MessageSegment::CodeBlock { language, code } => {
+                blocks.push(MessageRenderBlock::CodeBlock { language, code });
+            }
+            MessageSegment::InlineImage { data, mime_type } => {
+                blocks.push(MessageRenderBlock::InlineImage { data, mime_type });
+            }
+        }
+    }
+
+    if blocks.is_empty() && !text.is_empty() {
+        blocks.push(MessageRenderBlock::Markdown {
+            markdown: text.to_owned(),
+        });
+    }
+
+    blocks
+}
+
 // ---------------------------------------------------------------------------
 // FollowScrollTracker
 // ---------------------------------------------------------------------------
@@ -737,6 +833,7 @@ impl Default for FollowScrollTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     // -- MessageHydrator --
 
@@ -1134,6 +1231,65 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_render_blocks_splits_markdown_code_and_images() {
+        let png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+        let text = format!(
+            "# Heading\n\nParagraph.\n\n![img](data:image/png;base64,{png_b64})\n\n```swift\nprint(\"hi\")\n```\n\nAfter"
+        );
+
+        let blocks = extract_message_render_blocks(&text);
+
+        assert_eq!(
+            blocks,
+            vec![
+                MessageRenderBlock::Markdown {
+                    markdown: "# Heading".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "Paragraph.".to_owned(),
+                },
+                MessageRenderBlock::InlineImage {
+                    data: base64::engine::general_purpose::STANDARD
+                        .decode(png_b64)
+                        .unwrap(),
+                    mime_type: "image/png".to_owned(),
+                },
+                MessageRenderBlock::CodeBlock {
+                    language: Some("swift".to_owned()),
+                    code: "print(\"hi\")".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "After".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_render_blocks_keeps_thematic_break_and_display_math_separate() {
+        let blocks = extract_message_render_blocks("Before\n\n---\n\n$$x^2$$\n\nAfter");
+
+        assert_eq!(
+            blocks,
+            vec![
+                MessageRenderBlock::Markdown {
+                    markdown: "Before".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "---".to_owned(),
+                },
+                MessageRenderBlock::CodeBlock {
+                    language: Some("math".to_owned()),
+                    code: "x^2".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "After".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn test_extract_inline_math() {
         let segs = extract_message_segments("Euler: $e^{i\\pi}+1=0$ wow");
 
@@ -1236,6 +1392,42 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_render_blocks_keep_display_math_as_code_block() {
+        let blocks = extract_message_render_blocks("Before\n\n\\[\nc+d\n\\]\n\nAfter");
+        assert_eq!(
+            blocks,
+            vec![
+                MessageRenderBlock::Markdown {
+                    markdown: "Before".to_owned(),
+                },
+                MessageRenderBlock::CodeBlock {
+                    language: Some("math".to_owned()),
+                    code: "c+d".to_owned(),
+                },
+                MessageRenderBlock::Markdown {
+                    markdown: "After".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_render_blocks_keep_inline_images_separate() {
+        let png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn8Vf0AAAAASUVORK5CYII=";
+        let text = format!("Intro ![](data:image/png;base64,{png_b64}) Outro");
+        let blocks = extract_message_render_blocks(&text);
+
+        assert!(matches!(
+            blocks.as_slice(),
+            [
+                MessageRenderBlock::Markdown { .. },
+                MessageRenderBlock::InlineImage { mime_type, .. },
+                MessageRenderBlock::Markdown { .. }
+            ] if mime_type == "image/png"
+        ));
     }
 
     // -- FollowScrollTracker --

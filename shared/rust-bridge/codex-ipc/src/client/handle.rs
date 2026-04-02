@@ -15,13 +15,13 @@ use crate::handler::RequestHandler;
 use crate::protocol::envelope::{Broadcast, Envelope, Request, Response};
 use crate::protocol::method::Method;
 use crate::protocol::params::{
-    ExternalResumeThreadParams, InitializeParams, InitializeResult,
-    ThreadFollowerCommandApprovalDecisionParams, ThreadFollowerEditLastUserTurnParams,
-    ThreadFollowerFileApprovalDecisionParams, ThreadFollowerInterruptTurnParams,
-    ThreadFollowerSetCollaborationModeParams, ThreadFollowerSetModelAndReasoningParams,
-    ThreadFollowerSetQueuedFollowUpsStateParams, ThreadFollowerStartTurnParams,
-    ThreadFollowerSteerTurnParams, ThreadFollowerSubmitMcpServerElicitationResponseParams,
-    ThreadFollowerSubmitUserInputParams, TypedBroadcast,
+    InitializeParams, InitializeResult, ThreadFollowerCommandApprovalDecisionParams,
+    ThreadFollowerEditLastUserTurnParams, ThreadFollowerFileApprovalDecisionParams,
+    ThreadFollowerInterruptTurnParams, ThreadFollowerSetCollaborationModeParams,
+    ThreadFollowerSetModelAndReasoningParams, ThreadFollowerSetQueuedFollowUpsStateParams,
+    ThreadFollowerStartTurnParams, ThreadFollowerSteerTurnParams,
+    ThreadFollowerSubmitMcpServerElicitationResponseParams, ThreadFollowerSubmitUserInputParams,
+    TypedBroadcast,
 };
 use crate::transport::socket;
 
@@ -319,14 +319,6 @@ impl IpcClient {
         params: ThreadFollowerSetQueuedFollowUpsStateParams,
     ) -> Result<serde_json::Value, IpcError> {
         self.send_request(Method::ThreadFollowerSetQueuedFollowUpsState, &params, None)
-            .await
-    }
-
-    pub async fn external_resume_thread(
-        &self,
-        params: ExternalResumeThreadParams,
-    ) -> Result<serde_json::Value, IpcError> {
-        self.send_request(Method::ExternalResumeThread, &params, None)
             .await
     }
 }

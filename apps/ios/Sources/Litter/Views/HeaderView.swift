@@ -257,7 +257,7 @@ struct HeaderView: View {
                             searchTerm: nil
                         )
                     )
-                    let nextKey = try? await appModel.resumeThreadPreferringIPC(
+                    let nextKey = try? await appModel.reloadThreadPreferringIPC(
                         key: thread.key,
                         launchConfig: reloadLaunchConfig(),
                         cwdOverride: thread.info.cwd

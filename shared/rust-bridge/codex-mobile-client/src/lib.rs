@@ -16,6 +16,7 @@ pub mod ffi;
 pub mod hydration;
 pub mod immer_patch;
 pub mod logging;
+pub mod markdown_blocks;
 mod mobile_client_impl;
 pub mod parser;
 pub mod permissions;

@@ -70,6 +70,12 @@ struct SelectableMarkdownTextView: UIViewRepresentable {
     let style: LitterMarkdownStyleVariant
     let fontSize: CGFloat
 
+    private static let attributedTextCache: NSCache<NSString, NSAttributedString> = {
+        let cache = NSCache<NSString, NSAttributedString>()
+        cache.countLimit = 512
+        return cache
+    }()
+
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
         textView.backgroundColor = .clear
@@ -79,9 +85,13 @@ struct SelectableMarkdownTextView: UIViewRepresentable {
         textView.showsVerticalScrollIndicator = false
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.widthTracksTextView = true
+        textView.textContainer.lineBreakMode = .byWordWrapping
         textView.adjustsFontForContentSizeCategory = true
         textView.dataDetectorTypes = []
         textView.textDragInteraction?.isEnabled = true
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return textView
     }
 
@@ -108,6 +118,11 @@ struct SelectableMarkdownTextView: UIViewRepresentable {
     }
 
     private func attributedText() -> NSAttributedString {
+        let cacheKey = "\(style.cacheKey)|\(fontSize)|\(markdown)" as NSString
+        if let cached = Self.attributedTextCache.object(forKey: cacheKey) {
+            return cached
+        }
+
         let baseFont = UIFont(name: LitterFont.markdownFontName, size: fontSize)
             ?? UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         let attributes: [NSAttributedString.Key: Any] = [
@@ -124,10 +139,25 @@ struct SelectableMarkdownTextView: UIViewRepresentable {
         ) {
             let mutable = NSMutableAttributedString(attributed)
             mutable.addAttributes(attributes, range: NSRange(location: 0, length: mutable.length))
-            return mutable
+            let result = NSAttributedString(attributedString: mutable)
+            Self.attributedTextCache.setObject(result, forKey: cacheKey)
+            return result
         }
 
-        return NSAttributedString(string: markdown, attributes: attributes)
+        let fallback = NSAttributedString(string: markdown, attributes: attributes)
+        Self.attributedTextCache.setObject(fallback, forKey: cacheKey)
+        return fallback
+    }
+}
+
+private extension LitterMarkdownStyleVariant {
+    var cacheKey: String {
+        switch self {
+        case .content:
+            return "content"
+        case .system:
+            return "system"
+        }
     }
 }
 
@@ -277,7 +307,56 @@ struct AssistantBubble: View, Equatable {
     }
 }
 
+struct AssistantBlocksBubble: View {
+    let segments: [MessageRenderCache.AssistantSegment]
+    var label: String? = nil
+    var compact: Bool = false
+    @ScaledMetric(relativeTo: .body) private var mdBodySize: CGFloat = 14
+    @ScaledMetric(relativeTo: .footnote) private var mdCodeSize: CGFloat = 13
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: compact ? 4 : 8) {
+                if let label {
+                    Text(label)
+                        .litterFont(.caption2, weight: .semibold)
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+
+                ForEach(segments) { segment in
+                    switch segment.kind {
+                    case .markdown(let content, let identity):
+                        SelectableMarkdownTextView(
+                            markdown: content,
+                            style: .content,
+                            fontSize: compact ? 12 : mdBodySize
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(identity)
+                    case .codeBlock(let language, let code, let identity):
+                        CodeBlockView(
+                            language: language ?? "",
+                            code: code,
+                            fontSize: compact ? 11 : mdCodeSize
+                        )
+                        .id(identity)
+                    case .image(let uiImage):
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 300)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: compact ? 8 : 20)
+        }
+    }
+}
+
 struct StreamingAssistantBubble: View {
+    private let renderCache = MessageRenderCache.shared
     let text: String
     var label: String? = nil
     var themeVersion: Int = 0
@@ -290,17 +369,14 @@ struct StreamingAssistantBubble: View {
     private let flushInterval: TimeInterval = 0.06
 
     var body: some View {
-        AssistantBubble(
-            markdownString: renderedText,
-            markdownIdentity: renderedText.hashValue,
+        AssistantBlocksBubble(
+            segments: renderedSegments,
             label: label,
-            themeVersion: themeVersion,
-            allowsInlineSelection: false
+            compact: false
         )
-            .equatable()
             .opacity(snapshotOpacity)
             .onAppear {
-                renderedText = normalizedMarkdown(from: text)
+                renderedText = text
                 onSnapshotRendered?()
             }
             .onChange(of: text) {
@@ -315,14 +391,13 @@ struct StreamingAssistantBubble: View {
     }
 
     private func scheduleRenderUpdate(with newText: String) {
-        let normalizedText = normalizedMarkdown(from: newText)
-        guard normalizedText != renderedText else { return }
+        guard newText != renderedText else { return }
         if renderedText.isEmpty {
-            renderedText = normalizedText
+            renderedText = newText
             return
         }
 
-        pendingText = normalizedText
+        pendingText = newText
         guard flushWorkItem == nil else { return }
         scheduleFlush()
     }
@@ -348,8 +423,18 @@ struct StreamingAssistantBubble: View {
         }
     }
 
-    private func normalizedMarkdown(from text: String) -> String {
-        MessageContentBridge.normalizedAssistantMarkdown(text)
+    private var renderedSegments: [MessageRenderCache.AssistantSegment] {
+        let revisionKey = MessageRenderCache.RevisionKey(
+            messageId: "streaming-\(label ?? "assistant")",
+            revisionToken: renderedText.hashValue,
+            serverId: "<streaming>",
+            agentDirectoryVersion: UInt64(max(themeVersion, 0))
+        )
+        return renderCache.assistantSegments(
+            text: renderedText,
+            messageId: revisionKey.messageId,
+            key: revisionKey
+        )
     }
 }
 
@@ -464,59 +549,10 @@ struct MessageBubbleView: View {
                 onSnapshotRendered: onStreamingSnapshotRendered
             )
         } else {
-            let parsed = assistantSegmentsForRendering
-            let hasImages = parsed.contains { if case .image = $0.kind { return true } else { return false } }
-            let canUseSingleBubble = parsed.count == 1 && !hasImages
-
-            if canUseSingleBubble {
-                if let first = parsed.first,
-                   case let .markdown(content, identity) = first.kind {
-                    AssistantBubble(
-                        markdownString: content,
-                        markdownIdentity: identity,
-                        label: assistantAgentLabel
-                    )
-                } else {
-                    AssistantBubble(text: message.text, label: assistantAgentLabel)
-                }
-            } else {
-                // Inline images — need segment-based rendering
-                InlineSelectableMarkdownMessage(
-                    markdown: message.text,
-                    style: .content,
-                    bodySize: mdBodySize,
-                    codeSize: mdCodeSize
-                ) {
-                    HStack(alignment: .top, spacing: 0) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let assistantLabel = assistantAgentLabel {
-                                Text(assistantLabel)
-                                    .litterFont(.caption2, weight: .semibold)
-                                    .foregroundColor(LitterTheme.textSecondary)
-                            }
-                            ForEach(parsed) { segment in
-                                switch segment.kind {
-                                case .markdown(let content, _):
-                                    LitterMarkdownView(
-                                        markdown: content,
-                                        style: .content,
-                                        bodySize: mdBodySize,
-                                        codeSize: mdCodeSize
-                                    )
-                                case .image(let uiImage):
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxHeight: 300)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Spacer(minLength: 20)
-                    }
-                }
-            }
+            AssistantBlocksBubble(
+                segments: assistantSegmentsForRendering,
+                label: assistantAgentLabel
+            )
         }
     }
 

@@ -11,7 +11,6 @@ pub enum MethodKind {
 pub enum Method {
     Initialize,
     ClientStatusChanged,
-    ExternalResumeThread,
     ThreadStreamStateChanged,
     ThreadArchived,
     ThreadUnarchived,
@@ -40,8 +39,7 @@ impl Method {
             | Method::ThreadUnarchived
             | Method::ThreadQueuedFollowupsChanged
             | Method::QueryCacheInvalidate => MethodKind::Broadcast,
-            Method::ExternalResumeThread
-            | Method::ThreadFollowerStartTurn
+            Method::ThreadFollowerStartTurn
             | Method::ThreadFollowerSteerTurn
             | Method::ThreadFollowerInterruptTurn
             | Method::ThreadFollowerSetModelAndReasoning
@@ -59,7 +57,6 @@ impl Method {
         match self {
             Method::Initialize => "initialize",
             Method::ClientStatusChanged => "client-status-changed",
-            Method::ExternalResumeThread => "external-resume-thread",
             Method::ThreadStreamStateChanged => "thread-stream-state-changed",
             Method::ThreadArchived => "thread-archived",
             Method::ThreadUnarchived => "thread-unarchived",
@@ -87,7 +84,7 @@ impl Method {
 
     pub fn current_version(&self) -> u32 {
         match self {
-            Method::Initialize | Method::ExternalResumeThread => 1,
+            Method::Initialize => 1,
             Method::ThreadStreamStateChanged => 5,
             Method::ThreadArchived => 2,
             Method::ThreadUnarchived
@@ -111,7 +108,6 @@ impl Method {
         match s {
             "initialize" => Some(Method::Initialize),
             "client-status-changed" => Some(Method::ClientStatusChanged),
-            "external-resume-thread" => Some(Method::ExternalResumeThread),
             "thread-stream-state-changed" => Some(Method::ThreadStreamStateChanged),
             "thread-archived" => Some(Method::ThreadArchived),
             "thread-unarchived" => Some(Method::ThreadUnarchived),
@@ -149,7 +145,6 @@ impl Method {
         &[
             Method::Initialize,
             Method::ClientStatusChanged,
-            Method::ExternalResumeThread,
             Method::ThreadStreamStateChanged,
             Method::ThreadArchived,
             Method::ThreadUnarchived,
@@ -205,7 +200,6 @@ mod tests {
     fn version_map_completeness() {
         assert_eq!(Method::Initialize.current_version(), 1);
         assert_eq!(Method::ClientStatusChanged.current_version(), 0);
-        assert_eq!(Method::ExternalResumeThread.current_version(), 1);
         assert_eq!(Method::ThreadStreamStateChanged.current_version(), 5);
         assert_eq!(Method::ThreadArchived.current_version(), 2);
         assert_eq!(Method::ThreadUnarchived.current_version(), 1);

@@ -77,8 +77,8 @@ import io.noties.markwon.syntax.SyntaxHighlightPlugin
 import io.noties.prism4j.Prism4j
 import org.json.JSONArray
 import org.json.JSONObject
+import uniffi.codex_mobile_client.AppMessageRenderBlock
 import uniffi.codex_mobile_client.AppOperationStatus
-import uniffi.codex_mobile_client.AppMessageSegment
 import uniffi.codex_mobile_client.HydratedConversationItem
 import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.HydratedPlanStepStatus
@@ -300,19 +300,20 @@ private fun AssistantMessageRow(
     onStreamingSnapshotRendered: (() -> Unit)?,
 ) {
     val appModel = LocalAppModel.current
-    val segments = remember(itemId, data.text, serverId, agentDirectoryVersion, isStreamingMessage) {
+    val renderBlocks = remember(itemId, data.text, serverId, agentDirectoryVersion, isStreamingMessage) {
         if (isStreamingMessage) {
             emptyList()
         } else {
-        MessageRenderCache.getSegments(
-            key = MessageRenderCache.CacheKey(
-                itemId = itemId,
-                serverId = serverId,
-                agentDirectoryVersion = agentDirectoryVersion,
-            ),
-            parser = appModel.parser,
-            text = data.text,
-        )
+            MessageRenderCache.getRenderBlocks(
+                key = MessageRenderCache.CacheKey(
+                    itemId = itemId,
+                    revisionToken = data.text.hashCode(),
+                    serverId = serverId,
+                    agentDirectoryVersion = agentDirectoryVersion,
+                ),
+                parser = appModel.parser,
+                text = data.text,
+            )
         }
     }
     var renderedText by remember(itemId) { mutableStateOf(data.text) }
@@ -373,83 +374,57 @@ private fun AssistantMessageRow(
             Spacer(Modifier.height(2.dp))
         }
 
-        if (isStreamingMessage || segments.isEmpty()) {
-            MarkdownText(text = renderedText)
-        } else {
-            val renderSegments = remember(segments) { coalesceRenderableAssistantSegments(segments) }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                renderSegments.forEachIndexed { index, segment ->
-                    when (segment) {
-                        is RenderableAssistantSegment.Markdown -> MarkdownText(text = segment.text)
-                        is RenderableAssistantSegment.CodeBlock -> CodeBlockSegment(
-                            language = segment.language,
-                            code = segment.code,
+        val streamingBlocks = remember(renderedText, itemId, serverId, agentDirectoryVersion, isStreamingMessage) {
+            if (!isStreamingMessage) {
+                emptyList()
+            } else {
+                appModel.parser.extractRenderBlocksTyped(renderedText)
+            }
+        }
+
+        AssistantRenderBlocks(
+            blocks = if (isStreamingMessage) streamingBlocks else renderBlocks,
+            fallbackText = renderedText,
+        )
+    }
+}
+
+@Composable
+private fun AssistantRenderBlocks(
+    blocks: List<AppMessageRenderBlock>,
+    fallbackText: String,
+) {
+    if (blocks.isEmpty()) {
+        MarkdownText(text = fallbackText)
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        blocks.forEachIndexed { index, block ->
+            when (block) {
+                is AppMessageRenderBlock.Markdown -> MarkdownText(text = block.markdown)
+                is AppMessageRenderBlock.CodeBlock -> CodeBlockSegment(
+                    language = block.language,
+                    code = block.code,
+                )
+                is AppMessageRenderBlock.InlineImage -> {
+                    val bitmap = remember(block.data) {
+                        BitmapFactory.decodeByteArray(block.data, 0, block.data.size)
+                    }
+                    bitmap?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "Assistant image ${index + 1}",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 300.dp)
+                                .clip(RoundedCornerShape(10.dp)),
                         )
-                        is RenderableAssistantSegment.InlineImage -> {
-                            val bitmap = remember(segment.data) {
-                                BitmapFactory.decodeByteArray(segment.data, 0, segment.data.size)
-                            }
-                            bitmap?.let {
-                                Image(
-                                    bitmap = it.asImageBitmap(),
-                                    contentDescription = "Assistant image ${index + 1}",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 300.dp)
-                                        .clip(RoundedCornerShape(10.dp)),
-                                )
-                            }
-                        }
                     }
                 }
             }
         }
     }
-}
-
-private sealed interface RenderableAssistantSegment {
-    data class Markdown(val text: String) : RenderableAssistantSegment
-    data class CodeBlock(val language: String?, val code: String) : RenderableAssistantSegment
-    data class InlineImage(val data: ByteArray) : RenderableAssistantSegment
-}
-
-private fun coalesceRenderableAssistantSegments(
-    segments: List<AppMessageSegment>,
-): List<RenderableAssistantSegment> {
-    val result = mutableListOf<RenderableAssistantSegment>()
-    val markdownBuffer = StringBuilder()
-
-    fun flushMarkdown() {
-        if (markdownBuffer.isNotEmpty()) {
-            result += RenderableAssistantSegment.Markdown(markdownBuffer.toString())
-            markdownBuffer.clear()
-        }
-    }
-
-    segments.forEach { segment ->
-        when (segment) {
-            is AppMessageSegment.Text -> markdownBuffer.append(segment.text)
-            is AppMessageSegment.InlineMath -> markdownBuffer.append('$').append(segment.latex).append('$')
-            is AppMessageSegment.DisplayMath -> markdownBuffer
-                .append("$$\n")
-                .append(segment.latex)
-                .append("\n$$")
-            is AppMessageSegment.CodeBlock -> {
-                flushMarkdown()
-                result += RenderableAssistantSegment.CodeBlock(
-                    language = segment.language,
-                    code = segment.code,
-                )
-            }
-            is AppMessageSegment.InlineImage -> {
-                flushMarkdown()
-                result += RenderableAssistantSegment.InlineImage(segment.data)
-            }
-        }
-    }
-
-    flushMarkdown()
-    return result
 }
 
 @Composable

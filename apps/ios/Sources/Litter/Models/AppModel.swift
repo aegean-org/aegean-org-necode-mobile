@@ -91,18 +91,18 @@ final class AppModel {
 
     func start() {
         guard updateTask == nil else { return }
-        subscription = store.subscribeUpdates()
-        updateTask = Task { [weak self] in
+        let subscription = store.subscribeUpdates()
+        self.subscription = subscription
+        updateTask = Task.detached(priority: .userInitiated) { [weak self, subscription] in
             guard let self else { return }
             await self.refreshSnapshot()
-            guard let subscription = self.subscription else { return }
             while !Task.isCancelled {
                 do {
                     let update = try await subscription.nextUpdate()
                     await self.handleStoreUpdate(update)
                 } catch {
                     if Task.isCancelled { break }
-                    self.lastError = error.localizedDescription
+                    await self.recordStoreSubscriptionError(error)
                     break
                 }
             }
@@ -140,6 +140,10 @@ final class AppModel {
         }
     }
 
+    private func recordStoreSubscriptionError(_ error: Error) {
+        lastError = error.localizedDescription
+    }
+
     private func scheduleSnapshotRefreshDebounced() {
         guard pendingSnapshotRefreshTask == nil else { return }
         pendingSnapshotRefreshTask = Task { [weak self] in
@@ -165,6 +169,70 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
+        if shouldUsePassiveIpcOpen(
+            key: key,
+            launchConfig: launchConfig,
+            cwdOverride: cwdOverride
+        ) {
+            // Raw desktop IPC already streams thread updates to mobile in the
+            // background; the renderer-only resume controls in Codex.desktop
+            // are not exposed as a socket RPC. Ordinary opens should just bind
+            // the active thread and let passive IPC or deferred hydration win.
+            return key
+        }
+
+        let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiresDistinctCwdOverride = requiresResumeCwdOverride(
+            for: key,
+            cwdOverride: trimmedCwdOverride
+        )
+
+        return try await client.resumeThread(
+            serverId: key.serverId,
+            params: launchConfig.threadResumeRequest(
+                threadId: key.threadId,
+                cwdOverride: requiresDistinctCwdOverride ? trimmedCwdOverride : nil
+            )
+        )
+    }
+
+    func reloadThreadPreferringIPC(
+        key: ThreadKey,
+        launchConfig: AppThreadLaunchConfig,
+        cwdOverride: String?
+    ) async throws -> ThreadKey {
+        if shouldUsePassiveIpcOpen(
+            key: key,
+            launchConfig: launchConfig,
+            cwdOverride: cwdOverride
+        ) {
+            try await store.externalResumeThread(
+                key: key,
+                hostId: nil
+            )
+            return key
+        }
+
+        let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiresDistinctCwdOverride = requiresResumeCwdOverride(
+            for: key,
+            cwdOverride: trimmedCwdOverride
+        )
+
+        return try await client.resumeThread(
+            serverId: key.serverId,
+            params: launchConfig.threadResumeRequest(
+                threadId: key.threadId,
+                cwdOverride: requiresDistinctCwdOverride ? trimmedCwdOverride : nil
+            )
+        )
+    }
+
+    private func shouldUsePassiveIpcOpen(
+        key: ThreadKey,
+        launchConfig: AppThreadLaunchConfig,
+        cwdOverride: String?
+    ) -> Bool {
         let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requiresDistinctCwdOverride = requiresResumeCwdOverride(
             for: key,
@@ -178,24 +246,8 @@ final class AppModel {
             requiresDistinctCwdOverride ||
             !launchConfig.persistExtendedHistory
 
-        if !requiresResumeOverrides,
-           snapshot?.serverSnapshot(for: key.serverId)?.isIpcConnected == true {
-            do {
-                try await store.externalResumeThread(key: key, hostId: nil)
-                return key
-            } catch {
-                // Fall back to the app-server resume path when the desktop
-                // follower is unavailable or not ready yet.
-            }
-        }
-
-        return try await client.resumeThread(
-            serverId: key.serverId,
-            params: launchConfig.threadResumeRequest(
-                threadId: key.threadId,
-                cwdOverride: requiresDistinctCwdOverride ? trimmedCwdOverride : nil
-            )
-        )
+        return !requiresResumeOverrides &&
+            snapshot?.serverSnapshot(for: key.serverId)?.isIpcConnected == true
     }
 
     private func requiresResumeCwdOverride(
@@ -466,7 +518,7 @@ final class AppModel {
         pendingActiveThreadHydrationTask?.cancel()
         pendingActiveThreadHydrationKey = key
         pendingActiveThreadHydrationTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: 300_000_000)
             guard let self else { return }
             await self.hydrateActiveThreadIfNeeded(key: key)
         }
@@ -810,8 +862,16 @@ final class AppModel {
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
-        if let existing = snapshot?.threadSnapshot(for: key), hasAuthoritativePermissions(existing) {
+        if let existing = snapshot?.threadSnapshot(for: key) {
             appState.hydratePermissions(from: existing)
+            if !hasAuthoritativePermissions(existing) {
+                scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
+            }
+            return key
+        }
+
+        if snapshot?.sessionSummary(for: key) != nil {
+            scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
             return key
         }
 
@@ -834,6 +894,33 @@ final class AppModel {
         } catch {
             lastError = error.localizedDescription
             return nil
+        }
+    }
+
+    private func scheduleBackgroundThreadPermissionHydration(
+        for key: ThreadKey,
+        appState: AppState
+    ) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let nextKey = try await client.readThread(
+                    serverId: key.serverId,
+                    params: AppReadThreadRequest(
+                        threadId: key.threadId,
+                        includeTurns: false
+                    )
+                )
+                if let threadSnapshot = try await store.threadSnapshot(key: nextKey) {
+                    applyThreadSnapshot(threadSnapshot)
+                    appState.hydratePermissions(from: threadSnapshot)
+                } else {
+                    await refreshSnapshot()
+                    appState.hydratePermissions(from: snapshot?.threadSnapshot(for: nextKey))
+                }
+            } catch {
+                lastError = error.localizedDescription
+            }
         }
     }
 

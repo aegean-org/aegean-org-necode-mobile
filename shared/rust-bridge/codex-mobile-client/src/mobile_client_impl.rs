@@ -8,7 +8,6 @@ use std::hash::{Hash, Hasher};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, RwLock};
 use tokio::sync::{Mutex, broadcast, mpsc};
-use tokio::time::{Duration, timeout};
 use tracing::{debug, info, trace, warn};
 use url::Url;
 
@@ -34,9 +33,9 @@ use crate::types::{
 use codex_app_server_protocol as upstream;
 use codex_ipc::{
     ClientStatus, CommandExecutionApprovalDecision, ConversationStreamApplyError,
-    ExternalResumeThreadParams, FileChangeApprovalDecision, ImmerOp, ImmerPatch, ImmerPathSegment,
-    IpcClient, IpcClientConfig, IpcError, ProjectedApprovalKind, ProjectedApprovalRequest,
-    ProjectedUserInputRequest, StreamChange, ThreadFollowerCommandApprovalDecisionParams,
+    FileChangeApprovalDecision, ImmerOp, ImmerPatch, ImmerPathSegment, IpcClient, IpcClientConfig,
+    IpcError, ProjectedApprovalKind, ProjectedApprovalRequest, ProjectedUserInputRequest,
+    StreamChange, ThreadFollowerCommandApprovalDecisionParams,
     ThreadFollowerFileApprovalDecisionParams, ThreadFollowerSetCollaborationModeParams,
     ThreadFollowerStartTurnParams, ThreadFollowerSubmitUserInputParams,
     ThreadStreamStateChangedParams, TypedBroadcast, apply_stream_change_to_conversation_state,
@@ -72,93 +71,6 @@ fn ipc_command_error_context(error: &IpcError) -> &'static str {
         "IPC transport is no longer connected"
     } else {
         "IPC stream is still attached, but desktop follower commands are unavailable"
-    }
-}
-
-async fn wait_for_thread_resume_sync(
-    updates: &mut broadcast::Receiver<AppStoreUpdateRecord>,
-    server_id: &str,
-    thread_id: &str,
-) {
-    let wait_result = timeout(Duration::from_millis(350), async {
-        loop {
-            match updates.recv().await {
-                Ok(update) if update_targets_thread(&update, server_id, thread_id) => return,
-                Ok(_) => continue,
-                Err(_) => return,
-            }
-        }
-    })
-    .await;
-
-    if wait_result.is_err() {
-        debug!(
-            "IPC out: external_resume_thread timed out waiting for first thread sync server={} thread={}",
-            server_id, thread_id
-        );
-    }
-}
-
-async fn refresh_ipc_thread_subscription(
-    ipc_client: &IpcClient,
-    app_store: &AppStoreReducer,
-    server_id: &str,
-    thread_id: &str,
-) {
-    let mut updates = app_store.subscribe();
-    info!(
-        "IPC out: external_resume_thread (preflight) server={} thread={}",
-        server_id, thread_id
-    );
-    match ipc_client
-        .external_resume_thread(ExternalResumeThreadParams {
-            conversation_id: thread_id.to_string(),
-            host_id: None,
-        })
-        .await
-    {
-        Ok(_) => {
-            wait_for_thread_resume_sync(&mut updates, server_id, thread_id).await;
-        }
-        Err(error) => {
-            warn!(
-                "IPC out: external_resume_thread (preflight) failed server={} thread={} error={} ({})",
-                server_id,
-                thread_id,
-                error,
-                ipc_command_error_context(&error)
-            );
-        }
-    }
-}
-
-fn update_targets_thread(update: &AppStoreUpdateRecord, server_id: &str, thread_id: &str) -> bool {
-    match update {
-        AppStoreUpdateRecord::ThreadUpserted { thread, .. } => {
-            thread.key.server_id == server_id && thread.key.thread_id == thread_id
-        }
-        AppStoreUpdateRecord::ThreadStateUpdated { state, .. } => {
-            state.key.server_id == server_id && state.key.thread_id == thread_id
-        }
-        AppStoreUpdateRecord::ThreadItemUpserted { key, .. }
-        | AppStoreUpdateRecord::ThreadCommandExecutionUpdated { key, .. }
-        | AppStoreUpdateRecord::ThreadStreamingDelta { key, .. }
-        | AppStoreUpdateRecord::ThreadRemoved { key, .. } => {
-            key.server_id == server_id && key.thread_id == thread_id
-        }
-        AppStoreUpdateRecord::ActiveThreadChanged { key } => key
-            .as_ref()
-            .map(|key| key.server_id == server_id && key.thread_id == thread_id)
-            .unwrap_or(false),
-        AppStoreUpdateRecord::PendingApprovalsChanged { approvals } => {
-            approvals.iter().any(|approval| {
-                approval.server_id == server_id && approval.thread_id.as_deref() == Some(thread_id)
-            })
-        }
-        AppStoreUpdateRecord::PendingUserInputsChanged { requests } => requests
-            .iter()
-            .any(|request| request.server_id == server_id && request.thread_id == thread_id),
-        _ => false,
     }
 }
 
@@ -576,40 +488,12 @@ impl MobileClient {
                 None
             }
         };
-        let ipc_bridge_pid = None;
         let ipc_attach_ssh_client = ipc_ssh_client.as_ref().unwrap_or(&ssh_client);
-
-        #[cfg(target_os = "android")]
         trace!(
             "MobileClient: finish_connect_remote_over_ssh attaching IPC over SSH server_id={}",
             server_id
         );
-        #[cfg(target_os = "android")]
-        let ipc_client = match AssertUnwindSafe(attach_ipc_client_via_ssh(
-            ipc_attach_ssh_client,
-            config.server_id.as_str(),
-            ipc_socket_path_override.as_deref(),
-        ))
-        .catch_unwind()
-        .await
-        {
-            Ok(client) => client,
-            Err(_) => {
-                warn!(
-                    "MobileClient: Android IPC attach panicked for {}; continuing without IPC",
-                    config.server_id
-                );
-                None
-            }
-        };
-
-        #[cfg(not(target_os = "android"))]
-        trace!(
-            "MobileClient: finish_connect_remote_over_ssh attaching IPC over SSH server_id={}",
-            server_id
-        );
-        #[cfg(not(target_os = "android"))]
-        let ipc_client = attach_ipc_client_via_ssh(
+        let (ipc_client, ipc_bridge_pid) = attach_ipc_client_for_remote_session(
             ipc_attach_ssh_client,
             config.server_id.as_str(),
             ipc_socket_path_override.as_deref(),
@@ -869,33 +753,21 @@ impl MobileClient {
         host_id: Option<String>,
     ) -> Result<(), RpcError> {
         let session = self.get_session(server_id)?;
-        let ipc_client = session.ipc_client().ok_or_else(|| {
-            RpcError::Transport(TransportError::ConnectionFailed(
-                "desktop IPC is not connected".to_string(),
-            ))
-        })?;
-        let mut updates = self.app_store.subscribe();
-        info!(
-            "IPC out: external_resume_thread server={} thread={}",
-            server_id, thread_id
-        );
-        ipc_client
-            .external_resume_thread(ExternalResumeThreadParams {
-                conversation_id: thread_id.to_string(),
-                host_id,
-            })
-            .await
-            .map_err(|error| {
-                warn!(
-                    "IPC out: external_resume_thread failed server={} thread={} error={} ({})",
-                    server_id,
-                    thread_id,
-                    error,
-                    ipc_command_error_context(&error)
-                );
-                RpcError::Deserialization(format!("IPC external resume: {error}"))
-            })?;
-        wait_for_thread_resume_sync(&mut updates, server_id, thread_id).await;
+        if host_id.is_some() {
+            trace!(
+                "IPC out: external_resume_thread ignoring explicit host_id for server={} thread={}",
+                server_id, thread_id
+            );
+        }
+        if session.ipc_client().is_some() {
+            debug!(
+                "IPC out: external_resume_thread uses targeted thread/read fallback for server={} thread={} because desktop does not expose a raw resume RPC to socket clients",
+                server_id, thread_id
+            );
+        }
+        let response =
+            read_thread_response_from_app_server(Arc::clone(&session), thread_id).await?;
+        upsert_thread_snapshot_from_app_server_read_response(&self.app_store, server_id, response)?;
         Ok(())
     }
 
@@ -986,13 +858,6 @@ impl MobileClient {
             && let Some(ipc_client) = session.ipc_client()
         {
             let thread_id = params.thread_id.clone();
-            refresh_ipc_thread_subscription(
-                &ipc_client,
-                &self.app_store,
-                server_id,
-                &thread_id,
-            )
-            .await;
             info!(
                 "IPC out: start_turn server={} thread={}",
                 server_id, thread_id
@@ -1935,7 +1800,6 @@ fn make_accept_unknown_host_callback(
     Box::new(move |_fingerprint| Box::pin(async move { accept_unknown_host }))
 }
 
-#[cfg(target_os = "android")]
 fn shell_quote_remote(value: &str) -> String {
     if value.is_empty() {
         return "''".to_string();
@@ -1996,7 +1860,6 @@ async fn attach_ipc_client_via_ssh(
     }
 }
 
-#[cfg(target_os = "android")]
 async fn attach_ipc_client_via_tcp_bridge(
     ssh_client: &Arc<SshClient>,
     server_id: &str,
@@ -2134,19 +1997,27 @@ while True:
         ..IpcClientConfig::default()
     };
     match tokio::net::TcpStream::connect(("127.0.0.1", local_port)).await {
-        Ok(stream) => match IpcClient::connect_with_stream(&ipc_config, stream).await {
-            Ok(client) => Some((client, bridge_pid)),
-            Err(error) => {
+        Ok(stream) => {
+            if let Err(error) = stream.set_nodelay(true) {
                 warn!(
-                    "MobileClient: failed to attach Android IPC TCP bridge for {}: {}",
+                    "MobileClient: failed to disable Nagle on IPC TCP bridge for {}: {}",
                     server_id, error
                 );
-                if let Some(pid) = bridge_pid {
-                    let _ = ssh_client.exec(&format!("kill {pid} 2>/dev/null")).await;
-                }
-                None
             }
-        },
+            match IpcClient::connect_with_stream(&ipc_config, stream).await {
+                Ok(client) => Some((client, bridge_pid)),
+                Err(error) => {
+                    warn!(
+                        "MobileClient: failed to attach Android IPC TCP bridge for {}: {}",
+                        server_id, error
+                    );
+                    if let Some(pid) = bridge_pid {
+                        let _ = ssh_client.exec(&format!("kill {pid} 2>/dev/null")).await;
+                    }
+                    None
+                }
+            }
+        }
         Err(error) => {
             warn!(
                 "MobileClient: failed to connect local Android IPC TCP bridge for {}: {}",
@@ -2158,6 +2029,31 @@ while True:
             None
         }
     }
+}
+
+async fn attach_ipc_client_for_remote_session(
+    ssh_client: &Arc<SshClient>,
+    server_id: &str,
+    ipc_socket_path_override: Option<&str>,
+) -> (Option<IpcClient>, Option<u32>) {
+    if let Some((client, bridge_pid)) =
+        attach_ipc_client_via_tcp_bridge(ssh_client, server_id, ipc_socket_path_override).await
+    {
+        info!(
+            "IPC attached server={} transport=tcp-bridge bridge_pid={:?}",
+            server_id, bridge_pid
+        );
+        return (Some(client), bridge_pid);
+    }
+
+    let client = attach_ipc_client_via_ssh(ssh_client, server_id, ipc_socket_path_override).await;
+    if client.is_some() {
+        info!(
+            "IPC attached server={} transport=direct-streamlocal",
+            server_id
+        );
+    }
+    (client, None)
 }
 
 impl Default for MobileClient {
@@ -3310,10 +3206,10 @@ async fn refresh_account_from_app_server(
     if !session_is_current(&sessions, server_id, &session) {
         return Ok(());
     }
-    let response = serde_json::from_value::<upstream::GetAccountResponse>(response)
-        .map_err(|error| RpcError::Deserialization(format!(
-            "deserialize account/read response: {error}"
-        )))?;
+    let response =
+        serde_json::from_value::<upstream::GetAccountResponse>(response).map_err(|error| {
+            RpcError::Deserialization(format!("deserialize account/read response: {error}"))
+        })?;
     app_store.update_server_account(
         server_id,
         response.account.map(Into::into),

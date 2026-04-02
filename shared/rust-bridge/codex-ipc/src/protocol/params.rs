@@ -114,14 +114,6 @@ pub struct ThreadQueuedFollowupsChangedParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExternalResumeThreadParams {
-    pub conversation_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub host_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct QueryCacheInvalidateParams {
     pub query_key: Vec<serde_json::Value>,
 }
@@ -226,12 +218,6 @@ pub struct ThreadFollowerSetQueuedFollowUpsStateParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OkResult {
-    pub ok: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExternalResumeThreadResult {
     pub ok: bool,
 }
 

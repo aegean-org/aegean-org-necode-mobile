@@ -8,14 +8,13 @@ use codex_app_server_protocol as upstream;
 use codex_ipc::handler::RequestHandler;
 use codex_ipc::transport::{frame, socket};
 use codex_ipc::{
-    Envelope, ExternalResumeThreadParams, InitializeParams, IpcClient, IpcClientConfig, Method,
-    MethodKind, Request, ThreadFollowerCommandApprovalDecisionParams,
-    ThreadFollowerEditLastUserTurnParams, ThreadFollowerFileApprovalDecisionParams,
-    ThreadFollowerInterruptTurnParams, ThreadFollowerSetCollaborationModeParams,
-    ThreadFollowerSetModelAndReasoningParams, ThreadFollowerSetQueuedFollowUpsStateParams,
-    ThreadFollowerStartTurnParams, ThreadFollowerSteerTurnParams,
-    ThreadFollowerSubmitMcpServerElicitationResponseParams, ThreadFollowerSubmitUserInputParams,
-    TypedBroadcast, TypedRequest,
+    Envelope, InitializeParams, IpcClient, IpcClientConfig, Method, MethodKind, Request,
+    ThreadFollowerCommandApprovalDecisionParams, ThreadFollowerEditLastUserTurnParams,
+    ThreadFollowerFileApprovalDecisionParams, ThreadFollowerInterruptTurnParams,
+    ThreadFollowerSetCollaborationModeParams, ThreadFollowerSetModelAndReasoningParams,
+    ThreadFollowerSetQueuedFollowUpsStateParams, ThreadFollowerStartTurnParams,
+    ThreadFollowerSteerTurnParams, ThreadFollowerSubmitMcpServerElicitationResponseParams,
+    ThreadFollowerSubmitUserInputParams, TypedBroadcast, TypedRequest,
 };
 use codex_mobile_client::MobileClient;
 use codex_mobile_client::ffi::{AppClient, AppStore, ServerBridge, SshBridge};
@@ -364,6 +363,7 @@ fn server_help() {
   read <thread_id>           Read thread (syncs to store)
   start [cwd]                Start new thread
   open <thread_id>           Load thread and mark it active in the store
+  open-ios <thread_id>       Follow the same metadata-read + deferred hydrate path the iOS app uses
   resume <thread_id>         Resume thread
   wait <thread_id>           Wait until thread is idle
   send <thread_id> <msg>     Send a message (turn/start)
@@ -815,6 +815,58 @@ async fn app_resume_thread(
     }))
 }
 
+async fn app_open_thread_like_ios(
+    app_client: &AppClient,
+    app_store: &AppStore,
+    server_id: &str,
+    thread_id: &str,
+) -> Result<ThreadKey, String> {
+    let key = ThreadKey {
+        server_id: server_id.to_string(),
+        thread_id: thread_id.to_string(),
+    };
+
+    app_client
+        .read_thread(
+            server_id.to_string(),
+            AppReadThreadRequest {
+                thread_id: thread_id.to_string(),
+                include_turns: false,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+    app_store.set_active_thread(Some(key.clone()));
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let needs_deferred_hydration = match app_store.thread_snapshot(key.clone()).await {
+        Ok(Some(thread)) => {
+            let preview = thread.info.preview.as_deref().unwrap_or_default().trim();
+            let title = thread.info.title.as_deref().unwrap_or_default().trim();
+            thread.hydrated_conversation_items.is_empty()
+                && (!preview.is_empty() || !title.is_empty() || thread.active_turn_id.is_some())
+        }
+        Ok(None) => true,
+        Err(error) => return Err(error.to_string()),
+    };
+
+    if needs_deferred_hydration {
+        app_client
+            .read_thread(
+                server_id.to_string(),
+                AppReadThreadRequest {
+                    thread_id: thread_id.to_string(),
+                    include_turns: true,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(key)
+}
+
 fn parse_json_value(input: &str) -> Result<serde_json::Value, String> {
     if let Some(path) = input.strip_prefix('@') {
         let raw = std::fs::read_to_string(path)
@@ -973,13 +1025,6 @@ async fn send_mobile_request(
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match method {
-        Method::ExternalResumeThread => client
-            .external_resume_thread(
-                serde_json::from_value::<ExternalResumeThreadParams>(params)
-                    .map_err(|e| format!("invalid params for {}: {e}", method.wire_name()))?,
-            )
-            .await
-            .map_err(|e| format!("{e}")),
         Method::ThreadFollowerStartTurn => client
             .start_turn(
                 serde_json::from_value::<ThreadFollowerStartTurnParams>(params)
@@ -1995,6 +2040,19 @@ async fn run_server_cli(args: ServerArgs) -> Result<(), Box<dyn std::error::Erro
                 }
                 app_store.set_active_thread(Some(key.clone()));
                 ok(&format!("opened: {}/{}", key.server_id, key.thread_id));
+            }
+            "open-ios" => {
+                let Some(thread_id) = parts.get(1) else {
+                    err("usage: open-ios <thread_id>");
+                    continue;
+                };
+                match app_open_thread_like_ios(&app_client, &app_store, sid, thread_id).await {
+                    Ok(key) => {
+                        app_store.set_active_thread(Some(key.clone()));
+                        ok(&format!("opened-ios: {}/{}", key.server_id, key.thread_id));
+                    }
+                    Err(error) => err(&error),
+                }
             }
             "resume" => {
                 let Some(thread_id) = parts.get(1) else {

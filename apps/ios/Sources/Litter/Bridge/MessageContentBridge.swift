@@ -1,13 +1,24 @@
 import Foundation
 
 enum MessageContentBridge {
+    enum AssistantRenderBlock {
+        case markdown(String)
+        case codeBlock(language: String?, code: String)
+        case inlineImage(Data)
+    }
+
     enum AssistantContentSegment {
         case markdown(String)
         case inlineImage(Data)
     }
 
+    static func assistantRenderBlocks(_ text: String) -> [AssistantRenderBlock] {
+        let parsed = assistantRenderBlocks(from: store.extractRenderBlocksTyped(text: text))
+        return parsed.isEmpty ? [.markdown(text)] : parsed
+    }
+
     static func segmentAssistantText(_ text: String) -> [AssistantContentSegment] {
-        let parsed = assistantContentSegments(from: store.extractSegmentsTyped(text: text))
+        let parsed = assistantContentSegments(from: assistantRenderBlocks(text))
         return parsed.isEmpty ? [.markdown(text)] : parsed
     }
 
@@ -32,36 +43,34 @@ enum MessageContentBridge {
 
     private static let store = MessageParser()
 
-    private static func assistantContentSegments(from rustSegments: [AppMessageSegment]) -> [AssistantContentSegment] {
-        var segments: [AssistantContentSegment] = []
-        var markdownBuffer = ""
-
-        func flushMarkdownBuffer() {
-            guard !markdownBuffer.isEmpty else { return }
-            segments.append(.markdown(markdownBuffer))
-            markdownBuffer = ""
-        }
-
-        for segment in rustSegments {
-            switch segment {
-            case .text(text: let text):
-                guard !text.isEmpty else { continue }
-                markdownBuffer += text
-            case .inlineMath(latex: let latex):
-                markdownBuffer += inlineMathMarkdown(latex: latex)
-            case .displayMath(latex: let latex):
-                flushMarkdownBuffer()
-                segments.append(.markdown(displayMathMarkdown(latex: latex)))
+    private static func assistantRenderBlocks(from rustBlocks: [AppMessageRenderBlock]) -> [AssistantRenderBlock] {
+        rustBlocks.compactMap { block in
+            switch block {
+            case .markdown(markdown: let markdown):
+                return markdown.isEmpty ? nil : .markdown(markdown)
             case .codeBlock(language: let language, code: let code):
-                flushMarkdownBuffer()
-                segments.append(.markdown(fencedMarkdown(code: code, language: language)))
+                return .codeBlock(language: language, code: code)
             case .inlineImage(data: let data, mimeType: _):
-                flushMarkdownBuffer()
+                return .inlineImage(data)
+            }
+        }
+    }
+
+    private static func assistantContentSegments(from renderBlocks: [AssistantRenderBlock]) -> [AssistantContentSegment] {
+        var segments: [AssistantContentSegment] = []
+
+        for block in renderBlocks {
+            switch block {
+            case .markdown(let markdown):
+                guard !markdown.isEmpty else { continue }
+                segments.append(.markdown(markdown))
+            case .codeBlock(let language, let code):
+                segments.append(.markdown(fencedMarkdown(code: code, language: language)))
+            case .inlineImage(let data):
                 segments.append(.inlineImage(data))
             }
         }
 
-        flushMarkdownBuffer()
         return segments.isEmpty ? [.markdown("")] : segments
     }
 
@@ -69,15 +78,6 @@ enum MessageContentBridge {
         let trimmedLanguage = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let fenceHeader = trimmedLanguage.isEmpty ? "```" : "```\(trimmedLanguage)"
         return "\(fenceHeader)\n\(code)\n```"
-    }
-
-    private static func inlineMathMarkdown(latex: String) -> String {
-        "$\(latex)$"
-    }
-
-    private static func displayMathMarkdown(latex: String) -> String {
-        let trimmed = latex.trimmingCharacters(in: .newlines)
-        return "```math\n\(trimmed)\n```"
     }
 
     private static func combinedMarkdownFragments(_ fragments: [String]) -> String {

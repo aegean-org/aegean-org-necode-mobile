@@ -6,6 +6,7 @@ final class MessageRenderCache {
     struct AssistantSegment: Identifiable {
         enum Kind {
             case markdown(String, Int)
+            case codeBlock(language: String?, code: String, Int)
             case image(UIImage)
         }
 
@@ -154,14 +155,14 @@ final class MessageRenderCache {
         key: RevisionKey
     ) -> [AssistantSegment] {
         assistantSegments(
-            from: MessageContentBridge.segmentAssistantText(text),
+            from: MessageContentBridge.assistantRenderBlocks(text),
             messageId: messageId,
             key: key
         )
     }
 
     private func assistantSegments(
-        from parsedSegments: [MessageContentBridge.AssistantContentSegment],
+        from parsedSegments: [MessageContentBridge.AssistantRenderBlock],
         messageId: String,
         key: RevisionKey
     ) -> [AssistantSegment] {
@@ -183,6 +184,18 @@ final class MessageRenderCache {
                         id: "text-\(index)-\(text.count)",
                         kind: .markdown(
                             text,
+                            stableFragmentIdentity(key: key, fragmentId: fragmentId)
+                        )
+                    )
+                )
+            case .codeBlock(let language, let code):
+                let fragmentId = "assistant-segment-\(index)-code-\(language ?? "")-\(code.count)"
+                segments.append(
+                    AssistantSegment(
+                        id: "code-\(index)-\(code.count)",
+                        kind: .codeBlock(
+                            language: language,
+                            code: code,
                             stableFragmentIdentity(key: key, fragmentId: fragmentId)
                         )
                     )
