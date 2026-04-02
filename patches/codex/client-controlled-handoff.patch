@@ -980,11 +980,10 @@ index 1ddd72d0f..73fa911a7 100644
                  event = events.next_event() => {
                      match event {
                          Ok(Some(event)) => {
-@@ -903,7 +1023,16 @@ fn spawn_realtime_input_task(input: RealtimeInputTask) -> JoinHandle<()> {
-                                     *handoff_state.last_output_text.lock().await = None;
+@@ -895,6 +1015,16 @@ fn spawn_realtime_input_task(input: RealtimeInputTask) -> JoinHandle<()> {
                                      response_in_progress = false;
                                      output_audio_state = None;
-+                                }
+                                 }
 +                                RealtimeEvent::ToolCallRequested(_) => {
 +                                    // Realtime V2 dynamic tool calls can be surfaced via
 +                                    // `response.done` instead of a standalone `response.done`
@@ -994,9 +993,10 @@ index 1ddd72d0f..73fa911a7 100644
 +                                    // after the tool output is returned.
 +                                    response_in_progress = false;
 +                                    output_audio_state = None;
-                                 }
++                                }
                                  RealtimeEvent::Error(message)
                                      if matches!(session_kind, RealtimeSessionKind::V2)
+                                         && message.starts_with(ACTIVE_RESPONSE_CONFLICT_ERROR_PREFIX) =>
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
 index 2e67fa5d7..7a33d2ea4 100644
 --- a/codex-rs/protocol/src/protocol.rs
