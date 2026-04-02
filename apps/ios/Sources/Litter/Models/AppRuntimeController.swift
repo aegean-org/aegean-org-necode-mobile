@@ -26,6 +26,11 @@ final class AppRuntimeController {
         await lifecycle.reconnectSavedServers(appModel: appModel)
     }
 
+    func reconnectServer(serverId: String) async {
+        guard let appModel else { return }
+        await lifecycle.reconnectServer(serverId: serverId, appModel: appModel)
+    }
+
     func openThreadFromNotification(key: ThreadKey) async {
         guard let appModel else { return }
         appModel.activateThread(key)

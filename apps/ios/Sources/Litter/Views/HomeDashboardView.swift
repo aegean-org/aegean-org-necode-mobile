@@ -11,6 +11,7 @@ struct HomeDashboardView: View {
     let onConnectServer: () -> Void
     let onShowSettings: () -> Void
     var onDeleteThread: ((ThreadKey) async -> Void)? = nil
+    var onReconnectServer: ((HomeDashboardServer) -> Void)? = nil
     var onDisconnectServer: ((String) -> Void)? = nil
     var onRenameServer: ((String, String) -> Void)? = nil
     @State private var deleteTargetThread: HomeDashboardRecentSession?
@@ -178,6 +179,11 @@ struct HomeDashboardView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button {
+                                onReconnectServer?(server)
+                            } label: {
+                                Label("Reconnect", systemImage: "arrow.clockwise")
+                            }
                             if !server.isLocal {
                                 Button {
                                     renameText = server.displayName

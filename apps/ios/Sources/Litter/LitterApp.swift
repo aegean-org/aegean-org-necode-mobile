@@ -399,6 +399,11 @@ private struct HomeNavigationView: View {
                             )
                             await appModel.refreshSnapshot()
                         },
+                        onReconnectServer: { server in
+                            Task {
+                                await AppRuntimeController.shared.reconnectServer(serverId: server.id)
+                            }
+                        },
                         onDisconnectServer: { serverId in
                             SavedServerStore.remove(serverId: serverId)
                             Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }

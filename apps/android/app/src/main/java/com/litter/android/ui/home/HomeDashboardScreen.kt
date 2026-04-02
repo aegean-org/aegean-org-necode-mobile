@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.AppThreadLaunchConfig
+import com.litter.android.state.AppLifecycleController
 import com.litter.android.state.SavedServerStore
 import com.litter.android.state.connectionModeLabel
 import com.litter.android.state.displayTitle
@@ -94,6 +95,7 @@ fun HomeDashboardScreen(
     val snapshot by appModel.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
     val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
+    val lifecycleController = remember { AppLifecycleController() }
 
     var showTipJar by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
@@ -224,6 +226,11 @@ fun HomeDashboardScreen(
                 ServerCard(
                     server = server,
                     onClick = { onOpenSessions(server.serverId, server.displayName) },
+                    onReconnect = {
+                        scope.launch {
+                            lifecycleController.reconnectServer(context, appModel, server.serverId)
+                        }
+                    },
                     onRename = {
                         renameText = server.displayName
                         renameTarget = server
@@ -493,10 +500,12 @@ private fun SessionCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ServerCard(
     server: AppServerSnapshot,
     onClick: () -> Unit,
+    onReconnect: () -> Unit,
     onRename: (() -> Unit)?,
     onDisconnect: () -> Unit,
 ) {
@@ -507,7 +516,10 @@ private fun ServerCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(LitterTheme.surface, RoundedCornerShape(10.dp))
-                .clickable(onClick = onClick)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { showMenu = true },
+                )
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -572,6 +584,13 @@ private fun ServerCard(
         }
 
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(
+                text = { Text("Reconnect") },
+                onClick = {
+                    showMenu = false
+                    onReconnect()
+                },
+            )
             if (!server.isLocal && onRename != null) {
                 DropdownMenuItem(
                     text = { Text("Rename") },

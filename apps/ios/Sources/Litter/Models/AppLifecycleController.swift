@@ -31,75 +31,8 @@ final class AppLifecycleController {
     }
 
     func reconnectSavedServers(appModel: AppModel) async {
-        let plans = SavedServerStore.rememberedServers().compactMap { savedServer -> SavedReconnectPlan? in
-            let server = savedServer.toDiscoveredServer()
-            if let snapshot = appModel.snapshot?.serverSnapshot(for: server.id),
-               snapshot.health != .disconnected {
-                return nil
-            }
-
-            do {
-                if savedServer.preferredConnectionMode == .ssh {
-                    guard let credential = try SSHCredentialStore.shared.load(
-                        host: server.hostname,
-                        port: Int(server.resolvedSSHPort)
-                    ) else {
-                        return nil
-                    }
-                    return .ssh(
-                        serverId: server.id,
-                        displayName: server.name,
-                        host: server.hostname,
-                        port: server.resolvedSSHPort,
-                        credentials: credential.toConnectionCredential()
-                    )
-                } else if let target = server.connectionTarget {
-                    switch target {
-                    case .local:
-                        return .local(
-                            serverId: server.id,
-                            displayName: server.name,
-                            restoreLocalAuth: true
-                        )
-                    case .remote(let host, let port):
-                        return .remote(
-                            serverId: server.id,
-                            displayName: server.name,
-                            host: host,
-                            port: port
-                        )
-                    case .remoteURL(let url):
-                        return .remoteURL(
-                            serverId: server.id,
-                            displayName: server.name,
-                            websocketUrl: url.absoluteString
-                        )
-                    case .sshThenRemote(let host, let credentials):
-                        return .ssh(
-                            serverId: server.id,
-                            displayName: server.name,
-                            host: host,
-                            port: server.resolvedSSHPort,
-                            credentials: credentials
-                        )
-                    }
-                } else if savedServer.preferredConnectionMode == nil,
-                          let credential = try SSHCredentialStore.shared.load(
-                    host: server.hostname,
-                    port: Int(server.resolvedSSHPort)
-                ) {
-                    return .ssh(
-                        serverId: server.id,
-                        displayName: server.name,
-                        host: server.hostname,
-                        port: server.resolvedSSHPort,
-                        credentials: credential.toConnectionCredential()
-                    )
-                }
-            } catch {
-                return nil
-            }
-            return nil
+        let plans = SavedServerStore.rememberedServers().compactMap {
+            reconnectPlan(for: $0, appModel: appModel)
         }
 
         let tasks = plans.map { plan in
@@ -113,6 +46,39 @@ final class AppLifecycleController {
             await task.value
         }
 
+        await appModel.refreshSnapshot()
+    }
+
+    func reconnectServer(serverId: String, appModel: AppModel) async {
+        let snapshotServer = appModel.snapshot?.serverSnapshot(for: serverId)
+        if snapshotServer?.isLocal == true || serverId == "local" {
+            try? await appModel.restartLocalServer()
+            return
+        }
+
+        if let savedServer = SavedServerStore.load().first(where: { $0.id == serverId }),
+           let plan = reconnectPlan(
+            for: savedServer,
+            appModel: appModel,
+            skipIfAlreadyConnected: false
+           ) {
+            await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh)
+            appModel.serverBridge.disconnectServer(serverId: serverId)
+            await runReconnectPlan(plan, appModel: appModel)
+            await appModel.refreshSnapshot()
+            return
+        }
+
+        await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh)
+        appModel.serverBridge.disconnectServer(serverId: serverId)
+        if let snapshotServer {
+            _ = try? await appModel.serverBridge.connectRemoteServer(
+                serverId: snapshotServer.serverId,
+                displayName: snapshotServer.displayName,
+                host: snapshotServer.host,
+                port: snapshotServer.port
+            )
+        }
         await appModel.refreshSnapshot()
     }
 
@@ -367,6 +333,83 @@ final class AppLifecycleController {
             activeThreads: activeThreads,
             completedNotificationThread: completedNotificationThread
         )
+    }
+
+    private func reconnectPlan(
+        for savedServer: SavedServer,
+        appModel: AppModel,
+        skipIfAlreadyConnected: Bool = true
+    ) -> SavedReconnectPlan? {
+        let server = savedServer.toDiscoveredServer()
+        if skipIfAlreadyConnected,
+           let snapshot = appModel.snapshot?.serverSnapshot(for: server.id),
+           snapshot.health != .disconnected {
+            return nil
+        }
+
+        do {
+            if savedServer.preferredConnectionMode == .ssh {
+                guard let credential = try SSHCredentialStore.shared.load(
+                    host: server.hostname,
+                    port: Int(server.resolvedSSHPort)
+                ) else {
+                    return nil
+                }
+                return .ssh(
+                    serverId: server.id,
+                    displayName: server.name,
+                    host: server.hostname,
+                    port: server.resolvedSSHPort,
+                    credentials: credential.toConnectionCredential()
+                )
+            } else if let target = server.connectionTarget {
+                switch target {
+                case .local:
+                    return .local(
+                        serverId: server.id,
+                        displayName: server.name,
+                        restoreLocalAuth: true
+                    )
+                case .remote(let host, let port):
+                    return .remote(
+                        serverId: server.id,
+                        displayName: server.name,
+                        host: host,
+                        port: port
+                    )
+                case .remoteURL(let url):
+                    return .remoteURL(
+                        serverId: server.id,
+                        displayName: server.name,
+                        websocketUrl: url.absoluteString
+                    )
+                case .sshThenRemote(let host, let credentials):
+                    return .ssh(
+                        serverId: server.id,
+                        displayName: server.name,
+                        host: host,
+                        port: server.resolvedSSHPort,
+                        credentials: credentials
+                    )
+                }
+            } else if savedServer.preferredConnectionMode == nil,
+                      let credential = try SSHCredentialStore.shared.load(
+                host: server.hostname,
+                port: Int(server.resolvedSSHPort)
+            ) {
+                return .ssh(
+                    serverId: server.id,
+                    displayName: server.name,
+                    host: server.hostname,
+                    port: server.resolvedSSHPort,
+                    credentials: credential.toConnectionCredential()
+                )
+            }
+        } catch {
+            return nil
+        }
+
+        return nil
     }
 
     private func runReconnectPlan(

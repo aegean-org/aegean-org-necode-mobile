@@ -62,36 +62,7 @@ class AppLifecycleController {
                 saved.map { server ->
                     async {
                         try {
-                            when {
-                                server.websocketURL != null -> {
-                                    appModel.serverBridge.connectRemoteUrlServer(
-                                        serverId = server.id,
-                                        displayName = server.name,
-                                        websocketUrl = server.websocketURL!!,
-                                    )
-                                }
-                                server.resolvedPreferredConnectionMode == "ssh" -> {
-                                    val credential =
-                                        sshCredentials.load(server.hostname, server.resolvedSshPort) ?: return@async
-                                    reconnectSshServer(appModel, server, credential)
-                                }
-                                server.directCodexPort != null -> {
-                                    appModel.serverBridge.connectRemoteServer(
-                                        serverId = server.id,
-                                        displayName = server.name,
-                                        host = server.hostname,
-                                        port = server.directCodexPort!!.toUShort(),
-                                    )
-                                }
-                                else -> {
-                                    LLog.t(
-                                        "AppLifecycleController",
-                                        "skipping reconnect; no valid saved transport",
-                                        fields = mapOf("serverId" to server.id),
-                                    )
-                                    return@async
-                                }
-                            }
+                            reconnectSavedServer(appModel, server, sshCredentials)
                         } catch (e: Exception) {
                             // Best-effort reconnection — server may be offline
                             LLog.e(
@@ -107,6 +78,54 @@ class AppLifecycleController {
             appModel.refreshSnapshot()
         } finally {
             reconnectMutex.unlock()
+        }
+    }
+
+    suspend fun reconnectServer(context: Context, appModel: AppModel, serverId: String) {
+        val currentServer = appModel.store.snapshot().servers.firstOrNull { it.serverId == serverId }
+        if (currentServer?.isLocal == true || serverId == "local") {
+            appModel.restartLocalServer()
+            return
+        }
+
+        val sshCredentials = SshCredentialStore(context)
+        val savedServer = SavedServerStore.load(context).firstOrNull { it.id == serverId }
+        if (savedServer != null) {
+            appModel.sshSessionStore.close(serverId)
+            runCatching { appModel.serverBridge.disconnectServer(serverId) }
+            try {
+                reconnectSavedServer(appModel, savedServer, sshCredentials)
+            } catch (e: Exception) {
+                LLog.e(
+                    "AppLifecycleController",
+                    "manual reconnect failed",
+                    e,
+                    fields = mapOf("serverId" to serverId),
+                )
+            }
+            appModel.refreshSnapshot()
+            return
+        }
+
+        if (currentServer != null) {
+            appModel.sshSessionStore.close(serverId)
+            runCatching { appModel.serverBridge.disconnectServer(serverId) }
+            try {
+                appModel.serverBridge.connectRemoteServer(
+                    serverId = currentServer.serverId,
+                    displayName = currentServer.displayName,
+                    host = currentServer.host,
+                    port = currentServer.port,
+                )
+            } catch (e: Exception) {
+                LLog.e(
+                    "AppLifecycleController",
+                    "manual reconnect fallback failed",
+                    e,
+                    fields = mapOf("serverId" to serverId),
+                )
+            }
+            appModel.refreshSnapshot()
         }
     }
 
@@ -156,6 +175,42 @@ class AppLifecycleController {
                     acceptUnknownHost = true,
                     workingDir = null,
                     ipcSocketPathOverride = ipcSocketPathOverride,
+                )
+            }
+        }
+    }
+
+    private suspend fun reconnectSavedServer(
+        appModel: AppModel,
+        server: SavedServer,
+        sshCredentials: SshCredentialStore,
+    ) {
+        val directCodexPort = server.directCodexPort
+        when {
+            server.websocketURL != null -> {
+                appModel.serverBridge.connectRemoteUrlServer(
+                    serverId = server.id,
+                    displayName = server.name,
+                    websocketUrl = server.websocketURL,
+                )
+            }
+            server.resolvedPreferredConnectionMode == "ssh" -> {
+                val credential = sshCredentials.load(server.hostname, server.resolvedSshPort) ?: return
+                reconnectSshServer(appModel, server, credential)
+            }
+            directCodexPort != null -> {
+                appModel.serverBridge.connectRemoteServer(
+                    serverId = server.id,
+                    displayName = server.name,
+                    host = server.hostname,
+                    port = directCodexPort.toUShort(),
+                )
+            }
+            else -> {
+                LLog.t(
+                    "AppLifecycleController",
+                    "skipping reconnect; no valid saved transport",
+                    fields = mapOf("serverId" to server.id),
                 )
             }
         }
