@@ -103,6 +103,14 @@ fn normalize_pending_user_input_answers(
         .collect()
 }
 
+fn ipc_pending_user_input_submission_id(request: &PendingUserInputRequest) -> &str {
+    if request.turn_id.is_empty() {
+        &request.id
+    } else {
+        &request.turn_id
+    }
+}
+
 fn normalize_pending_user_input_answer_entries(
     question: &crate::types::PendingUserInputQuestion,
     raw_answers: &[String],
@@ -1369,18 +1377,21 @@ impl MobileClient {
         let answered_inputs = normalized_answers.clone();
         let session = self.get_session(&request.server_id)?;
         if let Some(ipc_client) = session.ipc_client() {
+            let submission_id = ipc_pending_user_input_submission_id(&request).to_string();
             match send_ipc_user_input_response(
                 &ipc_client,
                 &request.thread_id,
-                &request.id,
+                &submission_id,
                 normalized_answers.clone(),
             )
             .await
             {
                 Ok(true) => {
                     debug!(
-                        "MobileClient: user input response sent over IPC for server={} request_id={}",
-                        request.server_id, request_id
+                        "MobileClient: user input response sent over IPC for server={} request_id={} submission_id={}",
+                        request.server_id,
+                        request_id,
+                        submission_id
                     );
                     self.app_store
                         .resolve_pending_user_input_with_response(request_id, answered_inputs);
@@ -5459,6 +5470,35 @@ mod mobile_client_tests {
                 ],
             }]
         );
+    }
+
+    #[test]
+    fn ipc_pending_user_input_submission_id_prefers_turn_id() {
+        let request = make_user_input_request(PendingUserInputQuestion {
+            id: "q-1".to_string(),
+            header: None,
+            question: "Choose one".to_string(),
+            is_other_allowed: false,
+            is_secret: false,
+            options: Vec::new(),
+        });
+
+        assert_eq!(ipc_pending_user_input_submission_id(&request), "turn-1");
+    }
+
+    #[test]
+    fn ipc_pending_user_input_submission_id_falls_back_to_request_id() {
+        let mut request = make_user_input_request(PendingUserInputQuestion {
+            id: "q-1".to_string(),
+            header: None,
+            question: "Choose one".to_string(),
+            is_other_allowed: false,
+            is_secret: false,
+            options: Vec::new(),
+        });
+        request.turn_id.clear();
+
+        assert_eq!(ipc_pending_user_input_submission_id(&request), "req-1");
     }
 
     #[test]

@@ -194,7 +194,18 @@ android-device-run: android-fast
 			exit $$status; \
 		fi; \
 	} && \
-	adb -s "$$DEVICE" shell am start -n $(ANDROID_PACKAGE)/$(ANDROID_ACTIVITY)
+	echo "==> Launching with attached logcat and timestamps (Ctrl+C stops log streaming)..." && \
+	adb -s "$$DEVICE" shell am force-stop $(ANDROID_PACKAGE) >/dev/null 2>&1 || true && \
+	adb -s "$$DEVICE" shell am start -W -n $(ANDROID_PACKAGE)/$(ANDROID_ACTIVITY) >/dev/null && \
+	PID="" && \
+	for _ in $$(seq 1 50); do \
+		PID=$$(adb -s "$$DEVICE" shell pidof -s $(ANDROID_PACKAGE) 2>/dev/null | tr -d '\r'); \
+		if [ -n "$$PID" ]; then break; fi; \
+		sleep 0.2; \
+	done && \
+	if [ -z "$$PID" ]; then echo "ERROR: app launched but no PID found for $(ANDROID_PACKAGE)"; exit 1; fi && \
+	echo "==> Streaming logcat for $(ANDROID_PACKAGE) (pid $$PID)..." && \
+	adb -s "$$DEVICE" logcat --pid="$$PID" -v time
 
 android-release: ANDROID_RUST_PROFILE=release
 android-release: ANDROID_ABIS=$(ANDROID_RELEASE_ABIS)
@@ -250,7 +261,7 @@ help:
 		'make android            fast Android dev build (default ABI/profile: arm64-v8a/android-dev)' \
 		'make android-emulator-fast fast Android dev build using emulator ABI ($(ANDROID_EMULATOR_ABIS))' \
 		'make android-emulator-run  fast emulator build + install + launch on emulator' \
-		'make android-device-run    fast Android dev build + install + launch on connected device (override ANDROID_DEVICE_SERIAL; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=0 to keep installed app)' \
+		'make android-device-run    fast Android dev build + install + launch with attached logcat on connected device (override ANDROID_DEVICE_SERIAL; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=0 to keep installed app)' \
 		'make android-release    Android build using release Rust profile and multi-ABI output' \
 		'make rust-check         host cargo check for shared crates' \
 		'make rust-test          host cargo test for shared crates'
