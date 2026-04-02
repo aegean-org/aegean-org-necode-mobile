@@ -137,15 +137,29 @@ impl AppClient {
         params: types::AppListThreadsRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            let response: upstream::ThreadListResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ThreadList, params.into()),
-            )
-            .await?;
-            c.sync_thread_list(&server_id, &response.data)
-                .map(|_| ())
-                .map_err(ClientError::Serialization)
+            let params: upstream::ThreadListParams = params.into();
+            let mut request_params = params.clone();
+            let mut all_thread_ids = Vec::new();
+
+            loop {
+                let response: upstream::ThreadListResponse = rpc(
+                    c.as_ref(),
+                    &server_id,
+                    req!(server_id, ThreadList, request_params.clone()),
+                )
+                .await?;
+
+                let page = c.upsert_thread_list_page(&server_id, &response.data);
+                all_thread_ids.extend(page.into_iter().map(|thread| thread.id));
+
+                let Some(next_cursor) = response.next_cursor else {
+                    break;
+                };
+                request_params.cursor = Some(next_cursor);
+            }
+
+            c.finalize_thread_list_sync(&server_id, all_thread_ids);
+            Ok(())
         })
     }
 

@@ -218,18 +218,32 @@ struct SessionsScreen: View {
             serversRow
             Divider().background(LitterTheme.separator)
 
-            if isLoading {
+            if derived.allThreads.isEmpty {
                 Spacer()
-                ProgressView().tint(LitterTheme.accent).frame(maxWidth: .infinity)
-                Spacer()
-            } else if derived.allThreads.isEmpty {
-                Spacer()
-                Text("No sessions yet")
-                    .litterFont(.footnote)
-                    .foregroundColor(LitterTheme.textMuted)
-                    .frame(maxWidth: .infinity)
+                if isLoading {
+                    ProgressView().tint(LitterTheme.accent).frame(maxWidth: .infinity)
+                } else {
+                    Text("No sessions yet")
+                        .litterFont(.footnote)
+                        .foregroundColor(LitterTheme.textMuted)
+                        .frame(maxWidth: .infinity)
+                }
                 Spacer()
             } else {
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(LitterTheme.accent)
+                        Text("Loading more sessions...")
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textMuted)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    Divider().background(LitterTheme.separator)
+                }
                 sessionSearchBar
                 sessionFilterRow
                 Divider().background(LitterTheme.separator)

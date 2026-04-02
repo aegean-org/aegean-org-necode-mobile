@@ -162,6 +162,29 @@ impl MobileClient {
         Ok(threads)
     }
 
+    pub fn upsert_thread_list_page(
+        &self,
+        server_id: &str,
+        threads: &[upstream::Thread],
+    ) -> Vec<ThreadInfo> {
+        let threads = threads
+            .iter()
+            .cloned()
+            .filter_map(crate::thread_info_from_upstream_thread)
+            .collect::<Vec<_>>();
+        self.app_store.upsert_thread_list_page(server_id, &threads);
+        threads
+    }
+
+    pub fn finalize_thread_list_sync(
+        &self,
+        server_id: &str,
+        thread_ids: impl IntoIterator<Item = String>,
+    ) {
+        let incoming_ids = thread_ids.into_iter().collect();
+        self.app_store.finalize_thread_list_sync(server_id, &incoming_ids);
+    }
+
     pub(crate) async fn sync_server_account_after_logout(
         &self,
         server_id: &str,

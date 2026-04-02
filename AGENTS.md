@@ -74,6 +74,8 @@
   - keep those files free of duplicated Rust-owned state/reducer logic
 
 ## Drift Guardrails
+- Default to mobile parity. When a change affects shared mobile behavior or a user-facing mobile workflow, implement and verify it for both iOS and Android in the same pass unless it is truly platform-specific.
+- If a mobile change intentionally ships on only one platform, document the reason in your summary and note the follow-up needed for the other platform.
 - Before adding new Swift/Kotlin logic, ask: would Android/iOS both need this behavior? If yes, put it in Rust.
 - Before adding a new `String` status field to Swift/Kotlin models, ask: should this be a Rust enum instead? Usually yes.
 - Before adding a new `AppStore` method, ask: is this a real composite/store action, or should it live on `AppClient` instead?

@@ -326,6 +326,112 @@ impl AppStoreReducer {
         }
     }
 
+    pub fn upsert_thread_list_page(&self, server_id: &str, threads: &[ThreadInfo]) {
+        for info in threads {
+            self.upsert_thread_snapshot(ThreadSnapshot::from_info(server_id, info.clone()));
+        }
+    }
+
+    pub fn finalize_thread_list_sync(
+        &self,
+        server_id: &str,
+        incoming_ids: &HashSet<String>,
+    ) {
+        let mut removed_thread_keys = Vec::new();
+        let mut active_thread_cleared = false;
+        let mut pending_approvals = None;
+        let mut pending_user_inputs = None;
+        let mut voice_session_changed = false;
+        let agent_directory_version;
+        {
+            let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+            let active_thread_key = snapshot.active_thread.clone();
+            snapshot.threads.retain(|key, _| {
+                let keep = key.server_id != server_id
+                    || incoming_ids.contains(&key.thread_id)
+                    || active_thread_key.as_ref() == Some(key);
+                if !keep {
+                    removed_thread_keys.push(key.clone());
+                }
+                keep
+            });
+            if snapshot.active_thread.as_ref().is_some_and(|key| {
+                key.server_id == server_id && !incoming_ids.contains(&key.thread_id)
+            }) {
+                let should_clear = snapshot
+                    .active_thread
+                    .as_ref()
+                    .is_some_and(|key| !snapshot.threads.contains_key(key));
+                if should_clear {
+                    snapshot.active_thread = None;
+                    active_thread_cleared = true;
+                }
+            }
+            let approvals_before = snapshot.pending_approvals.len();
+            snapshot.pending_approvals.retain(|approval| {
+                approval.thread_id.as_deref().is_none_or(|tid| {
+                    !removed_thread_keys
+                        .iter()
+                        .any(|key| key.thread_id.as_str() == tid)
+                })
+            });
+            let remaining_approval_keys = snapshot
+                .pending_approvals
+                .iter()
+                .map(|approval| PendingApprovalKey {
+                    server_id: approval.server_id.clone(),
+                    request_id: approval.id.clone(),
+                })
+                .collect::<HashSet<_>>();
+            snapshot
+                .pending_approval_seeds
+                .retain(|key, _| remaining_approval_keys.contains(key));
+            if snapshot.pending_approvals.len() != approvals_before {
+                pending_approvals = Some(snapshot.pending_approvals.clone());
+            }
+            let pending_user_inputs_before = snapshot.pending_user_inputs.len();
+            snapshot.pending_user_inputs.retain(|request| {
+                !(request.server_id == server_id
+                    && removed_thread_keys
+                        .iter()
+                        .any(|key| key.thread_id == request.thread_id))
+            });
+            if snapshot.pending_user_inputs.len() != pending_user_inputs_before {
+                pending_user_inputs = Some(snapshot.pending_user_inputs.clone());
+            }
+            if snapshot
+                .voice_session
+                .active_thread
+                .as_ref()
+                .is_some_and(|key| {
+                    key.server_id == server_id && !incoming_ids.contains(&key.thread_id)
+                })
+            {
+                snapshot.voice_session = AppVoiceSessionSnapshot::default();
+                voice_session_changed = true;
+            }
+            agent_directory_version = current_agent_directory_version(&snapshot);
+        }
+        for key in removed_thread_keys {
+            self.emit(AppStoreUpdateRecord::ThreadRemoved {
+                key,
+                agent_directory_version,
+            });
+        }
+        if let Some(approvals) = pending_approvals {
+            self.emit(AppStoreUpdateRecord::PendingApprovalsChanged { approvals });
+        }
+        if let Some(requests) = pending_user_inputs {
+            self.emit(AppStoreUpdateRecord::PendingUserInputsChanged { requests });
+        }
+        if voice_session_changed {
+            self.emit(AppStoreUpdateRecord::VoiceSessionChanged);
+        }
+        if active_thread_cleared {
+            self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key: None });
+        }
+    }
+
     pub fn upsert_thread_snapshot(&self, mut thread: ThreadSnapshot) {
         let key = thread.key.clone();
         {
@@ -1957,6 +2063,56 @@ mod tests {
                 if thread.key.thread_id == "inserted"
                     && thread.info == inserted
                     && thread.model.as_deref() == Some("gpt-5.4")
+        )));
+    }
+
+    #[test]
+    fn paginated_thread_list_upserts_pages_before_final_prune() {
+        let reducer = AppStoreReducer::new();
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info("srv", make_thread_info("stale")));
+        let mut receiver = reducer.subscribe();
+
+        let page_one = make_thread_info("page-one");
+        let page_two = make_thread_info("page-two");
+        reducer.upsert_thread_list_page("srv", &[page_one.clone()]);
+        reducer.upsert_thread_list_page("srv", &[page_two.clone()]);
+        reducer.finalize_thread_list_sync(
+            "srv",
+            &HashSet::from([
+                page_one.id.clone(),
+                page_two.id.clone(),
+            ]),
+        );
+
+        let snapshot = reducer.snapshot();
+        assert!(snapshot.threads.contains_key(&ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "page-one".to_string(),
+        }));
+        assert!(snapshot.threads.contains_key(&ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "page-two".to_string(),
+        }));
+        assert!(!snapshot.threads.contains_key(&ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "stale".to_string(),
+        }));
+
+        let updates = drain_updates(&mut receiver);
+        assert!(updates.iter().any(|update| matches!(
+            update,
+            AppStoreUpdateRecord::ThreadUpserted { thread, .. }
+                if thread.key.thread_id == "page-one"
+        )));
+        assert!(updates.iter().any(|update| matches!(
+            update,
+            AppStoreUpdateRecord::ThreadUpserted { thread, .. }
+                if thread.key.thread_id == "page-two"
+        )));
+        assert!(updates.iter().any(|update| matches!(
+            update,
+            AppStoreUpdateRecord::ThreadRemoved { key, .. }
+                if key.thread_id == "stale"
         )));
     }
 

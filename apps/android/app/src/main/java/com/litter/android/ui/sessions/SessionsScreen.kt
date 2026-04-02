@@ -418,79 +418,123 @@ fun SessionsScreen(
             }
         }
 
-        // Session list
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 16.dp),
-        ) {
-            for (group in derived.groups) {
-                val groupKey = SessionsDerivation.workspaceGroupKey(group.serverId, group.cwd)
-                val isCollapsed = groupKey in sessionsUiState.collapsedWorkspaceGroupKeys
-
-                // Group header
-                item(key = "header-$groupKey") {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                sessionsUiState.toggleWorkspaceGroup(groupKey)
-                            }
-                            .padding(vertical = 8.dp),
-                    ) {
-                        Icon(
-                            if (isCollapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = LitterTheme.textMuted,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = group.workspaceLabel,
-                            color = LitterTheme.textSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "${group.nodes.size}",
-                            color = LitterTheme.textMuted,
-                            fontSize = 11.sp,
-                        )
-                    }
+        if (derived.totalCount == 0) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = LitterTheme.accent,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(
+                        text = "No sessions yet",
+                        color = LitterTheme.textMuted,
+                        fontSize = 13.sp,
+                    )
                 }
-
-                // Session nodes (if expanded)
-                if (!isCollapsed) {
-                    items(
-                        items = visibleSessionRows(group.nodes, sessionsUiState.collapsedSessionNodeKeys),
-                        key = { "${it.summary.key.serverId}/${it.summary.key.threadId}" },
-                    ) { node ->
-                        SessionNodeRow(
-                            node = node,
-                            hasChildren = node.children.isNotEmpty(),
-                            isCollapsed = node.summary.key in sessionsUiState.collapsedSessionNodeKeys,
-                            onToggleCollapse = {
-                                if (node.children.isNotEmpty()) {
-                                    sessionsUiState.toggleSessionNode(node.summary.key)
-                                    scheduleActiveSessionScrollIfNeeded()
-                                }
-                            },
-                            onClick = {
-                                appModel.launchState.updateCurrentCwd(node.summary.cwd)
-                                onOpenConversation(node.summary.key)
-                            },
-                            onFork = {
-                                scope.launch { forkThread(node.summary) }
-                            },
-                        )
-                    }
+            }
+        } else {
+            if (isLoading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    CircularProgressIndicator(
+                        color = LitterTheme.accent,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        text = "Loading more sessions...",
+                        color = LitterTheme.textMuted,
+                        fontSize = 12.sp,
+                    )
                 }
             }
 
-            item { Spacer(Modifier.height(32.dp)) }
+            // Session list
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp),
+            ) {
+                for (group in derived.groups) {
+                    val groupKey = SessionsDerivation.workspaceGroupKey(group.serverId, group.cwd)
+                    val isCollapsed = groupKey in sessionsUiState.collapsedWorkspaceGroupKeys
+
+                    // Group header
+                    item(key = "header-$groupKey") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    sessionsUiState.toggleWorkspaceGroup(groupKey)
+                                }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Icon(
+                                if (isCollapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = LitterTheme.textMuted,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = group.workspaceLabel,
+                                color = LitterTheme.textSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "${group.nodes.size}",
+                                color = LitterTheme.textMuted,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    // Session nodes (if expanded)
+                    if (!isCollapsed) {
+                        items(
+                            items = visibleSessionRows(group.nodes, sessionsUiState.collapsedSessionNodeKeys),
+                            key = { "${it.summary.key.serverId}/${it.summary.key.threadId}" },
+                        ) { node ->
+                            SessionNodeRow(
+                                node = node,
+                                hasChildren = node.children.isNotEmpty(),
+                                isCollapsed = node.summary.key in sessionsUiState.collapsedSessionNodeKeys,
+                                onToggleCollapse = {
+                                    if (node.children.isNotEmpty()) {
+                                        sessionsUiState.toggleSessionNode(node.summary.key)
+                                        scheduleActiveSessionScrollIfNeeded()
+                                    }
+                                },
+                                onClick = {
+                                    appModel.launchState.updateCurrentCwd(node.summary.cwd)
+                                    onOpenConversation(node.summary.key)
+                                },
+                                onFork = {
+                                    scope.launch { forkThread(node.summary) }
+                                },
+                            )
+                        }
+                    }
+                }
+
+                item { Spacer(Modifier.height(32.dp)) }
+            }
         }
     }
 }

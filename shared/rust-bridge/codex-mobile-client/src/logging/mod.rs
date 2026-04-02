@@ -45,8 +45,11 @@ pub(crate) fn install_tracing_subscriber() {
             .without_time()
             .compact()
             .with_target(true)
-            .with_max_level(Level::TRACE)
-            .finish();
+            .with_max_level(Level::TRACE);
+        #[cfg(target_os = "ios")]
+        let subscriber = subscriber.with_writer(std::io::sink).finish();
+        #[cfg(not(target_os = "ios"))]
+        let subscriber = subscriber.finish();
         let _ = tracing::subscriber::set_global_default(subscriber);
     });
 }
