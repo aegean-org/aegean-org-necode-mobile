@@ -32,12 +32,12 @@ const REMOTE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 pub(crate) struct SshReconnectTransport {
-    ssh_client: Arc<SshClient>,
-    local_port: u16,
-    remote_port: Arc<StdMutex<u16>>,
-    prefer_ipv6: bool,
-    working_dir: Option<String>,
-    ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
+    pub(crate) ssh_client: Arc<SshClient>,
+    pub(crate) local_port: u16,
+    pub(crate) remote_port: Arc<StdMutex<u16>>,
+    pub(crate) prefer_ipv6: bool,
+    pub(crate) working_dir: Option<String>,
+    pub(crate) ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
 }
 
 fn append_android_debug_log(line: &str) {
@@ -331,7 +331,7 @@ pub struct RemoteSessionResources {
     pub ipc_client: Option<ReconnectingIpcClient>,
     pub ipc_ssh_client: Option<Arc<SshClient>>,
     pub ipc_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
-    pub ssh_reconnect_transport: Option<SshReconnectTransport>,
+    pub(crate) ssh_reconnect_transport: Option<SshReconnectTransport>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,7 +1013,7 @@ impl ServerSession {
                     let _ = ssh_client.exec(&format!("kill {pid} 2>/dev/null")).await;
                 }
             }
-            if let Some(pid) = self.ssh_pid {
+            if let Some(pid) = self.ssh_pid.as_ref() {
                 let pid = match pid.lock() {
                     Ok(mut guard) => guard.take(),
                     Err(error) => {
@@ -1093,22 +1093,16 @@ async fn reconnect_remote_client(
             max_attempts: REMOTE_RECONNECT_MAX_ATTEMPTS,
         });
         if let Some(ssh_transport) = ssh_transport {
+            let remote_host = ssh_reconnect_remote_host(ssh_transport);
+            let remote_port = ssh_reconnect_remote_port(ssh_transport);
             if let Err(error) = ssh_transport
                 .ssh_client
-                .ensure_forward_port_to(
-                    ssh_transport.local_port,
-                    &ssh_transport.remote_host,
-                    ssh_transport.remote_port,
-                )
+                .ensure_forward_port_to(ssh_transport.local_port, remote_host, remote_port)
                 .await
             {
                 warn!(
                     "remote reconnect forward restore failed: {} local_port={} remote={}:{} error={}",
-                    websocket_url,
-                    ssh_transport.local_port,
-                    ssh_transport.remote_host,
-                    ssh_transport.remote_port,
-                    error
+                    websocket_url, ssh_transport.local_port, remote_host, remote_port, error
                 );
             }
         }
