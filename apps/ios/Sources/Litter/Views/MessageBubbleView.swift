@@ -326,20 +326,42 @@ struct AssistantBlocksBubble: View {
                 ForEach(segments) { segment in
                     switch segment.kind {
                     case .markdown(let content, let identity):
-                        SelectableMarkdownTextView(
-                            markdown: content,
-                            style: .content,
-                            fontSize: compact ? 12 : mdBodySize
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .id(identity)
+                        if MessageContentBridge.containsMath(content) {
+                            LitterMarkdownView(
+                                markdown: content,
+                                style: .content,
+                                bodySize: compact ? 12 : mdBodySize,
+                                codeSize: compact ? 11 : mdCodeSize
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(identity)
+                        } else {
+                            SelectableMarkdownTextView(
+                                markdown: content,
+                                style: .content,
+                                fontSize: compact ? 12 : mdBodySize
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(identity)
+                        }
                     case .codeBlock(let language, let code, let identity):
-                        CodeBlockView(
-                            language: language ?? "",
-                            code: code,
-                            fontSize: compact ? 11 : mdCodeSize
-                        )
-                        .id(identity)
+                        if isMathCodeBlock(language) {
+                            LitterMarkdownView(
+                                markdown: mathBlockMarkdown(code),
+                                style: .content,
+                                bodySize: compact ? 12 : mdBodySize,
+                                codeSize: compact ? 11 : mdCodeSize
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(identity)
+                        } else {
+                            CodeBlockView(
+                                language: language ?? "",
+                                code: code,
+                                fontSize: compact ? 11 : mdCodeSize
+                            )
+                            .id(identity)
+                        }
                     case .image(let uiImage):
                         Image(uiImage: uiImage)
                             .resizable()
@@ -352,6 +374,16 @@ struct AssistantBlocksBubble: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: compact ? 8 : 20)
         }
+    }
+
+    private func isMathCodeBlock(_ language: String?) -> Bool {
+        guard let language else { return false }
+        return language.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("math") == .orderedSame
+    }
+
+    private func mathBlockMarkdown(_ code: String) -> String {
+        "```math\n\(code)\n```"
     }
 }
 

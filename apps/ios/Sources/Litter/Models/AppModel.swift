@@ -58,6 +58,8 @@ final class AppModel {
     @ObservationIgnored private var subscription: AppStoreSubscription?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var loadingModelServerIds: Set<String> = []
+    @ObservationIgnored private var loadingRateLimitServerIds: Set<String> = []
+    @ObservationIgnored private var recentConversationMetadataLoads: [String: Date] = [:]
     @ObservationIgnored private var pendingThreadRefreshKeys: Set<ThreadKey> = []
     @ObservationIgnored private var pendingThreadRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
@@ -65,6 +67,7 @@ final class AppModel {
     @ObservationIgnored private var pendingSnapshotRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingStreamingDeltaEvents: [PendingStreamingDeltaEvent] = []
     @ObservationIgnored private var pendingStreamingDeltaTask: Task<Void, Never>?
+    @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
 
     init(
         store: AppStore? = nil,
@@ -159,6 +162,7 @@ final class AppModel {
     }
 
     func activateThread(_ key: ThreadKey?) {
+        restoreCachedThreadSnapshotIfNeeded(for: key)
         updateActiveThread(key)
         store.setActiveThread(key: key)
         scheduleDeferredActiveThreadHydrationIfNeeded(for: key)
@@ -259,7 +263,7 @@ final class AppModel {
         }
 
         let existingCwd =
-            snapshot?.threadSnapshot(for: key)?.info.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+            threadSnapshot(for: key)?.info.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? snapshot?.sessionSummary(for: key)?.cwd.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let existingCwd, !existingCwd.isEmpty else {
@@ -303,8 +307,10 @@ final class AppModel {
     }
 
     func applySnapshot(_ snapshot: AppSnapshotRecord?) {
-        self.snapshot = snapshot
-        if snapshot != nil {
+        let mergedSnapshot = snapshot.map(mergingCachedThreadSnapshots)
+        self.snapshot = mergedSnapshot
+        if let mergedSnapshot {
+            mergedSnapshot.threads.forEach(cacheThreadSnapshot)
             lastError = nil
         }
     }
@@ -340,7 +346,7 @@ final class AppModel {
             removeThreadSnapshot(for: key, agentDirectoryVersion: agentDirectoryVersion)
         case .activeThreadChanged(let key):
             updateActiveThread(key)
-            if let key, snapshot?.threadSnapshot(for: key) == nil {
+            if let key, threadSnapshot(for: key) == nil {
                 await refreshThreadSnapshot(key: key)
             }
             scheduleDeferredActiveThreadHydrationIfNeeded(for: key)
@@ -381,7 +387,9 @@ final class AppModel {
 
         do {
             guard let threadSnapshot = try await store.threadSnapshot(key: key) else {
-                removeThreadSnapshot(for: key)
+                if cachedThreadSnapshots[key] == nil {
+                    removeThreadSnapshot(for: key, clearCache: false)
+                }
                 return
             }
             applyThreadSnapshot(threadSnapshot)
@@ -501,7 +509,7 @@ final class AppModel {
             return
         }
 
-        guard let thread = snapshot?.threadSnapshot(for: key),
+        guard let thread = threadSnapshot(for: key),
               shouldAttemptDeferredHydration(for: thread) else {
             if pendingActiveThreadHydrationKey == key {
                 pendingActiveThreadHydrationTask?.cancel()
@@ -533,7 +541,7 @@ final class AppModel {
         }
 
         guard snapshot?.activeThread == key,
-              let thread = snapshot?.threadSnapshot(for: key),
+              let thread = threadSnapshot(for: key),
               shouldAttemptDeferredHydration(for: thread) else {
             return
         }
@@ -564,7 +572,9 @@ final class AppModel {
     }
 
     private func applyThreadSnapshot(_ thread: AppThreadSnapshot) {
+        let thread = mergedThreadSnapshotPreservingHydratedItems(thread)
         guard var snapshot else {
+            cacheThreadSnapshot(thread)
             applySnapshot(nil)
             return
         }
@@ -575,6 +585,7 @@ final class AppModel {
             snapshot.threads.append(thread)
         }
         self.snapshot = snapshot
+        cacheThreadSnapshot(thread)
         lastError = nil
     }
 
@@ -583,6 +594,7 @@ final class AppModel {
         sessionSummary: AppSessionSummary,
         agentDirectoryVersion: UInt64
     ) {
+        let thread = mergedThreadSnapshotPreservingHydratedItems(thread)
         guard var snapshot else { return }
 
         if let index = snapshot.threads.firstIndex(where: { $0.key == thread.key }) {
@@ -599,6 +611,7 @@ final class AppModel {
         snapshot.sessionSummaries.sort(by: Self.sessionSummarySort(lhs:rhs:))
         snapshot.agentDirectoryVersion = agentDirectoryVersion
         self.snapshot = snapshot
+        cacheThreadSnapshot(thread)
         lastError = nil
     }
 
@@ -636,6 +649,7 @@ final class AppModel {
         snapshot.sessionSummaries.sort(by: Self.sessionSummarySort(lhs:rhs:))
         snapshot.agentDirectoryVersion = agentDirectoryVersion
         self.snapshot = snapshot
+        cacheThreadSnapshot(thread)
         lastError = nil
     }
 
@@ -657,6 +671,7 @@ final class AppModel {
         }
         snapshot.threads[threadIndex] = thread
         self.snapshot = snapshot
+        cacheThreadSnapshot(thread)
         lastError = nil
         return true
     }
@@ -688,6 +703,7 @@ final class AppModel {
         item.content = .commandExecution(data)
         snapshot.threads[threadIndex].hydratedConversationItems[itemIndex] = item
         self.snapshot = snapshot
+        cacheThreadSnapshot(snapshot.threads[threadIndex])
         lastError = nil
         return true
     }
@@ -713,11 +729,16 @@ final class AppModel {
         item.content = updatedContent
         snapshot.threads[threadIndex].hydratedConversationItems[itemIndex] = item
         self.snapshot = snapshot
+        cacheThreadSnapshot(snapshot.threads[threadIndex])
         lastError = nil
         return true
     }
 
-    private func removeThreadSnapshot(for key: ThreadKey, agentDirectoryVersion: UInt64? = nil) {
+    private func removeThreadSnapshot(
+        for key: ThreadKey,
+        agentDirectoryVersion: UInt64? = nil,
+        clearCache: Bool = true
+    ) {
         guard var snapshot else { return }
         snapshot.threads.removeAll { $0.key == key }
         snapshot.sessionSummaries.removeAll { $0.key == key }
@@ -728,6 +749,9 @@ final class AppModel {
             snapshot.agentDirectoryVersion = agentDirectoryVersion
         }
         self.snapshot = snapshot
+        if clearCache {
+            cachedThreadSnapshots.removeValue(forKey: key)
+        }
     }
 
     private func updateActiveThread(_ key: ThreadKey?) {
@@ -817,8 +841,12 @@ final class AppModel {
     }
 
     func loadConversationMetadataIfNeeded(serverId: String) async {
+        if hasFreshConversationMetadata(for: serverId) {
+            return
+        }
         await loadAvailableModelsIfNeeded(serverId: serverId)
         await loadRateLimitsIfNeeded(serverId: serverId)
+        recentConversationMetadataLoads[serverId] = Date()
     }
 
     func loadAvailableModelsIfNeeded(serverId: String) async {
@@ -842,6 +870,9 @@ final class AppModel {
         guard let server = snapshot?.serverSnapshot(for: serverId), server.isConnected else { return }
         guard server.rateLimits == nil else { return }
         guard server.account != nil else { return }
+        guard !loadingRateLimitServerIds.contains(serverId) else { return }
+        loadingRateLimitServerIds.insert(serverId)
+        defer { loadingRateLimitServerIds.remove(serverId) }
         do {
             _ = try await client.refreshRateLimits(serverId: serverId)
         } catch {
@@ -862,7 +893,7 @@ final class AppModel {
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
-        if let existing = snapshot?.threadSnapshot(for: key) {
+        if let existing = threadSnapshot(for: key) {
             appState.hydratePermissions(from: existing)
             if !hasAuthoritativePermissions(existing) {
                 scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
@@ -928,7 +959,7 @@ final class AppModel {
         key: ThreadKey,
         maxAttempts: Int = 5
     ) async -> ThreadKey? {
-        if snapshot?.threadSnapshot(for: key) != nil {
+        if threadSnapshot(for: key) != nil {
             return key
         }
 
@@ -951,7 +982,7 @@ final class AppModel {
             }
 
             await refreshSnapshot()
-            if snapshot?.threadSnapshot(for: currentKey) != nil {
+            if threadSnapshot(for: currentKey) != nil {
                 return currentKey
             }
 
@@ -972,7 +1003,7 @@ final class AppModel {
                 }
 
                 await refreshSnapshot()
-                if snapshot?.threadSnapshot(for: currentKey) != nil {
+                if threadSnapshot(for: currentKey) != nil {
                     return currentKey
                 }
             }
@@ -984,11 +1015,15 @@ final class AppModel {
 
         if let activeKey = snapshot?.activeThread,
            activeKey.serverId == currentKey.serverId,
-           snapshot?.threadSnapshot(for: activeKey) != nil {
+           threadSnapshot(for: activeKey) != nil {
             return activeKey
         }
 
         return nil
+    }
+
+    func threadSnapshot(for key: ThreadKey) -> AppThreadSnapshot? {
+        snapshot?.threadSnapshot(for: key) ?? cachedThreadSnapshots[key]
     }
 
     private func hasAuthoritativePermissions(_ thread: AppThreadSnapshot) -> Bool {
@@ -996,6 +1031,63 @@ final class AppModel {
             approvalPolicy: thread.effectiveApprovalPolicy,
             sandboxPolicy: thread.effectiveSandboxPolicy
         )
+    }
+
+    private func hasFreshConversationMetadata(for serverId: String) -> Bool {
+        guard let server = snapshot?.serverSnapshot(for: serverId) else { return false }
+        let hasModels = server.availableModels != nil
+        let hasRateLimits = server.account == nil || server.rateLimits != nil
+        if hasModels && hasRateLimits {
+            return true
+        }
+
+        guard let lastLoad = recentConversationMetadataLoads[serverId] else { return false }
+        return Date().timeIntervalSince(lastLoad) < 10
+    }
+
+    private func restoreCachedThreadSnapshotIfNeeded(for key: ThreadKey?) {
+        guard let key,
+              snapshot?.threadSnapshot(for: key) == nil,
+              let cached = cachedThreadSnapshots[key] else {
+            return
+        }
+        applyThreadSnapshot(cached)
+    }
+
+    private func cacheThreadSnapshot(_ thread: AppThreadSnapshot) {
+        cachedThreadSnapshots[thread.key] = thread
+    }
+
+    private func mergedThreadSnapshotPreservingHydratedItems(_ thread: AppThreadSnapshot) -> AppThreadSnapshot {
+        guard thread.hydratedConversationItems.isEmpty,
+              let cached = cachedThreadSnapshots[thread.key],
+              !cached.hydratedConversationItems.isEmpty else {
+            return thread
+        }
+
+        var merged = thread
+        merged.hydratedConversationItems = cached.hydratedConversationItems
+        return merged
+    }
+
+    private func mergingCachedThreadSnapshots(_ snapshot: AppSnapshotRecord) -> AppSnapshotRecord {
+        var snapshot = snapshot
+
+        for index in snapshot.threads.indices {
+            let thread = snapshot.threads[index]
+            snapshot.threads[index] = mergedThreadSnapshotPreservingHydratedItems(thread)
+        }
+
+        for (key, cached) in cachedThreadSnapshots {
+            guard snapshot.threads.contains(where: { $0.key == key }) == false else { continue }
+            guard snapshot.activeThread == key ||
+                  snapshot.sessionSummaries.contains(where: { $0.key == key }) else {
+                continue
+            }
+            snapshot.threads.append(cached)
+        }
+
+        return snapshot
     }
 }
 

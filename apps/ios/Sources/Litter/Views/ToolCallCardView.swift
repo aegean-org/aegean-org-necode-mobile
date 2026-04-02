@@ -48,16 +48,16 @@ struct ToolCallCardView: View {
             }
 
             if expanded {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(identifiedSections) { section in
                         sectionView(section.value)
                     }
                 }
-                .padding(.top, 8)
+                .padding(.top, 6)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .onChange(of: model.status) { _, newStatus in
             if newStatus == .failed {
                 expanded = true

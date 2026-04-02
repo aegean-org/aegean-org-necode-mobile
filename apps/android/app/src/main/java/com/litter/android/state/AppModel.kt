@@ -102,6 +102,8 @@ class AppModel private constructor(context: android.content.Context) {
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
     private val loadingModelServerIds = mutableSetOf<String>()
     private val loadingRateLimitServerIds = mutableSetOf<String>()
+    private val recentConversationMetadataLoads = mutableMapOf<String, Long>()
+    private val cachedThreadSnapshots = mutableMapOf<ThreadKey, AppThreadSnapshot>()
     private val sessionListMutex = Mutex()
     private var pendingActiveThreadHydrationKey: ThreadKey? = null
     private var pendingActiveThreadHydrationJob: Job? = null
@@ -181,8 +183,12 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun applySnapshot(snapshot: AppSnapshotRecord?) {
-        _snapshot.value = snapshot?.let(::applySavedServerNames)
-        if (snapshot != null) {
+        val merged = snapshot
+            ?.let(::applySavedServerNames)
+            ?.let(::mergeCachedThreadSnapshots)
+        _snapshot.value = merged
+        if (merged != null) {
+            merged.threads.forEach(::cacheThreadSnapshot)
             _lastError.value = null
         }
     }
@@ -281,8 +287,10 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     suspend fun loadConversationMetadataIfNeeded(serverId: String) {
+        if (hasFreshConversationMetadata(serverId)) return
         loadAvailableModelsIfNeeded(serverId)
         loadRateLimitsIfNeeded(serverId)
+        recentConversationMetadataLoads[serverId] = System.currentTimeMillis()
     }
 
     suspend fun loadAvailableModelsIfNeeded(serverId: String) {
@@ -336,7 +344,7 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     suspend fun hydrateThreadPermissions(key: ThreadKey): ThreadKey? {
-        val existing = snapshot.value?.threads?.firstOrNull { it.key == key }
+        val existing = threadSnapshot(key)
         if (existing != null && hasAuthoritativePermissions(existing)) {
             launchState.syncFromThread(existing)
             return key
@@ -377,6 +385,7 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     fun activateThread(key: ThreadKey?) {
+        restoreCachedThreadSnapshotIfNeeded(key)
         updateActiveThread(key)
         store.setActiveThread(key)
         scheduleDeferredActiveThreadHydrationIfNeeded(key)
@@ -412,7 +421,7 @@ class AppModel private constructor(context: android.content.Context) {
         key: ThreadKey,
         maxAttempts: Int = 5,
     ): ThreadKey? {
-        if (_snapshot.value?.threads?.any { it.key == key } == true) {
+        if (threadSnapshot(key) != null) {
             return key
         }
 
@@ -435,7 +444,7 @@ class AppModel private constructor(context: android.content.Context) {
             }
 
             refreshSnapshot()
-            if (_snapshot.value?.threads?.any { it.key == currentKey } == true) {
+            if (threadSnapshot(currentKey) != null) {
                 return currentKey
             }
 
@@ -456,7 +465,7 @@ class AppModel private constructor(context: android.content.Context) {
                 }
 
                 refreshSnapshot()
-                if (_snapshot.value?.threads?.any { it.key == currentKey } == true) {
+                if (threadSnapshot(currentKey) != null) {
                     return currentKey
                 }
             }
@@ -469,7 +478,7 @@ class AppModel private constructor(context: android.content.Context) {
         val activeKey = _snapshot.value?.activeThread
         if (activeKey != null &&
             activeKey.serverId == currentKey.serverId &&
-            _snapshot.value?.threads?.any { it.key == activeKey } == true
+            threadSnapshot(activeKey) != null
         ) {
             return activeKey
         }
@@ -512,7 +521,7 @@ class AppModel private constructor(context: android.content.Context) {
                 removeThreadSnapshot(update.key, update.agentDirectoryVersion)
             is AppStoreUpdateRecord.ActiveThreadChanged -> {
                 updateActiveThread(update.key)
-                if (update.key != null && snapshot.value?.threads?.any { it.key == update.key } != true) {
+                if (update.key != null && threadSnapshot(update.key) == null) {
                     refreshThreadSnapshot(update.key)
                 }
                 scheduleDeferredActiveThreadHydrationIfNeeded(update.key)
@@ -553,7 +562,9 @@ class AppModel private constructor(context: android.content.Context) {
         try {
             val threadSnapshot = store.threadSnapshot(key)
             if (threadSnapshot == null) {
-                removeThreadSnapshot(key)
+                if (cachedThreadSnapshots[key] == null) {
+                    removeThreadSnapshot(key, clearCache = false)
+                }
                 return
             }
             applyThreadSnapshot(threadSnapshot)
@@ -595,7 +606,7 @@ class AppModel private constructor(context: android.content.Context) {
             return
         }
 
-        val thread = snapshot.value?.threads?.firstOrNull { it.key == key }
+        val thread = threadSnapshot(key)
         if (thread == null || !shouldAttemptDeferredHydration(thread)) {
             if (pendingActiveThreadHydrationKey == key) {
                 pendingActiveThreadHydrationJob?.cancel()
@@ -620,7 +631,7 @@ class AppModel private constructor(context: android.content.Context) {
     private suspend fun hydrateActiveThreadIfNeeded(key: ThreadKey) {
         try {
             val current = snapshot.value
-            val thread = current?.threads?.firstOrNull { it.key == key }
+            val thread = threadSnapshot(key)
             if (current?.activeThread != key || thread == null || !shouldAttemptDeferredHydration(thread)) {
                 return
             }
@@ -656,16 +667,22 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun applyThreadSnapshot(thread: AppThreadSnapshot) {
-        val current = _snapshot.value ?: return
+        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
+        val current = _snapshot.value
+        if (current == null) {
+            cacheThreadSnapshot(mergedThread)
+            return
+        }
         val existingIndex = current.threads.indexOfFirst { it.key == thread.key }
         val updatedThreads = current.threads.toMutableList().apply {
             if (existingIndex >= 0) {
-                this[existingIndex] = thread
+                this[existingIndex] = mergedThread
             } else {
-                add(thread)
+                add(mergedThread)
             }
         }
         _snapshot.value = current.copy(threads = updatedThreads)
+        cacheThreadSnapshot(mergedThread)
         _lastError.value = null
     }
 
@@ -674,13 +691,14 @@ class AppModel private constructor(context: android.content.Context) {
         sessionSummary: AppSessionSummary,
         agentDirectoryVersion: ULong,
     ) {
+        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
         val current = _snapshot.value ?: return
         val existingThreadIndex = current.threads.indexOfFirst { it.key == thread.key }
         val updatedThreads = current.threads.toMutableList().apply {
             if (existingThreadIndex >= 0) {
-                this[existingThreadIndex] = thread
+                this[existingThreadIndex] = mergedThread
             } else {
-                add(thread)
+                add(mergedThread)
             }
         }
 
@@ -702,6 +720,7 @@ class AppModel private constructor(context: android.content.Context) {
             sessionSummaries = updatedSummaries,
             agentDirectoryVersion = agentDirectoryVersion,
         )
+        cacheThreadSnapshot(mergedThread)
         _lastError.value = null
     }
 
@@ -752,6 +771,7 @@ class AppModel private constructor(context: android.content.Context) {
             sessionSummaries = updatedSummaries,
             agentDirectoryVersion = agentDirectoryVersion,
         )
+        cacheThreadSnapshot(updatedThread)
         _lastError.value = null
     }
 
@@ -904,7 +924,11 @@ class AppModel private constructor(context: android.content.Context) {
             sandboxPolicy = thread.effectiveSandboxPolicy,
         )
 
-    private fun removeThreadSnapshot(key: ThreadKey, agentDirectoryVersion: ULong? = null) {
+    private fun removeThreadSnapshot(
+        key: ThreadKey,
+        agentDirectoryVersion: ULong? = null,
+        clearCache: Boolean = true,
+    ) {
         val current = _snapshot.value ?: return
         _snapshot.value = current.copy(
             threads = current.threads.filterNot { it.key == key },
@@ -912,10 +936,60 @@ class AppModel private constructor(context: android.content.Context) {
             agentDirectoryVersion = agentDirectoryVersion ?: current.agentDirectoryVersion,
             activeThread = if (current.activeThread == key) null else current.activeThread,
         )
+        if (clearCache) {
+            cachedThreadSnapshots.remove(key)
+        }
     }
 
     private fun updateActiveThread(key: ThreadKey?) {
         val current = _snapshot.value ?: return
         _snapshot.value = current.copy(activeThread = key)
+    }
+
+    fun threadSnapshot(key: ThreadKey): AppThreadSnapshot? =
+        _snapshot.value?.threads?.firstOrNull { it.key == key } ?: cachedThreadSnapshots[key]
+
+    private fun hasFreshConversationMetadata(serverId: String): Boolean {
+        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return false
+        val hasModels = server.availableModels != null
+        val hasRateLimits = server.account == null || server.rateLimits != null
+        if (hasModels && hasRateLimits) return true
+
+        val lastLoad = recentConversationMetadataLoads[serverId] ?: return false
+        return System.currentTimeMillis() - lastLoad < 10_000L
+    }
+
+    private fun restoreCachedThreadSnapshotIfNeeded(key: ThreadKey?) {
+        if (key == null) return
+        if (_snapshot.value?.threads?.any { it.key == key } == true) return
+        val cached = cachedThreadSnapshots[key] ?: return
+        applyThreadSnapshot(cached)
+    }
+
+    private fun cacheThreadSnapshot(thread: AppThreadSnapshot) {
+        cachedThreadSnapshots[thread.key] = thread
+    }
+
+    private fun mergedThreadSnapshotPreservingHydratedItems(thread: AppThreadSnapshot): AppThreadSnapshot {
+        if (thread.hydratedConversationItems.isNotEmpty()) return thread
+        val cached = cachedThreadSnapshots[thread.key] ?: return thread
+        if (cached.hydratedConversationItems.isEmpty()) return thread
+        return thread.copy(hydratedConversationItems = cached.hydratedConversationItems)
+    }
+
+    private fun mergeCachedThreadSnapshots(snapshot: AppSnapshotRecord): AppSnapshotRecord {
+        val mergedThreads = snapshot.threads
+            .map(::mergedThreadSnapshotPreservingHydratedItems)
+            .toMutableList()
+
+        cachedThreadSnapshots.forEach { (key, cached) ->
+            val alreadyPresent = mergedThreads.any { it.key == key }
+            val shouldInclude = snapshot.activeThread == key || snapshot.sessionSummaries.any { it.key == key }
+            if (!alreadyPresent && shouldInclude) {
+                mergedThreads += cached
+            }
+        }
+
+        return snapshot.copy(threads = mergedThreads)
     }
 }

@@ -579,7 +579,7 @@ private fun CommandExecutionRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
+            .padding(vertical = 1.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -610,13 +610,13 @@ private fun CommandExecutionRow(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 56.dp, max = 116.dp)
                 .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
         ) {
             Text(
                 text = outputText,
@@ -741,7 +741,7 @@ private fun TodoListRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
     ) {
         for (step in data.steps) {
             Row(
@@ -787,7 +787,7 @@ private fun ProposedPlanRow(
             fontSize = LitterTextStyle.caption.scaled,
             fontWeight = FontWeight.SemiBold,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
         MarkdownText(text = data.content)
     }
 }
@@ -879,8 +879,8 @@ private fun WidgetRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -965,8 +965,8 @@ private fun UserInputResponseRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = "Requested Input",
@@ -1247,7 +1247,7 @@ private fun ToolCardShell(
             .fillMaxWidth()
             .background(LitterTheme.surface, RoundedCornerShape(10.dp))
             .clickable { expanded = !expanded }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusIcon(status)
@@ -1281,8 +1281,8 @@ private fun ToolCardShell(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 content = content,
             )
         }

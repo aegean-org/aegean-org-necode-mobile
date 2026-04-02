@@ -121,6 +121,7 @@ fun ComposerBar(
     activeTaskSummary: ActiveTaskSummary? = null,
     queuedFollowUps: List<uniffi.codex_mobile_client.AppQueuedFollowUpPreview> = emptyList(),
     rateLimits: uniffi.codex_mobile_client.RateLimitSnapshot? = null,
+    showCollaborationModeChip: Boolean = true,
     onOpenCollaborationModePicker: (() -> Unit)? = null,
     onToggleModelSelector: (() -> Unit)? = null,
     onNavigateToSessions: (() -> Unit)? = null,
@@ -297,15 +298,17 @@ fun ComposerBar(
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            CollaborationModeChip(
-                mode = collaborationMode,
-                onClick = { onOpenCollaborationModePicker?.invoke() },
-            )
+        if (showCollaborationModeChip) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                CollaborationModeChip(
+                    mode = collaborationMode,
+                    onClick = { onOpenCollaborationModePicker?.invoke() },
+                )
+            }
         }
 
         activePlanProgress?.let { progress ->
@@ -953,7 +956,7 @@ private fun reasoningEffortFromServerValue(value: String): ReasoningEffort? =
     }
 
 @Composable
-private fun CollaborationModeChip(
+internal fun CollaborationModeChip(
     mode: uniffi.codex_mobile_client.AppModeKind,
     onClick: () -> Unit,
 ) {

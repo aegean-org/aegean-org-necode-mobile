@@ -408,7 +408,7 @@ fun ExplorationGroupRow(
                 .fillMaxWidth()
                 .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                 .clickable { expanded = !expanded }
-                .padding(8.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -433,15 +433,15 @@ fun ExplorationGroupRow(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 24.dp, top = 6.dp)
+                    .padding(start = 24.dp, top = 4.dp)
                     .heightIn(min = 56.dp, max = previewHeight)
                     .background(
                         LitterTheme.surface.copy(alpha = 0.6f),
                         RoundedCornerShape(8.dp),
                     )
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
                     .verticalScroll(previewScrollState),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 entries.forEach { entry ->
                     Row(
@@ -479,7 +479,7 @@ fun ExplorationGroupRow(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 24.dp, top = 2.dp),
+                        .padding(start = 24.dp, top = 1.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.Top,
                 ) {

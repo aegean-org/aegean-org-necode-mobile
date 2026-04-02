@@ -98,7 +98,10 @@ fun ConversationScreen(
     val scope = rememberCoroutineScope()
 
     val thread = remember(snapshot, threadKey) {
-        snapshot?.threads?.find { it.key == threadKey }
+        appModel.threadSnapshot(threadKey)
+            ?: snapshot?.activeThread
+                ?.takeIf { it.serverId == threadKey.serverId }
+                ?.let(appModel::threadSnapshot)
     }
     val server = remember(snapshot, threadKey) {
         snapshot?.servers?.find { it.serverId == threadKey.serverId }
@@ -141,24 +144,31 @@ fun ConversationScreen(
         lastObservedUpdatedAt = updatedAt
     }
 
-    // Load thread content on first open — resume it so Rust hydrates conversation items
+    // Reuse already-loaded thread content on re-entry, and only fall back to
+    // resume/read flows when the conversation isn't available locally yet.
     LaunchedEffect(threadKey) {
         try {
             val resolvedThreadKey = appModel.hydrateThreadPermissions(threadKey) ?: threadKey
             appModel.activateThread(resolvedThreadKey)
-            val server = appModel.snapshot.value?.servers?.find { it.serverId == resolvedThreadKey.serverId }
-            val cwdOverride = thread?.info?.cwd
-            if (server?.isIpcConnected != true) {
-                appModel.client.resumeThread(
-                    resolvedThreadKey.serverId,
-                    appModel.launchState.threadResumeRequest(
-                        resolvedThreadKey.threadId,
-                        cwdOverride = cwdOverride,
-                        threadKey = resolvedThreadKey,
-                    ),
-                )
+            if (appModel.threadSnapshot(resolvedThreadKey) == null) {
+                val server = appModel.snapshot.value?.servers?.find { it.serverId == resolvedThreadKey.serverId }
+                val cwdOverride = appModel.threadSnapshot(resolvedThreadKey)?.info?.cwd
+                if (server?.isIpcConnected != true) {
+                    appModel.client.resumeThread(
+                        resolvedThreadKey.serverId,
+                        appModel.launchState.threadResumeRequest(
+                            resolvedThreadKey.threadId,
+                            cwdOverride = cwdOverride,
+                            threadKey = resolvedThreadKey,
+                        ),
+                    )
+                    appModel.refreshSnapshot()
+                }
+                if (appModel.threadSnapshot(resolvedThreadKey) == null) {
+                    appModel.ensureThreadLoaded(resolvedThreadKey)
+                }
             }
-            appModel.refreshSnapshot()
+            appModel.loadConversationMetadataIfNeeded(resolvedThreadKey.serverId)
         } catch (_: Exception) {}
     }
 
@@ -234,10 +244,12 @@ fun ConversationScreen(
         }
     }
 
-    // Pinned context: latest TODO progress + file change summary
+    // Pinned context: latest TODO progress + combined session diff summary
     val pinnedContext = remember(items) {
         var todoProgress: String? = null
-        var diffSummary: DiffSummary? = null
+        var diffAdditions = 0
+        var diffDeletions = 0
+        var sawDiff = false
         for (i in items.indices.reversed()) {
             when (val c = items[i].content) {
                 is HydratedConversationItemContent.TodoList -> {
@@ -249,24 +261,29 @@ fun ConversationScreen(
                     }
                 }
                 is HydratedConversationItemContent.FileChange -> {
-                    if (diffSummary == null) {
-                        var additions = 0
-                        var deletions = 0
-                        var sawDiff = false
-                        c.v1.changes.forEach { change ->
-                            sawDiff = true
-                            val stats = summarizeDiff(change.diff)
-                            additions += stats.additions
-                            deletions += stats.deletions
-                        }
-                        if (sawDiff) {
-                            diffSummary = DiffSummary(additions = additions, deletions = deletions)
-                        }
+                    c.v1.changes.forEach { change ->
+                        if (change.diff.isBlank()) return@forEach
+                        sawDiff = true
+                        val stats = summarizeDiff(change.diff)
+                        diffAdditions += stats.additions
+                        diffDeletions += stats.deletions
+                    }
+                }
+                is HydratedConversationItemContent.TurnDiff -> {
+                    if (c.v1.diff.isNotBlank()) {
+                        sawDiff = true
+                        val stats = summarizeDiff(c.v1.diff)
+                        diffAdditions += stats.additions
+                        diffDeletions += stats.deletions
                     }
                 }
                 else -> {}
             }
-            if (todoProgress != null && diffSummary != null) break
+        }
+        val diffSummary = if (sawDiff) {
+            DiffSummary(additions = diffAdditions, deletions = diffDeletions)
+        } else {
+            null
         }
         if (todoProgress != null || diffSummary != null) {
             PinnedContextData(todoProgress = todoProgress, diffSummary = diffSummary)
@@ -360,7 +377,7 @@ fun ConversationScreen(
                                 } else Modifier.drawWithContent { drawContent() }
                             ),
                     ) {
-                        item { Spacer(Modifier.height(16.dp)) }
+                        item { Spacer(Modifier.height(12.dp)) }
 
                         items(
                             items = transcriptTurns,
@@ -380,7 +397,7 @@ fun ConversationScreen(
                                 val timelineEntries = remember(turn.items, turn.isActiveTurn) {
                                     buildTimelineEntries(turn.items, turn.isActiveTurn)
                                 }
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     timelineEntries.forEachIndexed { index, entry ->
                                         when (entry) {
                                             is TimelineEntry.Single -> {
@@ -452,7 +469,7 @@ fun ConversationScreen(
                                     expandedTurnIds = expandedTurnIds + turn.id
                                 }
                             }
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(4.dp))
                         }
 
                         item { Spacer(Modifier.height(80.dp)) }
@@ -506,7 +523,7 @@ fun ConversationScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(LitterTheme.codeBackground.copy(alpha = if (hasWallpaper) 0.75f else 1f))
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = 16.dp, vertical = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -515,6 +532,10 @@ fun ConversationScreen(
                             }
                             pinnedContext.diffSummary?.let { diff ->
                                 DiffSummaryBadge(summary = diff)
+                                CollaborationModeChip(
+                                    mode = thread?.collaborationMode ?: uniffi.codex_mobile_client.AppModeKind.DEFAULT,
+                                    onClick = { showCollaborationModeSelector = true },
+                                )
                             }
                         }
                     }
@@ -530,6 +551,7 @@ fun ConversationScreen(
                         activeTaskSummary = activeTaskSummary,
                         queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
                         rateLimits = server?.rateLimits,
+                        showCollaborationModeChip = pinnedContext?.diffSummary == null,
                         onOpenCollaborationModePicker = { showCollaborationModeSelector = true },
                         onToggleModelSelector = { showModelSelector = !showModelSelector },
                         onNavigateToSessions = onNavigateToSessions,

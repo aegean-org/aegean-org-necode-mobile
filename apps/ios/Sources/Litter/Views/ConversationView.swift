@@ -286,6 +286,7 @@ private extension AppThreadSnapshot {
 }
 
 private struct ConversationBottomChrome: View {
+    @Environment(AppModel.self) private var appModel
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
     let onSend: (String, UIImage?, [SkillMentionSelection]) -> Void
@@ -293,15 +294,26 @@ private struct ConversationBottomChrome: View {
     var bottomInset: CGFloat = 0
     let onOpenConversation: ((ThreadKey) -> Void)?
     let onResumeSessions: ((String) -> Void)?
+    @State private var showCollaborationModeSelector = false
+    @State private var collaborationModePresets: [AppCollaborationModePreset] = []
+    @State private var collaborationModesLoading = false
+    @State private var collaborationModeError: String?
 
     var body: some View {
         VStack(spacing: 0) {
-            ConversationPinnedContextStrip(items: pinnedContextItems)
+            ConversationPinnedContextStrip(
+                items: pinnedContextItems,
+                collaborationMode: composer.collaborationMode,
+                showsModeChip: hasPinnedDiff,
+                onOpenModePicker: openCollaborationModePicker
+            )
             ConversationInputBar(
                 snapshot: composer,
                 onSend: onSend,
                 onFileSearch: onFileSearch,
                 bottomInset: bottomInset,
+                showModeChip: !hasPinnedDiff,
+                onOpenModePicker: openCollaborationModePicker,
                 onOpenConversation: onOpenConversation,
                 onResumeSessions: onResumeSessions
             )
@@ -318,6 +330,89 @@ private struct ConversationBottomChrome: View {
             .ignoresSafeArea(.container, edges: .bottom)
             .allowsHitTesting(false)
         )
+        .sheet(isPresented: $showCollaborationModeSelector) {
+            CollaborationModeSelectorSheet(
+                presets: collaborationModePresets.isEmpty ? fallbackCollaborationModePresets : collaborationModePresets,
+                selectedMode: composer.collaborationMode,
+                isLoading: collaborationModesLoading,
+                onSelect: { mode in
+                    showCollaborationModeSelector = false
+                    Task { await setCollaborationMode(mode) }
+                }
+            )
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+            .task {
+                await loadCollaborationModes()
+            }
+        }
+        .alert("Collaboration Mode", isPresented: Binding(
+            get: { collaborationModeError != nil },
+            set: { if !$0 { collaborationModeError = nil } }
+        )) {
+            Button("OK", role: .cancel) { collaborationModeError = nil }
+        } message: {
+            Text(collaborationModeError ?? "Unable to update collaboration mode.")
+        }
+    }
+
+    private var hasPinnedDiff: Bool {
+        pinnedContextItems.contains {
+            if case .fileChange(let data) = $0.content {
+                return data.changes.contains {
+                    !$0.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            }
+            if case .turnDiff(let data) = $0.content {
+                return !data.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return false
+        }
+    }
+
+    private var fallbackCollaborationModePresets: [AppCollaborationModePreset] {
+        [
+            AppCollaborationModePreset(
+                kind: .`default`,
+                name: "Default",
+                model: nil,
+                reasoningEffort: nil
+            ),
+            AppCollaborationModePreset(
+                kind: .plan,
+                name: "Plan",
+                model: nil,
+                reasoningEffort: .medium
+            )
+        ]
+    }
+
+    private func openCollaborationModePicker() {
+        showCollaborationModeSelector = true
+    }
+
+    private func loadCollaborationModes() async {
+        guard !collaborationModesLoading else { return }
+        collaborationModesLoading = true
+        defer { collaborationModesLoading = false }
+        do {
+            collaborationModePresets = try await appModel.client.listCollaborationModes(
+                serverId: composer.threadKey.serverId
+            )
+        } catch {
+            collaborationModePresets = fallbackCollaborationModePresets
+        }
+    }
+
+    private func setCollaborationMode(_ mode: AppModeKind) async {
+        do {
+            try await appModel.store.setThreadCollaborationMode(
+                key: composer.threadKey,
+                mode: mode
+            )
+        } catch {
+            collaborationModeError = error.localizedDescription
+        }
     }
 }
 
@@ -435,7 +530,7 @@ private struct ConversationMessageList: View {
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        LazyVStack(alignment: .leading, spacing: 14) {
+                        LazyVStack(alignment: .leading, spacing: 10) {
                             ForEach(turns) { turn in
                                 let isLastTurn = turn.id == lastTurnID
                                 ConversationTurnRow(
@@ -1169,6 +1264,8 @@ private struct ConversationInputBar: View {
     let onSend: (String, UIImage?, [SkillMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FileSearchResult]
     var bottomInset: CGFloat = 0
+    let showModeChip: Bool
+    let onOpenModePicker: () -> Void
     let onOpenConversation: ((ThreadKey) -> Void)?
     let onResumeSessions: ((String) -> Void)?
 
@@ -1191,7 +1288,6 @@ private struct ConversationInputBar: View {
     @State private var fileSearchGeneration = 0
     @State private var fileSearchTask: Task<Void, Never>?
     @State private var popupRefreshTask: Task<Void, Never>?
-    @State private var showCollaborationModeSelector = false
     @State private var showModelSelector = false
     @State private var showPermissionsSheet = false
     @State private var showExperimentalSheet = false
@@ -1202,8 +1298,6 @@ private struct ConversationInputBar: View {
     @State private var slashErrorMessage: String?
     @State private var experimentalFeatures: [ExperimentalFeature] = []
     @State private var experimentalFeaturesLoading = false
-    @State private var collaborationModePresets: [AppCollaborationModePreset] = []
-    @State private var collaborationModesLoading = false
     @State private var skills: [SkillMetadata] = []
     @State private var skillsLoading = false
     @State private var mentionSkillPathsByName: [String: String] = [:]
@@ -1289,22 +1383,6 @@ private struct ConversationInputBar: View {
         ) {
             composerSurface
         }
-        .sheet(isPresented: $showCollaborationModeSelector) {
-            CollaborationModeSelectorSheet(
-                presets: collaborationModePresets.isEmpty ? fallbackCollaborationModePresets : collaborationModePresets,
-                selectedMode: snapshot.collaborationMode,
-                isLoading: collaborationModesLoading,
-                onSelect: { mode in
-                    showCollaborationModeSelector = false
-                    Task { await setCollaborationMode(mode) }
-                }
-            )
-            .presentationDetents([.height(220)])
-            .presentationDragIndicator(.visible)
-            .task {
-                await loadCollaborationModes()
-            }
-        }
         .alert(
             "Implement this plan?",
             isPresented: Binding(
@@ -1367,6 +1445,7 @@ private struct ConversationInputBar: View {
                 rateLimits: snapshot.rateLimits,
                 contextPercent: contextPercent(),
                 isTurnActive: isTurnActive,
+                showModeChip: showModeChip,
                 voiceManager: voiceManager,
                 showAttachMenu: $showAttachMenu,
                 onClearAttachment: clearAttachment,
@@ -1374,7 +1453,7 @@ private struct ConversationInputBar: View {
                 onSteerQueuedFollowUp: steerQueuedFollowUp,
                 onDeleteQueuedFollowUp: deleteQueuedFollowUp,
                 onPasteImage: { image in attachedImage = image },
-                onOpenModePicker: openCollaborationModePicker,
+                onOpenModePicker: onOpenModePicker,
                 onSendText: handleSend,
                 onStopRecording: stopVoiceRecording,
                 onStartRecording: startVoiceRecording,
@@ -1531,51 +1610,6 @@ private struct ConversationInputBar: View {
             attachedImage = image
         }
         selectedPhoto = nil
-    }
-
-    private var fallbackCollaborationModePresets: [AppCollaborationModePreset] {
-        [
-            AppCollaborationModePreset(
-                kind: .`default`,
-                name: "Default",
-                model: nil,
-                reasoningEffort: nil
-            ),
-            AppCollaborationModePreset(
-                kind: .plan,
-                name: "Plan",
-                model: nil,
-                reasoningEffort: .medium
-            )
-        ]
-    }
-
-    private func openCollaborationModePicker() {
-        showCollaborationModeSelector = true
-    }
-
-    private func loadCollaborationModes() async {
-        guard !collaborationModesLoading else { return }
-        collaborationModesLoading = true
-        defer { collaborationModesLoading = false }
-        do {
-            collaborationModePresets = try await appModel.client.listCollaborationModes(
-                serverId: snapshot.threadKey.serverId
-            )
-        } catch {
-            collaborationModePresets = fallbackCollaborationModePresets
-        }
-    }
-
-    private func setCollaborationMode(_ mode: AppModeKind) async {
-        do {
-            try await appModel.store.setThreadCollaborationMode(
-                key: snapshot.threadKey,
-                mode: mode
-            )
-        } catch {
-            slashErrorMessage = error.localizedDescription
-        }
     }
 
     private func dismissPlanImplementationPrompt() {
@@ -1813,7 +1847,7 @@ private struct ConversationInputBar: View {
     private func executeSlashCommand(_ command: ComposerSlashCommand, args: String?) {
         switch command {
         case .plan:
-            openCollaborationModePicker()
+            onOpenModePicker()
         case .model:
             showModelSelector = true
         case .permissions:

@@ -882,14 +882,14 @@ private struct ConversationDestinationScreen: View {
     var onInfo: (() -> Void)?
 
     private var conversationThread: AppThreadSnapshot? {
-        if let exact = appModel.snapshot?.threadSnapshot(for: threadKey) {
+        if let exact = appModel.threadSnapshot(for: threadKey) {
             return exact
         }
         guard let activeKey = appModel.snapshot?.activeThread,
               activeKey.serverId == threadKey.serverId else {
             return nil
         }
-        return appModel.snapshot?.threadSnapshot(for: activeKey)
+        return appModel.threadSnapshot(for: activeKey)
     }
 
     private var resolvedThreadKey: ThreadKey {
@@ -1007,8 +1007,8 @@ private struct ConversationDestinationScreen: View {
                 threadKey.serverId,
                 threadKey.threadId
             )
-            appModel.store.setActiveThread(key: threadKey)
-            if appModel.snapshot?.threadSnapshot(for: threadKey) == nil {
+            appModel.activateThread(threadKey)
+            if appModel.threadSnapshot(for: threadKey) == nil {
                 _ = await appModel.ensureThreadLoaded(key: threadKey)
             }
             await appModel.loadConversationMetadataIfNeeded(serverId: threadKey.serverId)

@@ -98,4 +98,19 @@ final class MessageContentBridgeTests: XCTestCase {
 
         XCTAssertEqual(MessageContentBridge.normalizedAssistantMarkdown(text), text)
     }
+
+    func testContainsMathDetectsInlineAndDisplayMath() {
+        XCTAssertTrue(MessageContentBridge.containsMath("Inline $a+b$"))
+        XCTAssertTrue(MessageContentBridge.containsMath("Before\n\n\\[\na+b\n\\]\n\nAfter"))
+    }
+
+    func testContainsMathIgnoresFencedCode() {
+        let text = """
+        ```tex
+        $x$
+        ```
+        """
+
+        XCTAssertFalse(MessageContentBridge.containsMath(text))
+    }
 }

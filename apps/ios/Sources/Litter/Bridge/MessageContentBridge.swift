@@ -33,6 +33,17 @@ enum MessageContentBridge {
         return normalized.isEmpty ? text : normalized
     }
 
+    static func containsMath(_ text: String) -> Bool {
+        store.extractSegmentsTyped(text: text).contains { segment in
+            switch segment {
+            case .inlineMath, .displayMath:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
     static func parseToolCalls(text: String) -> [ToolCallCardModel] {
         store.parseToolCallsTyped(text: text).compactMap { $0.toToolCallCardModel() }
     }

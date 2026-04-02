@@ -11,6 +11,7 @@ struct ConversationComposerContentView: View {
     let rateLimits: RateLimitSnapshot?
     let contextPercent: Int64?
     let isTurnActive: Bool
+    let showModeChip: Bool
     let voiceManager: VoiceTranscriptionManager
     @Binding var showAttachMenu: Bool
     let onClearAttachment: () -> Void
@@ -36,6 +37,7 @@ struct ConversationComposerContentView: View {
         rateLimits: RateLimitSnapshot?,
         contextPercent: Int64?,
         isTurnActive: Bool,
+        showModeChip: Bool = true,
         voiceManager: VoiceTranscriptionManager,
         showAttachMenu: Binding<Bool>,
         onClearAttachment: @escaping () -> Void,
@@ -60,6 +62,7 @@ struct ConversationComposerContentView: View {
         self.rateLimits = rateLimits
         self.contextPercent = contextPercent
         self.isTurnActive = isTurnActive
+        self.showModeChip = showModeChip
         self.voiceManager = voiceManager
         _showAttachMenu = showAttachMenu
         self.onClearAttachment = onClearAttachment
@@ -103,15 +106,17 @@ struct ConversationComposerContentView: View {
             }
 
             VStack(alignment: .trailing, spacing: 0) {
-                HStack {
-                    ConversationComposerModeChip(
-                        mode: collaborationMode,
-                        onTap: onOpenModePicker
-                    )
-                    Spacer()
+                if showModeChip {
+                    HStack {
+                        ConversationComposerModeChip(
+                            mode: collaborationMode,
+                            onTap: onOpenModePicker
+                        )
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
 
                 if let activePlanProgress {
                     ConversationComposerPlanProgressView(progress: activePlanProgress)
@@ -164,7 +169,7 @@ struct ConversationComposerContentView: View {
     }
 }
 
-private struct ConversationComposerModeChip: View {
+struct ConversationComposerModeChip: View {
     let mode: AppModeKind
     let onTap: () -> Void
 

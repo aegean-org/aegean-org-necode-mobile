@@ -19,7 +19,7 @@ struct ConversationTurnTimeline: View {
     var body: some View {
         let rows = rowDescriptors
 
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(row, isLastRow: index == rows.indices.last)
                     .id(row.id)
@@ -600,7 +600,7 @@ private struct ConversationExplorationGroupRow: View {
     var body: some View {
         let entries = explorationEntries
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Button(action: toggleExpanded) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -620,7 +620,7 @@ private struct ConversationExplorationGroupRow: View {
             .buttonStyle(.plain)
 
             if expanded {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     ForEach(entries) { entry in
                         HStack(alignment: .top, spacing: 8) {
                             Circle()
@@ -637,7 +637,7 @@ private struct ConversationExplorationGroupRow: View {
             } else if showsCollapsedPreview && !entries.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 4) {
                             ForEach(entries) { entry in
                                 HStack(alignment: .top, spacing: 8) {
                                     Circle()
@@ -658,7 +658,7 @@ private struct ConversationExplorationGroupRow: View {
                                 .id(bottomAnchorId)
                         }
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 6)
                     }
                     .frame(maxHeight: collapsedPreviewHeight)
                     .background(LitterTheme.surface.opacity(0.6))
@@ -683,7 +683,7 @@ private struct ConversationExplorationGroupRow: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .onChange(of: showsCollapsedPreview) { _, newValue in
             guard !newValue else { return }
             expanded = false
@@ -1066,7 +1066,7 @@ private struct ConversationCommandExecutionRow: View {
             )
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
     }
 
     private var shellLine: some View {
@@ -1248,7 +1248,7 @@ private struct ConversationUserInputResponseRow: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
     }
 }
 
@@ -1458,7 +1458,7 @@ private struct ConversationSystemCardRow: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -1467,25 +1467,36 @@ private struct ConversationSystemCardRow: View {
 
 struct ConversationPinnedContextStrip: View {
     let items: [ConversationItem]
+    let collaborationMode: AppModeKind
+    let showsModeChip: Bool
+    let onOpenModePicker: () -> Void
     @State private var todoExpanded = false
     @State private var selectedDiff: PresentedDiff?
 
     var body: some View {
-        if pinnedPlan != nil || pinnedDiff != nil {
+        if pinnedPlan != nil || combinedPinnedDiff != nil {
             VStack(alignment: .leading, spacing: 8) {
-                if let plan = pinnedPlan, let diff = pinnedDiff {
+                if let plan = pinnedPlan, let diff = combinedPinnedDiff {
                     HStack(alignment: .top, spacing: 10) {
                         compactTodoAccordion(for: plan)
                             .layoutPriority(1)
                         diffIndicatorButton(for: diff)
+                        if showsModeChip {
+                            modeChip
+                        }
                     }
                 } else {
                     if let plan = pinnedPlan {
                         compactTodoAccordion(for: plan)
                     }
 
-                    if let diff = pinnedDiff {
-                        diffIndicatorButton(for: diff)
+                    if let diff = combinedPinnedDiff {
+                        HStack(spacing: 10) {
+                            diffIndicatorButton(for: diff)
+                            if showsModeChip {
+                                modeChip
+                            }
+                        }
                     }
                 }
             }
@@ -1509,20 +1520,28 @@ struct ConversationPinnedContextStrip: View {
         })
     }
 
-    private var pinnedDiff: ConversationItem? {
-        items.last(where: {
-            if case .fileChange(let data) = $0.content {
-                return data.changes.contains {
-                    !$0.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }
+    private var combinedPinnedDiff: PresentedDiff? {
+        let diffs = items.flatMap { item -> [String] in
+            switch item.content {
+            case .fileChange(let data):
+                return data.changes
+                    .map(\.diff)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            case .turnDiff(let data):
+                let diff = data.diff.trimmingCharacters(in: .whitespacesAndNewlines)
+                return diff.isEmpty ? [] : [diff]
+            default:
+                return []
             }
-            return false
-        }) ?? items.last(where: {
-            if case .turnDiff(let data) = $0.content {
-                return !data.diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            return false
-        })
+        }
+
+        guard !diffs.isEmpty else { return nil }
+        return PresentedDiff(
+            id: "session-diff",
+            title: "Session Diff",
+            diff: diffs.joined(separator: "\n\n")
+        )
     }
 
     @ViewBuilder
@@ -1607,43 +1626,22 @@ struct ConversationPinnedContextStrip: View {
         }
     }
 
-    @ViewBuilder
-    private func diffIndicatorButton(for item: ConversationItem) -> some View {
-        if let presented = presentedPinnedDiff(for: item) {
-            Button {
-                selectedDiff = presented
-            } label: {
-                DiffIndicatorLabel(diff: presented.diff)
-            }
-            .buttonStyle(.plain)
-            .fixedSize(horizontal: true, vertical: false)
+    private func diffIndicatorButton(for presented: PresentedDiff) -> some View {
+        Button {
+            selectedDiff = presented
+        } label: {
+            DiffIndicatorLabel(diff: presented.diff)
         }
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func presentedPinnedDiff(for item: ConversationItem) -> PresentedDiff? {
-        switch item.content {
-        case .fileChange(let data):
-            let diffs = data.changes
-                .map(\.diff)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            guard !diffs.isEmpty else { return nil }
-            return PresentedDiff(
-                id: item.id,
-                title: "File Diff",
-                diff: diffs.joined(separator: "\n\n")
-            )
-        case .turnDiff(let data):
-            let diff = data.diff.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !diff.isEmpty else { return nil }
-            return PresentedDiff(
-                id: item.id,
-                title: "Turn Diff",
-                diff: diff
-            )
-        default:
-            return nil
-        }
+    private var modeChip: some View {
+        ConversationComposerModeChip(
+            mode: collaborationMode,
+            onTap: onOpenModePicker
+        )
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
