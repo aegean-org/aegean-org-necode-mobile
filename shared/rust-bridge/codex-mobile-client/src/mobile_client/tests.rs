@@ -1103,7 +1103,12 @@ mod mobile_client_tests {
         assert!(!server.has_ipc);
 
         let thread = client.snapshot_thread(&key).expect("thread snapshot");
-        assert!(thread.local_overlay_items.is_empty());
+        // The overlay is created before the IPC attempt and stays after
+        // the fallback direct turn/start succeeds and binds it.
+        assert_eq!(thread.local_overlay_items.len(), 1);
+        assert!(thread.local_overlay_items[0]
+            .id
+            .starts_with("local-user-message:"));
     }
 
     #[tokio::test]
@@ -1219,7 +1224,12 @@ mod mobile_client_tests {
         assert!(server.has_ipc);
 
         let thread = client.snapshot_thread(&key).expect("thread snapshot");
-        assert!(thread.local_overlay_items.is_empty());
+        // The overlay is created before the IPC attempt and stays after
+        // the fallback direct turn/start succeeds and binds it.
+        assert_eq!(thread.local_overlay_items.len(), 1);
+        assert!(thread.local_overlay_items[0]
+            .id
+            .starts_with("local-user-message:"));
     }
 
     #[tokio::test]

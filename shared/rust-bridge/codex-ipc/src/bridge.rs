@@ -28,6 +28,10 @@ pub enum BridgeOutput {
     Events(Vec<BridgeEvent>),
     /// The thread needs a full refresh (patch failed, no cached state, etc.)
     NeedsRefresh { thread_id: String },
+    /// The bridge has the full authoritative state but can't produce granular
+    /// diffs (e.g., synthesized turn IDs were replaced by real server IDs).
+    /// The caller should replace the store's thread from `projected_state()`.
+    FullReplace { thread_id: String },
     /// The thread was archived.
     ThreadArchived { thread_id: String },
     /// The thread was unarchived.
@@ -753,6 +757,29 @@ impl IpcBridge {
         let events = if had_previous {
             let cache = self.threads.get_mut(&thread_id).unwrap();
             let prev_projection = &cache.projection;
+
+            // Detect synthesized → real turn ID transition.
+            // IPC patches create turns with synthesized IDs like "ipc-turn-N",
+            // then a snapshot arrives with real server IDs. The item IDs also
+            // change, so granular diffing would emit duplicates. Signal the
+            // caller to do a full thread refresh instead.
+            let prev_has_synthesized = prev_projection
+                .thread
+                .turns
+                .iter()
+                .any(|t| t.id.starts_with("ipc-turn-"));
+            let next_has_synthesized = new_projection
+                .thread
+                .turns
+                .iter()
+                .any(|t| t.id.starts_with("ipc-turn-"));
+            if prev_has_synthesized && !next_has_synthesized {
+                cache.raw_state = raw_state;
+                cache.projection = new_projection;
+                cache.last_updated = now;
+                return BridgeOutput::FullReplace { thread_id };
+            }
+
             let events = diff_projections(
                 &thread_id,
                 prev_projection,
@@ -860,6 +887,11 @@ impl IpcBridge {
     /// Get the current projected state for a thread (if cached).
     pub fn projected_state(&self, thread_id: &str) -> Option<&ProjectedConversationState> {
         self.threads.get(thread_id).map(|c| &c.projection)
+    }
+
+    /// Get the raw cached conversation state JSON for a thread (if cached).
+    pub fn raw_state(&self, thread_id: &str) -> Option<serde_json::Value> {
+        self.threads.get(thread_id).map(|c| c.raw_state.clone())
     }
 
     /// Reset all state.

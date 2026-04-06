@@ -699,6 +699,56 @@ fn handle_bridge_output(
                 );
             }
         }
+        BridgeOutput::FullReplace { thread_id: replace_thread_id } => {
+            // Bridge has authoritative state but can't diff granularly
+            // (e.g., synthesized turn IDs resolved to real server IDs).
+            // Build a full thread snapshot from the bridge's cached raw state
+            // and upsert it directly — no network call needed.
+            if let Some(proj) = bridge.projected_state(&replace_thread_id) {
+                let key = ThreadKey {
+                    server_id: server_id.to_string(),
+                    thread_id: replace_thread_id.clone(),
+                };
+                let projection_result = thread_projection_from_conversation_json(
+                    server_id,
+                    &replace_thread_id,
+                    &bridge.raw_state(&replace_thread_id).unwrap_or_default(),
+                );
+                match projection_result {
+                    Ok(projection) => {
+                        let mut snapshot = projection.snapshot;
+                        if let Some(existing) = app_store.snapshot().threads.get(&key) {
+                            copy_thread_runtime_fields(existing, &mut snapshot);
+                        }
+                        app_store.upsert_thread_snapshot(snapshot);
+                        sync_ipc_thread_requests_from_projection(
+                            app_store, server_id, &replace_thread_id, proj,
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "IPC: FullReplace projection failed for thread={}: {}, falling back to recovery",
+                            replace_thread_id, e
+                        );
+                        // Fall through to recovery
+                        queue_ipc_thread_stream_recovery(
+                            pending_thread_events,
+                            recovering_threads,
+                            Arc::clone(session),
+                            Arc::clone(app_store),
+                            server_id,
+                            ThreadStreamStateChangedParams {
+                                conversation_id: replace_thread_id.clone(),
+                                version: 0,
+                                change: StreamChange::Patches { patches: vec![] },
+                            },
+                            "bridge_full_replace_fallback",
+                            recovery_tx,
+                        );
+                    }
+                }
+            }
+        }
         BridgeOutput::NeedsRefresh { thread_id: refresh_thread_id } => {
             queue_ipc_thread_stream_recovery(
                 pending_thread_events,

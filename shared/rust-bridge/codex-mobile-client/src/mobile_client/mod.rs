@@ -1038,10 +1038,33 @@ impl MobileClient {
                 server_id, thread_id
             );
         }
-        let response = read_thread_response_from_app_server(Arc::clone(&session), thread_id)
+        // Use thread/resume (not thread/read) so the server attaches a
+        // conversation listener for this connection.  Without the listener
+        // the WebSocket client only receives ThreadStatusChanged — no
+        // TurnStarted, ItemStarted, MessageDelta, or TurnCompleted events.
+        let response: upstream::ThreadResumeResponse = self
+            .request_typed_for_server(
+                server_id,
+                upstream::ClientRequest::ThreadResume {
+                    request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                    params: upstream::ThreadResumeParams {
+                        thread_id: thread_id.to_string(),
+                        ..Default::default()
+                    },
+                },
+            )
             .await
-            .inspect_err(|error| self.reconcile_transport_error(server_id, error))?;
-        upsert_thread_snapshot_from_app_server_read_response(&self.app_store, server_id, response)?;
+            .map_err(|error| RpcError::Deserialization(error))?;
+        let snapshot = thread_snapshot_from_upstream_thread_with_overrides(
+            server_id,
+            response.thread,
+            Some(response.model),
+            Some(response.model_provider),
+            Some(response.approval_policy.into()),
+            Some(response.sandbox.into()),
+        )
+        .map_err(|e| RpcError::Deserialization(e))?;
+        self.app_store.upsert_thread_snapshot(snapshot);
         Ok(())
     }
 
@@ -1075,6 +1098,14 @@ impl MobileClient {
             .is_some_and(|thread| thread.active_turn_id.is_some());
         let direct_params = params.clone();
         let has_live_ipc = server_has_live_ipc(&self.app_store, server_id, &session);
+        // Stage an optimistic local overlay so the user sees their message
+        // immediately, before the server echoes it back.
+        let optimistic_overlay_id = if !has_active_turn {
+            self.app_store
+                .stage_local_user_message_overlay(&thread_key, &params.input)
+        } else {
+            None
+        };
         let queued_draft = has_active_turn
             .then(|| {
                 queued_follow_up_draft_from_inputs(&params.input, AppQueuedFollowUpKind::Message)
@@ -1281,7 +1312,7 @@ impl MobileClient {
             &params.thread_id,
             ServerMutatingCommandRoute::Direct,
         );
-        let _response = self
+        let response = self
             .request_typed_for_server::<upstream::TurnStartResponse>(
                 server_id,
                 upstream::ClientRequest::TurnStart {
@@ -1291,6 +1322,10 @@ impl MobileClient {
             )
             .await
             .map_err(|error| {
+                if let Some(overlay_id) = optimistic_overlay_id.as_ref() {
+                    self.app_store
+                        .remove_local_overlay_item(&thread_key, overlay_id);
+                }
                 if let Some(draft) = queued_draft.as_ref() {
                     self.app_store
                         .remove_thread_follow_up_draft(&thread_key, &draft.preview.id);
@@ -1302,6 +1337,13 @@ impl MobileClient {
             &direct_command_id,
             ServerMutatingCommandRoute::Direct,
         );
+        if let Some(overlay_id) = optimistic_overlay_id.as_ref() {
+            self.app_store.bind_local_user_message_overlay_to_turn(
+                &thread_key,
+                overlay_id,
+                &response.turn.id,
+            );
+        }
         Ok(())
     }
 
