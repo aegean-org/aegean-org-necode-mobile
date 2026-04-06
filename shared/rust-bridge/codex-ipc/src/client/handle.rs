@@ -226,6 +226,11 @@ impl IpcClient {
         // The connection will be cleaned up when all clones are dropped.
     }
 
+    /// Force the underlying IPC connection shut even if clones still exist.
+    pub async fn force_disconnect(&self) {
+        self.inner.connection.shutdown_ref().await;
+    }
+
     // -----------------------------------------------------------------------
     // Typed follower helpers
     // -----------------------------------------------------------------------

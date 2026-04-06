@@ -3,7 +3,7 @@ import SwiftUI
 struct CodeBlockView: View {
     let language: String
     let code: String
-    var fontSize: CGFloat = 13
+    var fontSize: CGFloat = LitterFont.conversationBodyPointSize
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {

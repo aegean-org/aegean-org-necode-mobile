@@ -15,12 +15,18 @@ actor PushProxyClient {
     }
 
     func register(pushToken: String, interval: Int = 30, ttl: Int = 7200) async throws -> String {
+        LLog.info(
+            "push",
+            "push proxy register request",
+            fields: ["intervalSeconds": interval, "ttlSeconds": ttl]
+        )
         let body = RegisterBody(platform: "ios", pushToken: pushToken, intervalSeconds: interval, ttlSeconds: ttl)
         let data = try await post(path: "/register", body: body)
         return try JSONDecoder().decode(RegisterResponse.self, from: data).id
     }
 
     func deregister(registrationId: String) async throws {
+        LLog.info("push", "push proxy deregister request", fields: ["registrationId": registrationId])
         _ = try await post(path: "/\(registrationId)/deregister", body: Empty())
     }
 
@@ -31,8 +37,10 @@ actor PushProxyClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
+        LLog.trace("push", "push proxy HTTP request", fields: ["path": path])
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        LLog.info("push", "push proxy HTTP response", fields: ["path": path, "status": status])
         guard (200..<300).contains(status) else {
             throw URLError(.badServerResponse)
         }

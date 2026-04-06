@@ -298,19 +298,6 @@ fun ComposerBar(
             }
         }
 
-        if (showCollaborationModeChip) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                CollaborationModeChip(
-                    mode = collaborationMode,
-                    onClick = { onOpenCollaborationModePicker?.invoke() },
-                )
-            }
-        }
-
         activePlanProgress?.let { progress ->
             PlanProgressPanel(progress = progress)
         }

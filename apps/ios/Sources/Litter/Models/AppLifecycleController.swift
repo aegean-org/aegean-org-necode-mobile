@@ -2,6 +2,12 @@ import Foundation
 import Observation
 import UIKit
 import UserNotifications
+import os
+
+private let appLifecycleSignpostLog = OSLog(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.sigkitten.litter",
+    category: "lifecycle"
+)
 
 @MainActor
 final class AppLifecycleController {
@@ -25,6 +31,8 @@ final class AppLifecycleController {
     private var hasEnteredBackgroundSinceLaunch = false
     private var foregroundRecoveryTask: Task<Void, Never>?
     private var foregroundRecoveryID: UUID?
+    private var notificationActivatedThreadKey: ThreadKey?
+    private var notificationActivatedAt: Date?
 
     func setDevicePushToken(_ token: Data) {
         devicePushToken = token
@@ -47,6 +55,11 @@ final class AppLifecycleController {
         }
 
         await appModel.refreshSnapshot()
+    }
+
+    func markThreadOpenedFromNotification(_ key: ThreadKey) {
+        notificationActivatedThreadKey = key
+        notificationActivatedAt = Date()
     }
 
     func reconnectServer(serverId: String, appModel: AppModel) async {
@@ -144,16 +157,34 @@ final class AppLifecycleController {
         hasActiveVoiceSession: Bool,
         liveActivities: TurnLiveActivityController
     ) {
+        let signpostID = OSSignpostID(log: appLifecycleSignpostLog)
+        os_signpost(.begin, log: appLifecycleSignpostLog, name: "AppDidEnterBackground", signpostID: signpostID)
+        defer { os_signpost(.end, log: appLifecycleSignpostLog, name: "AppDidEnterBackground", signpostID: signpostID) }
         hasEnteredBackgroundSinceLaunch = true
         hasRecoveredCurrentForegroundSession = false
         foregroundRecoveryTask?.cancel()
         foregroundRecoveryTask = nil
         foregroundRecoveryID = nil
+        LLog.info(
+            "lifecycle",
+            "app did enter background",
+            fields: [
+                "hasActiveVoiceSession": hasActiveVoiceSession,
+                "existingTrackedTurnCount": snapshot?.threadsWithTrackedTurns.count ?? 0
+            ]
+        )
         guard !hasActiveVoiceSession else { return }
         let activeThreads = snapshot?.threadsWithTrackedTurns ?? []
         guard !activeThreads.isEmpty else { return }
 
         backgroundedTurnKeys = Set(activeThreads.map(\.key))
+        LLog.info(
+            "lifecycle",
+            "tracking background turn keys",
+            fields: [
+                "trackedKeys": activeThreads.map(\.key.debugLabel)
+            ]
+        )
         bgWakeCount = 0
         liveActivities.sync(snapshot)
         registerPushProxy()
@@ -172,24 +203,32 @@ final class AppLifecycleController {
         hasActiveVoiceSession: Bool,
         liveActivities: TurnLiveActivityController
     ) {
+        let signpostID = OSSignpostID(log: appLifecycleSignpostLog)
+        os_signpost(.begin, log: appLifecycleSignpostLog, name: "AppDidBecomeActive", signpostID: signpostID)
+        defer { os_signpost(.end, log: appLifecycleSignpostLog, name: "AppDidBecomeActive", signpostID: signpostID) }
         deregisterPushProxy()
         endBackgroundTaskIfNeeded()
         guard !hasActiveVoiceSession else { return }
         guard !hasRecoveredCurrentForegroundSession else { return }
         hasRecoveredCurrentForegroundSession = true
         let needsInitialReconnect = !hasEnteredBackgroundSinceLaunch
-        let preResumeActiveSSHServerIDs = Set((appModel.snapshot?.servers ?? [])
-            .filter { !$0.isLocal && $0.health != .disconnected }
-            .map(\.serverId))
         let currentSnapshot = appModel.snapshot
         let backgroundedKeys = backgroundedTurnKeys
         backgroundedTurnKeys.removeAll()
-        var keysToRefresh = Set(currentSnapshot?.threads.compactMap { thread in
-            currentSnapshot?.threadHasTrackedTurn(for: thread.key) == true ? thread.key : nil
-        } ?? [])
-        if let activeKey = currentSnapshot?.activeThread {
-            keysToRefresh.insert(activeKey)
-        }
+        let keysToRefresh = foregroundRecoveryKeys(
+            snapshot: currentSnapshot,
+            backgroundedKeys: backgroundedKeys
+        )
+        LLog.info(
+            "lifecycle",
+            "app did become active",
+            fields: [
+                "needsInitialReconnect": needsInitialReconnect,
+                "backgroundedKeyCount": backgroundedKeys.count,
+                "refreshKeyCount": keysToRefresh.count,
+                "refreshKeys": Array(keysToRefresh).map(\.debugLabel)
+            ]
+        )
 
         foregroundRecoveryTask?.cancel()
         let recoveryID = UUID()
@@ -208,8 +247,6 @@ final class AppLifecycleController {
                 appModel: appModel,
                 liveActivities: liveActivities,
                 needsInitialReconnect: needsInitialReconnect,
-                reconnectActiveServerIDs: preResumeActiveSSHServerIDs,
-                backgroundedKeys: backgroundedKeys,
                 keysToRefresh: keysToRefresh
             )
         }
@@ -219,17 +256,57 @@ final class AppLifecycleController {
         appModel: AppModel,
         liveActivities: TurnLiveActivityController
     ) async {
+        let signpostID = OSSignpostID(log: appLifecycleSignpostLog)
+        os_signpost(.begin, log: appLifecycleSignpostLog, name: "HandleBackgroundPush", signpostID: signpostID)
+        defer { os_signpost(.end, log: appLifecycleSignpostLog, name: "HandleBackgroundPush", signpostID: signpostID) }
+        guard UIApplication.shared.applicationState != .active else {
+            LLog.info("push", "skipping background push reconciliation because app is active")
+            return
+        }
         bgWakeCount += 1
         let keys = backgroundedTurnKeys
+        LLog.info(
+            "push",
+            "handling background push wake",
+            fields: [
+                "wakeCount": bgWakeCount,
+                "trackedKeyCount": keys.count,
+                "trackedKeys": Array(keys).map(\.debugLabel)
+            ]
+        )
         guard !keys.isEmpty else { return }
 
         await reconnectSavedServers(appModel: appModel)
-        await refreshTrackedThreads(appModel: appModel, keys: Array(keys))
+        let reloadKeys = keys.filter { !shouldTrustLiveThreadState(for: $0, appModel: appModel) }
+        if !reloadKeys.isEmpty {
+            await refreshTrackedThreads(appModel: appModel, keys: Array(reloadKeys))
+        } else {
+            LLog.info(
+                "push",
+                "background push skipped tracked thread reload because live IPC state is recent",
+                fields: ["trackedKeys": Array(keys).map(\.debugLabel)]
+            )
+        }
         await appModel.refreshSnapshot()
 
         guard let snapshot = appModel.snapshot else { return }
-        let reconciliation = reconcileBackgroundedTurns(snapshot: snapshot, trackedKeys: keys)
+        let trustedLiveKeys = Set(keys.filter { shouldTrustLiveThreadState(for: $0, appModel: appModel) })
+        let reconciliation = reconcileBackgroundedTurns(
+            snapshot: snapshot,
+            trackedKeys: keys,
+            trustedLiveKeys: trustedLiveKeys
+        )
         backgroundedTurnKeys = reconciliation.remainingKeys
+        LLog.info(
+            "push",
+            "background push reconciliation finished",
+            fields: [
+                "remainingKeyCount": reconciliation.remainingKeys.count,
+                "remainingKeys": Array(reconciliation.remainingKeys).map(\.debugLabel),
+                "activeThreadCount": reconciliation.activeThreads.count,
+                "completedNotificationThread": reconciliation.completedNotificationThread?.key.debugLabel ?? ""
+            ]
+        )
 
         for thread in reconciliation.activeThreads {
             liveActivities.updateBackgroundWake(for: thread, pushCount: bgWakeCount)
@@ -252,6 +329,7 @@ final class AppLifecycleController {
     func requestNotificationPermissionIfNeeded() {
         guard !notificationPermissionRequested else { return }
         notificationPermissionRequested = true
+        LLog.info("push", "requesting notification permission")
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
@@ -298,7 +376,8 @@ final class AppLifecycleController {
 
     func reconcileBackgroundedTurns(
         snapshot: AppSnapshotRecord,
-        trackedKeys: Set<ThreadKey>
+        trackedKeys: Set<ThreadKey>,
+        trustedLiveKeys: Set<ThreadKey> = []
     ) -> BackgroundTurnReconciliation {
         var remainingKeys: Set<ThreadKey> = []
         var activeThreads: [AppThreadSnapshot] = []
@@ -307,11 +386,37 @@ final class AppLifecycleController {
         for key in trackedKeys {
             guard let thread = snapshot.threadSnapshot(for: key) else {
                 // Keep tracking until we can observe a definitive thread state again.
+                LLog.info(
+                    "push",
+                    "background turn reconciliation missing thread snapshot",
+                    fields: ["key": key.debugLabel]
+                )
                 remainingKeys.insert(key)
                 continue
             }
 
-            if snapshot.threadHasTrackedTurn(for: key) {
+            let hasActiveTurn = thread.hasActiveTurn
+            let hasPendingApproval = snapshot.pendingApprovals.contains(where: {
+                $0.serverId == key.serverId && $0.threadId == key.threadId
+            })
+            let hasPendingUserInput = snapshot.pendingUserInputs.contains(where: {
+                $0.serverId == key.serverId && $0.threadId == key.threadId
+            })
+            let hasRecentLiveUpdate = trustedLiveKeys.contains(key)
+            let remainsTracked = hasActiveTurn || hasPendingApproval || hasPendingUserInput || hasRecentLiveUpdate
+            LLog.info(
+                "push",
+                "background turn reconciliation evaluated thread",
+                fields: [
+                    "key": key.debugLabel,
+                    "hasActiveTurn": hasActiveTurn,
+                    "hasPendingApproval": hasPendingApproval,
+                    "hasPendingUserInput": hasPendingUserInput,
+                    "hasRecentLiveUpdate": hasRecentLiveUpdate,
+                    "remainsTracked": remainsTracked
+                ]
+            )
+            if remainsTracked {
                 remainingKeys.insert(key)
                 activeThreads.append(thread)
             } else {
@@ -333,6 +438,17 @@ final class AppLifecycleController {
             activeThreads: activeThreads,
             completedNotificationThread: completedNotificationThread
         )
+    }
+
+    func foregroundRecoveryKeys(
+        snapshot: AppSnapshotRecord?,
+        backgroundedKeys: Set<ThreadKey>
+    ) -> Set<ThreadKey> {
+        var keys = backgroundedKeys
+        if let activeKey = snapshot?.activeThread {
+            keys.insert(activeKey)
+        }
+        return keys
     }
 
     private func reconnectPlan(
@@ -484,73 +600,141 @@ final class AppLifecycleController {
         appModel: AppModel,
         liveActivities: TurnLiveActivityController,
         needsInitialReconnect: Bool,
-        reconnectActiveServerIDs: Set<String>,
-        backgroundedKeys: Set<ThreadKey>,
         keysToRefresh: Set<ThreadKey>
     ) async {
+        let signpostID = OSSignpostID(log: appLifecycleSignpostLog)
+        os_signpost(.begin, log: appLifecycleSignpostLog, name: "PerformForegroundRecovery", signpostID: signpostID)
+        defer { os_signpost(.end, log: appLifecycleSignpostLog, name: "PerformForegroundRecovery", signpostID: signpostID) }
+        LLog.info(
+            "lifecycle",
+            "performForegroundRecovery started",
+            fields: [
+                "needsInitialReconnect": needsInitialReconnect,
+                "refreshKeyCount": keysToRefresh.count,
+                "refreshKeys": Array(keysToRefresh).map(\.debugLabel)
+            ]
+        )
         if needsInitialReconnect {
             await reconnectSavedServers(appModel: appModel)
             guard !Task.isCancelled else { return }
         }
 
-        let serverIDsToReconnect: Set<String>
-        if needsInitialReconnect {
-            serverIDsToReconnect = reconnectActiveServerIDs
-        } else {
-            let focusedServerIDs = Set(backgroundedKeys.map(\.serverId))
-                .union(keysToRefresh.map(\.serverId))
-            serverIDsToReconnect = reconnectActiveServerIDs.intersection(focusedServerIDs)
-        }
-
-        if !serverIDsToReconnect.isEmpty {
-            await reconnectActiveSSHServers(
-                appModel: appModel,
-                serverIDs: serverIDsToReconnect
+        let trustedLiveKeys = Set(keysToRefresh.filter {
+            shouldTrustLiveThreadState(for: $0, appModel: appModel, within: 4)
+        })
+        let notificationActivationAge = notificationActivatedAt.map { Date().timeIntervalSince($0) }
+        let reloadKeys = foregroundRecoveryKeysNeedingReload(
+            keysToRefresh,
+            activeThread: appModel.snapshot?.activeThread,
+            trustedLiveKeys: trustedLiveKeys,
+            notificationActivatedKey: notificationActivatedThreadKey,
+            notificationActivationAge: notificationActivationAge
+        )
+        if !reloadKeys.isEmpty {
+            await refreshTrackedThreads(appModel: appModel, keys: Array(reloadKeys))
+            guard !Task.isCancelled else { return }
+        } else if !keysToRefresh.isEmpty {
+            LLog.info(
+                "lifecycle",
+                "performForegroundRecovery skipped thread reloads because live IPC state is already current",
+                fields: ["refreshKeys": Array(keysToRefresh).map(\.debugLabel)]
             )
-            guard !Task.isCancelled else { return }
-        }
-
-        if !keysToRefresh.isEmpty {
-            await refreshTrackedThreads(appModel: appModel, keys: Array(keysToRefresh))
-            guard !Task.isCancelled else { return }
         }
 
         await appModel.refreshSnapshot()
         liveActivities.sync(appModel.snapshot)
+        LLog.info("lifecycle", "performForegroundRecovery completed")
     }
 
     private func refreshTrackedThreads(appModel: AppModel, keys: [ThreadKey]) async {
-        let serverIds = Set(keys.map(\.serverId))
-        for serverId in serverIds {
-            _ = try? await appModel.client.listThreads(
-                serverId: serverId,
-                params: AppListThreadsRequest(
-                    cursor: nil,
-                    limit: nil,
-                    archived: nil,
-                    cwd: nil,
-                    searchTerm: nil
-                )
-            )
+        guard !keys.isEmpty else { return }
+        let signpostID = OSSignpostID(log: appLifecycleSignpostLog)
+        os_signpost(.begin, log: appLifecycleSignpostLog, name: "RefreshTrackedThreads", signpostID: signpostID)
+        defer { os_signpost(.end, log: appLifecycleSignpostLog, name: "RefreshTrackedThreads", signpostID: signpostID) }
+        LLog.info(
+            "lifecycle",
+            "refreshTrackedThreads started",
+            fields: ["keys": keys.map(\.debugLabel)]
+        )
+
+        let activeKey = appModel.snapshot?.activeThread
+        var orderedKeys: [ThreadKey] = []
+        if let activeKey, keys.contains(activeKey) {
+            orderedKeys.append(activeKey)
+        }
+        orderedKeys.append(contentsOf: keys.filter { key in
+            guard let activeKey else { return true }
+            return key != activeKey
+        })
+
+        if let firstKey = orderedKeys.first {
+            await reloadTrackedThread(appModel: appModel, key: firstKey)
         }
 
-        let snapshot = appModel.snapshot
-        for key in keys {
-            let existing = snapshot?.threadSnapshot(for: key)
-            let cwd = existing?.info.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let config = AppThreadLaunchConfig(
-                model: existing?.resolvedModel,
-                approvalPolicy: nil,
-                sandbox: nil,
-                developerInstructions: nil,
-                persistExtendedHistory: true
-            )
-            _ = try? await appModel.client.resumeThread(
-                serverId: key.serverId,
-                params: config.threadResumeRequest(
-                    threadId: key.threadId,
-                    cwdOverride: cwd?.isEmpty == false ? cwd : nil
+        let remainingKeys = Array(orderedKeys.dropFirst())
+        let serverIds = Set(remainingKeys.map(\.serverId))
+        for serverId in serverIds {
+            LLog.info("lifecycle", "refreshTrackedThreads listing threads", fields: ["serverId": serverId])
+            do {
+                _ = try await appModel.client.listThreads(
+                    serverId: serverId,
+                    params: AppListThreadsRequest(
+                        cursor: nil,
+                        limit: nil,
+                        archived: nil,
+                        cwd: nil,
+                        searchTerm: nil
+                    )
                 )
+                LLog.info("lifecycle", "refreshTrackedThreads listThreads completed", fields: ["serverId": serverId])
+            } catch {
+                LLog.error(
+                    "lifecycle",
+                    "refreshTrackedThreads listThreads failed",
+                    error: error,
+                    fields: ["serverId": serverId]
+                )
+            }
+        }
+
+        for key in remainingKeys {
+            await reloadTrackedThread(appModel: appModel, key: key)
+        }
+        LLog.info("lifecycle", "refreshTrackedThreads completed", fields: ["keyCount": keys.count])
+    }
+
+    private func reloadTrackedThread(appModel: AppModel, key: ThreadKey) async {
+        let snapshot = appModel.snapshot
+        let existing = snapshot?.threadSnapshot(for: key)
+        let cwd = existing?.info.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let config = AppThreadLaunchConfig(
+            model: existing?.resolvedModel,
+            approvalPolicy: nil,
+            sandbox: nil,
+            developerInstructions: nil,
+            persistExtendedHistory: true
+        )
+        LLog.info(
+            "lifecycle",
+            "reloadTrackedThread started",
+            fields: [
+                "key": key.debugLabel,
+                "cwdOverride": cwd?.isEmpty == false ? (cwd ?? "") : ""
+            ]
+        )
+        do {
+            _ = try await appModel.reloadThread(
+                key: key,
+                launchConfig: config,
+                cwdOverride: cwd?.isEmpty == false ? cwd : nil
+            )
+            LLog.info("lifecycle", "reloadTrackedThread completed", fields: ["key": key.debugLabel])
+        } catch {
+            LLog.error(
+                "lifecycle",
+                "reloadTrackedThread failed",
+                error: error,
+                fields: ["key": key.debugLabel]
             )
         }
     }
@@ -559,21 +743,42 @@ final class AppLifecycleController {
         guard let tokenData = devicePushToken else { return }
         guard pushProxyRegistrationId == nil else { return }
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
+        LLog.info("push", "registering push proxy")
         Task {
             do {
                 let regId = try await pushProxy.register(pushToken: token, interval: 30, ttl: 7200)
                 await MainActor.run {
                     self.pushProxyRegistrationId = regId
+                    LLog.info("push", "push proxy registered", fields: ["registrationId": regId])
                 }
-            } catch {}
+            } catch {
+                await MainActor.run {
+                    LLog.error("push", "push proxy registration failed", error: error)
+                }
+            }
         }
     }
 
     private func deregisterPushProxy() {
         guard let regId = pushProxyRegistrationId else { return }
         pushProxyRegistrationId = nil
+        LLog.info("push", "deregistering push proxy", fields: ["registrationId": regId])
         Task {
-            try? await pushProxy.deregister(registrationId: regId)
+            do {
+                try await pushProxy.deregister(registrationId: regId)
+                await MainActor.run {
+                    LLog.info("push", "push proxy deregistered", fields: ["registrationId": regId])
+                }
+            } catch {
+                await MainActor.run {
+                    LLog.error(
+                        "push",
+                        "push proxy deregistration failed",
+                        error: error,
+                        fields: ["registrationId": regId]
+                    )
+                }
+            }
         }
     }
 
@@ -581,6 +786,36 @@ final class AppLifecycleController {
         guard backgroundTaskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
+    }
+
+    private func shouldTrustLiveThreadState(
+        for key: ThreadKey,
+        appModel: AppModel,
+        within interval: TimeInterval = 3
+    ) -> Bool {
+        // IPC-vs-direct routing is now handled in Rust. Always refresh —
+        // Rust's external_resume_thread will no-op if IPC data is already fresh.
+        false
+    }
+
+    func foregroundRecoveryKeysNeedingReload(
+        _ keys: Set<ThreadKey>,
+        activeThread: ThreadKey?,
+        trustedLiveKeys: Set<ThreadKey>,
+        notificationActivatedKey: ThreadKey?,
+        notificationActivationAge: TimeInterval?
+    ) -> Set<ThreadKey> {
+        keys.filter { key in
+            guard trustedLiveKeys.contains(key) else { return true }
+            if activeThread == key {
+                return false
+            }
+            guard notificationActivatedKey == key,
+                  let notificationActivationAge else {
+                return true
+            }
+            return notificationActivationAge > 6
+        }
     }
 
     static func notificationThreadKey(from userInfo: [AnyHashable: Any]) -> ThreadKey? {
@@ -601,7 +836,14 @@ final class AppLifecycleController {
         threadPreview: String?,
         threadKey: ThreadKey
     ) {
-        guard UIApplication.shared.applicationState != .active else { return }
+        guard UIApplication.shared.applicationState != .active else {
+            LLog.info(
+                "push",
+                "skipping local notification because app is active",
+                fields: ["threadKey": threadKey.debugLabel]
+            )
+            return
+        }
         let content = UNMutableNotificationContent()
         content.title = "Turn completed"
         var bodyParts: [String] = []
@@ -618,6 +860,21 @@ final class AppLifecycleController {
             content: content,
             trigger: nil
         )
+        LLog.info(
+            "push",
+            "posting local completion notification",
+            fields: [
+                "threadKey": threadKey.debugLabel,
+                "model": model,
+                "hasPreview": threadPreview?.isEmpty == false
+            ]
+        )
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+private extension ThreadKey {
+    var debugLabel: String {
+        "\(serverId):\(threadId)"
     }
 }

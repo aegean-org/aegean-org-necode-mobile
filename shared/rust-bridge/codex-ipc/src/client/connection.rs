@@ -1,10 +1,11 @@
 //! IPC connection managing read/write loop tasks over an async byte stream.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{RwLock, broadcast, mpsc};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::client::pending::PendingRequests;
 use crate::error::TransportError;
@@ -93,6 +94,13 @@ impl IpcConnection {
         self.pending.clear();
     }
 
+    /// Shut down the connection through a shared reference.
+    pub async fn shutdown_ref(&self) {
+        self.read_task.abort();
+        self.write_task.abort();
+        self.pending.clear();
+    }
+
     async fn read_loop<R>(
         mut reader: R,
         pending: Arc<PendingRequests>,
@@ -103,6 +111,7 @@ impl IpcConnection {
         R: AsyncRead + Unpin + Send + 'static,
     {
         loop {
+            let read_started_at = Instant::now();
             let raw = match frame::read_frame(&mut reader).await {
                 Ok(data) => data,
                 Err(TransportError::ConnectionClosed) => {
@@ -116,8 +125,10 @@ impl IpcConnection {
                     break;
                 }
             };
+            let read_complete_ms = read_started_at.elapsed().as_millis();
             emit_raw_frame_trace(RawFrameDirection::In, &raw);
 
+            let dispatch_started_at = Instant::now();
             let envelope: Envelope = match serde_json::from_str(&raw) {
                 Ok(e) => e,
                 Err(e) => {
@@ -199,6 +210,25 @@ impl IpcConnection {
                     // the router sends these. Log and skip.
                     debug!("ipc: ignoring unexpected ClientDiscoveryResponse");
                 }
+            }
+
+            let dispatch_ms = dispatch_started_at.elapsed().as_millis();
+            if raw.len() >= 1024 * 1024 || read_complete_ms >= 200 || dispatch_ms >= 50 {
+                debug!(
+                    target: "ipc.connection",
+                    bytes = raw.len(),
+                    read_complete_ms,
+                    dispatch_ms,
+                    "IPC inbound frame processed"
+                );
+            } else {
+                trace!(
+                    target: "ipc.connection",
+                    bytes = raw.len(),
+                    read_complete_ms,
+                    dispatch_ms,
+                    "IPC inbound frame processed"
+                );
             }
         }
     }

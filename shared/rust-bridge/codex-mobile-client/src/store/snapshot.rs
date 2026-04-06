@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use codex_app_server_protocol as upstream;
 
@@ -125,6 +126,87 @@ pub enum ServerIpcStateSnapshot {
     Ready,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerTransportAuthority {
+    IpcPrimary,
+    DirectOnly,
+    Recovering,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppLifecyclePhaseSnapshot {
+    Active,
+    Inactive,
+    Background,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerMutatingCommandKind {
+    StartTurn,
+    SetQueuedFollowUpsState,
+    SteerQueuedFollowUp,
+    DeleteQueuedFollowUp,
+    ApprovalResponse,
+    UserInputResponse,
+    CollaborationModeSync,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerMutatingCommandRoute {
+    Ipc,
+    Direct,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IpcFailureClassification {
+    FollowerCommandTimeoutWhileIpcHealthy,
+    IpcConnectionLost,
+    LifecycleInterrupted,
+    ServerTransportUnhealthy,
+    UnknownTimeout,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingServerMutatingCommand {
+    pub kind: ServerMutatingCommandKind,
+    pub thread_id: String,
+    pub local_request_id: String,
+    pub started_at: Instant,
+    pub route: ServerMutatingCommandRoute,
+    pub lifecycle_phase_at_send: AppLifecyclePhaseSnapshot,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerTransportDiagnostics {
+    pub authority: ServerTransportAuthority,
+    pub actual_ipc_connected: bool,
+    pub last_ipc_broadcast_at: Option<Instant>,
+    pub last_ipc_mutation_ok_at: Option<Instant>,
+    pub last_direct_request_ok_at: Option<Instant>,
+    pub last_lifecycle_phase: AppLifecyclePhaseSnapshot,
+    pub last_lifecycle_transition_at: Option<Instant>,
+    pub last_resumed_at: Option<Instant>,
+    pub pending_mutation: Option<PendingServerMutatingCommand>,
+    pub last_ipc_failure: Option<IpcFailureClassification>,
+}
+
+impl Default for ServerTransportDiagnostics {
+    fn default() -> Self {
+        Self {
+            authority: ServerTransportAuthority::DirectOnly,
+            actual_ipc_connected: false,
+            last_ipc_broadcast_at: None,
+            last_ipc_mutation_ok_at: None,
+            last_direct_request_ok_at: None,
+            last_lifecycle_phase: AppLifecyclePhaseSnapshot::Active,
+            last_lifecycle_transition_at: None,
+            last_resumed_at: None,
+            pending_mutation: None,
+            last_ipc_failure: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ServerSnapshot {
     pub server_id: String,
@@ -141,6 +223,7 @@ pub struct ServerSnapshot {
     pub rate_limits: Option<RateLimitSnapshot>,
     pub available_models: Option<Vec<ModelInfo>>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
+    pub transport: ServerTransportDiagnostics,
 }
 
 impl ServerSnapshot {

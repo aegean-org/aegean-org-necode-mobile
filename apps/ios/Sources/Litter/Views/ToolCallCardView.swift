@@ -3,6 +3,7 @@ import SwiftUI
 struct ToolCallCardView: View {
     let model: ToolCallCardModel
     @State private var expanded: Bool
+    private let contentFontSize = LitterFont.conversationBodyPointSize
 
     init(model: ToolCallCardModel) {
         self.model = model
@@ -18,11 +19,11 @@ struct ToolCallCardView: View {
 
                 if let attributedSummary = model.attributedSummary {
                     Text(attributedSummary)
-                        .litterFont(.caption)
+                        .litterFont(size: contentFontSize)
                         .lineLimit(1)
                 } else {
                     Text(model.summary)
-                        .litterFont(.caption)
+                        .litterFont(size: contentFontSize)
                         .foregroundColor(LitterTheme.textSystem)
                         .lineLimit(1)
                 }
@@ -118,10 +119,10 @@ struct ToolCallCardView: View {
                         ForEach(identifiedKeyValueEntries(entries)) { entry in
                             HStack(alignment: .top, spacing: 8) {
                                 Text(entry.value.key + ":")
-                                    .litterFont(.caption2, weight: .semibold)
+                                    .litterFont(size: contentFontSize, weight: .semibold)
                                     .foregroundColor(LitterTheme.textSecondary)
                                 Text(entry.value.value)
-                                    .litterFont(.caption2)
+                                    .litterFont(size: contentFontSize)
                                     .foregroundColor(LitterTheme.textSystem)
                                     .textSelection(.enabled)
                                 Spacer(minLength: 0)
@@ -149,10 +150,10 @@ struct ToolCallCardView: View {
                         ForEach(identifiedTextItems(items, prefix: "list")) { item in
                             HStack(alignment: .top, spacing: 6) {
                                 Text("•")
-                                    .litterFont(.caption)
+                                    .litterFont(size: contentFontSize)
                                     .foregroundColor(LitterTheme.textSecondary)
                                 Text(item.value)
-                                    .litterFont(.caption)
+                                    .litterFont(size: contentFontSize)
                                     .foregroundColor(LitterTheme.textSystem)
                                     .textSelection(.enabled)
                             }
@@ -176,7 +177,7 @@ struct ToolCallCardView: View {
                                     .frame(width: 6, height: 6)
                                     .padding(.top, 5)
                                 Text(item.value)
-                                    .litterFont(.caption)
+                                    .litterFont(size: contentFontSize)
                                     .foregroundColor(LitterTheme.textSystem)
                                     .textSelection(.enabled)
                                 Spacer(minLength: 0)
@@ -200,7 +201,7 @@ struct ToolCallCardView: View {
     private func codeLikeSection(label: String, language: String, content: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel(label)
-            CodeBlockView(language: language, code: content, fontSize: 13)
+            CodeBlockView(language: language, code: content, fontSize: contentFontSize)
         }
     }
 
@@ -208,7 +209,7 @@ struct ToolCallCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel(label)
             Text(verbatim: content)
-                .litterMonoFont(size: 12)
+                .litterMonoFont(size: contentFontSize)
                 .foregroundColor(LitterTheme.textBody)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -228,7 +229,7 @@ struct ToolCallCardView: View {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     Text(verbatim: line.isEmpty ? " " : line)
-                        .litterMonoFont(size: 12)
+                        .litterMonoFont(size: contentFontSize)
                         .foregroundStyle(diffLineColor(for: line))
                         .lineLimit(1)
                         .truncationMode(.tail)

@@ -23,7 +23,7 @@ use serde_json::Value as JsonValue;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
-use crate::logging::{LogLevelName, log_rust};
+use crate::logging::{LogLevelName, log_rust, summarize_json_for_log};
 use crate::ssh::{SshBootstrapResult, SshClient};
 use crate::transport::{RpcError, TransportError};
 
@@ -328,9 +328,9 @@ pub struct ServerConfig {
 pub struct RemoteSessionResources {
     pub ssh_client: Option<Arc<SshClient>>,
     pub ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
-    pub ipc_client: Option<ReconnectingIpcClient>,
+    pub ipc_stream_client: Option<Arc<ReconnectingIpcClient>>,
     pub ipc_ssh_client: Option<Arc<SshClient>>,
-    pub ipc_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
+    pub ipc_stream_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
     pub(crate) ssh_reconnect_transport: Option<SshReconnectTransport>,
 }
 
@@ -418,13 +418,23 @@ pub struct ServerSession {
     health_rx: watch::Receiver<ConnectionHealth>,
     command_tx: mpsc::Sender<SessionCommand>,
     event_tx: broadcast::Sender<ServerEvent>,
-    ipc_client: Option<ReconnectingIpcClient>,
+    ipc_stream_client: Option<Arc<ReconnectingIpcClient>>,
     ssh_client: Option<Arc<SshClient>>,
     ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
     ipc_ssh_client: Option<Arc<SshClient>>,
-    ipc_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
+    ipc_stream_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
     worker_handle: tokio::task::JoinHandle<()>,
 }
+
+#[cfg(test)]
+pub(crate) type TestRequestHandler =
+    Arc<dyn Fn(ClientRequest) -> Result<JsonValue, RpcError> + Send + Sync>;
+#[cfg(test)]
+pub(crate) type TestResolveHandler =
+    Arc<dyn Fn(RequestId, JsonRpcResult) -> Result<(), RpcError> + Send + Sync>;
+#[cfg(test)]
+pub(crate) type TestRejectHandler =
+    Arc<dyn Fn(RequestId, JSONRPCErrorError) -> Result<(), RpcError> + Send + Sync>;
 
 impl ServerSession {
     /// Connect to a local (in-process) Codex server.
@@ -635,11 +645,11 @@ impl ServerSession {
             health_rx,
             command_tx,
             event_tx,
-            ipc_client: None,
+            ipc_stream_client: None,
             ssh_client: None,
             ssh_pid: None,
             ipc_ssh_client: None,
-            ipc_bridge_pid: None,
+            ipc_stream_bridge_pid: None,
             worker_handle,
         })
     }
@@ -700,10 +710,12 @@ impl ServerSession {
                                                 };
                                                 match &result {
                                                     Ok(value) => {
+                                                        let response_preview =
+                                                            summarize_json_for_log(&value.to_string());
                                                         info!(
                                                             "remote request success url={} response={}",
                                                             reconnect_url,
-                                                            value
+                                                            response_preview
                                                         );
                 }
                                                     Err(error) => {
@@ -737,10 +749,12 @@ impl ServerSession {
                                                     };
                                                     match &result {
                                                         Ok(value) => {
+                                                            let response_preview =
+                                                                summarize_json_for_log(&value.to_string());
                                                             info!(
                                                                 "remote request retry success url={} response={}",
                                                                 reconnect_url,
-                                                                value
+                                                                response_preview
                                                             );
                 }
                                                         Err(error) => {
@@ -850,11 +864,11 @@ impl ServerSession {
             health_rx,
             command_tx,
             event_tx,
-            ipc_client: resources.ipc_client,
+            ipc_stream_client: resources.ipc_stream_client,
             ssh_client: resources.ssh_client,
             ssh_pid: resources.ssh_pid,
             ipc_ssh_client: resources.ipc_ssh_client,
-            ipc_bridge_pid: resources.ipc_bridge_pid,
+            ipc_stream_bridge_pid: resources.ipc_stream_bridge_pid,
             worker_handle,
         })
     }
@@ -931,27 +945,33 @@ impl ServerSession {
     }
 
     pub fn has_ipc(&self) -> bool {
-        self.ipc_client
+        self.ipc_stream_client
             .as_ref()
-            .is_some_and(ReconnectingIpcClient::is_connected)
+            .is_some_and(|client| client.is_connected())
     }
 
-    pub fn ipc_client(&self) -> Option<IpcClient> {
-        self.ipc_client
+    pub fn ipc_stream_client(&self) -> Option<IpcClient> {
+        self.ipc_stream_client
             .as_ref()
-            .and_then(ReconnectingIpcClient::client)
+            .and_then(|client| client.client())
     }
 
     pub fn ipc_broadcasts(&self) -> Option<broadcast::Receiver<TypedBroadcast>> {
-        self.ipc_client
+        self.ipc_stream_client
             .as_ref()
-            .map(ReconnectingIpcClient::subscribe_broadcasts)
+            .map(|client| client.subscribe_broadcasts())
     }
 
     pub fn ipc_connection_state(&self) -> Option<watch::Receiver<bool>> {
-        self.ipc_client
+        self.ipc_stream_client
             .as_ref()
-            .map(ReconnectingIpcClient::subscribe_connection_state)
+            .map(|client| client.subscribe_connection_state())
+    }
+
+    pub fn invalidate_ipc(&self) {
+        if let Some(ipc_client) = self.ipc_stream_client.as_ref() {
+            ipc_client.invalidate();
+        }
     }
 
     /// Respond to a server-initiated request.
@@ -994,18 +1014,18 @@ impl ServerSession {
     pub async fn disconnect(&self) {
         let _ = self.health_tx.send(ConnectionHealth::Disconnected);
         let _ = self.command_tx.send(SessionCommand::Shutdown).await;
-        if let Some(ipc_client) = self.ipc_client.as_ref() {
+        if let Some(ipc_client) = self.ipc_stream_client.as_ref() {
             ipc_client.shutdown().await;
         }
         if let Some(ipc_ssh_client) = self.ipc_ssh_client.as_ref() {
             ipc_ssh_client.disconnect().await;
         }
         if let Some(ssh_client) = self.ssh_client.as_ref() {
-            if let Some(ipc_bridge_pid) = self.ipc_bridge_pid.as_ref() {
+            if let Some(ipc_bridge_pid) = self.ipc_stream_bridge_pid.as_ref() {
                 let pid = match ipc_bridge_pid.lock() {
                     Ok(mut guard) => guard.take(),
                     Err(error) => {
-                        warn!("ServerSession: recovering poisoned ipc_bridge_pid lock");
+                        warn!("ServerSession: recovering poisoned ipc_stream_bridge_pid lock");
                         error.into_inner().take()
                     }
                 };
@@ -1312,6 +1332,87 @@ fn route_in_process_event(
         }
         InProcessServerEvent::Lagged { skipped } => {
             warn!("in-process event: lagged, skipped {skipped} events");
+        }
+    }
+}
+
+#[cfg(test)]
+impl ServerSession {
+    pub(crate) fn test_stub(
+        config: ServerConfig,
+        ipc_client: Option<ReconnectingIpcClient>,
+    ) -> Self {
+        Self::test_stub_with_handlers(config, ipc_client, None, None, None)
+    }
+
+    pub(crate) fn test_stub_with_handlers(
+        config: ServerConfig,
+        ipc_client: Option<ReconnectingIpcClient>,
+        request_handler: Option<TestRequestHandler>,
+        resolve_handler: Option<TestResolveHandler>,
+        reject_handler: Option<TestRejectHandler>,
+    ) -> Self {
+        let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connected);
+        let (command_tx, mut command_rx) = mpsc::channel(16);
+        let (event_tx, _) = broadcast::channel(16);
+        let worker_handle = tokio::spawn(async move {
+            while let Some(command) = command_rx.recv().await {
+                match command {
+                    SessionCommand::Request {
+                        request,
+                        response_tx,
+                    } => {
+                        let result = request_handler
+                            .as_ref()
+                            .map(|handler| handler(request))
+                            .unwrap_or_else(|| {
+                                Err(RpcError::Transport(TransportError::Disconnected))
+                            });
+                        let _ = response_tx.send(result);
+                    }
+                    SessionCommand::Notify { response_tx, .. } => {
+                        let _ = response_tx.send(Ok(()));
+                    }
+                    SessionCommand::Resolve {
+                        request_id,
+                        result,
+                        response_tx,
+                    } => {
+                        let outcome = resolve_handler
+                            .as_ref()
+                            .map(|handler| handler(request_id, result))
+                            .unwrap_or(Ok(()));
+                        let _ = response_tx.send(outcome);
+                    }
+                    SessionCommand::Reject {
+                        request_id,
+                        error,
+                        response_tx,
+                    } => {
+                        let outcome = reject_handler
+                            .as_ref()
+                            .map(|handler| handler(request_id, error))
+                            .unwrap_or(Ok(()));
+                        let _ = response_tx.send(outcome);
+                    }
+                    SessionCommand::Shutdown => break,
+                }
+            }
+        });
+        let shared_ipc_client = ipc_client.map(Arc::new);
+
+        Self {
+            config,
+            health_tx,
+            health_rx,
+            command_tx,
+            event_tx,
+            ipc_stream_client: shared_ipc_client,
+            ssh_client: None,
+            ssh_pid: None,
+            ipc_ssh_client: None,
+            ipc_stream_bridge_pid: None,
+            worker_handle,
         }
     }
 }

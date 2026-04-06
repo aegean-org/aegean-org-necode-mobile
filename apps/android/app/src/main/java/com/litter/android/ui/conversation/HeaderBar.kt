@@ -62,6 +62,7 @@ import com.litter.android.state.statusColor
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTheme
 import kotlinx.coroutines.launch
+import uniffi.codex_mobile_client.AppModeKind
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppThreadSnapshot
 import uniffi.codex_mobile_client.ThreadKey
@@ -216,6 +217,21 @@ fun HeaderBar(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
                         )
+                        if (thread?.collaborationMode == AppModeKind.PLAN) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "plan",
+                                color = Color.Black,
+                                fontSize = 10.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(
+                                        LitterTheme.accent,
+                                        RoundedCornerShape(999.dp),
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
                         if (server?.isIpcConnected == true) {
                             Spacer(Modifier.width(6.dp))
                             Text(
@@ -327,6 +343,15 @@ fun HeaderBar(
             ModelSelectorPanel(
                 thread = thread,
                 availableModels = server?.availableModels ?: emptyList(),
+                onToggleMode = { mode ->
+                    thread?.let { t ->
+                        scope.launch {
+                            try {
+                                appModel.store.setThreadCollaborationMode(t.key, mode)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                },
             )
         }
     }
@@ -344,6 +369,7 @@ object HeaderOverrides {
 private fun ModelSelectorPanel(
     thread: AppThreadSnapshot?,
     availableModels: List<uniffi.codex_mobile_client.ModelInfo>,
+    onToggleMode: ((AppModeKind) -> Unit)? = null,
 ) {
     val appModel = LocalAppModel.current
     val launchState by appModel.launchState.snapshot.collectAsState()
@@ -457,13 +483,27 @@ private fun ModelSelectorPanel(
             }
         }
 
-        // Fast mode toggle
+        // Plan + Fast mode toggles
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.padding(top = 4.dp),
         ) {
-            Text("Fast mode", color = LitterTheme.textSecondary, fontSize = 11.sp)
+            val isPlan = thread?.collaborationMode == AppModeKind.PLAN
+            FilterChip(
+                selected = isPlan,
+                onClick = {
+                    val next = if (isPlan) AppModeKind.DEFAULT else AppModeKind.PLAN
+                    onToggleMode?.invoke(next)
+                },
+                label = { Text("Plan", fontSize = 10.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = LitterTheme.accent,
+                    selectedLabelColor = Color.Black,
+                ),
+            )
             Spacer(Modifier.weight(1f))
+            Text("Fast mode", color = LitterTheme.textSecondary, fontSize = 11.sp)
             Switch(
                 checked = fastMode,
                 onCheckedChange = {

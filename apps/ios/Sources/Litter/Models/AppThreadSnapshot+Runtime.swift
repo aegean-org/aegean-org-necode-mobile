@@ -1,5 +1,10 @@
 import Foundation
 
+struct AppThreadAssistantSnippetSnapshot: Equatable {
+    let sourceItemId: String
+    let snippet: String
+}
+
 extension AppThreadSnapshot {
     var displayTitle: String {
         let explicitTitle = info.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -13,6 +18,12 @@ extension AppThreadSnapshot {
         }
 
         return "Untitled session"
+    }
+
+    var hasPreviewOrTitle: Bool {
+        let preview = info.preview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = info.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !preview.isEmpty || !title.isEmpty
     }
 
     var hasActiveTurn: Bool {
@@ -46,22 +57,36 @@ extension AppThreadSnapshot {
     }
 
     var latestAssistantSnippet: String? {
-        let text = hydratedConversationItems
-            .map(\.conversationItem)
-            .reversed()
-            .compactMap { item -> String? in
-                switch item.content {
-                case .assistant(let data):
-                    return data.text
-                case .codeReview(let data):
-                    return data.findings.first?.title
-                default:
-                    return nil
+        latestAssistantSnippetSnapshot?.snippet
+    }
+
+    var latestAssistantSnippetSnapshot: AppThreadAssistantSnippetSnapshot? {
+        for item in hydratedConversationItems.reversed() {
+            switch item.content {
+            case .assistant(let data):
+                if let snippet = Self.normalizedAssistantSnippet(from: data.text) {
+                    return AppThreadAssistantSnippetSnapshot(
+                        sourceItemId: item.id,
+                        snippet: snippet
+                    )
                 }
+            case .codeReview(let data):
+                if let snippet = Self.normalizedAssistantSnippet(from: data.findings.first?.title) {
+                    return AppThreadAssistantSnippetSnapshot(
+                        sourceItemId: item.id,
+                        snippet: snippet
+                    )
+                }
+            default:
+                continue
             }
-            .first?
-            .prefix(120) ?? ""
-        let snippet = String(text)
+        }
+        return nil
+    }
+
+    private static func normalizedAssistantSnippet(from text: String?) -> String? {
+        guard let text else { return nil }
+        let snippet = String(text.prefix(120))
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return snippet.isEmpty ? nil : snippet

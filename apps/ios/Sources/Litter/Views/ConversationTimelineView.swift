@@ -2,10 +2,28 @@ import SwiftUI
 import Textual
 import UIKit
 
+enum ConversationLiveDetailRetentionPolicy {
+    static func retainedRichDetailItemIDs(for items: [ConversationItem]) -> Set<String> {
+        var retained = Set<String>()
+
+        if let active = items.last(where: { $0.liveDetailStatus == .inProgress }) {
+            retained.insert(active.id)
+        }
+
+        if let latestCompleted = items.reversed().first(where: { item in
+            guard let status = item.liveDetailStatus else { return false }
+            return status != .inProgress
+        }) {
+            retained.insert(latestCompleted.id)
+        }
+
+        return retained
+    }
+}
+
 struct ConversationTurnTimeline: View {
     let items: [ConversationItem]
     let isLive: Bool
-    let renderMode: ConversationTurnRenderMode
     let serverId: String
     let agentDirectoryVersion: UInt64
     let messageActionsDisabled: Bool
@@ -18,6 +36,7 @@ struct ConversationTurnTimeline: View {
 
     var body: some View {
         let rows = rowDescriptors
+        let retainedRichDetailItemIDs = ConversationLiveDetailRetentionPolicy.retainedRichDetailItemIDs(for: items)
         let latestCommandExecutionItemId = rows.reversed().compactMap { row -> String? in
             guard case .item(let item) = row,
                   case .commandExecution(let data) = item.content,
@@ -30,7 +49,10 @@ struct ConversationTurnTimeline: View {
                 rowView(
                     row,
                     isLastRow: index == rows.indices.last,
-                    latestCommandExecutionItemId: latestCommandExecutionItemId
+                    isPreferredExpandedCommandRow: row.preferredExpandedCommandRow(
+                        latestCommandExecutionItemId: latestCommandExecutionItemId
+                    ),
+                    retainedRichDetailItemIDs: retainedRichDetailItemIDs
                 )
                     .id(row.id)
             }
@@ -52,7 +74,8 @@ struct ConversationTurnTimeline: View {
     private func rowView(
         _ row: ConversationTimelineRowDescriptor,
         isLastRow: Bool,
-        latestCommandExecutionItemId: String?
+        isPreferredExpandedCommandRow: Bool,
+        retainedRichDetailItemIDs: Set<String>
     ) -> some View {
         switch row {
         case .item(let item):
@@ -60,10 +83,10 @@ struct ConversationTurnTimeline: View {
                 item: item,
                 serverId: serverId,
                 agentDirectoryVersion: agentDirectoryVersion,
-                latestCommandExecutionItemId: latestCommandExecutionItemId,
-                renderMode: renderMode,
+                isPreferredExpandedCommandRow: isPreferredExpandedCommandRow,
                 isLiveTurn: isLive,
                 isStreamingMessage: item.id == streamingAssistantItemId,
+                shouldPreserveRichDetail: retainedRichDetailItemIDs.contains(item.id),
                 messageActionsDisabled: messageActionsDisabled,
                 onStreamingSnapshotRendered: item.id == streamingAssistantItemId ? onStreamingSnapshotRendered : nil,
                 resolveTargetLabel: resolveTargetLabel,
@@ -72,6 +95,7 @@ struct ConversationTurnTimeline: View {
                 onForkFromUserItem: onForkFromUserItem,
                 onOpenConversation: onOpenConversation
             )
+            .equatable()
         case .exploration(let id, let items):
             ConversationExplorationGroupRow(
                 id: id,
@@ -101,6 +125,15 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
         case .subagentGroup(let id, _, _):
             return id
         }
+    }
+
+    func preferredExpandedCommandRow(latestCommandExecutionItemId: String?) -> Bool {
+        guard case .item(let item) = self,
+              case .commandExecution(let data) = item.content,
+              !data.isPureExploration else {
+            return false
+        }
+        return item.id == latestCommandExecutionItemId
     }
 
     static func build(from items: [ConversationItem]) -> [ConversationTimelineRowDescriptor] {
@@ -233,22 +266,17 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
     }
 }
 
-enum ConversationTurnRenderMode {
-    case lightweight
-    case rich
-}
-
-private struct ConversationTimelineItemRow: View {
+private struct ConversationTimelineItemRow: View, Equatable {
     private let renderCache = MessageRenderCache.shared
     @Environment(ThemeManager.self) private var themeManager
 
     let item: ConversationItem
     let serverId: String
     let agentDirectoryVersion: UInt64
-    let latestCommandExecutionItemId: String?
-    let renderMode: ConversationTurnRenderMode
+    let isPreferredExpandedCommandRow: Bool
     let isLiveTurn: Bool
     let isStreamingMessage: Bool
+    let shouldPreserveRichDetail: Bool
     let messageActionsDisabled: Bool
     let onStreamingSnapshotRendered: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
@@ -256,6 +284,18 @@ private struct ConversationTimelineItemRow: View {
     let onEditUserItem: (ConversationItem) -> Void
     let onForkFromUserItem: (ConversationItem) -> Void
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
+
+    static func == (lhs: ConversationTimelineItemRow, rhs: ConversationTimelineItemRow) -> Bool {
+        lhs.item.id == rhs.item.id &&
+            lhs.item.renderDigest == rhs.item.renderDigest &&
+            lhs.serverId == rhs.serverId &&
+            lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
+            lhs.isPreferredExpandedCommandRow == rhs.isPreferredExpandedCommandRow &&
+            lhs.isLiveTurn == rhs.isLiveTurn &&
+            lhs.isStreamingMessage == rhs.isStreamingMessage &&
+            lhs.shouldPreserveRichDetail == rhs.shouldPreserveRichDetail &&
+            lhs.messageActionsDisabled == rhs.messageActionsDisabled
+    }
 
     var body: some View {
         Group {
@@ -271,23 +311,20 @@ private struct ConversationTimelineItemRow: View {
             case .todoList(let data):
                 ConversationTodoListRow(data: data)
             case .proposedPlan(let data):
-                ConversationProposedPlanRow(data: data, renderMode: renderMode)
+                ConversationProposedPlanRow(data: data)
             case .commandExecution(let data):
-                ConversationCommandExecutionRow(
-                    data: data,
-                    isPreferredExpanded: item.id == latestCommandExecutionItemId || data.isInProgress
-                )
+                commandExecutionRow(data)
             case .fileChange(let data):
-                ConversationToolCardRow(model: makeFileChangeModel(data))
+                toolCallRow(makeFileChangeModel(data))
             case .turnDiff(let data):
                 ConversationTurnDiffRow(data: data)
             case .mcpToolCall(let data):
-                ConversationToolCardRow(model: makeMcpModel(data))
+                toolCallRow(makeMcpModel(data))
             case .dynamicToolCall(let data):
                 if CrossServerTools.isRichTool(data.tool) {
                     CrossServerToolResultView(data: data)
                 } else {
-                    ConversationToolCardRow(model: makeDynamicToolModel(data))
+                    toolCallRow(makeDynamicToolModel(data))
                 }
             case .multiAgentAction(let data):
                 SubagentCardView(
@@ -295,7 +332,7 @@ private struct ConversationTimelineItemRow: View {
                     serverId: serverId
                 )
             case .webSearch(let data):
-                ConversationToolCardRow(model: makeWebSearchModel(data))
+                toolCallRow(makeWebSearchModel(data))
             case .widget(let data):
                 WidgetContainerView(
                     widget: data.widgetState,
@@ -311,48 +348,36 @@ private struct ConversationTimelineItemRow: View {
                     content: [data.message, data.details].compactMap { $0 }.joined(separator: "\n\n"),
                     accent: LitterTheme.danger,
                     iconName: "exclamationmark.triangle.fill",
-                    renderMode: renderMode
                 )
             case .note(let data):
                 ConversationSystemCardRow(
                     title: data.title,
                     content: data.body,
                     accent: LitterTheme.accent,
-                    iconName: "info.circle.fill",
-                    renderMode: renderMode
+                    iconName: "info.circle.fill"
                 )
             }
         }
-        .onAppear {
-            notifyLiveContentRendered()
-        }
-        .onChange(of: item.renderDigest) { _, _ in
-            notifyLiveContentRendered()
+    }
+
+    @ViewBuilder
+    private func commandExecutionRow(_ data: ConversationCommandExecutionData) -> some View {
+        if !isLiveTurn || shouldPreserveRichDetail {
+            ConversationCommandExecutionRow(
+                data: data,
+                isPreferredExpanded: isPreferredExpandedCommandRow || data.isInProgress
+            )
+        } else {
+            ConversationCompactCommandExecutionRow(data: data)
         }
     }
 
-    private var shouldNotifyLiveContentRendered: Bool {
-        guard isLiveTurn else { return false }
-        switch item.content {
-        case .reasoning,
-             .commandExecution,
-             .fileChange,
-             .turnDiff,
-             .mcpToolCall,
-             .dynamicToolCall,
-             .multiAgentAction,
-             .webSearch,
-             .widget:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func notifyLiveContentRendered() {
-        guard shouldNotifyLiveContentRendered else { return }
-        DispatchQueue.main.async {
-            onStreamingSnapshotRendered?()
+    @ViewBuilder
+    private func toolCallRow(_ model: ToolCallCardModel) -> some View {
+        if !isLiveTurn || shouldPreserveRichDetail {
+            ConversationToolCardRow(model: model)
+        } else {
+            ConversationCompactToolCallRow(model: model)
         }
     }
 
@@ -380,36 +405,13 @@ private struct ConversationTimelineItemRow: View {
             role: data.agentRole
         )
 
-        if isStreamingMessage {
-            StreamingAssistantBubble(
-                text: data.text,
-                label: assistantLabel,
-                themeVersion: themeManager.themeVersion,
-                onSnapshotRendered: onStreamingSnapshotRendered
-            )
-        } else if renderMode == .lightweight {
-            ConversationPlainAssistantRow(
-                data: data,
-                label: assistantLabel
-            )
-        } else {
-            let revisionKey = MessageRenderCache.makeRevisionKey(
-                for: item,
-                serverId: serverId,
-                agentDirectoryVersion: agentDirectoryVersion,
-                isStreaming: false
-            )
-            let parsed = renderCache.assistantSegments(
-                text: data.text,
-                messageId: item.id,
-                key: revisionKey
-            )
-
-            AssistantBlocksBubble(
-                segments: parsed,
-                label: assistantLabel
-            )
-        }
+        StreamingAssistantBubble(
+            itemId: item.id,
+            text: data.text,
+            label: assistantLabel,
+            themeVersion: themeManager.themeVersion,
+            onSnapshotRendered: isStreamingMessage ? onStreamingSnapshotRendered : nil
+        )
     }
 
     private func handleWidgetMessage(_ body: Any) {
@@ -1013,7 +1015,6 @@ private struct ConversationTodoListRow: View {
 
 private struct ConversationProposedPlanRow: View {
     let data: ConversationProposedPlanData
-    let renderMode: ConversationTurnRenderMode
 
     private var trimmedContent: String? {
         let trimmed = data.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1032,18 +1033,10 @@ private struct ConversationProposedPlanRow: View {
                         .foregroundColor(LitterTheme.textPrimary)
                 }
 
-                if renderMode == .rich {
-                    LitterMarkdownView(
-                        markdown: trimmedContent,
-                        style: .system
-                    )
-                } else {
-                    ConversationPlainTextBlock(
-                        text: trimmedContent,
-                        font: .caption,
-                        foregroundColor: LitterTheme.textSecondary
-                    )
-                }
+                LitterMarkdownView(
+                    markdown: trimmedContent,
+                    style: .system
+                )
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1160,18 +1153,7 @@ private struct ConversationCommandExecutionRow: View {
         return collapsed.isEmpty ? "command" : collapsed
     }
 
-    private var statusColor: Color {
-        switch data.status.toolCallStatus {
-        case .completed:
-            return LitterTheme.success
-        case .inProgress:
-            return LitterTheme.warning
-        case .failed:
-            return LitterTheme.danger
-        case .unknown:
-            return LitterTheme.textSecondary
-        }
-    }
+    private var statusColor: Color { data.status.toolCallStatus.themeColor }
 
     private func durationAccessibilityLabel(_ duration: String) -> String {
         switch data.status.toolCallStatus {
@@ -1264,18 +1246,7 @@ private struct ConversationCommandOutputViewport: View {
         }
     }
 
-    private var statusColor: Color {
-        switch status {
-        case .completed:
-            return LitterTheme.success
-        case .inProgress:
-            return LitterTheme.warning
-        case .failed:
-            return LitterTheme.danger
-        case .unknown:
-            return LitterTheme.textSecondary
-        }
-    }
+    private var statusColor: Color { status.themeColor }
 
     private func durationAccessibilityLabel(_ duration: String) -> String {
         switch status {
@@ -1308,6 +1279,127 @@ private struct ConversationToolCardRow: View {
 
     var body: some View {
         ToolCallCardView(model: model)
+    }
+}
+
+private struct ConversationCompactCommandExecutionRow: View {
+    let data: ConversationCommandExecutionData
+    @State private var expanded = false
+
+    var body: some View {
+        if expanded {
+            ConversationCommandExecutionRow(
+                data: data,
+                isPreferredExpanded: false
+            )
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("$")
+                    .litterMonoFont(size: 12, weight: .semibold)
+                    .foregroundColor(LitterTheme.warning)
+
+                Text(collapsedCommand)
+                    .litterMonoFont(size: 12)
+                    .foregroundColor(LitterTheme.textSystem)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let durationText = formatDuration(data.durationMs), !durationText.isEmpty {
+                    Text(durationText)
+                        .litterFont(.caption2)
+                        .foregroundColor(statusColor)
+                }
+
+                Image(systemName: "chevron.down")
+                    .litterFont(size: 11, weight: .medium)
+                    .foregroundColor(LitterTheme.textMuted)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    expanded = true
+                }
+            }
+        }
+    }
+
+    private var collapsedCommand: String {
+        let collapsed = data.command
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return collapsed.isEmpty ? "command" : collapsed
+    }
+
+    private var statusColor: Color { data.status.toolCallStatus.themeColor }
+}
+
+private struct ConversationCompactToolCallRow: View {
+    let model: ToolCallCardModel
+    @State private var expanded = false
+
+    var body: some View {
+        if expanded {
+            ToolCallCardView(model: model)
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: model.kind.iconName)
+                    .litterFont(size: 12, weight: .semibold)
+                    .foregroundColor(kindAccent)
+
+                if let attributedSummary = model.attributedSummary {
+                    Text(attributedSummary)
+                        .litterFont(size: LitterFont.conversationBodyPointSize)
+                        .lineLimit(1)
+                } else {
+                    Text(model.summary)
+                        .litterFont(size: LitterFont.conversationBodyPointSize)
+                        .foregroundColor(LitterTheme.textSystem)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if let duration = model.duration, !duration.isEmpty {
+                    Text(duration)
+                        .litterFont(.caption2)
+                        .foregroundColor(durationStatusColor)
+                }
+
+                Image(systemName: "chevron.down")
+                    .litterFont(size: 11, weight: .medium)
+                    .foregroundColor(LitterTheme.textMuted)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    expanded = true
+                }
+            }
+        }
+    }
+
+    private var durationStatusColor: Color { model.status.themeColor }
+
+    private var kindAccent: Color {
+        switch model.kind {
+        case .commandExecution, .commandOutput:
+            return LitterTheme.warning
+        case .fileChange, .fileDiff, .webSearch:
+            return LitterTheme.accent
+        case .mcpToolCall, .widget:
+            return LitterTheme.accentStrong
+        case .mcpToolProgress, .imageView:
+            return LitterTheme.warning
+        case .collaboration:
+            return LitterTheme.success
+        }
     }
 }
 
@@ -1525,7 +1617,6 @@ private struct ConversationSystemCardRow: View {
     let content: String
     let accent: Color
     let iconName: String
-    var renderMode: ConversationTurnRenderMode = .rich
 
     var bodyView: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1538,18 +1629,10 @@ private struct ConversationSystemCardRow: View {
                     .foregroundColor(accent)
             }
             if !content.isEmpty {
-                if renderMode == .rich {
-                    LitterMarkdownView(
-                        markdown: content,
-                        style: .system
-                    )
-                } else {
-                    ConversationPlainTextBlock(
-                        text: content,
-                        font: .caption,
-                        foregroundColor: LitterTheme.textSecondary
-                    )
-                }
+                LitterMarkdownView(
+                    markdown: content,
+                    style: .system
+                )
             }
         }
         .padding(.horizontal, 12)
@@ -1562,9 +1645,6 @@ private struct ConversationSystemCardRow: View {
 
 struct ConversationPinnedContextStrip: View {
     let items: [ConversationItem]
-    let collaborationMode: AppModeKind
-    let showsModeChip: Bool
-    let onOpenModePicker: () -> Void
     @State private var todoExpanded = false
     @State private var selectedDiff: PresentedDiff?
 
@@ -1576,9 +1656,6 @@ struct ConversationPinnedContextStrip: View {
                         compactTodoAccordion(for: plan)
                             .layoutPriority(1)
                         diffIndicatorButton(for: diff)
-                        if showsModeChip {
-                            modeChip
-                        }
                     }
                 } else {
                     if let plan = pinnedPlan {
@@ -1586,12 +1663,7 @@ struct ConversationPinnedContextStrip: View {
                     }
 
                     if let diff = combinedPinnedDiff {
-                        HStack(spacing: 10) {
-                            diffIndicatorButton(for: diff)
-                            if showsModeChip {
-                                modeChip
-                            }
-                        }
+                        diffIndicatorButton(for: diff)
                     }
                 }
             }
@@ -1731,55 +1803,8 @@ struct ConversationPinnedContextStrip: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private var modeChip: some View {
-        ConversationComposerModeChip(
-            mode: collaborationMode,
-            onTap: onOpenModePicker
-        )
-        .fixedSize(horizontal: true, vertical: false)
-    }
 }
 
-private struct ConversationPlainAssistantRow: View {
-    let data: ConversationAssistantMessageData
-    let label: String?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                if let label {
-                    Text(label)
-                        .litterFont(.caption2, weight: .semibold)
-                        .foregroundColor(LitterTheme.textSecondary)
-                }
-
-                ConversationPlainTextBlock(
-                    text: data.text,
-                    font: .body,
-                    foregroundColor: LitterTheme.textBody
-                )
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 20)
-        }
-    }
-}
-
-private struct ConversationPlainTextBlock: View {
-    let text: String
-    let font: Font.TextStyle
-    var weight: Font.Weight = .regular
-    let foregroundColor: Color
-
-    var body: some View {
-        Text(verbatim: text.isEmpty ? " " : text)
-            .litterFont(font, weight: weight)
-            .foregroundColor(foregroundColor)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
 
 private struct PresentedDiff: Identifiable {
     let id: String
@@ -2020,4 +2045,38 @@ private func formatDuration(_ durationMs: Int?) -> String? {
         return String(format: "%.1fs", Double(durationMs) / 1_000.0)
     }
     return "\(durationMs)ms"
+}
+
+private extension ToolCallStatus {
+    var themeColor: Color {
+        switch self {
+        case .completed:
+            return LitterTheme.success
+        case .inProgress:
+            return LitterTheme.warning
+        case .failed:
+            return LitterTheme.danger
+        case .unknown:
+            return LitterTheme.textSecondary
+        }
+    }
+}
+
+private extension ConversationItem {
+    var liveDetailStatus: ToolCallStatus? {
+        switch content {
+        case .commandExecution(let data):
+            return data.status.toolCallStatus
+        case .fileChange(let data):
+            return data.status.toolCallStatus
+        case .mcpToolCall(let data):
+            return data.status.toolCallStatus
+        case .dynamicToolCall(let data):
+            return data.status.toolCallStatus
+        case .webSearch(let data):
+            return data.isInProgress ? .inProgress : .completed
+        default:
+            return nil
+        }
+    }
 }

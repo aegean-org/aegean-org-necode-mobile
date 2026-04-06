@@ -549,7 +549,7 @@ private fun ReasoningRow(
     Text(
         text = reasoningText,
         color = LitterTheme.textSecondary,
-        fontSize = LitterTextStyle.footnote.scaled,
+        fontSize = LitterTextStyle.body.scaled,
         fontFamily = LitterTheme.monoFont,
         fontStyle = FontStyle.Italic,
         modifier = Modifier
@@ -612,7 +612,7 @@ private fun CommandExecutionRow(
                 text = if (expanded) displayedCommand else collapsedCommand,
                 color = LitterTheme.textSystem,
                 fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 maxLines = if (expanded) Int.MAX_VALUE else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -647,7 +647,7 @@ private fun CommandExecutionRow(
                     text = outputText,
                     color = LitterTheme.textSecondary,
                     fontFamily = LitterTheme.monoFont,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.body.scaled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(outputScrollState),
@@ -789,7 +789,7 @@ private fun TodoListRow(
                 Text(
                     text = step.step,
                     color = LitterTheme.textBody,
-                    fontSize = LitterTextStyle.footnote.scaled,
+                    fontSize = LitterTextStyle.body.scaled,
                 )
             }
         }
@@ -997,7 +997,7 @@ private fun UserInputResponseRow(
         Text(
             text = "Requested Input",
             color = LitterTheme.textPrimary,
-            fontSize = LitterTextStyle.footnote.scaled,
+            fontSize = LitterTextStyle.body.scaled,
             fontWeight = FontWeight.SemiBold,
         )
 
@@ -1014,13 +1014,13 @@ private fun UserInputResponseRow(
                 Text(
                     text = question.question,
                     color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.body.scaled,
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
                     text = question.answer.ifBlank { "No answer provided" },
                     color = LitterTheme.textSecondary,
-                    fontSize = LitterTextStyle.caption.scaled,
+                    fontSize = LitterTextStyle.body.scaled,
                 )
             }
         }
@@ -1097,14 +1097,14 @@ private fun NoteRow(
         Text(
             text = data.title,
             color = LitterTheme.textPrimary,
-            fontSize = LitterTextStyle.footnote.scaled,
+            fontSize = LitterTextStyle.body.scaled,
             fontWeight = FontWeight.Medium,
         )
         if (data.body.isNotBlank()) {
             Text(
                 text = data.body,
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -1124,20 +1124,20 @@ private fun ErrorRow(
         Text(
             text = data.title.ifBlank { "Error" },
             color = LitterTheme.danger,
-            fontSize = LitterTextStyle.footnote.scaled,
+            fontSize = LitterTextStyle.body.scaled,
             fontWeight = FontWeight.Medium,
         )
         Text(
             text = data.message,
             color = LitterTheme.textPrimary,
-            fontSize = LitterTextStyle.caption.scaled,
+            fontSize = LitterTextStyle.body.scaled,
             modifier = Modifier.padding(top = 2.dp),
         )
         data.details?.takeIf { it.isNotBlank() }?.let { details ->
             Text(
                 text = details,
                 color = LitterTheme.textSecondary,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -1247,7 +1247,7 @@ private fun CodeBlockSegment(
                 text = code,
                 color = LitterTheme.textBody,
                 fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
             )
         }
@@ -1281,7 +1281,7 @@ private fun ToolCardShell(
             Text(
                 text = summaryAnnotated ?: AnnotatedString(summary),
                 color = LitterTheme.textSystem,
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -1354,7 +1354,7 @@ private fun CodeSection(
                 text = content,
                 color = LitterTheme.textBody,
                 fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.caption2.scaled,
+                fontSize = LitterTextStyle.body.scaled,
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
             )
         }
@@ -1373,7 +1373,7 @@ private fun InlineTextSection(
             text = content,
             color = tone,
             fontFamily = LitterTheme.monoFont,
-            fontSize = LitterTextStyle.caption.scaled,
+            fontSize = LitterTextStyle.body.scaled,
             modifier = Modifier
                 .fillMaxWidth()
                 .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
@@ -1402,13 +1402,13 @@ private fun KeyValueSection(
                     Text(
                         text = "$key:",
                         color = LitterTheme.textSecondary,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.body.scaled,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = value,
                         color = LitterTheme.textSystem,
-                        fontSize = LitterTextStyle.caption2.scaled,
+                        fontSize = LitterTextStyle.body.scaled,
                     )
                 }
             }
@@ -1433,11 +1433,11 @@ private fun ListSection(
         ) {
             items.forEach { item ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("•", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled)
+                    Text("•", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.body.scaled)
                     Text(
                         text = item,
                         color = LitterTheme.textSystem,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.body.scaled,
                     )
                 }
             }
@@ -1465,12 +1465,12 @@ private fun ProgressSection(
                     Text(
                         text = "•",
                         color = if (index == items.lastIndex) LitterTheme.accentStrong else LitterTheme.textMuted,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.body.scaled,
                     )
                     Text(
                         text = item,
                         color = LitterTheme.textSystem,
-                        fontSize = LitterTextStyle.caption.scaled,
+                        fontSize = LitterTextStyle.body.scaled,
                     )
                 }
             }
@@ -1496,7 +1496,7 @@ private fun DiffSection(
                         else -> LitterTheme.textBody
                     },
                     fontFamily = LitterTheme.monoFont,
-                    fontSize = LitterTextStyle.caption2.scaled,
+                    fontSize = LitterTextStyle.body.scaled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(

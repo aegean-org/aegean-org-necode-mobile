@@ -35,15 +35,18 @@ struct HomeDashboardView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                recentSessionsSection
-                connectedServersSection
+        GeometryReader { geo in
+            let recentLimit = max(3, Int((geo.size.height - 300) / 82))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    recentSessionsSection(limit: recentLimit)
+                    connectedServersSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 144)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 20)
-            .padding(.bottom, 144)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(LitterTheme.backgroundGradient.ignoresSafeArea())
         .alert("Delete Session?", isPresented: Binding(
@@ -120,8 +123,9 @@ struct HomeDashboardView: View {
         }
     }
 
-    private var recentSessionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func recentSessionsSection(limit: Int) -> some View {
+        let displayed = Array(recentSessions.prefix(limit))
+        return VStack(alignment: .leading, spacing: 12) {
             sectionHeader(
                 title: "Recent Sessions",
                 buttonTitle: "New Session",
@@ -130,7 +134,7 @@ struct HomeDashboardView: View {
                 action: onNewSession
             )
 
-            if recentSessions.isEmpty {
+            if displayed.isEmpty {
                 emptyStateCard(
                     title: "No recent sessions",
                     message: connectedServers.isEmpty
@@ -139,7 +143,7 @@ struct HomeDashboardView: View {
                 )
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(recentSessions) { thread in
+                    ForEach(displayed) { thread in
                         Button {
                             Task { await onOpenRecentSession(thread) }
                         } label: {
@@ -251,6 +255,7 @@ struct HomeDashboardView: View {
             if let workspace = HomeDashboardSupport.workspaceLabel(for: thread.cwd) {
                 parts.append(workspace)
             }
+            parts.append(relativeDate(Int64(thread.updatedAt.timeIntervalSince1970)))
             return parts.joined(separator: " · ")
         }()
 

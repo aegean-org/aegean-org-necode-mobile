@@ -45,7 +45,7 @@ enum HomeDashboardSupport {
     static func recentConnectedSessions(
         from sessions: [AppSessionSummary],
         serversById: [String: HomeDashboardServer],
-        limit: Int = 3
+        limit: Int = 10
     ) -> [HomeDashboardRecentSession] {
         Array(
             sessions

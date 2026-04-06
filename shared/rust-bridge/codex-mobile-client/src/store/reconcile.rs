@@ -182,7 +182,8 @@ impl MobileClient {
         thread_ids: impl IntoIterator<Item = String>,
     ) {
         let incoming_ids = thread_ids.into_iter().collect();
-        self.app_store.finalize_thread_list_sync(server_id, &incoming_ids);
+        self.app_store
+            .finalize_thread_list_sync(server_id, &incoming_ids);
     }
 
     pub(crate) async fn sync_server_account_after_logout(

@@ -1,17 +1,23 @@
 //! Length-prefixed frame codec for the Codex IPC transport.
 
+use std::time::Instant;
+
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tracing::{debug, trace, warn};
 
 use crate::error::TransportError;
 
 /// Maximum allowed frame size (256 MiB).
 pub const MAX_FRAME_SIZE: u32 = 256 * 1024 * 1024;
+const LARGE_FRAME_BYTES: u32 = 1024 * 1024;
+const SLOW_FRAME_READ_MS: u128 = 200;
 
 /// Read a single length-prefixed frame from the reader.
 ///
 /// Wire format: 4-byte little-endian u32 length, followed by that many bytes
 /// of UTF-8 payload.
 pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<String, TransportError> {
+    let started_at = Instant::now();
     let mut len_buf = [0u8; 4];
     let n = reader.read(&mut len_buf).await?;
     if n == 0 {
@@ -21,6 +27,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<String, 
     if n < 4 {
         reader.read_exact(&mut len_buf[n..]).await?;
     }
+    let header_read_ms = started_at.elapsed().as_millis();
 
     let length = u32::from_le_bytes(len_buf);
 
@@ -32,13 +39,56 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<String, 
     }
 
     if length == 0 {
+        trace!(
+            target: "ipc.frame",
+            header_wait_ms = header_read_ms,
+            total_ms = started_at.elapsed().as_millis(),
+            bytes = 0,
+            "IPC frame read complete"
+        );
         return Ok(String::new());
     }
 
+    let payload_started_at = Instant::now();
     let mut buf = vec![0u8; length as usize];
     reader.read_exact(&mut buf).await?;
+    let payload_read_ms = payload_started_at.elapsed().as_millis();
+    let total_ms = started_at.elapsed().as_millis();
 
-    String::from_utf8(buf).map_err(|_| TransportError::InvalidUtf8)
+    if length >= LARGE_FRAME_BYTES || total_ms >= SLOW_FRAME_READ_MS {
+        debug!(
+            target: "ipc.frame",
+            bytes = length,
+            header_wait_ms = header_read_ms,
+            payload_read_ms,
+            total_ms,
+            "IPC frame read complete"
+        );
+    } else {
+        trace!(
+            target: "ipc.frame",
+            bytes = length,
+            header_wait_ms = header_read_ms,
+            payload_read_ms,
+            total_ms,
+            "IPC frame read complete"
+        );
+    }
+
+    match String::from_utf8(buf) {
+        Ok(payload) => Ok(payload),
+        Err(_) => {
+            warn!(
+                target: "ipc.frame",
+                bytes = length,
+                header_wait_ms = header_read_ms,
+                payload_read_ms,
+                total_ms,
+                "IPC frame decode failed: invalid UTF-8"
+            );
+            Err(TransportError::InvalidUtf8)
+        }
+    }
 }
 
 /// Write a single length-prefixed frame to the writer.

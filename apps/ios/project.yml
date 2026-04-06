@@ -97,6 +97,10 @@ targets:
         INFOPLIST_KEY_UIBackgroundModes: "audio fetch remote-notification"
       configs:
         Debug:
+          CODE_SIGN_STYLE: "$(APP_CODE_SIGN_STYLE)"
+          APP_CODE_SIGN_STYLE: Automatic
+          PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
+          APP_PROVISIONING_PROFILE_SPECIFIER: ""
           OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lcodex_mobile_client"
         Release:
           CODE_SIGN_STYLE: "$(APP_CODE_SIGN_STYLE)"
@@ -128,6 +132,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.liveactivity
         INFOPLIST_FILE: Sources/LitterLiveActivity/Info.plist
       configs:
+        Debug:
+          CODE_SIGN_STYLE: "$(LIVE_ACTIVITY_CODE_SIGN_STYLE)"
+          LIVE_ACTIVITY_CODE_SIGN_STYLE: Automatic
+          PROVISIONING_PROFILE_SPECIFIER: "$(LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER)"
+          LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER: ""
         Release:
           CODE_SIGN_STYLE: "$(LIVE_ACTIVITY_CODE_SIGN_STYLE)"
           LIVE_ACTIVITY_CODE_SIGN_STYLE: Automatic

@@ -159,6 +159,110 @@ final class AppSnapshotRuntimeTests: XCTestCase {
     }
 
     @MainActor
+    func testReconcileBackgroundedTurnsKeepsTrustedLiveKeyTrackedDespiteIdleSnapshot() {
+        let key = ThreadKey(serverId: "srv", threadId: "thread-1")
+        let snapshot = makeSnapshot(threads: [makeThreadSnapshot(key: key)])
+
+        let controller = AppLifecycleController()
+        let reconciliation = controller.reconcileBackgroundedTurns(
+            snapshot: snapshot,
+            trackedKeys: [key],
+            trustedLiveKeys: [key]
+        )
+
+        XCTAssertEqual(reconciliation.remainingKeys, [key])
+        XCTAssertEqual(reconciliation.activeThreads.map(\.key), [key])
+        XCTAssertNil(reconciliation.completedNotificationThread)
+    }
+
+    @MainActor
+    func testForegroundRecoveryKeysPreferActuallyBackgroundedThreadsPlusActiveThread() {
+        let activeKey = ThreadKey(serverId: "srv", threadId: "thread-active")
+        let staleTrackedKey = ThreadKey(serverId: "srv", threadId: "thread-stale")
+        var snapshot = makeSnapshot(
+            threads: [
+                makeThreadSnapshot(key: activeKey, status: .active, activeTurnId: "turn-1"),
+                makeThreadSnapshot(key: staleTrackedKey, status: .active, activeTurnId: "turn-2")
+            ]
+        )
+        snapshot.activeThread = activeKey
+
+        let controller = AppLifecycleController()
+        let keys = controller.foregroundRecoveryKeys(
+            snapshot: snapshot,
+            backgroundedKeys: [activeKey]
+        )
+
+        XCTAssertEqual(keys, [activeKey])
+        XCTAssertFalse(keys.contains(staleTrackedKey))
+    }
+
+    @MainActor
+    func testForegroundRecoveryKeysIncludeActiveThreadEvenWithoutBackgroundedTrackedTurns() {
+        let activeKey = ThreadKey(serverId: "srv", threadId: "thread-active")
+        var snapshot = makeSnapshot(
+            threads: [makeThreadSnapshot(key: activeKey)]
+        )
+        snapshot.activeThread = activeKey
+
+        let controller = AppLifecycleController()
+        let keys = controller.foregroundRecoveryKeys(
+            snapshot: snapshot,
+            backgroundedKeys: []
+        )
+
+        XCTAssertEqual(keys, [activeKey])
+    }
+
+    @MainActor
+    func testForegroundRecoveryKeysNeedingReloadSkipsTrustedActiveThread() {
+        let key = ThreadKey(serverId: "srv", threadId: "thread-active")
+        let controller = AppLifecycleController()
+
+        let reloadKeys = controller.foregroundRecoveryKeysNeedingReload(
+            [key],
+            activeThread: key,
+            trustedLiveKeys: [key],
+            notificationActivatedKey: nil,
+            notificationActivationAge: nil
+        )
+
+        XCTAssertTrue(reloadKeys.isEmpty)
+    }
+
+    @MainActor
+    func testForegroundRecoveryKeysNeedingReloadSkipsRecentlyNotificationActivatedTrustedThread() {
+        let key = ThreadKey(serverId: "srv", threadId: "thread-1")
+        let controller = AppLifecycleController()
+
+        let reloadKeys = controller.foregroundRecoveryKeysNeedingReload(
+            [key],
+            activeThread: nil,
+            trustedLiveKeys: [key],
+            notificationActivatedKey: key,
+            notificationActivationAge: 2
+        )
+
+        XCTAssertTrue(reloadKeys.isEmpty)
+    }
+
+    @MainActor
+    func testForegroundRecoveryKeysNeedingReloadStillReloadsStaleNotificationActivation() {
+        let key = ThreadKey(serverId: "srv", threadId: "thread-1")
+        let controller = AppLifecycleController()
+
+        let reloadKeys = controller.foregroundRecoveryKeysNeedingReload(
+            [key],
+            activeThread: nil,
+            trustedLiveKeys: [key],
+            notificationActivatedKey: key,
+            notificationActivationAge: 10
+        )
+
+        XCTAssertEqual(reloadKeys, [key])
+    }
+
+    @MainActor
     func testNotificationThreadKeyParsesThreadMetadata() {
         let key = AppLifecycleController.notificationThreadKey(from: [
             AppLifecycleController.notificationServerIdKey: "srv",

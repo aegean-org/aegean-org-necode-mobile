@@ -88,7 +88,7 @@ pub struct AppThreadSnapshot {
     pub realtime_session_id: Option<String>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AppThreadStateRecord {
     pub key: ThreadKey,
     pub info: ThreadInfo,
@@ -148,11 +148,25 @@ fn same_overlay_semantics(
                 rhs_data,
             ),
         ) => lhs.source_turn_id == rhs.source_turn_id && lhs_data == rhs_data,
+        (
+            crate::conversation_uniffi::HydratedConversationItemContent::User(lhs_data),
+            crate::conversation_uniffi::HydratedConversationItemContent::User(rhs_data),
+        ) => {
+            lhs.id.starts_with("local-user-message:")
+                && lhs_data == rhs_data
+                && (
+                    // Both bound to the same turn.
+                    (lhs.source_turn_id.is_some() && lhs.source_turn_id == rhs.source_turn_id)
+                    // Real item arrived via ItemStarted/ItemCompleted without a
+                    // turn_id; the overlay is bound so content match is enough.
+                    || (lhs.source_turn_id.is_some() && rhs.source_turn_id.is_none())
+                )
+        }
         _ => false,
     }
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AppSessionSummary {
     pub key: ThreadKey,
     pub server_display_name: String,
@@ -760,5 +774,137 @@ mod tests {
             .unwrap()
             .pending_plan_implementation_prompt;
         assert_eq!(hidden, None);
+    }
+
+    #[test]
+    fn app_thread_snapshot_hides_duplicate_local_user_overlay_once_turn_bound() {
+        let mut snapshot = AppSnapshot::default();
+        let mut thread = ThreadSnapshot::from_info(
+            "srv",
+            ThreadInfo {
+                id: "thread-a".to_string(),
+                title: Some("Thread".to_string()),
+                model: None,
+                preview: Some("hello".to_string()),
+                cwd: None,
+                path: None,
+                model_provider: None,
+                agent_nickname: None,
+                agent_role: None,
+                parent_thread_id: None,
+                agent_status: None,
+                created_at: None,
+                status: ThreadSummaryStatus::Active,
+                updated_at: Some(20),
+            },
+        );
+        thread
+            .items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "server-user-item".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::User(
+                    crate::conversation_uniffi::HydratedUserMessageData {
+                        text: "hello".to_string(),
+                        image_data_uris: Vec::new(),
+                    },
+                ),
+                source_turn_id: Some("turn-1".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            });
+        thread
+            .local_overlay_items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "local-user-message:1".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::User(
+                    crate::conversation_uniffi::HydratedUserMessageData {
+                        text: "hello".to_string(),
+                        image_data_uris: Vec::new(),
+                    },
+                ),
+                source_turn_id: Some("turn-1".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            });
+        let key = thread.key.clone();
+        snapshot.threads.insert(key.clone(), thread);
+
+        let projected =
+            app_thread_snapshot_from_state(&snapshot, snapshot.threads.get(&key).unwrap()).unwrap();
+
+        assert_eq!(projected.hydrated_conversation_items.len(), 1);
+        assert_eq!(
+            projected.hydrated_conversation_items[0].id,
+            "server-user-item"
+        );
+    }
+
+    #[test]
+    fn merged_hydrated_items_filters_overlay_when_real_item_has_no_turn_id() {
+        let mut snapshot = AppSnapshot::default();
+        let mut thread = ThreadSnapshot::from_info(
+            "srv",
+            ThreadInfo {
+                id: "thread".to_string(),
+                title: None,
+                model: None,
+                preview: None,
+                cwd: None,
+                path: None,
+                model_provider: None,
+                agent_nickname: None,
+                agent_role: None,
+                parent_thread_id: None,
+                agent_status: None,
+                created_at: None,
+                status: ThreadSummaryStatus::Idle,
+                updated_at: None,
+            },
+        );
+        // Real item from ItemStarted (no source_turn_id).
+        thread
+            .items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "server-user-item".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::User(
+                    crate::conversation_uniffi::HydratedUserMessageData {
+                        text: "hello".to_string(),
+                        image_data_uris: Vec::new(),
+                    },
+                ),
+                source_turn_id: None,
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            });
+        // Bound overlay for the same message.
+        thread
+            .local_overlay_items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "local-user-message:1".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::User(
+                    crate::conversation_uniffi::HydratedUserMessageData {
+                        text: "hello".to_string(),
+                        image_data_uris: Vec::new(),
+                    },
+                ),
+                source_turn_id: Some("turn-1".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            });
+        let key = thread.key.clone();
+        snapshot.threads.insert(key.clone(), thread);
+
+        let projected =
+            app_thread_snapshot_from_state(&snapshot, snapshot.threads.get(&key).unwrap()).unwrap();
+
+        assert_eq!(projected.hydrated_conversation_items.len(), 1);
+        assert_eq!(
+            projected.hydrated_conversation_items[0].id,
+            "server-user-item"
+        );
     }
 }

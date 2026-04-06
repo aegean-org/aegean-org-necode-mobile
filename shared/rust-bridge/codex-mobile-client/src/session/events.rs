@@ -437,8 +437,8 @@ impl EventProcessor {
             // ── Context tokens ──────────────────────────────────────
             ServerNotification::ThreadTokenUsageUpdated(n) => {
                 let key = Self::make_key(server_id, &n.thread_id);
-                let total = &n.token_usage.total;
-                let used = (total.input_tokens + total.output_tokens) as u64;
+                let last = &n.token_usage.last;
+                let used = (last.input_tokens + last.output_tokens) as u64;
                 let limit = n.token_usage.model_context_window.unwrap_or(0) as u64;
                 self.emit(UiEvent::ContextTokensUpdated { key, used, limit });
             }
@@ -1335,7 +1335,7 @@ mod tests {
                 key, used, limit, ..
             } => {
                 assert_eq!(key.thread_id, "thr_1");
-                assert_eq!(used, 5000);
+                assert_eq!(used, 150);
                 assert_eq!(limit, 128000);
             }
             other => panic!("expected ContextTokensUpdated, got {other:?}"),

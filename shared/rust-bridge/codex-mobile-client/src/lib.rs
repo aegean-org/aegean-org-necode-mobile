@@ -17,7 +17,7 @@ pub mod hydration;
 pub mod immer_patch;
 pub mod logging;
 pub mod markdown_blocks;
-mod mobile_client_impl;
+mod mobile_client;
 pub mod parser;
 pub mod permissions;
 pub mod session;
@@ -27,7 +27,7 @@ pub mod transport;
 pub mod types;
 pub mod widget_guidelines;
 
-pub use mobile_client_impl::*;
+pub use mobile_client::*;
 
 // ── Shared infra ─────────────────────────────────────────────────────────
 

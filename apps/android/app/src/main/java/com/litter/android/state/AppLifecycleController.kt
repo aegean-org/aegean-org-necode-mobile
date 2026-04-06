@@ -310,13 +310,8 @@ class AppLifecycleController {
      * Called when the app enters the foreground.
      */
     suspend fun onResume(context: Context, appModel: AppModel) {
-        val preResumeActiveSshServerIds = appModel.store.snapshot()
-            .servers
-            .filter { !it.isLocal && it.health != AppServerHealth.DISCONNECTED }
-            .mapTo(mutableSetOf()) { it.serverId }
         ensureLocalServerConnected(appModel)
         reconnectSavedServers(context, appModel)
-        reconnectActiveSshServers(context, appModel, preResumeActiveSshServerIds)
         probeActiveRemoteServers(appModel)
         backgroundedTurnKeys.clear()
     }

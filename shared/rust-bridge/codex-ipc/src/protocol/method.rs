@@ -259,8 +259,12 @@ mod tests {
     #[test]
     fn kind_map_completeness() {
         assert_eq!(Method::Initialize.kind(), MethodKind::Handshake);
-        assert_eq!(Method::ExternalResumeThread.kind(), MethodKind::Request);
         assert_eq!(Method::ThreadFollowerStartTurn.kind(), MethodKind::Request);
+        assert_eq!(
+            Method::ThreadFollowerSubmitUserInput.kind(),
+            MethodKind::Request
+        );
+        assert_eq!(Method::ThreadArchived.kind(), MethodKind::Broadcast);
         assert_eq!(
             Method::ThreadQueuedFollowupsChanged.kind(),
             MethodKind::Broadcast

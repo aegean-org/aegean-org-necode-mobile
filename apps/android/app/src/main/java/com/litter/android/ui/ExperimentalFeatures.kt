@@ -21,7 +21,7 @@ enum class LitterFeature(
         id = "ipc",
         displayName = "IPC",
         description = "Attach to desktop IPC over SSH for faster sync, approvals, and resume. Requires reconnecting the server.",
-        defaultEnabled = true,
+        defaultEnabled = false,
     ),
     GENERATIVE_UI(
         id = "generative_ui",

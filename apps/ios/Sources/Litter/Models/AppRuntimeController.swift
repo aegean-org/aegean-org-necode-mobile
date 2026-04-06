@@ -10,6 +10,8 @@ final class AppRuntimeController {
     @ObservationIgnored private weak var voiceRuntime: VoiceRuntimeController?
     @ObservationIgnored private let lifecycle = AppLifecycleController()
     @ObservationIgnored private let liveActivities = TurnLiveActivityController()
+    @ObservationIgnored private var pendingLiveActivitySync = false
+    @ObservationIgnored private var lastLiveActivitySyncTime: CFAbsoluteTime = 0
 
     func bind(appModel: AppModel, voiceRuntime: VoiceRuntimeController) {
         self.appModel = appModel
@@ -33,21 +35,55 @@ final class AppRuntimeController {
 
     func openThreadFromNotification(key: ThreadKey) async {
         guard let appModel else { return }
+        LLog.info(
+            "push",
+            "runtime opening thread from notification",
+            fields: ["serverId": key.serverId, "threadId": key.threadId]
+        )
+        lifecycle.markThreadOpenedFromNotification(key)
         appModel.activateThread(key)
         await appModel.refreshSnapshot()
 
         if let resolvedKey = await appModel.ensureThreadLoaded(key: key) {
+            lifecycle.markThreadOpenedFromNotification(resolvedKey)
+            LLog.info(
+                "push",
+                "notification thread resolved and activated",
+                fields: ["serverId": resolvedKey.serverId, "threadId": resolvedKey.threadId]
+            )
             appModel.activateThread(resolvedKey)
             await appModel.refreshSnapshot()
+        } else {
+            LLog.warn(
+                "push",
+                "notification thread could not be resolved",
+                fields: ["serverId": key.serverId, "threadId": key.threadId]
+            )
         }
     }
 
     func handleSnapshot(_ snapshot: AppSnapshotRecord?) {
-        liveActivities.sync(snapshot)
+        let now = CFAbsoluteTimeGetCurrent()
+        let elapsed = now - lastLiveActivitySyncTime
+        if elapsed >= 3.0 {
+            lastLiveActivitySyncTime = now
+            liveActivities.sync(snapshot)
+        } else if !pendingLiveActivitySync {
+            pendingLiveActivitySync = true
+            let delay = 3.0 - elapsed
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self else { return }
+                self.pendingLiveActivitySync = false
+                self.lastLiveActivitySyncTime = CFAbsoluteTimeGetCurrent()
+                self.liveActivities.sync(self.appModel?.snapshot)
+            }
+        }
     }
 
     func appDidEnterBackground() {
         guard let appModel else { return }
+        appModel.store.noteAppEnteredBackground()
         lifecycle.appDidEnterBackground(
             snapshot: appModel.snapshot,
             hasActiveVoiceSession: voiceRuntime?.activeVoiceSession != nil,
@@ -55,8 +91,14 @@ final class AppRuntimeController {
         )
     }
 
+    func appDidBecomeInactive() {
+        guard let appModel else { return }
+        appModel.store.noteAppBecameInactive()
+    }
+
     func appDidBecomeActive() {
         guard let appModel else { return }
+        appModel.store.noteAppBecameActive()
         lifecycle.appDidBecomeActive(
             appModel: appModel,
             hasActiveVoiceSession: voiceRuntime?.activeVoiceSession != nil,
@@ -66,9 +108,11 @@ final class AppRuntimeController {
 
     func handleBackgroundPush() async {
         guard let appModel else { return }
+        LLog.info("push", "runtime handling background push")
         await lifecycle.handleBackgroundPush(
             appModel: appModel,
             liveActivities: liveActivities
         )
+        LLog.info("push", "runtime finished background push")
     }
 }

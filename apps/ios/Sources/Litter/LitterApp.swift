@@ -3,7 +3,6 @@ import UIKit
 import UserNotifications
 import os
 
-
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var pendingPushToken: Data?
     private var pendingNotificationThreadKey: ThreadKey?
@@ -15,10 +14,16 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     weak var appRuntime: AppRuntimeController? {
         didSet {
             if let token = pendingPushToken {
+                LLog.info("push", "delivering pending device token to runtime")
                 appRuntime?.setDevicePushToken(token)
                 pendingPushToken = nil
             }
             if let key = pendingNotificationThreadKey {
+                LLog.info(
+                    "push",
+                    "delivering pending notification thread open to runtime",
+                    fields: ["serverId": key.serverId, "threadId": key.threadId]
+                )
                 pendingNotificationThreadKey = nil
                 openThreadFromNotification(key)
             }
@@ -28,6 +33,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         codex_ios_system_init()
         LLog.bootstrap()
+        LLog.info("lifecycle", "application did finish launching")
         OpenAIApiKeyStore.shared.applyToEnvironment()
         // Pre-initialize Rust bridges (tokio runtime) on a background thread
         // before SwiftUI accesses AppModel.shared, avoiding a priority inversion
@@ -139,13 +145,27 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        LLog.info("push", "background push received")
+        LLog.info(
+            "push",
+            "background push received",
+            fields: [
+                "applicationState": application.applicationState.debugName
+            ],
+            payloadJson: notificationPayloadJson(userInfo)
+        )
+        if application.applicationState == .active {
+            LLog.info("push", "skipping background push handler because app is already active")
+            completionHandler(.noData)
+            return
+        }
         guard let appRuntime else {
+            LLog.warn("push", "background push received before runtime was ready")
             completionHandler(.noData)
             return
         }
         Task { @MainActor in
             await appRuntime.handleBackgroundPush()
+            LLog.info("push", "background push handling completed", fields: ["result": "newData"])
             completionHandler(.newData)
         }
     }
@@ -155,6 +175,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        LLog.info(
+            "push",
+            "user opened notification",
+            payloadJson: notificationPayloadJson(response.notification.request.content.userInfo)
+        )
         if let key = AppLifecycleController.notificationThreadKey(
             from: response.notification.request.content.userInfo
         ) {
@@ -164,6 +189,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 
     private func openThreadFromNotification(_ key: ThreadKey) {
+        LLog.info(
+            "push",
+            "open thread from notification",
+            fields: ["serverId": key.serverId, "threadId": key.threadId]
+        )
         if appRuntime == nil {
             pendingNotificationThreadKey = key
             return
@@ -173,6 +203,19 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             guard let self, let appRuntime = self.appRuntime else { return }
             await appRuntime.openThreadFromNotification(key: key)
         }
+    }
+
+    private func notificationPayloadJson(_ userInfo: [AnyHashable: Any]) -> String? {
+        guard !userInfo.isEmpty else { return nil }
+        let payload = Dictionary(uniqueKeysWithValues: userInfo.map { key, value in
+            (String(describing: key), String(describing: value))
+        })
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+        return json
     }
 }
 
@@ -203,14 +246,47 @@ struct LitterApp: App {
                 }
         }
         .onChange(of: scenePhase) { _, newPhase in
+            LLog.info("lifecycle", "scenePhase changed", fields: ["phase": newPhase.debugName])
             switch newPhase {
             case .background:
                 appRuntime.appDidEnterBackground()
+            case .inactive:
+                appRuntime.appDidBecomeInactive()
             case .active:
                 appRuntime.appDidBecomeActive()
             default:
                 break
             }
+        }
+    }
+}
+
+private extension UIApplication.State {
+    var debugName: String {
+        switch self {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
+        }
+    }
+}
+
+private extension ScenePhase {
+    var debugName: String {
+        switch self {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
         }
     }
 }
@@ -701,7 +777,7 @@ private struct HomeNavigationView: View {
         do {
             let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
                 ?? thread.key
-            let nextKey = try await appModel.resumeThreadPreferringIPC(
+            let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
                 cwdOverride: thread.cwd
@@ -961,6 +1037,7 @@ private struct ConversationDestinationScreen: View {
                         thread: conversationThread,
                         activeThreadKey: resolvedThreadKey,
                         transcript: screenModel.transcript,
+                        followScrollToken: screenModel.followScrollToken,
                         pinnedContextItems: screenModel.pinnedContextItems,
                         composer: screenModel.composer,
                         topInset: topInset,
@@ -992,7 +1069,7 @@ private struct ConversationDestinationScreen: View {
                 .onChange(of: conversationThread) { _, updatedThread in
                     bindScreenModel(for: updatedThread)
                 }
-                .onChange(of: appModel.snapshot?.agentDirectoryVersion) { _, _ in
+                .onChange(of: appModel.snapshotRevision) { _, _ in
                     bindScreenModel(for: conversationThread)
                 }
                 .onChange(of: pendingUserInputsForThread) { _, _ in

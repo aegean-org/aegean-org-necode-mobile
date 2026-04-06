@@ -6,6 +6,7 @@ struct ConversationComposerContentView: View {
     let collaborationMode: AppModeKind
     let activePlanProgress: AppPlanProgressSnapshot?
     let pendingUserInputRequest: PendingUserInputRequest?
+    let hasPendingPlanImplementation: Bool
     let activeTaskSummary: ConversationActiveTaskSummary?
     let queuedFollowUps: [AppQueuedFollowUpPreview]
     let rateLimits: RateLimitSnapshot?
@@ -16,6 +17,8 @@ struct ConversationComposerContentView: View {
     @Binding var showAttachMenu: Bool
     let onClearAttachment: () -> Void
     let onRespondToPendingUserInput: ([String: [String]]) -> Void
+    let onImplementPlan: () -> Void
+    let onDismissPlanImplementation: () -> Void
     let onSteerQueuedFollowUp: (AppQueuedFollowUpPreview) -> Void
     let onDeleteQueuedFollowUp: (AppQueuedFollowUpPreview) -> Void
     let onPasteImage: (UIImage) -> Void
@@ -32,6 +35,7 @@ struct ConversationComposerContentView: View {
         collaborationMode: AppModeKind,
         activePlanProgress: AppPlanProgressSnapshot?,
         pendingUserInputRequest: PendingUserInputRequest?,
+        hasPendingPlanImplementation: Bool = false,
         activeTaskSummary: ConversationActiveTaskSummary?,
         queuedFollowUps: [AppQueuedFollowUpPreview],
         rateLimits: RateLimitSnapshot?,
@@ -42,6 +46,8 @@ struct ConversationComposerContentView: View {
         showAttachMenu: Binding<Bool>,
         onClearAttachment: @escaping () -> Void,
         onRespondToPendingUserInput: @escaping ([String: [String]]) -> Void,
+        onImplementPlan: @escaping () -> Void = {},
+        onDismissPlanImplementation: @escaping () -> Void = {},
         onSteerQueuedFollowUp: @escaping (AppQueuedFollowUpPreview) -> Void,
         onDeleteQueuedFollowUp: @escaping (AppQueuedFollowUpPreview) -> Void,
         onPasteImage: @escaping (UIImage) -> Void,
@@ -57,6 +63,7 @@ struct ConversationComposerContentView: View {
         self.collaborationMode = collaborationMode
         self.activePlanProgress = activePlanProgress
         self.pendingUserInputRequest = pendingUserInputRequest
+        self.hasPendingPlanImplementation = hasPendingPlanImplementation
         self.activeTaskSummary = activeTaskSummary
         self.queuedFollowUps = queuedFollowUps
         self.rateLimits = rateLimits
@@ -67,6 +74,8 @@ struct ConversationComposerContentView: View {
         _showAttachMenu = showAttachMenu
         self.onClearAttachment = onClearAttachment
         self.onRespondToPendingUserInput = onRespondToPendingUserInput
+        self.onImplementPlan = onImplementPlan
+        self.onDismissPlanImplementation = onDismissPlanImplementation
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
         self.onDeleteQueuedFollowUp = onDeleteQueuedFollowUp
         self.onPasteImage = onPasteImage
@@ -106,18 +115,6 @@ struct ConversationComposerContentView: View {
             }
 
             VStack(alignment: .trailing, spacing: 0) {
-                if showModeChip {
-                    HStack {
-                        ConversationComposerModeChip(
-                            mode: collaborationMode,
-                            onTap: onOpenModePicker
-                        )
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                }
-
                 if let activePlanProgress {
                     ConversationComposerPlanProgressView(progress: activePlanProgress)
                         .padding(.horizontal, 12)
@@ -134,6 +131,15 @@ struct ConversationComposerContentView: View {
                     PendingUserInputPromptView(request: pendingUserInputRequest, onSubmit: onRespondToPendingUserInput)
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
+                }
+
+                if hasPendingPlanImplementation {
+                    PlanImplementationPromptView(
+                        onImplement: onImplementPlan,
+                        onDismiss: onDismissPlanImplementation
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
                 }
 
                 if !queuedFollowUps.isEmpty {

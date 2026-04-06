@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
 use std::time::Duration;
 
-use tokio::sync::{RwLock, broadcast, watch};
+use tokio::sync::{RwLock, broadcast, mpsc, watch};
 use tracing::{error, info, warn};
 
 use crate::client::handle::{IpcClient, IpcClientConfig};
@@ -37,6 +37,7 @@ pub struct ReconnectingIpcClient {
     handler: Arc<RwLock<Option<Arc<dyn RequestHandler>>>>,
     broadcast_tx: broadcast::Sender<TypedBroadcast>,
     connection_tx: watch::Sender<bool>,
+    invalidate_tx: mpsc::UnboundedSender<()>,
     reconnect_task: tokio::task::JoinHandle<()>,
 }
 
@@ -96,6 +97,7 @@ impl ReconnectingIpcClient {
         let handler: Arc<RwLock<Option<Arc<dyn RequestHandler>>>> = Arc::new(RwLock::new(None));
         let (broadcast_tx, _) = broadcast::channel::<TypedBroadcast>(256);
         let (connection_tx, _) = watch::channel(Self::client_lock_read(&client).as_ref().is_some());
+        let (invalidate_tx, invalidate_rx) = mpsc::unbounded_channel();
 
         let reconnect_task = {
             let client = Arc::clone(&client);
@@ -109,6 +111,7 @@ impl ReconnectingIpcClient {
                 handler,
                 broadcast_tx,
                 connection_tx,
+                invalidate_rx,
                 connector,
             ))
         };
@@ -118,6 +121,7 @@ impl ReconnectingIpcClient {
             handler,
             broadcast_tx,
             connection_tx,
+            invalidate_tx,
             reconnect_task,
         }
     }
@@ -166,6 +170,11 @@ impl ReconnectingIpcClient {
         self.connection_tx.subscribe()
     }
 
+    /// Force the current client to recycle and reconnect.
+    pub fn invalidate(&self) {
+        let _ = self.invalidate_tx.send(());
+    }
+
     /// Set the request handler. It will be re-registered on reconnect.
     pub async fn set_request_handler(&self, h: Arc<dyn RequestHandler>) {
         {
@@ -188,7 +197,7 @@ impl ReconnectingIpcClient {
         if let Some(client) = client {
             client.disconnect().await;
         }
-        let _ = self.connection_tx.send(false);
+        let _ = self.connection_tx.send_replace(false);
     }
 
     async fn reconnect_loop(
@@ -197,6 +206,7 @@ impl ReconnectingIpcClient {
         handler: Arc<RwLock<Option<Arc<dyn RequestHandler>>>>,
         broadcast_tx: broadcast::Sender<TypedBroadcast>,
         connection_tx: watch::Sender<bool>,
+        mut invalidate_rx: mpsc::UnboundedReceiver<()>,
         connector: Arc<
             dyn Fn() -> Pin<Box<dyn Future<Output = Result<IpcClient, IpcError>> + Send>>
                 + Send
@@ -210,14 +220,28 @@ impl ReconnectingIpcClient {
             };
             if let Some(current_client) = current_client {
                 let mut sub = current_client.subscribe_broadcasts();
+                let mut invalidated = false;
                 loop {
-                    match sub.recv().await {
-                        Ok(msg) => {
-                            let _ = broadcast_tx.send(msg);
+                    tokio::select! {
+                        msg = sub.recv() => match msg {
+                            Ok(msg) => {
+                                let _ = broadcast_tx.send(msg);
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
+                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        },
+                        signal = invalidate_rx.recv() => {
+                            if signal.is_none() {
+                                return;
+                            }
+                            info!("ipc connection invalidated, recycling client");
+                            invalidated = true;
+                            break;
                         }
-                        Err(broadcast::error::RecvError::Closed) => break,
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     }
+                }
+                if invalidated {
+                    current_client.force_disconnect().await;
                 }
             }
 
@@ -225,7 +249,7 @@ impl ReconnectingIpcClient {
                 let mut guard = Self::client_lock_write(&client);
                 *guard = None;
             }
-            let _ = connection_tx.send(false);
+            let _ = connection_tx.send_replace(false);
 
             info!("ipc connection lost, starting reconnect");
 
@@ -269,7 +293,118 @@ impl ReconnectingIpcClient {
                 let mut guard = Self::client_lock_write(&client);
                 *guard = Some(new_client);
             }
-            let _ = connection_tx.send(true);
+            let _ = connection_tx.send_replace(true);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::protocol::envelope::{Envelope, Response};
+    use crate::protocol::method::Method;
+    use crate::protocol::params::InitializeResult;
+    use crate::transport::frame;
+    use tokio::time::{Instant, sleep};
+
+    async fn connect_test_client(label: usize) -> Result<IpcClient, IpcError> {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        tokio::spawn(async move {
+            let raw = frame::read_frame(&mut server_stream)
+                .await
+                .expect("initialize request frame");
+            let envelope: Envelope = serde_json::from_str(&raw).expect("initialize envelope");
+            let request = match envelope {
+                Envelope::Request(request) => request,
+                other => panic!("expected initialize request, got {other:?}"),
+            };
+            assert_eq!(request.method, Method::Initialize.wire_name());
+
+            let response = Envelope::Response(Response::Success {
+                request_id: request.request_id,
+                method: request.method,
+                handled_by_client_id: format!("router-{label}"),
+                result: serde_json::to_value(InitializeResult {
+                    client_id: format!("client-{label}"),
+                })
+                .expect("initialize result"),
+            });
+            frame::write_frame(
+                &mut server_stream,
+                &serde_json::to_string(&response).expect("response json"),
+            )
+            .await
+            .expect("initialize response write");
+
+            let _ = frame::read_frame(&mut server_stream).await;
+        });
+
+        IpcClient::connect_with_stream(
+            &IpcClientConfig {
+                socket_path: PathBuf::from(format!("/tmp/reconnect-test-{label}.sock")),
+                client_type: "mobile-test".to_string(),
+                request_timeout: Duration::from_secs(1),
+            },
+            client_stream,
+        )
+        .await
+    }
+
+    async fn wait_until(timeout: Duration, mut predicate: impl FnMut() -> bool) {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if predicate() {
+                return;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for condition");
+            sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn invalidate_recycles_the_current_client_and_reconnects() {
+        let connect_count = Arc::new(AtomicUsize::new(0));
+        let reconnecting = ReconnectingIpcClient::start_with_connector(
+            None,
+            {
+                let connect_count = Arc::clone(&connect_count);
+                move || {
+                    let connect_count = Arc::clone(&connect_count);
+                    async move {
+                        let attempt = connect_count.fetch_add(1, Ordering::SeqCst) + 1;
+                        connect_test_client(attempt).await
+                    }
+                }
+            },
+            ReconnectPolicy {
+                initial_delay: Duration::from_millis(1),
+                max_delay: Duration::from_millis(5),
+                max_attempts: Some(16),
+            },
+        );
+
+        wait_until(Duration::from_secs(1), || reconnecting.is_connected()).await;
+        let first_client_id = reconnecting
+            .client()
+            .expect("initial client")
+            .client_id()
+            .to_string();
+        assert_eq!(first_client_id, "client-1");
+
+        reconnecting.invalidate();
+
+        wait_until(Duration::from_secs(1), || {
+            reconnecting
+                .client()
+                .is_some_and(|client| client.client_id() != first_client_id)
+        })
+        .await;
+        assert_eq!(connect_count.load(Ordering::SeqCst), 2);
+
+        reconnecting.shutdown().await;
     }
 }

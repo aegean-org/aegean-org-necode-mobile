@@ -78,6 +78,16 @@ struct HeaderView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
 
+                            if thread.collaborationMode == .plan {
+                                Text("plan")
+                                    .litterFont(.caption2, weight: .bold)
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(LitterTheme.accent)
+                                    .clipShape(Capsule())
+                            }
+
                             if server?.isIpcConnected == true {
                                 Text("IPC")
                                     .litterFont(.caption2, weight: .bold)
@@ -111,6 +121,8 @@ struct HeaderView: View {
                     models: availableModels,
                     selectedModel: selectedModelBinding,
                     reasoningEffort: reasoningEffortBinding,
+                    threadKey: thread.key,
+                    collaborationMode: thread.collaborationMode,
                     onDismiss: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         appState.showModelSelector = false
@@ -158,7 +170,7 @@ struct HeaderView: View {
         case .connecting, .unresponsive:
             return .orange
         case .connected:
-            if server.ipcState == .disconnected {
+            if server.hasIpc && server.ipcState == .disconnected {
                 return .orange
             }
             if server.isLocal {
@@ -250,17 +262,7 @@ struct HeaderView: View {
                 if server?.account == nil {
                     appState.showSettings = true
                 } else {
-                    _ = try? await appModel.client.listThreads(
-                        serverId: thread.key.serverId,
-                        params: AppListThreadsRequest(
-                            cursor: nil,
-                            limit: nil,
-                            archived: nil,
-                            cwd: nil,
-                            searchTerm: nil
-                        )
-                    )
-                    let nextKey = try? await appModel.reloadThreadPreferringIPC(
+                    let nextKey = try? await appModel.reloadThread(
                         key: thread.key,
                         launchConfig: reloadLaunchConfig(),
                         cwdOverride: thread.info.cwd
@@ -270,7 +272,6 @@ struct HeaderView: View {
                             key: nextKey
                         )
                     }
-                    await appModel.refreshSnapshot()
                 }
             }
         } label: {
@@ -348,6 +349,9 @@ struct InlineModelSelectorView: View {
     let models: [ModelInfo]
     @Binding var selectedModel: String
     @Binding var reasoningEffort: String
+    var threadKey: ThreadKey
+    var collaborationMode: AppModeKind = .default
+    @Environment(AppModel.self) private var appModel
     @AppStorage("fastMode") private var fastMode = false
     var onDismiss: () -> Void
 
@@ -431,6 +435,27 @@ struct InlineModelSelectorView: View {
             Divider().background(LitterTheme.separator).padding(.horizontal, 12)
 
             HStack(spacing: 6) {
+                Button {
+                    let next: AppModeKind = collaborationMode == .plan ? .default : .plan
+                    Task {
+                        try? await appModel.store.setThreadCollaborationMode(
+                            key: threadKey, mode: next
+                        )
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .litterFont(size: 9, weight: .semibold)
+                        Text("Plan")
+                            .litterFont(.caption2, weight: .medium)
+                    }
+                    .foregroundColor(collaborationMode == .plan ? .black : LitterTheme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(collaborationMode == .plan ? LitterTheme.accent : LitterTheme.surfaceLight)
+                    .clipShape(Capsule())
+                }
+
                 Button {
                     fastMode.toggle()
                 } label: {

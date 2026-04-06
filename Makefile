@@ -23,6 +23,14 @@ IOS_SCRIPTS := $(IOS_DIR)/scripts
 IOS_FW_DIR := $(IOS_DIR)/Frameworks
 IOS_GENERATED := $(IOS_DIR)/GeneratedRust
 IOS_SOURCES := $(IOS_DIR)/Sources
+IOS_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/ios-device-run
+IOS_DEVICE_PROFILE ?= 1
+IOS_DEVICE_PROFILE_TEMPLATE ?= Time Profiler
+IOS_DEVICE_PROFILE_TIME_LIMIT ?=
+IOS_SIM_RUN_ARTIFACTS_DIR ?= $(ROOT)/artifacts/ios-sim-run
+IOS_SIM_PROFILE ?= 1
+IOS_SIM_PROFILE_TEMPLATE ?= Time Profiler
+IOS_SIM_PROFILE_TIME_LIMIT ?=
 ANDROID_DIR := $(ROOT)/apps/android
 ANDROID_JNI := $(ANDROID_DIR)/core/bridge/src/main/jniLibs
 GENERATED_DIR := $(RUST_DIR)/generated
@@ -41,6 +49,19 @@ ANDROID_EMULATOR_ABIS ?= $(if $(filter arm64 aarch64,$(HOST_ARCH)),arm64-v8a,x86
 
 # Source local env (credentials, SDK paths) if present — must precede ?= auto-detect
 -include .env
+
+AWS_SHARED_CREDENTIALS_FILE ?= $(HOME)/.aws/credentials
+
+define aws_profile_credential
+$(strip $(shell PROFILE='$(AWS_PROFILE)' CREDS_FILE='$(AWS_SHARED_CREDENTIALS_FILE)' KEY='$(1)' /bin/bash -lc '\
+if [ -n "$$PROFILE" ] && [ -f "$$CREDS_FILE" ]; then \
+  awk -F" *= *" -v profile="$$PROFILE" -v key="$$KEY" '\''
+    $$0 == "[" profile "]" { in_profile = 1; next } \
+    /^\[/ { in_profile = 0 } \
+    in_profile && $$1 == key { print $$2; exit }\
+  '\'' "$$CREDS_FILE"; \
+fi'))
+endef
 
 # Auto-detect Android SDK/NDK/JDK paths (macOS defaults, overridable via env or .env)
 ANDROID_SDK_ROOT ?= $(or $(ANDROID_HOME),$(wildcard $(HOME)/Library/Android/sdk))
@@ -61,14 +82,30 @@ export JAVA_HOME
 
 SCCACHE := $(shell command -v sccache 2>/dev/null)
 ifneq ($(SCCACHE),)
+  ifeq ($(strip $(AWS_ACCESS_KEY_ID)),)
+    AWS_ACCESS_KEY_ID := $(call aws_profile_credential,aws_access_key_id)
+  endif
+  ifeq ($(strip $(AWS_SECRET_ACCESS_KEY)),)
+    AWS_SECRET_ACCESS_KEY := $(call aws_profile_credential,aws_secret_access_key)
+  endif
+  ifeq ($(strip $(AWS_SESSION_TOKEN)),)
+    AWS_SESSION_TOKEN := $(call aws_profile_credential,aws_session_token)
+  endif
   export RUSTC_WRAPPER := $(SCCACHE)
   ifdef SCCACHE_BUCKET
     export SCCACHE_BUCKET
     export SCCACHE_ENDPOINT
     export SCCACHE_REGION
     export SCCACHE_S3_KEY_PREFIX
-    export AWS_ACCESS_KEY_ID
-    export AWS_SECRET_ACCESS_KEY
+    ifneq ($(strip $(AWS_ACCESS_KEY_ID)),)
+      export AWS_ACCESS_KEY_ID
+    endif
+    ifneq ($(strip $(AWS_SECRET_ACCESS_KEY)),)
+      export AWS_SECRET_ACCESS_KEY
+    endif
+    ifneq ($(strip $(AWS_SESSION_TOKEN)),)
+      export AWS_SESSION_TOKEN
+    endif
     $(info [cache] Using sccache: $(SCCACHE) → s3://$(SCCACHE_BUCKET))
   else
     $(info [cache] Using sccache: $(SCCACHE) (local only))
@@ -89,8 +126,7 @@ BOUNDARY_SOURCES := \
 	$(RUST_DIR)/codex-mobile-client/Cargo.toml \
 	$(RUST_DIR)/codex-mobile-client/src/lib.rs \
 	$(RUST_DIR)/codex-mobile-client/src/conversation_uniffi.rs \
-	$(RUST_DIR)/codex-mobile-client/src/discovery_uniffi.rs \
-	$(RUST_DIR)/codex-mobile-client/src/mobile_client_impl.rs
+	$(RUST_DIR)/codex-mobile-client/src/discovery_uniffi.rs
 
 BOUNDARY_SOURCES += $(shell find $(RUST_DIR)/codex-mobile-client/src -type f -name '*.rs' 2>/dev/null)
 
@@ -140,24 +176,22 @@ ios-sim-fast: ios-build-sim-fast
 ios-device: ios-build-device
 ios-device-fast: ios-build-device-fast
 ios-sim-run: ios-sim-fast
-	@echo "==> Installing and launching on booted simulator..."
-	@APP_PATH=$$(/bin/ls -dt $(HOME)/Library/Developer/Xcode/DerivedData/Litter-*/Build/Products/Debug-iphonesimulator/Litter.app 2>/dev/null | head -1) && \
-	if [ -z "$$APP_PATH" ]; then echo "ERROR: Litter.app not found in DerivedData"; exit 1; fi && \
-	xcrun simctl install booted "$$APP_PATH" && \
-	xcrun simctl launch booted com.sigkitten.litter
+	@echo "==> Installing and launching on booted simulator with saved logs/profile..."
+	@cd $(ROOT) && \
+	IOS_SIM_PROFILE='$(IOS_SIM_PROFILE)' \
+	IOS_SIM_PROFILE_TEMPLATE='$(IOS_SIM_PROFILE_TEMPLATE)' \
+	IOS_SIM_PROFILE_TIME_LIMIT='$(IOS_SIM_PROFILE_TIME_LIMIT)' \
+	IOS_SIM_RUN_ARTIFACTS_DIR='$(IOS_SIM_RUN_ARTIFACTS_DIR)' \
+	$(IOS_SCRIPTS)/run-sim.sh
 
 ios-device-run: ios-device-fast
-	@echo "==> Installing and launching on connected device..."
-	@set -o pipefail && \
-	APP_PATH=$$(/bin/ls -dt $(HOME)/Library/Developer/Xcode/DerivedData/Litter-*/Build/Products/Debug-iphoneos/Litter.app 2>/dev/null | head -1) && \
-	if [ -z "$$APP_PATH" ]; then echo "ERROR: Litter.app not found in DerivedData"; exit 1; fi && \
-	DEVICE_ID=$$(xcrun devicectl list devices 2>/dev/null | grep -E 'available|connected' | grep -v 'Simulator' | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}' | head -1) && \
-	if [ -z "$$DEVICE_ID" ]; then echo "ERROR: no connected device found"; exit 1; fi && \
-	echo "==> Installing on device $$DEVICE_ID..." && \
-	xcrun devicectl device install app --device "$$DEVICE_ID" "$$APP_PATH" && \
-	echo "==> Launching with attached console and timestamps (Ctrl+C stops the app)..." && \
-	xcrun devicectl device process launch --device "$$DEVICE_ID" --terminate-existing --console com.sigkitten.litter 2>&1 | \
-	perl -MPOSIX=strftime -ne 'BEGIN { $$| = 1 } print strftime("[%Y-%m-%d %H:%M:%S] ", localtime), $$_'
+	@echo "==> Installing and launching on connected device with saved logs/profile..."
+	@cd $(ROOT) && \
+	IOS_DEVICE_PROFILE='$(IOS_DEVICE_PROFILE)' \
+	IOS_DEVICE_PROFILE_TEMPLATE='$(IOS_DEVICE_PROFILE_TEMPLATE)' \
+	IOS_DEVICE_PROFILE_TIME_LIMIT='$(IOS_DEVICE_PROFILE_TIME_LIMIT)' \
+	IOS_RUN_ARTIFACTS_DIR='$(IOS_RUN_ARTIFACTS_DIR)' \
+	$(IOS_SCRIPTS)/run-device.sh
 
 ios-run: ios
 	@open $(IOS_DIR)/Litter.xcodeproj
@@ -251,10 +285,10 @@ help:
 	@printf '%s\n' \
 		'make ios                full iOS package lane + simulator build' \
 		'make ios-sim-fast       fast simulator lane using raw staticlib outputs' \
-		'make ios-sim-run        fast sim build + install + launch on booted simulator' \
+		'make ios-sim-run        fast sim build + install + launch on booted simulator; saves console log and Time Profiler trace under artifacts/ios-sim-run (override IOS_SIM_PROFILE=0, IOS_SIM_PROFILE_TEMPLATE, IOS_SIM_PROFILE_TIME_LIMIT=30s to cap capture)' \
 		'make ios-device         full iOS package lane + device build' \
 		'make ios-device-fast    fast device lane using raw staticlib outputs' \
-		'make ios-device-run     fast device build + install + launch with attached console on connected device' \
+		'make ios-device-run     fast device build + install + launch on connected device; saves console log and Time Profiler trace for the whole run under artifacts/ios-device-run (override IOS_DEVICE_PROFILE=0, IOS_DEVICE_PROFILE_TEMPLATE, IOS_DEVICE_PROFILE_TIME_LIMIT=30s to cap capture)' \
 		'make rust-ios-package   full Rust iOS package lane (bindings + xcframework)' \
 		'make rust-ios-sim-fast  fast Rust iOS simulator lane (raw staticlib only)' \
 		'make rust-ios-device-fast fast Rust iOS device lane (raw staticlib only)' \

@@ -3,6 +3,7 @@
 use crate::MobileClient;
 use crate::ffi::ClientError;
 use crate::ffi::shared::{blocking_async, shared_mobile_client, shared_runtime};
+use crate::store::snapshot::AppLifecyclePhaseSnapshot;
 use crate::store::{AppSnapshotRecord, AppStoreUpdateRecord, AppThreadSnapshot};
 use crate::types::{AppForkThreadFromMessageRequest, AppModeKind, AppStartTurnRequest, ThreadKey};
 use std::collections::VecDeque;
@@ -98,7 +99,10 @@ mod tests {
             })),
         };
 
-        for _ in 0..300 {
+        // AppStoreReducer keeps a 1024-event broadcast buffer to absorb normal
+        // streaming bursts. Exceed it decisively so this test still exercises
+        // the lagged subscriber fallback to FullResync.
+        for _ in 0..2048 {
             reducer.set_active_thread(Some(ThreadKey {
                 server_id: "srv".to_string(),
                 thread_id: "thread-1".to_string(),
@@ -204,6 +208,24 @@ impl AppStore {
     ) -> Result<Option<AppThreadSnapshot>, ClientError> {
         crate::store::project_thread_snapshot(&self.inner.app_snapshot(), &key)
             .map_err(ClientError::Serialization)
+    }
+
+    pub fn note_app_became_active(&self) {
+        self.inner
+            .app_store
+            .note_app_lifecycle_phase(AppLifecyclePhaseSnapshot::Active);
+    }
+
+    pub fn note_app_became_inactive(&self) {
+        self.inner
+            .app_store
+            .note_app_lifecycle_phase(AppLifecyclePhaseSnapshot::Inactive);
+    }
+
+    pub fn note_app_entered_background(&self) {
+        self.inner
+            .app_store
+            .note_app_lifecycle_phase(AppLifecyclePhaseSnapshot::Background);
     }
 
     pub async fn start_turn(
@@ -465,12 +487,12 @@ fn merge_app_update(
             Ok(())
         }
         (
-            AppStoreUpdateRecord::ThreadStateUpdated {
+            AppStoreUpdateRecord::ThreadMetadataChanged {
                 state,
                 session_summary,
                 agent_directory_version,
             },
-            AppStoreUpdateRecord::ThreadStateUpdated {
+            AppStoreUpdateRecord::ThreadMetadataChanged {
                 state: next_state,
                 session_summary: next_summary,
                 agent_directory_version: next_version,
@@ -482,37 +504,13 @@ fn merge_app_update(
             Ok(())
         }
         (
-            AppStoreUpdateRecord::ThreadItemUpserted { key, item },
-            AppStoreUpdateRecord::ThreadItemUpserted {
+            AppStoreUpdateRecord::ThreadItemChanged { key, item },
+            AppStoreUpdateRecord::ThreadItemChanged {
                 key: next_key,
                 item: next_item,
             },
         ) if *key == next_key && item.id == next_item.id => {
             *item = next_item;
-            Ok(())
-        }
-        (
-            AppStoreUpdateRecord::ThreadCommandExecutionUpdated {
-                key,
-                item_id,
-                status,
-                exit_code,
-                duration_ms,
-                process_id,
-            },
-            AppStoreUpdateRecord::ThreadCommandExecutionUpdated {
-                key: next_key,
-                item_id: next_item_id,
-                status: next_status,
-                exit_code: next_exit_code,
-                duration_ms: next_duration_ms,
-                process_id: next_process_id,
-            },
-        ) if *key == next_key && *item_id == next_item_id => {
-            *status = next_status;
-            *exit_code = next_exit_code;
-            *duration_ms = next_duration_ms;
-            *process_id = next_process_id;
             Ok(())
         }
         (

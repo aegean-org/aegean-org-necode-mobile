@@ -75,6 +75,7 @@ import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTheme
+import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSessionSummary
@@ -102,12 +103,15 @@ fun HomeDashboardScreen(
     var renameText by remember { mutableStateOf("") }
     val appVersionLabel = remember { "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" }
 
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    val recentLimit = maxOf(3, (screenHeightDp - 300) / 82)
+
     val snap = snapshot
     val servers = remember(snap) {
         snap?.let { HomeDashboardSupport.sortedConnectedServers(it) } ?: emptyList()
     }
-    val recentSessions = remember(snap) {
-        snap?.let { HomeDashboardSupport.recentSessions(it) } ?: emptyList()
+    val recentSessions = remember(snap, recentLimit) {
+        snap?.let { HomeDashboardSupport.recentSessions(it, limit = recentLimit) } ?: emptyList()
     }
 
     // Confirmation dialog state

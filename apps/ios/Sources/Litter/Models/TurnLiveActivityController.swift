@@ -7,6 +7,7 @@ final class TurnLiveActivityController {
     private var activeKey: ThreadKey?
     private var startDate: Date?
     private var outputSnippet: String?
+    private var outputSnippetSourceItemId: String?
     private var lastUpdateTime: CFAbsoluteTime = 0
     private var didCleanupStaleActivities = false
 
@@ -77,6 +78,7 @@ final class TurnLiveActivityController {
         activeKey = thread.key
         startDate = now
         outputSnippet = nil
+        outputSnippetSourceItemId = nil
         lastUpdateTime = 0
         do {
             activity = try Activity.request(
@@ -91,8 +93,10 @@ final class TurnLiveActivityController {
         let now = CFAbsoluteTimeGetCurrent()
         guard now - lastUpdateTime > 2.0 else { return }
 
-        if let snippet = thread.latestAssistantSnippet, !snippet.isEmpty {
-            outputSnippet = snippet
+        if let snapshot = thread.latestAssistantSnippetSnapshot,
+           outputSnippetSourceItemId != snapshot.sourceItemId || outputSnippet != snapshot.snippet {
+            outputSnippetSourceItemId = snapshot.sourceItemId
+            outputSnippet = snapshot.snippet
         }
 
         let state = CodexTurnAttributes.ContentState(
@@ -112,8 +116,10 @@ final class TurnLiveActivityController {
 
     func updateBackgroundWake(for thread: AppThreadSnapshot, pushCount: Int) {
         guard let activity else { return }
-        if let snippet = thread.latestAssistantSnippet, !snippet.isEmpty {
-            outputSnippet = snippet
+        if let snapshot = thread.latestAssistantSnippetSnapshot,
+           outputSnippetSourceItemId != snapshot.sourceItemId || outputSnippet != snapshot.snippet {
+            outputSnippetSourceItemId = snapshot.sourceItemId
+            outputSnippet = snapshot.snippet
         }
 
         let state = CodexTurnAttributes.ContentState(
@@ -154,6 +160,7 @@ final class TurnLiveActivityController {
         activeKey = nil
         startDate = nil
         outputSnippet = nil
+        outputSnippetSourceItemId = nil
         lastUpdateTime = 0
     }
 }

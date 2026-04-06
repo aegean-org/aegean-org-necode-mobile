@@ -1,5 +1,5 @@
 use crate::conversation_uniffi::HydratedConversationItem;
-use crate::types::{AppOperationStatus, AppVoiceHandoffRequest, AppVoiceTranscriptUpdate};
+use crate::types::{AppVoiceHandoffRequest, AppVoiceTranscriptUpdate};
 use crate::types::{PendingApproval, PendingUserInputRequest, ThreadKey};
 
 use super::boundary::{AppSessionSummary, AppThreadSnapshot, AppThreadStateRecord};
@@ -27,22 +27,14 @@ pub enum AppStoreUpdateRecord {
         session_summary: AppSessionSummary,
         agent_directory_version: u64,
     },
-    ThreadStateUpdated {
+    ThreadMetadataChanged {
         state: AppThreadStateRecord,
         session_summary: AppSessionSummary,
         agent_directory_version: u64,
     },
-    ThreadItemUpserted {
+    ThreadItemChanged {
         key: ThreadKey,
         item: HydratedConversationItem,
-    },
-    ThreadCommandExecutionUpdated {
-        key: ThreadKey,
-        item_id: String,
-        status: AppOperationStatus,
-        exit_code: Option<i32>,
-        duration_ms: Option<i64>,
-        process_id: Option<String>,
     },
     ThreadStreamingDelta {
         key: ThreadKey,

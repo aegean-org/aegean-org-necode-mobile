@@ -27,7 +27,7 @@ enum LitterFeature: String, CaseIterable, Identifiable {
     var defaultEnabled: Bool {
         switch self {
         case .realtimeVoice: return true
-        case .ipc: return true
+        case .ipc: return false
         case .generativeUI: return false
         }
     }

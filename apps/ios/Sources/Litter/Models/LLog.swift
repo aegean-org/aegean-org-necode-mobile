@@ -39,7 +39,14 @@ enum LLog {
 
     private static func emit(level: OSLogType, subsystem: String, message: String, fields: [String: Any], payloadJson: String?) {
         let logger = Logger(subsystem: subsystemRoot, category: subsystem)
+        #if DEBUG
         let rendered = render(message: message, fields: fields, payloadJson: payloadJson)
+        mirrorToStderr(level: level, subsystem: subsystem, rendered: rendered)
+        #else
+        let rendered: String = level == .debug
+            ? message
+            : render(message: message, fields: fields, payloadJson: payloadJson)
+        #endif
 
         switch level {
         case .debug:
@@ -52,6 +59,24 @@ enum LLog {
             logger.log(level: level, "\(rendered, privacy: .public)")
         }
     }
+
+    #if DEBUG
+    private static func mirrorToStderr(level: OSLogType, subsystem: String, rendered: String) {
+        let levelName: String = switch level {
+        case .debug:
+            "DEBUG"
+        case .info:
+            "INFO"
+        case .error:
+            "ERROR"
+        case .fault:
+            "FAULT"
+        default:
+            "LOG"
+        }
+        fputs("[LLog][\(levelName)][\(subsystem)] \(rendered)\n", stderr)
+    }
+    #endif
 
     private static func render(message: String, fields: [String: Any], payloadJson: String?) -> String {
         var parts = [message]

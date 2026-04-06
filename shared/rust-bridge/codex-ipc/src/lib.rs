@@ -17,6 +17,7 @@
 //! - **Broadcast** — one-to-many notifications (e.g., state changes)
 //! - **ClientDiscovery** — router probes to find a handler for a request
 
+pub mod bridge;
 pub mod client;
 pub mod conversation_state;
 pub mod error;
@@ -25,6 +26,7 @@ pub mod protocol;
 pub mod transport;
 pub mod wire_trace;
 
+pub use bridge::{BridgeEvent, BridgeOutput, IpcBridge};
 pub use client::handle::{IpcClient, IpcClientConfig};
 pub use client::reconnect::{ReconnectPolicy, ReconnectingIpcClient};
 pub use conversation_state::*;

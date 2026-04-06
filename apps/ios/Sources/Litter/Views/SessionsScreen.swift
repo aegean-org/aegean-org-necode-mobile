@@ -1075,7 +1075,7 @@ struct SessionsScreen: View {
         do {
             let resumeKey = await appModel.hydrateThreadPermissions(for: thread.key, appState: appState)
                 ?? thread.key
-            let nextKey = try await appModel.resumeThreadPreferringIPC(
+            let nextKey = try await appModel.resumeThread(
                 key: resumeKey,
                 launchConfig: launchConfig(for: resumeKey),
                 cwdOverride: thread.cwd

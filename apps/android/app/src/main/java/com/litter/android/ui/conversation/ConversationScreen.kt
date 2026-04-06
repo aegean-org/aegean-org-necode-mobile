@@ -128,9 +128,25 @@ fun ConversationScreen(
         hash = 31 * hash + if (isThinking) 1 else 0
         hash
     }
+    var turnWindowSize by remember(threadKey) { mutableStateOf(10) }
+    val displayedTurns = remember(transcriptTurns, turnWindowSize) {
+        if (transcriptTurns.size <= turnWindowSize) transcriptTurns
+        else transcriptTurns.takeLast(turnWindowSize)
+    }
+    val hasMoreTurnsAbove = transcriptTurns.size > turnWindowSize
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }
     var streamingRenderTick by remember(threadKey) { mutableStateOf(0) }
     var followScrollToken by remember(threadKey) { mutableStateOf(0) }
+    var waitingForDataExpired by remember(threadKey) { mutableStateOf(false) }
+    LaunchedEffect(threadKey) {
+        waitingForDataExpired = false
+        kotlinx.coroutines.delay(1000)
+        waitingForDataExpired = true
+    }
+    val threadHasServerData = thread?.let {
+        !it.info.preview.isNullOrBlank() || !it.info.title.isNullOrBlank()
+    } == true
+    val isWaitingForData = items.isEmpty() && threadHasServerData && !waitingForDataExpired
     var lastObservedUpdatedAt by remember(threadKey) { mutableStateOf<Long?>(null) }
     LaunchedEffect(transcriptTurns.map { it.id to it.isCollapsedByDefault }) {
         val validIds = transcriptTurns.mapTo(mutableSetOf()) { it.id }
@@ -304,15 +320,16 @@ fun ConversationScreen(
         }
     }
 
-    LaunchedEffect(threadKey, transcriptTurns.size) {
-        if (shouldFollowTail && transcriptTurns.isNotEmpty()) {
-            listState.animateScrollToItem(conversationBottomAnchorIndex(transcriptTurns.size))
+    val displayedTurnCount = displayedTurns.size + (if (hasMoreTurnsAbove) 1 else 0)
+    LaunchedEffect(threadKey, displayedTurns.size) {
+        if (shouldFollowTail && displayedTurns.isNotEmpty()) {
+            listState.animateScrollToItem(conversationBottomAnchorIndex(displayedTurnCount))
         }
     }
 
     LaunchedEffect(threadKey, transcriptTailSignature, followScrollToken, streamingRenderTick) {
-        if (shouldFollowTail && transcriptTurns.isNotEmpty()) {
-            listState.animateScrollToItem(conversationBottomAnchorIndex(transcriptTurns.size))
+        if (shouldFollowTail && displayedTurns.isNotEmpty()) {
+            listState.animateScrollToItem(conversationBottomAnchorIndex(displayedTurnCount))
         }
     }
 
@@ -379,8 +396,43 @@ fun ConversationScreen(
                     ) {
                         item { Spacer(Modifier.height(12.dp)) }
 
+                        if (isWaitingForData) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 40.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        "Loading conversation…",
+                                        color = LitterTheme.textMuted,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                        }
+
+                        if (hasMoreTurnsAbove) {
+                            item {
+                                TextButton(
+                                    onClick = {
+                                        turnWindowSize = (turnWindowSize + 20).coerceAtMost(transcriptTurns.size)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        "Load earlier messages",
+                                        color = LitterTheme.accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                        }
+
                         items(
-                            items = transcriptTurns,
+                            items = displayedTurns,
                             key = { it.id },
                         ) { turn ->
                             val isExpanded = !turn.isCollapsedByDefault || expandedTurnIds.contains(turn.id)
@@ -493,11 +545,11 @@ fun ConversationScreen(
                 }
 
                 // Scroll-to-bottom FAB
-                if (!isAtBottom && transcriptTurns.isNotEmpty()) {
+                if (!isAtBottom && displayedTurns.isNotEmpty()) {
                     SmallFloatingActionButton(
                         onClick = {
                             scope.launch {
-                                listState.animateScrollToItem(conversationBottomAnchorIndex(transcriptTurns.size))
+                                listState.animateScrollToItem(conversationBottomAnchorIndex(displayedTurnCount))
                             }
                         },
                         modifier = Modifier

@@ -23,13 +23,8 @@ import uniffi.codex_mobile_client.AppThreadSnapshot
 import uniffi.codex_mobile_client.ThreadStreamingDeltaKind
 import uniffi.codex_mobile_client.AppStoreUpdateRecord
 import uniffi.codex_mobile_client.DiscoveryBridge
-import uniffi.codex_mobile_client.HydratedAssistantMessageData
-import uniffi.codex_mobile_client.HydratedCommandExecutionData
 import uniffi.codex_mobile_client.HydratedConversationItem
 import uniffi.codex_mobile_client.HydratedConversationItemContent
-import uniffi.codex_mobile_client.HydratedMcpToolCallData
-import uniffi.codex_mobile_client.HydratedProposedPlanData
-import uniffi.codex_mobile_client.HydratedReasoningData
 import uniffi.codex_mobile_client.HandoffManager
 import uniffi.codex_mobile_client.MessageParser
 import uniffi.codex_mobile_client.ServerBridge
@@ -504,23 +499,10 @@ class AppModel private constructor(context: android.content.Context) {
         when (update) {
             is AppStoreUpdateRecord.ThreadUpserted ->
                 applyThreadUpsert(update.thread, update.sessionSummary, update.agentDirectoryVersion)
-            is AppStoreUpdateRecord.ThreadStateUpdated ->
+            is AppStoreUpdateRecord.ThreadMetadataChanged ->
                 applyThreadStateUpdated(update.state, update.sessionSummary, update.agentDirectoryVersion)
-            is AppStoreUpdateRecord.ThreadItemUpserted -> {
-                if (!applyThreadItemUpsert(update.key, update.item)) {
-                    recoverThreadDeltaApplication(update.key)
-                }
-            }
-            is AppStoreUpdateRecord.ThreadCommandExecutionUpdated -> {
-                if (!applyThreadCommandExecutionUpdated(
-                        update.key,
-                        update.itemId,
-                        update.status,
-                        update.exitCode,
-                        update.durationMs,
-                        update.processId,
-                    )
-                ) {
+            is AppStoreUpdateRecord.ThreadItemChanged -> {
+                if (!applyThreadItemChanged(update.key, update.item)) {
                     recoverThreadDeltaApplication(update.key)
                 }
             }
@@ -706,11 +688,26 @@ class AppModel private constructor(context: android.content.Context) {
         val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
         val current = _snapshot.value ?: return
         val existingThreadIndex = current.threads.indexOfFirst { it.key == thread.key }
+
+        // Race condition guard: during active streaming, if the old thread has
+        // longer assistant text that starts with the new text, preserve the old
+        // (more complete) text to avoid flickering backwards.
+        val finalThread = if (existingThreadIndex >= 0) {
+            val oldThread = current.threads[existingThreadIndex]
+            if (oldThread.hasActiveTurn) {
+                preserveStreamingText(oldThread, mergedThread)
+            } else {
+                mergedThread
+            }
+        } else {
+            mergedThread
+        }
+
         val updatedThreads = current.threads.toMutableList().apply {
             if (existingThreadIndex >= 0) {
-                this[existingThreadIndex] = mergedThread
+                this[existingThreadIndex] = finalThread
             } else {
-                add(mergedThread)
+                add(finalThread)
             }
         }
 
@@ -732,9 +729,43 @@ class AppModel private constructor(context: android.content.Context) {
             sessionSummaries = updatedSummaries,
             agentDirectoryVersion = agentDirectoryVersion,
         )
-        cacheThreadSnapshot(mergedThread)
+        cacheThreadSnapshot(finalThread)
         _lastError.value = null
     }
+
+    private fun preserveStreamingText(
+        oldThread: AppThreadSnapshot,
+        newThread: AppThreadSnapshot,
+    ): AppThreadSnapshot {
+        if (newThread.hydratedConversationItems.isEmpty()) return newThread
+        val oldItemsById = oldThread.hydratedConversationItems.associateBy { it.id }
+        var changed = false
+        val mergedItems = newThread.hydratedConversationItems.map { newItem ->
+            val oldItem = oldItemsById[newItem.id]
+            if (oldItem != null) {
+                val oldText = assistantText(oldItem.content)
+                val newText = assistantText(newItem.content)
+                if (oldText != null && newText != null &&
+                    oldText.length > newText.length &&
+                    oldText.startsWith(newText)
+                ) {
+                    changed = true
+                    oldItem
+                } else {
+                    newItem
+                }
+            } else {
+                newItem
+            }
+        }
+        return if (changed) newThread.copy(hydratedConversationItems = mergedItems) else newThread
+    }
+
+    private fun assistantText(content: HydratedConversationItemContent): String? =
+        when (content) {
+            is HydratedConversationItemContent.Assistant -> content.v1.text
+            else -> null
+        }
 
     private fun applyThreadStateUpdated(
         state: uniffi.codex_mobile_client.AppThreadStateRecord,
@@ -787,7 +818,7 @@ class AppModel private constructor(context: android.content.Context) {
         _lastError.value = null
     }
 
-    private fun applyThreadItemUpsert(
+    private fun applyThreadItemChanged(
         key: ThreadKey,
         item: HydratedConversationItem,
     ): Boolean {
@@ -803,40 +834,6 @@ class AppModel private constructor(context: android.content.Context) {
         } else {
             val insertionIndex = insertionIndexForItem(updatedItems, item)
             updatedItems.add(insertionIndex, item)
-        }
-        applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
-        return true
-    }
-
-    private fun applyThreadCommandExecutionUpdated(
-        key: ThreadKey,
-        itemId: String,
-        status: uniffi.codex_mobile_client.AppOperationStatus,
-        exitCode: Int?,
-        durationMs: Long?,
-        processId: String?,
-    ): Boolean {
-        val current = _snapshot.value ?: return false
-        val threadIndex = current.threads.indexOfFirst { it.key == key }
-        if (threadIndex < 0) return false
-
-        val thread = current.threads[threadIndex]
-        val itemIndex = thread.hydratedConversationItems.indexOfFirst { it.id == itemId }
-        if (itemIndex < 0) return false
-
-        val item = thread.hydratedConversationItems[itemIndex]
-        val content = item.content as? HydratedConversationItemContent.CommandExecution ?: return false
-        val updatedItems = thread.hydratedConversationItems.toMutableList().apply {
-            this[itemIndex] = item.copy(
-                content = HydratedConversationItemContent.CommandExecution(
-                    content.v1.copy(
-                        status = status,
-                        exitCode = exitCode,
-                        durationMs = durationMs,
-                        processId = processId,
-                    ),
-                ),
-            )
         }
         applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
         return true

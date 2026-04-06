@@ -26,6 +26,10 @@ use tracing::{debug, error, info, trace, warn};
 use crate::logging::{LogLevelName, log_rust};
 use base64::Engine;
 
+const SSH_CHANNEL_WINDOW_SIZE: u32 = 16 * 1024 * 1024;
+const SSH_MAX_PACKET_SIZE: u32 = 256 * 1024;
+const SSH_CHANNEL_BUFFER_SIZE: usize = 512;
+
 fn append_bridge_log(level: LogLevelName, line: &str) {
     log_rust(level, "ssh", "bridge", line.to_string(), None);
 }
@@ -233,17 +237,33 @@ impl SshClient {
             keepalive_interval: Some(KEEPALIVE_INTERVAL),
             keepalive_max: 3,
             inactivity_timeout: None,
+            window_size: SSH_CHANNEL_WINDOW_SIZE,
+            maximum_packet_size: SSH_MAX_PACKET_SIZE,
+            channel_buffer_size: SSH_CHANNEL_BUFFER_SIZE,
+            nodelay: true,
             ..Default::default()
         };
 
         let addr = format!("{}:{}", normalize_host(&credentials.host), credentials.port);
         info!(
-            "SSH connect start addr={} username={} auth={}",
-            addr, credentials.username, auth_kind
+            "SSH connect start addr={} username={} auth={} nodelay={} window_size={} maximum_packet_size={} channel_buffer_size={}",
+            addr,
+            credentials.username,
+            auth_kind,
+            config.nodelay,
+            config.window_size,
+            config.maximum_packet_size,
+            config.channel_buffer_size
         );
         append_bridge_info_log(&format!(
-            "ssh_connect_start addr={} username={} auth={}",
-            addr, credentials.username, auth_kind
+            "ssh_connect_start addr={} username={} auth={} nodelay={} window_size={} maximum_packet_size={} channel_buffer_size={}",
+            addr,
+            credentials.username,
+            auth_kind,
+            config.nodelay,
+            config.window_size,
+            config.maximum_packet_size,
+            config.channel_buffer_size
         ));
 
         let connect_result = tokio::time::timeout(

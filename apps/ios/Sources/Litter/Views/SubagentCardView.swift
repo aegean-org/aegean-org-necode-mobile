@@ -357,7 +357,6 @@ private struct SubagentDetailSheet: View {
                             ConversationTurnTimeline(
                                 items: items,
                                 isLive: threadSnapshot.activeTurnId != nil || threadSnapshot.info.status == .active,
-                                renderMode: .rich,
                                 serverId: threadKey.serverId,
                                 agentDirectoryVersion: 0,
                                 messageActionsDisabled: true,
@@ -446,7 +445,7 @@ private struct SubagentDetailSheet: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            _ = try await appModel.resumeThreadPreferringIPC(
+            _ = try await appModel.resumeThread(
                 key: threadKey,
                 launchConfig: AppThreadLaunchConfig(
                     model: nil,

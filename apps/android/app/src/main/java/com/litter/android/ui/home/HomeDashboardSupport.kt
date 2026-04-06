@@ -39,7 +39,7 @@ object HomeDashboardSupport {
      */
     fun recentSessions(
         snapshot: AppSnapshotRecord,
-        limit: Int = 3,
+        limit: Int = 10,
     ): List<AppSessionSummary> {
         val connectedServerIds = snapshot.servers
             .filter { it.health == AppServerHealth.CONNECTED }

@@ -1,21 +1,27 @@
 import Foundation
 import Observation
 
-struct ConversationTranscriptSnapshot {
+struct ConversationTranscriptSnapshot: Equatable {
     var items: [ConversationItem]
     var threadStatus: ConversationStatus
-    var followScrollToken: Int
     var agentDirectoryVersion: UInt64
+    var renderDigest: Int
 
     static let empty = ConversationTranscriptSnapshot(
         items: [],
         threadStatus: .ready,
-        followScrollToken: 0,
-        agentDirectoryVersion: 0
+        agentDirectoryVersion: 0,
+        renderDigest: 0
     )
+
+    static func == (lhs: ConversationTranscriptSnapshot, rhs: ConversationTranscriptSnapshot) -> Bool {
+        lhs.threadStatus == rhs.threadStatus
+            && lhs.agentDirectoryVersion == rhs.agentDirectoryVersion
+            && lhs.renderDigest == rhs.renderDigest
+    }
 }
 
-struct ConversationComposerSnapshot {
+struct ConversationComposerSnapshot: Equatable {
     var threadKey: ThreadKey
     var collaborationMode: AppModeKind
     var activePlanProgress: AppPlanProgressSnapshot?
@@ -69,30 +75,35 @@ final class ConversationScreenModel {
     private(set) var transcript: ConversationTranscriptSnapshot = .empty
     private(set) var pinnedContextItems: [ConversationItem] = []
     private(set) var composer: ConversationComposerSnapshot = .empty
+    private(set) var followScrollToken = 0
 
     @ObservationIgnored private var thread: AppThreadSnapshot?
     @ObservationIgnored private var appModel: AppModel?
     @ObservationIgnored private var agentDirectoryVersion: UInt64 = 0
-    @ObservationIgnored private var followScrollToken = 0
-    @ObservationIgnored private var lastObservedUpdatedAt: Date?
+    @ObservationIgnored private var cachedConversationItemProjections: [String: CachedConversationItemProjection] = [:]
+    @ObservationIgnored private var cachedHydratedConversationItems: [HydratedConversationItem] = []
+    @ObservationIgnored private var cachedProjectedConversationItems: [ConversationItem] = []
+    @ObservationIgnored private var transcriptRevision: Int = 0
 
     func bind(
         thread: AppThreadSnapshot,
         appModel: AppModel,
         agentDirectoryVersion: UInt64
     ) {
-        let needsRebind =
-            self.thread != thread ||
-            self.appModel !== appModel ||
-            self.agentDirectoryVersion != agentDirectoryVersion
+        let threadChanged =
+            self.thread?.key != thread.key ||
+            self.appModel !== appModel
 
         self.thread = thread
         self.appModel = appModel
         self.agentDirectoryVersion = agentDirectoryVersion
 
-        if needsRebind {
+        if threadChanged {
             followScrollToken = 0
-            lastObservedUpdatedAt = nil
+            cachedHydratedConversationItems = []
+            cachedConversationItemProjections = [:]
+            cachedProjectedConversationItems = []
+            transcriptRevision = 0
         }
 
         refreshState()
@@ -103,13 +114,17 @@ final class ConversationScreenModel {
             transcript = .empty
             pinnedContextItems = []
             composer = .empty
-            lastObservedUpdatedAt = nil
+            followScrollToken = 0
             return
         }
 
-        let items = thread.hydratedConversationItems.map(\.conversationItem)
+        let currentTranscript = transcript
+        let currentPinnedContextItems = pinnedContextItems
+        let currentComposer = composer
+
+        let projection = projectConversationItems(from: thread.hydratedConversationItems)
+        let items = projection.items
         let threadStatus = conversationStatus(from: thread)
-        let updatedAt = Date(timeIntervalSince1970: TimeInterval(thread.info.updatedAt ?? 0))
         let activeTurnId: String?
         if let value = thread.activeTurnId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !value.isEmpty {
@@ -146,21 +161,161 @@ final class ConversationScreenModel {
             isConnected: appModel.snapshot?.serverSnapshot(for: thread.key.serverId)?.isConnected ?? false
         )
 
-        if let lastObservedUpdatedAt,
-           updatedAt != lastObservedUpdatedAt,
-           hasTurnInFlight {
-            followScrollToken &+= 1
+        let transcriptChanged =
+            projection.didChange
+            || currentTranscript.threadStatus != threadStatus
+            || currentTranscript.agentDirectoryVersion != agentDirectoryVersion
+        if transcriptChanged {
+            transcriptRevision &+= 1
+            if hasTurnInFlight {
+                LLog.trace("streaming", "transcript changed during turn", fields: [
+                    "projDidChange": projection.didChange,
+                    "itemCount": items.count,
+                    "revision": transcriptRevision,
+                    "threadStatus": String(describing: threadStatus)
+                ])
+            }
         }
-        lastObservedUpdatedAt = updatedAt
-
-        pinnedContextItems = items
-        transcript = ConversationTranscriptSnapshot(
-            items: items,
+        let nextTranscript = ConversationTranscriptSnapshot(
+            items: transcriptChanged ? items : currentTranscript.items,
             threadStatus: threadStatus,
-            followScrollToken: followScrollToken,
-            agentDirectoryVersion: agentDirectoryVersion
+            agentDirectoryVersion: agentDirectoryVersion,
+            renderDigest: transcriptChanged ? transcriptRevision : currentTranscript.renderDigest
         )
-        composer = composerSnapshot
+        var nextFollowScrollToken = followScrollToken
+        if hasTurnInFlight,
+           projection.didChange {
+            nextFollowScrollToken &+= 1
+        }
+        if transcript != nextTranscript {
+            transcript = nextTranscript
+            pinnedContextItems = items
+        }
+        if composer != composerSnapshot {
+            composer = composerSnapshot
+        }
+        if followScrollToken != nextFollowScrollToken {
+            followScrollToken = nextFollowScrollToken
+        }
+    }
+}
+
+private struct CachedConversationItemProjection {
+    let hydratedItem: HydratedConversationItem
+    let conversationItem: ConversationItem
+}
+
+private struct ProjectedConversationItemsResult {
+    let items: [ConversationItem]
+    let didChange: Bool
+}
+
+private extension ConversationScreenModel {
+    func projectConversationItems(from hydratedItems: [HydratedConversationItem]) -> ProjectedConversationItemsResult {
+        let previousHydratedItems = cachedHydratedConversationItems
+        if previousHydratedItems == hydratedItems {
+            return ProjectedConversationItemsResult(
+                items: cachedProjectedConversationItems,
+                didChange: false
+            )
+        }
+
+        let prefixCount = commonPrefixCount(
+            lhs: previousHydratedItems,
+            rhs: hydratedItems
+        )
+        let suffixCount = commonSuffixCount(
+            lhs: previousHydratedItems,
+            rhs: hydratedItems,
+            excludingPrefix: prefixCount
+        )
+
+        var nextCache: [String: CachedConversationItemProjection] = [:]
+        nextCache.reserveCapacity(hydratedItems.count)
+
+        var projectedItems: [ConversationItem] = []
+        projectedItems.reserveCapacity(hydratedItems.count)
+
+        if prefixCount > 0, cachedProjectedConversationItems.count >= prefixCount {
+            for index in 0..<prefixCount {
+                let hydratedItem = hydratedItems[index]
+                let conversationItem = cachedProjectedConversationItems[index]
+                projectedItems.append(conversationItem)
+                nextCache[hydratedItem.id] = CachedConversationItemProjection(
+                    hydratedItem: hydratedItem,
+                    conversationItem: conversationItem
+                )
+            }
+        }
+
+        let changedUpperBound = hydratedItems.count - suffixCount
+        if prefixCount < changedUpperBound {
+            for index in prefixCount..<changedUpperBound {
+                let hydratedItem = hydratedItems[index]
+                let conversationItem: ConversationItem
+                if let cached = cachedConversationItemProjections[hydratedItem.id],
+                   cached.hydratedItem == hydratedItem {
+                    conversationItem = cached.conversationItem
+                } else {
+                    conversationItem = hydratedItem.conversationItem
+                }
+
+                projectedItems.append(conversationItem)
+                nextCache[hydratedItem.id] = CachedConversationItemProjection(
+                    hydratedItem: hydratedItem,
+                    conversationItem: conversationItem
+                )
+            }
+        }
+
+        if suffixCount > 0, cachedProjectedConversationItems.count >= prefixCount + suffixCount {
+            let oldSuffixStart = cachedProjectedConversationItems.count - suffixCount
+            let newSuffixStart = hydratedItems.count - suffixCount
+            for offset in 0..<suffixCount {
+                let hydratedItem = hydratedItems[newSuffixStart + offset]
+                let conversationItem = cachedProjectedConversationItems[oldSuffixStart + offset]
+                projectedItems.append(conversationItem)
+                nextCache[hydratedItem.id] = CachedConversationItemProjection(
+                    hydratedItem: hydratedItem,
+                    conversationItem: conversationItem
+                )
+            }
+        }
+
+        cachedHydratedConversationItems = hydratedItems
+        cachedConversationItemProjections = nextCache
+        cachedProjectedConversationItems = projectedItems
+        return ProjectedConversationItemsResult(items: projectedItems, didChange: true)
+    }
+
+    func commonPrefixCount(
+        lhs: [HydratedConversationItem],
+        rhs: [HydratedConversationItem]
+    ) -> Int {
+        let maxCount = min(lhs.count, rhs.count)
+        var index = 0
+        while index < maxCount, lhs[index] == rhs[index] {
+            index += 1
+        }
+        return index
+    }
+
+    func commonSuffixCount(
+        lhs: [HydratedConversationItem],
+        rhs: [HydratedConversationItem],
+        excludingPrefix prefixCount: Int
+    ) -> Int {
+        let maxCount = min(lhs.count, rhs.count) - prefixCount
+        guard maxCount > 0 else { return 0 }
+
+        var suffixCount = 0
+        while suffixCount < maxCount {
+            let lhsIndex = lhs.index(lhs.endIndex, offsetBy: -suffixCount - 1)
+            let rhsIndex = rhs.index(rhs.endIndex, offsetBy: -suffixCount - 1)
+            guard lhs[lhsIndex] == rhs[rhsIndex] else { break }
+            suffixCount += 1
+        }
+        return suffixCount
     }
 }
 
@@ -209,3 +364,13 @@ private extension Array where Element == ConversationItem {
         return nil
     }
 }
+
+#if DEBUG
+extension ConversationScreenModel {
+    func _testProjectConversationItems(
+        from hydratedItems: [HydratedConversationItem]
+    ) -> [ConversationItem] {
+        projectConversationItems(from: hydratedItems).items
+    }
+}
+#endif

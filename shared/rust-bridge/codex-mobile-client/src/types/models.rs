@@ -1228,9 +1228,11 @@ mod tests {
 
     #[test]
     fn thread_read_response_deserializes_subagent_source_and_active_status() {
+        let thread_id = "01234567-89ab-cdef-0123-456789abcdef";
+        let parent_thread_id_str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
         let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
             "thread": {
-                "id": "thread-1",
+                "id": thread_id,
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -1246,7 +1248,7 @@ mod tests {
                 "source": {
                     "subAgent": {
                         "thread_spawn": {
-                            "parent_thread_id": "parent-1",
+                            "parent_thread_id": parent_thread_id_str,
                             "depth": 2,
                             "agent_nickname": "Scout",
                             "agent_role": "reviewer"
@@ -1282,7 +1284,7 @@ mod tests {
                     ..
                 },
             ) => {
-                assert_eq!(parent_thread_id.to_string(), "parent-1");
+                assert_eq!(parent_thread_id.to_string(), parent_thread_id_str);
                 assert_eq!(depth, 2);
                 assert_eq!(agent_nickname.as_deref(), Some("Scout"));
                 assert_eq!(agent_role.as_deref(), Some("reviewer"));
@@ -1291,10 +1293,10 @@ mod tests {
         }
 
         // Convert to upstream Thread (which has the From<Thread> for ThreadInfo impl)
-        // by re-deserializing from the same JSON shape, using valid UUIDs for ThreadId fields.
+        // by re-deserializing from the same typed JSON shape.
         let upstream_thread: codex_app_server_protocol::Thread =
             serde_json::from_value(serde_json::json!({
-                "id": "01234567-89ab-cdef-0123-456789abcdef",
+                "id": thread_id,
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -1310,7 +1312,7 @@ mod tests {
                 "source": {
                     "subAgent": {
                         "thread_spawn": {
-                            "parent_thread_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                            "parent_thread_id": parent_thread_id_str,
                             "depth": 2,
                             "agent_nickname": "Scout",
                             "agent_role": "reviewer"
@@ -1325,10 +1327,7 @@ mod tests {
             }))
             .expect("upstream Thread should deserialize");
         let info = ThreadInfo::from(upstream_thread);
-        assert_eq!(
-            info.parent_thread_id.as_deref(),
-            Some("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-        );
+        assert_eq!(info.parent_thread_id.as_deref(), Some(parent_thread_id_str));
         assert_eq!(info.agent_nickname.as_deref(), Some("Scout"));
         assert_eq!(info.agent_role.as_deref(), Some("reviewer"));
     }

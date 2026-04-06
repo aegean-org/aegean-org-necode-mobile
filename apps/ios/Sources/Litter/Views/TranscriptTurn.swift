@@ -73,6 +73,17 @@ struct TranscriptTurn: Identifiable, Equatable {
         )
     }
 
+    func replacingRenderableItems(_ items: [ConversationItem]) -> TranscriptTurn {
+        TranscriptTurn(
+            id: id,
+            items: items,
+            preview: preview,
+            isLive: isLive,
+            isCollapsedByDefault: isCollapsedByDefault,
+            renderDigest: Self.makeRenderDigest(from: items, isLive: isLive)
+        )
+    }
+
     static func mergeConsecutiveExplorationTurnsForRendering(
         _ turns: [TranscriptTurn]
     ) -> [TranscriptTurn] {
@@ -170,7 +181,7 @@ struct TranscriptTurn: Identifiable, Equatable {
         let visibleItems = turn.items.filter { !$0.isVisuallyEmptyNeutralItem }
         guard !visibleItems.isEmpty else { return nil }
         guard visibleItems.count != turn.items.count else { return turn }
-        return turn.replacingItems(visibleItems)
+        return turn.replacingRenderableItems(visibleItems)
     }
 
     private static func mergedExplorationTurn(from turns: [TranscriptTurn]) -> TranscriptTurn? {
@@ -209,11 +220,13 @@ struct TranscriptTurn: Identifiable, Equatable {
     }
 
     private static func makePreview(from items: [ConversationItem]) -> Preview {
-        let previewMetrics = collectPreviewMetrics(from: items)
-        let primaryItem = previewMetrics.userItem ?? previewMetrics.finalAnswerItem ?? items.first
+        let previewItems = items.filter { !$0.isVisuallyEmptyNeutralItem }
+        let sourceItems = previewItems.isEmpty ? items : previewItems
+        let previewMetrics = collectPreviewMetrics(from: sourceItems)
+        let primaryItem = previewMetrics.userItem ?? previewMetrics.finalAnswerItem ?? sourceItems.first
         let preferredAssistantItem = previewMetrics.finalAnswerItem ?? previewMetrics.assistantItem
         let secondaryItem = secondaryPreviewItem(
-            in: items,
+            in: sourceItems,
             primaryItem: primaryItem,
             preferredAssistantItem: preferredAssistantItem
         )
