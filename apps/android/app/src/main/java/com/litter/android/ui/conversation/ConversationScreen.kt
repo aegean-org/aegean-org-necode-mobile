@@ -166,23 +166,27 @@ fun ConversationScreen(
         try {
             val resolvedThreadKey = appModel.hydrateThreadPermissions(threadKey) ?: threadKey
             appModel.activateThread(resolvedThreadKey)
-            if (appModel.threadSnapshot(resolvedThreadKey) == null) {
-                val server = appModel.snapshot.value?.servers?.find { it.serverId == resolvedThreadKey.serverId }
+            // Always call externalResumeThread so the server attaches a
+            // streaming listener for this connection.  Rust handles IPC vs
+            // direct routing and skips the RPC when IPC is already live.
+            try {
+                appModel.externalResumeThread(resolvedThreadKey)
+            } catch (_: Exception) {
+                // Fall back to client.resumeThread for servers that need
+                // launch config overrides.
                 val cwdOverride = appModel.threadSnapshot(resolvedThreadKey)?.info?.cwd
-                if (server?.canResumeViaIpc != true) {
-                    appModel.client.resumeThread(
-                        resolvedThreadKey.serverId,
-                        appModel.launchState.threadResumeRequest(
-                            resolvedThreadKey.threadId,
-                            cwdOverride = cwdOverride,
-                            threadKey = resolvedThreadKey,
-                        ),
-                    )
-                    appModel.refreshSnapshot()
-                }
-                if (appModel.threadSnapshot(resolvedThreadKey) == null) {
-                    appModel.ensureThreadLoaded(resolvedThreadKey)
-                }
+                appModel.client.resumeThread(
+                    resolvedThreadKey.serverId,
+                    appModel.launchState.threadResumeRequest(
+                        resolvedThreadKey.threadId,
+                        cwdOverride = cwdOverride,
+                        threadKey = resolvedThreadKey,
+                    ),
+                )
+                appModel.refreshSnapshot()
+            }
+            if (appModel.threadSnapshot(resolvedThreadKey) == null) {
+                appModel.ensureThreadLoaded(resolvedThreadKey)
             }
             appModel.loadConversationMetadataIfNeeded(resolvedThreadKey.serverId)
         } catch (_: Exception) {}

@@ -614,10 +614,11 @@ final class AppLifecycleController {
                 "refreshKeys": Array(keysToRefresh).map(\.debugLabel)
             ]
         )
-        if needsInitialReconnect {
-            await reconnectSavedServers(appModel: appModel)
-            guard !Task.isCancelled else { return }
-        }
+        // Always attempt to reconnect saved servers on foreground return.
+        // reconnectSavedServers skips servers whose health != .disconnected,
+        // so this is cheap when everything is still connected.
+        await reconnectSavedServers(appModel: appModel)
+        guard !Task.isCancelled else { return }
 
         let trustedLiveKeys = Set(keysToRefresh.filter {
             shouldTrustLiveThreadState(for: $0, appModel: appModel, within: 4)

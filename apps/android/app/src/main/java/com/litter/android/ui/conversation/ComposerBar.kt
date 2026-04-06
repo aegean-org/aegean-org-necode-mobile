@@ -143,6 +143,11 @@ fun ComposerBar(
     val transcriptionManager = remember { VoiceTranscriptionManager() }
     val isRecording by transcriptionManager.isRecording.collectAsState()
     val isTranscribing by transcriptionManager.isTranscribing.collectAsState()
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) transcriptionManager.startRecording(context)
+    }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         attachedImage = readAttachmentFromUri(context, uri)
@@ -448,7 +453,7 @@ fun ComposerBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!isRecording && !isTranscribing && !isThinking) {
                 IconButton(
@@ -461,43 +466,6 @@ fun ComposerBar(
                         tint = LitterTheme.textPrimary,
                     )
                 }
-            }
-
-            // Voice transcription button
-            IconButton(
-                onClick = {
-                    if (isRecording) {
-                        scope.launch {
-                            val auth = runCatching {
-                                appModel.client.authStatus(
-                                    threadKey.serverId,
-                                    AuthStatusRequest(
-                                        includeToken = true,
-                                        refreshToken = false,
-                                    ),
-                                )
-                            }.getOrNull()
-                            val transcript = transcriptionManager.stopAndTranscribe(
-                                authMethod = auth?.authMethod,
-                                authToken = auth?.authToken,
-                            )
-                            transcript?.let { text = if (text.isBlank()) it else "$text $it" }
-                        }
-                    } else {
-                        transcriptionManager.startRecording(context)
-                    }
-                },
-                modifier = Modifier.size(36.dp),
-            ) {
-                Icon(
-                    Icons.Default.Mic,
-                    contentDescription = "Voice",
-                    tint = when {
-                        isRecording -> LitterTheme.danger
-                        isTranscribing -> LitterTheme.warning
-                        else -> LitterTheme.textSecondary
-                    },
-                )
             }
 
             // Text field
@@ -669,7 +637,13 @@ fun ComposerBar(
                     else -> {
                         Spacer(Modifier.width(8.dp))
                         IconButton(
-                            onClick = { transcriptionManager.startRecording(context) },
+                            onClick = {
+                                if (transcriptionManager.hasMicPermission(context)) {
+                                    transcriptionManager.startRecording(context)
+                                } else {
+                                    micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                }
+                            },
                             modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
