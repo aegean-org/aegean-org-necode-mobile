@@ -1070,10 +1070,7 @@ private struct ConversationCommandExecutionRow: View {
 
     @State private var expanded: Bool
 
-    init(
-        data: ConversationCommandExecutionData,
-        isPreferredExpanded: Bool
-    ) {
+    init(data: ConversationCommandExecutionData, isPreferredExpanded: Bool) {
         self.data = data
         self.isPreferredExpanded = isPreferredExpanded
         _expanded = State(initialValue: isPreferredExpanded)
@@ -1438,11 +1435,12 @@ private struct ConversationDividerRow: View {
         HStack(spacing: 10) {
             Capsule()
                 .fill(LitterTheme.border)
-                .frame(height: 1)
+                .frame(minWidth: 16, maxHeight: 1)
             dividerContent
+                .layoutPriority(1)
             Capsule()
                 .fill(LitterTheme.border)
-                .frame(height: 1)
+                .frame(minWidth: 16, maxHeight: 1)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)

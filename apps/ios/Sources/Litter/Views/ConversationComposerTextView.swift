@@ -6,8 +6,6 @@ struct ConversationComposerTextView: UIViewRepresentable {
     @Binding var isFocused: Bool
     let onPasteImage: (UIImage) -> Void
 
-    @Environment(\.textScale) private var textScale
-
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -28,7 +26,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.onPasteImage = onPasteImage
         textView.text = text
-        context.coordinator.applyStyling(to: textView, textScale: textScale)
+        context.coordinator.applyStyling(to: textView)
         context.coordinator.updateScrollState(for: textView)
         return textView
     }
@@ -36,7 +34,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
     func updateUIView(_ uiView: PasteAwareComposerUITextView, context: Context) {
         context.coordinator.parent = self
         uiView.onPasteImage = onPasteImage
-        context.coordinator.applyStyling(to: uiView, textScale: textScale)
+        context.coordinator.applyStyling(to: uiView)
 
         if uiView.text != text, uiView.markedTextRange == nil {
             context.coordinator.isSynchronizingText = true
@@ -116,8 +114,8 @@ struct ConversationComposerTextView: UIViewRepresentable {
             DispatchQueue.main.async(execute: work)
         }
 
-        func applyStyling(to textView: UITextView, textScale: CGFloat) {
-            textView.font = composerFont(textScale: textScale)
+        func applyStyling(to textView: UITextView) {
+            textView.font = composerFont()
             textView.textColor = UIColor(LitterTheme.textPrimary)
         }
 
@@ -142,8 +140,8 @@ struct ConversationComposerTextView: UIViewRepresentable {
             return ceil((lineHeight * 5) + textView.textContainerInset.top + textView.textContainerInset.bottom)
         }
 
-        private func composerFont(textScale: CGFloat) -> UIFont {
-            let pointSize = UIFont.preferredFont(forTextStyle: .body).pointSize * textScale
+        private func composerFont() -> UIFont {
+            let pointSize = UIFont.preferredFont(forTextStyle: .body).pointSize
             if LitterFont.storedFamily.isMono {
                 return LitterFont.uiMonoFont(size: pointSize)
             }

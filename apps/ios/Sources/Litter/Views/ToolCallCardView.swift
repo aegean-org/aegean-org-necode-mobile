@@ -2,12 +2,20 @@ import SwiftUI
 
 struct ToolCallCardView: View {
     let model: ToolCallCardModel
+    private let externalExpanded: Bool?
+    private let onExpandedChange: ((Bool) -> Void)?
     @State private var expanded: Bool
     private let contentFontSize = LitterFont.conversationBodyPointSize
 
-    init(model: ToolCallCardModel) {
+    init(
+        model: ToolCallCardModel,
+        externalExpanded: Bool? = nil,
+        onExpandedChange: ((Bool) -> Void)? = nil
+    ) {
         self.model = model
-        _expanded = State(initialValue: model.defaultExpanded)
+        self.externalExpanded = externalExpanded
+        self.onExpandedChange = onExpandedChange
+        _expanded = State(initialValue: externalExpanded ?? model.defaultExpanded)
     }
 
     var body: some View {
@@ -37,18 +45,18 @@ struct ToolCallCardView: View {
                         .accessibilityLabel(durationAccessibilityLabel(duration))
                 }
 
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                Image(systemName: resolvedExpanded ? "chevron.up" : "chevron.down")
                     .litterFont(size: 11, weight: .medium)
                     .foregroundColor(LitterTheme.textMuted)
             }
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    expanded.toggle()
+                    setExpanded(!resolvedExpanded)
                 }
             }
 
-            if expanded {
+            if resolvedExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(identifiedSections) { section in
                         sectionView(section.value)
@@ -61,11 +69,30 @@ struct ToolCallCardView: View {
         .padding(.vertical, 6)
         .onChange(of: model.status) { _, newStatus in
             if newStatus == .failed {
-                expanded = true
+                setExpanded(true)
+            }
+        }
+        .onAppear {
+            if let externalExpanded {
+                expanded = externalExpanded
+            }
+        }
+        .onChange(of: externalExpanded) { _, newValue in
+            if let newValue, newValue != expanded {
+                expanded = newValue
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private func setExpanded(_ nextValue: Bool) {
+        expanded = nextValue
+        if let onExpandedChange {
+            onExpandedChange(nextValue)
+        }
+    }
+
+    private var resolvedExpanded: Bool { expanded }
 
     private var durationStatusColor: Color {
         switch model.status {

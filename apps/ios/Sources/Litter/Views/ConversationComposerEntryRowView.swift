@@ -55,7 +55,7 @@ struct ConversationComposerEntryRowView: View {
                     showAttachMenu = true
                 } label: {
                     Image(systemName: "plus")
-                        .litterFont(.body, weight: .semibold)
+                        .font(LitterFont.styled(size: 17, weight: .semibold))
                         .foregroundColor(LitterTheme.textPrimary)
                         .frame(width: 36, height: 36)
                         .modifier(GlassCircleModifier())
@@ -73,7 +73,7 @@ struct ConversationComposerEntryRowView: View {
 
                     if inputText.isEmpty {
                         Text("Message litter...")
-                            .litterFont(.body)
+                            .font(LitterFont.styled(size: 17))
                             .foregroundColor(LitterTheme.textMuted)
                             .padding(.leading, 16)
                             .padding(.top, 10)
@@ -84,7 +84,7 @@ struct ConversationComposerEntryRowView: View {
                 if canSend {
                     Button(action: onSendText) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .litterFont(.title2)
+                            .font(LitterFont.styled(size: 22))
                             .foregroundColor(LitterTheme.accent)
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
@@ -96,7 +96,7 @@ struct ConversationComposerEntryRowView: View {
 
                     Button(action: onStopRecording) {
                         Image(systemName: "stop.circle.fill")
-                            .litterFont(.title2)
+                            .font(LitterFont.styled(size: 22))
                             .foregroundColor(LitterTheme.accentStrong)
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())
@@ -109,7 +109,7 @@ struct ConversationComposerEntryRowView: View {
                 } else {
                     Button(action: onStartRecording) {
                         Image(systemName: "mic.fill")
-                            .litterFont(.subheadline)
+                            .font(LitterFont.styled(size: 15))
                             .foregroundColor(LitterTheme.textSecondary)
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())
@@ -123,7 +123,7 @@ struct ConversationComposerEntryRowView: View {
             if isTurnActive {
                 Button(action: onInterrupt) {
                     Text("Cancel")
-                        .litterFont(.subheadline, weight: .medium)
+                        .font(LitterFont.styled(size: 15, weight: .medium))
                         .foregroundColor(LitterTheme.textPrimary)
                         .padding(.horizontal, 14)
                         .frame(height: 36)

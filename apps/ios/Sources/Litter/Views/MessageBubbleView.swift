@@ -312,7 +312,7 @@ struct StreamingAssistantBubble: View {
     @State private var flushWorkItem: DispatchWorkItem?
     @State private var animating = false
 
-    private let flushInterval: TimeInterval = 1.0
+    private let flushInterval: TimeInterval = 0.1
 
     var body: some View {
         AssistantBlocksBubble(
