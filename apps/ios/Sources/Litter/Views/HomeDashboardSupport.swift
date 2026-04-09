@@ -13,7 +13,7 @@ struct HomeDashboardRecentSession: Identifiable, Hashable {
     var id: ThreadKey { key }
 }
 
-struct HomeDashboardServer: Identifiable {
+struct HomeDashboardServer: Identifiable, Equatable {
     let id: String
     let displayName: String
     let host: String
@@ -37,6 +37,18 @@ struct HomeDashboardServer: Identifiable {
             .lowercased()
 
         return normalized.isEmpty ? id : normalized
+    }
+
+    static func == (lhs: HomeDashboardServer, rhs: HomeDashboardServer) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.displayName == rhs.displayName &&
+            lhs.host == rhs.host &&
+            lhs.port == rhs.port &&
+            lhs.isLocal == rhs.isLocal &&
+            lhs.hasIpc == rhs.hasIpc &&
+            lhs.health == rhs.health &&
+            lhs.sourceLabel == rhs.sourceLabel &&
+            lhs.statusLabel == rhs.statusLabel
     }
 }
 

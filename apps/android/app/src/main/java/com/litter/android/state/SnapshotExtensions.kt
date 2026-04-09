@@ -130,16 +130,16 @@ val AppThreadSnapshot.resolvedModel: String
     get() = model ?: info.model ?: ""
 
 val AppThreadSnapshot.displayTitle: String
-    get() = info.title?.takeIf { it.isNotBlank() }
-        ?: info.preview?.takeIf { it.isNotBlank() }
+    get() = info.preview?.takeIf { it.isNotBlank() }
+        ?: info.title?.takeIf { it.isNotBlank() }
         ?: "Untitled session"
 
 val AppThreadSnapshot.resolvedPreview: String
     get() = displayTitle
 
 val AppSessionSummary.displayTitle: String
-    get() = title?.takeIf { it.isNotBlank() }
-        ?: preview?.takeIf { it.isNotBlank() }
+    get() = preview?.takeIf { it.isNotBlank() }
+        ?: title?.takeIf { it.isNotBlank() }
         ?: "Untitled session"
 
 val AppThreadSnapshot.contextPercent: Int

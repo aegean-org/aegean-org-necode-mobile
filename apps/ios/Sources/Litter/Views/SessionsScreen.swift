@@ -305,7 +305,7 @@ struct SessionsScreen: View {
     }
 
     private var activeThreadKey: ThreadKey? {
-        appModel.snapshot?.activeThread
+        sessionsModel.activeThreadKey
     }
 
     private func scheduleSessionSearchDebounce(for nextQuery: String) {
@@ -1117,12 +1117,12 @@ struct SessionsScreen: View {
             RecentDirectoryStore.shared.record(path: cwd, for: serverId)
             appModel.store.setActiveThread(key: startedKey)
             await appModel.refreshSnapshot()
-            guard let resolvedKey = await appModel.ensureThreadLoaded(key: startedKey)
-                ?? appModel.snapshot?.threadSnapshot(for: startedKey)?.key else {
-                sessionActionErrorMessage = appModel.lastError ?? "Failed to load the new session."
-                return
-            }
 
+            // startThread already created the thread and applied it to the store;
+            // prefer the snapshot key if available, otherwise use the returned key
+            // directly instead of calling ensureThreadLoaded (which does expensive
+            // retry loops with thread/read + thread/list RPCs).
+            let resolvedKey = appModel.snapshot?.threadSnapshot(for: startedKey)?.key ?? startedKey
             onOpenConversation(resolvedKey)
         } catch {
             sessionActionErrorMessage = error.localizedDescription
