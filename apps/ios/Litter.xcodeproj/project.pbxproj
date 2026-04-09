@@ -122,7 +122,6 @@
 		78E6867AD363C6B010CBEC2D /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB7D40730BFA8569737636E /* ThemeManager.swift */; };
 		79979BB2F64E9429CB78709D /* CodexTurnAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D887FC87082710CC7B75CC8A /* CodexTurnAttributes.swift */; };
 		7BA96C90618F24C786EB6DCB /* matrix-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = C2E4F2B7A122218E7C4816EF /* matrix-dark.json */; };
-		7C5976CCE6B23D8E6A8FDB90 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA3937208B56CDD6E4E7406 /* NetworkMonitor.swift */; };
 		7DE5819DC695EDC07801E1F4 /* AppRpcParams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1251509F0DDD4F5D494C9956 /* AppRpcParams.swift */; };
 		7E7B4AC85F18366192E98E8B /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CFDCB6C4655E3D2D76B41B /* AppState.swift */; };
 		7F7580E318B61556359A4EC1 /* LitterUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46D841AF0FFB0241834F88D0 /* LitterUITests.swift */; };
@@ -234,6 +233,7 @@
 		EBFE2F25D8DE79EEC06C7870 /* absolutely-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 779157C60F55F38A05F3CD1A /* absolutely-dark.json */; };
 		EC00B0B315DCFD1F2F1A03DE /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E108E5ACB93F4A71B484C125 /* AppModel.swift */; };
 		ECD39F196866971BFDF7E17D /* PerformanceHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE04FF38C9E336A47C7E161B /* PerformanceHelpersTests.swift */; };
+		ED8248FA4A992BB74730B147 /* SwiftSshCredentialProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDFBE3FA67F80834EAF1E3B /* SwiftSshCredentialProvider.swift */; };
 		EE7E51A2959425EDDC18DA39 /* IosSystemBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 384DA3FC92BDB0A50761B7FD /* IosSystemBridge.m */; };
 		EEEBA55C8002EECC829EB3E7 /* github-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 760BBA087DD7F86B27829E23 /* github-light.json */; };
 		EF8743F1629EB0DCA20AE787 /* text.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = CECEF29277C1DB1AD1EF304D /* text.xcframework */; };
@@ -390,6 +390,7 @@
 		4BE09ED706DAF8A825305F8E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		4CAFD307068C8BB4C5662367 /* RecentDirectoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDirectoryStore.swift; sourceTree = "<group>"; };
 		4E2BBC2265A3D566D0069278 /* curl_ios.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = curl_ios.xcframework; path = Frameworks/ios_system/curl_ios.xcframework; sourceTree = "<group>"; };
+		4EDFBE3FA67F80834EAF1E3B /* SwiftSshCredentialProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftSshCredentialProvider.swift; sourceTree = "<group>"; };
 		50CFDCB6C4655E3D2D76B41B /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		50F540072B0F416010BC2DFF /* catppuccin-latte-Bd1wq-gC.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "catppuccin-latte-Bd1wq-gC.json"; sourceTree = "<group>"; };
 		51C3C78C013D314F7F09AB6F /* oscurange-C.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "oscurange-C.json"; sourceTree = "<group>"; };
@@ -519,7 +520,6 @@
 		CB972757270C09470E490121 /* EndVoiceSessionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndVoiceSessionIntent.swift; sourceTree = "<group>"; };
 		CC23186BC2EA0520D9532ED3 /* AppThreadSnapshot+Runtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppThreadSnapshot+Runtime.swift"; sourceTree = "<group>"; };
 		CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWarmupCoordinator.swift; sourceTree = "<group>"; };
-		CEA3937208B56CDD6E4E7406 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		CECEF29277C1DB1AD1EF304D /* text.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = text.xcframework; path = Frameworks/ios_system/text.xcframework; sourceTree = "<group>"; };
 		CFF9DBA865CCBB3308B5667D /* light-plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "light-plus.json"; sourceTree = "<group>"; };
 		D0D72714D0B3E9209EF907B3 /* ConversationComposerContextBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationComposerContextBarView.swift; sourceTree = "<group>"; };
@@ -655,6 +655,7 @@
 				384DA3FC92BDB0A50761B7FD /* IosSystemBridge.m */,
 				EAC0DA287A546D443E4A5655 /* MessageContentBridge.swift */,
 				53996233F376F3B9C0387F37 /* RustVoiceHandoff.swift */,
+				4EDFBE3FA67F80834EAF1E3B /* SwiftSshCredentialProvider.swift */,
 				B9E99E2C5AC63F243A2FB746 /* UniFFICodexClient.generated.swift */,
 			);
 			name = Bridge;
@@ -867,7 +868,6 @@
 				F05E1F150502D4C5682EBBFD /* LitterPalette.swift */,
 				7DD7A3A61A3B02E7E5BF0FBD /* LLog.swift */,
 				E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */,
-				CEA3937208B56CDD6E4E7406 /* NetworkMonitor.swift */,
 				3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */,
 				17B9830779CEF4EA2F95D85E /* PushProxyClient.swift */,
 				4CAFD307068C8BB4C5662367 /* RecentDirectoryStore.swift */,
@@ -1304,7 +1304,6 @@
 				0F0C608E59628780225BF4EB /* MessageContentBridge.swift in Sources */,
 				1AF5B0CFD0F28F0A7E787A04 /* MessageRenderCache.swift in Sources */,
 				FF4D813592AD383AD342CFFB /* NetworkDiscovery.swift in Sources */,
-				7C5976CCE6B23D8E6A8FDB90 /* NetworkMonitor.swift in Sources */,
 				123438277614AD5D2F7CDBC4 /* OpenAIApiKeyStore.swift in Sources */,
 				24B302B9C08601CF5EBAC0E4 /* PreviewSupport.swift in Sources */,
 				EAD20D467654A309CA42FEFA /* PushProxyClient.swift in Sources */,
@@ -1324,6 +1323,7 @@
 				25A6AE0E882A1230E8113D76 /* StableSafeAreaInsets.swift in Sources */,
 				BDA5AF84E534EAF389A33C0E /* StreamingAssistantRenderCache.swift in Sources */,
 				CC1FE069BC90DDF2A8DFB783 /* SubagentCardView.swift in Sources */,
+				ED8248FA4A992BB74730B147 /* SwiftSshCredentialProvider.swift in Sources */,
 				43085FEE6339B734DE71C448 /* ThemeDefinition.swift in Sources */,
 				78E6867AD363C6B010CBEC2D /* ThemeManager.swift in Sources */,
 				E7DA37A53E778319C67981B7 /* TipJarStore.swift in Sources */,
@@ -1540,7 +1540,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lcodex_mobile_client";
@@ -1635,7 +1635,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
