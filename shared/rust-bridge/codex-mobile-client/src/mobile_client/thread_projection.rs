@@ -1255,9 +1255,7 @@ pub(super) fn queue_ipc_thread_stream_recovery(
     recovery_tx: &mpsc::UnboundedSender<PendingIpcStreamRecovery>,
 ) {
     let thread_id = params.conversation_id.clone();
-    let queue = pending_thread_events
-        .entry(thread_id.clone())
-        .or_default();
+    let queue = pending_thread_events.entry(thread_id.clone()).or_default();
     queue.push_back(params);
     let queued_events = queue.len();
 

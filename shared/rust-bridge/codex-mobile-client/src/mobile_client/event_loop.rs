@@ -187,7 +187,8 @@ impl MobileClient {
                 MobileClient::spawn_detached(async move {
                     let mut stale_turn_interval =
                         tokio::time::interval(IPC_STALE_TURN_CHECK_INTERVAL);
-                    stale_turn_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    stale_turn_interval
+                        .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                     // Skip the first immediate tick.
                     stale_turn_interval.tick().await;
                     loop {
@@ -665,10 +666,9 @@ fn process_ipc_stream_processor_message(
             }
         },
         IpcStreamProcessorMessage::StaleTurnCheck => {
-            let events = state.bridge.check_stale_turns(
-                Instant::now(),
-                IPC_STALE_TURN_QUIET_THRESHOLD,
-            );
+            let events = state
+                .bridge
+                .check_stale_turns(Instant::now(), IPC_STALE_TURN_QUIET_THRESHOLD);
             for event in events {
                 apply_bridge_event(&app_store, server_id, event);
             }
@@ -694,12 +694,12 @@ fn handle_bridge_output(
             }
             // Sync pending approvals/user inputs from bridge projection
             if let Some(proj) = bridge.projected_state(thread_id) {
-                sync_ipc_thread_requests_from_projection(
-                    app_store, server_id, thread_id, proj,
-                );
+                sync_ipc_thread_requests_from_projection(app_store, server_id, thread_id, proj);
             }
         }
-        BridgeOutput::FullReplace { thread_id: replace_thread_id } => {
+        BridgeOutput::FullReplace {
+            thread_id: replace_thread_id,
+        } => {
             // Bridge has authoritative state but can't diff granularly
             // (e.g., synthesized turn IDs resolved to real server IDs).
             // Build a full thread snapshot from the bridge's cached raw state
@@ -722,7 +722,10 @@ fn handle_bridge_output(
                         }
                         app_store.upsert_thread_snapshot(snapshot);
                         sync_ipc_thread_requests_from_projection(
-                            app_store, server_id, &replace_thread_id, proj,
+                            app_store,
+                            server_id,
+                            &replace_thread_id,
+                            proj,
                         );
                     }
                     Err(e) => {
@@ -749,7 +752,9 @@ fn handle_bridge_output(
                 }
             }
         }
-        BridgeOutput::NeedsRefresh { thread_id: refresh_thread_id } => {
+        BridgeOutput::NeedsRefresh {
+            thread_id: refresh_thread_id,
+        } => {
             queue_ipc_thread_stream_recovery(
                 pending_thread_events,
                 recovering_threads,

@@ -196,9 +196,7 @@ fn start_remote_reconnecting_ipc_client(
                     let previous_pid = match bridge_pid_slot.lock() {
                         Ok(mut guard) => guard.take(),
                         Err(error) => {
-                            warn!(
-                                "MobileClient: recovering poisoned {lane} ipc bridge pid lock"
-                            );
+                            warn!("MobileClient: recovering poisoned {lane} ipc bridge pid lock");
                             error.into_inner().take()
                         }
                     };
@@ -233,10 +231,7 @@ fn start_remote_reconnecting_ipc_client(
     ))
 }
 
-async fn run_ipc_command<T, F, Fut>(
-    session: &ServerSession,
-    op: F,
-) -> Result<Option<T>, IpcError>
+async fn run_ipc_command<T, F, Fut>(session: &ServerSession, op: F) -> Result<Option<T>, IpcError>
 where
     F: FnOnce(IpcClient) -> Fut,
     Fut: Future<Output = Result<T, IpcError>>,
@@ -1042,30 +1037,65 @@ impl MobileClient {
         // conversation listener for this connection.  Without the listener
         // the WebSocket client only receives ThreadStatusChanged — no
         // TurnStarted, ItemStarted, MessageDelta, or TurnCompleted events.
-        let response: upstream::ThreadResumeResponse = self
-            .request_typed_for_server(
-                server_id,
-                upstream::ClientRequest::ThreadResume {
-                    request_id: upstream::RequestId::Integer(crate::next_request_id()),
-                    params: upstream::ThreadResumeParams {
-                        thread_id: thread_id.to_string(),
-                        ..Default::default()
-                    },
-                },
-            )
+        let resume_request = upstream::ClientRequest::ThreadResume {
+            request_id: upstream::RequestId::Integer(crate::next_request_id()),
+            params: upstream::ThreadResumeParams {
+                thread_id: thread_id.to_string(),
+                ..Default::default()
+            },
+        };
+        match self
+            .request_typed_for_server::<upstream::ThreadResumeResponse>(server_id, resume_request)
             .await
-            .map_err(|error| RpcError::Deserialization(error))?;
-        let snapshot = thread_snapshot_from_upstream_thread_with_overrides(
-            server_id,
-            response.thread,
-            Some(response.model),
-            Some(response.model_provider),
-            Some(response.approval_policy.into()),
-            Some(response.sandbox.into()),
-        )
-        .map_err(|e| RpcError::Deserialization(e))?;
-        self.app_store.upsert_thread_snapshot(snapshot);
-        Ok(())
+        {
+            Ok(response) => {
+                let snapshot = thread_snapshot_from_upstream_thread_with_overrides(
+                    server_id,
+                    response.thread,
+                    Some(response.model),
+                    response
+                        .reasoning_effort
+                        .map(Into::into)
+                        .map(reasoning_effort_string),
+                    Some(response.approval_policy.into()),
+                    Some(response.sandbox.into()),
+                )
+                .map_err(RpcError::Deserialization)?;
+                self.app_store.upsert_thread_snapshot(snapshot);
+                Ok(())
+            }
+            Err(error) if error.contains("no rollout found for thread id") => {
+                info!(
+                    "external_resume_thread: falling back to thread/read for pathless thread server={} thread={}",
+                    server_id, thread_id
+                );
+                let response: upstream::ThreadReadResponse = self
+                    .request_typed_for_server(
+                        server_id,
+                        upstream::ClientRequest::ThreadRead {
+                            request_id: upstream::RequestId::Integer(crate::next_request_id()),
+                            params: upstream::ThreadReadParams {
+                                thread_id: thread_id.to_string(),
+                                include_turns: false,
+                            },
+                        },
+                    )
+                    .await
+                    .map_err(RpcError::Deserialization)?;
+                let snapshot = thread_snapshot_from_upstream_thread_with_overrides(
+                    server_id,
+                    response.thread,
+                    None,
+                    None,
+                    response.approval_policy.map(Into::into),
+                    response.sandbox.map(Into::into),
+                )
+                .map_err(RpcError::Deserialization)?;
+                self.app_store.upsert_thread_snapshot(snapshot);
+                Ok(())
+            }
+            Err(error) => Err(RpcError::Deserialization(error)),
+        }
     }
 
     pub async fn start_turn(
@@ -1111,10 +1141,8 @@ impl MobileClient {
                 queued_follow_up_draft_from_inputs(&params.input, AppQueuedFollowUpKind::Message)
             })
             .flatten();
-        let queued_follow_up_command_id = queued_draft
-            .as_ref()
-            .filter(|_| has_live_ipc)
-            .map(|_| {
+        let queued_follow_up_command_id =
+            queued_draft.as_ref().filter(|_| has_live_ipc).map(|_| {
                 self.app_store.begin_server_mutating_command(
                     server_id,
                     ServerMutatingCommandKind::SetQueuedFollowUpsState,
@@ -1142,12 +1170,12 @@ impl MobileClient {
                 let ipc_result = run_ipc_command(&session, move |ipc_client| async move {
                     ipc_client
                         .set_queued_follow_ups_state(
-                        codex_ipc::ThreadFollowerSetQueuedFollowUpsStateParams {
-                            conversation_id: ipc_thread_id,
-                            state: ipc_state,
-                        },
-                    )
-                    .await
+                            codex_ipc::ThreadFollowerSetQueuedFollowUpsStateParams {
+                                conversation_id: ipc_thread_id,
+                                state: ipc_state,
+                            },
+                        )
+                        .await
                 })
                 .await;
                 match ipc_result {
@@ -1214,10 +1242,10 @@ impl MobileClient {
             let ipc_result = run_ipc_command(&session, move |ipc_client| async move {
                 ipc_client
                     .start_turn(ThreadFollowerStartTurnParams {
-                    conversation_id: ipc_thread_id,
-                    turn_start_params: ipc_params,
-                })
-                .await
+                        conversation_id: ipc_thread_id,
+                        turn_start_params: ipc_params,
+                    })
+                    .await
             })
             .await;
             match ipc_result {
@@ -1386,12 +1414,12 @@ impl MobileClient {
             match run_ipc_command(&session, move |ipc_client| async move {
                 ipc_client
                     .set_queued_follow_ups_state(
-                    codex_ipc::ThreadFollowerSetQueuedFollowUpsStateParams {
-                        conversation_id: key.thread_id.clone(),
-                        state: ipc_state,
-                    },
-                )
-                .await
+                        codex_ipc::ThreadFollowerSetQueuedFollowUpsStateParams {
+                            conversation_id: key.thread_id.clone(),
+                            state: ipc_state,
+                        },
+                    )
+                    .await
             })
             .await
             {
@@ -1496,12 +1524,12 @@ impl MobileClient {
             match run_ipc_command(&session, move |ipc_client| async move {
                 ipc_client
                     .set_queued_follow_ups_state(
-                    codex_ipc::ThreadFollowerSetQueuedFollowUpsStateParams {
-                        conversation_id: key.thread_id.clone(),
-                        state: ipc_state,
-                    },
-                )
-                .await
+                        codex_ipc::ThreadFollowerSetQueuedFollowUpsStateParams {
+                            conversation_id: key.thread_id.clone(),
+                            state: ipc_state,
+                        },
+                    )
+                    .await
             })
             .await
             {
@@ -1873,11 +1901,8 @@ impl MobileClient {
         let response_json = serde_json::to_value(response).map_err(|e| {
             RpcError::Deserialization(format!("serialize user input response: {e}"))
         })?;
-        let response_request_id =
-            server_request_id_json(fallback_server_request_id(&request.id));
-        session
-            .respond(response_request_id, response_json)
-            .await?;
+        let response_request_id = server_request_id_json(fallback_server_request_id(&request.id));
+        session.respond(response_request_id, response_json).await?;
         self.app_store.finish_server_mutating_command_success(
             &request.server_id,
             &direct_command_id,
@@ -1992,10 +2017,10 @@ impl MobileClient {
         let ipc_result = run_ipc_command(&session, move |ipc_client| async move {
             ipc_client
                 .set_collaboration_mode(ThreadFollowerSetCollaborationModeParams {
-                conversation_id: key.thread_id.clone(),
-                collaboration_mode,
-            })
-            .await
+                    conversation_id: key.thread_id.clone(),
+                    collaboration_mode,
+                })
+                .await
         })
         .await;
         match ipc_result {
