@@ -939,7 +939,6 @@ printf '%s/codex-ipc/ipc-%s.sock' "$tmp" "$uid""#;
                                 bin = cmd_quote(codex_binary.path()),
                                 sub_args = match codex_binary {
                                     RemoteCodexBinary::Codex(_) => "app-server ",
-                                    RemoteCodexBinary::AppServer(_) => "",
                                 },
                                 listen_addr = listen_addr,
                             );
