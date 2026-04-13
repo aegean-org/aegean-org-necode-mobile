@@ -332,8 +332,8 @@ if [[ -n "$build_id" && "$AUTO_ASSIGN_ENCRYPTION_DECLARATION" == "1" ]]; then
         if [[ -n "$declaration_id" ]]; then
             echo "==> Assigning build $build_id to encryption declaration $declaration_id"
             asc encryption declarations assign-builds \
-                --id "$declaration_id" \
-                --build "$build_id" \
+                --declaration-id "$declaration_id" \
+                --build-id "$build_id" \
                 --output json >/dev/null || true
         fi
     fi
@@ -342,7 +342,7 @@ fi
 if [[ -n "$build_id" && -n "$WHAT_TO_TEST" ]]; then
     echo "==> Ensuring What to Test notes are set for $WHAT_TO_TEST_LOCALE"
     notes_id="$(
-        asc builds test-notes list --build "$build_id" --output json |
+        asc builds test-notes list --build-id "$build_id" --output json |
             jq -r --arg locale "$WHAT_TO_TEST_LOCALE" \
                 '.data[] | select((.attributes.locale // .attributes.localeCode // "") == $locale) | .id' |
             head -n 1
@@ -350,12 +350,12 @@ if [[ -n "$build_id" && -n "$WHAT_TO_TEST" ]]; then
 
     if [[ -n "$notes_id" ]]; then
         asc builds test-notes update \
-            --id "$notes_id" \
+            --note-id "$notes_id" \
             --whats-new "$WHAT_TO_TEST" \
             --output json >/dev/null
     else
         asc builds test-notes create \
-            --build "$build_id" \
+            --build-id "$build_id" \
             --locale "$WHAT_TO_TEST_LOCALE" \
             --whats-new "$WHAT_TO_TEST" \
             --output json >/dev/null
@@ -408,7 +408,7 @@ if [[ "$ASSIGN_BETA_GROUP" == "1" && -n "$build_id" ]]; then
         deadline="$(( $(date +%s) + BUILD_POLL_TIMEOUT_SECONDS ))"
         assigned=0
         while [[ "$(date +%s)" -lt "$deadline" ]]; do
-            if asc builds add-groups --build "$build_id" --group "$group_csv" --output json >/dev/null 2>&1; then
+            if asc builds add-groups --build-id "$build_id" --group "$group_csv" --output json >/dev/null 2>&1; then
                 assigned=1
                 break
             fi
@@ -421,14 +421,14 @@ if [[ "$ASSIGN_BETA_GROUP" == "1" && -n "$build_id" ]]; then
 
         if [[ "$SUBMIT_BETA_REVIEW" == "1" && "$external_group_requested" -eq 1 ]]; then
             echo "==> Submitting build $build_id for Beta App Review"
-            asc testflight review submit --build "$build_id" --confirm --output json >/dev/null
+            asc testflight review submit --build-id "$build_id" --confirm --output json >/dev/null
         fi
     fi
 fi
 
 if [[ -n "$build_id" ]]; then
     echo "==> Validating TestFlight readiness"
-    asc validate testflight --app "$APP_STORE_APP_ID" --build "$build_id" --strict --output json >/dev/null
+    asc validate testflight --app "$APP_STORE_APP_ID" --build-id "$build_id" --strict --output json >/dev/null
 fi
 
 if [[ "$PROJECT_VERSION_BUMP_REQUIRED" == "1" ]]; then
