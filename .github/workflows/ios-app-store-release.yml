@@ -47,11 +47,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install jq asc
-          # asc >= 1.2.0 required for `builds test-notes` subcommand
-          if ! asc builds test-notes --help >/dev/null 2>&1; then
-            brew upgrade asc
-          fi
+          brew install jq
+          HOMEBREW_NO_AUTO_UPDATE=0 brew install asc
 
       - name: Decode App Store Connect API key
         env:
