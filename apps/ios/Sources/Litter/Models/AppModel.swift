@@ -5,13 +5,6 @@ import UIKit
 @MainActor
 @Observable
 final class AppModel {
-    private struct PendingStreamingDeltaEvent: Sendable {
-        let key: ThreadKey
-        let itemId: String
-        let kind: ThreadStreamingDeltaKind
-        var text: String
-    }
-
     private struct PendingThreadStateEvent: Sendable {
         let state: AppThreadStateRecord
         let sessionSummary: AppSessionSummary
@@ -22,12 +15,8 @@ final class AppModel {
         let key: ThreadKey
         let itemId: String
         var upsertItem: HydratedConversationItem?
-        var commandOutputText: String = ""
     }
 
-    // Coalescing windows: delta < mutation < state.
-    // Cheaper updates flush faster; expensive state changes coalesce longer.
-    private static let streamingDeltaCoalescingNanoseconds: UInt64 = 50_000_000   // ~20fps text
     private static let liveItemMutationCoalescingNanoseconds: UInt64 = 120_000_000 // ~8fps commands
     private static let liveThreadStateCoalescingNanoseconds: UInt64 = 150_000_000  // ~6fps metadata
 
@@ -98,8 +87,6 @@ final class AppModel {
     @ObservationIgnored private var pendingActiveThreadHydrationKey: ThreadKey?
     @ObservationIgnored private var pendingActiveThreadHydrationTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSnapshotRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var pendingStreamingDeltaEvents: [PendingStreamingDeltaEvent] = []
-    @ObservationIgnored private var pendingStreamingDeltaTask: Task<Void, Never>?
     @ObservationIgnored private var pendingThreadStateEvents: [ThreadKey: PendingThreadStateEvent] = [:]
     @ObservationIgnored private var pendingThreadStateTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCommandRowMutations: [String: PendingCommandRowMutation] = [:]
@@ -128,7 +115,6 @@ final class AppModel {
         pendingThreadRefreshTask?.cancel()
         pendingActiveThreadHydrationTask?.cancel()
         pendingSnapshotRefreshTask?.cancel()
-        pendingStreamingDeltaTask?.cancel()
         pendingThreadStateTask?.cancel()
         pendingCommandRowMutationTask?.cancel()
     }
@@ -164,9 +150,6 @@ final class AppModel {
         pendingActiveThreadHydrationKey = nil
         pendingSnapshotRefreshTask?.cancel()
         pendingSnapshotRefreshTask = nil
-        pendingStreamingDeltaTask?.cancel()
-        pendingStreamingDeltaTask = nil
-        pendingStreamingDeltaEvents.removeAll()
         pendingThreadStateTask?.cancel()
         pendingThreadStateTask = nil
         pendingThreadStateEvents.removeAll()
@@ -455,19 +438,10 @@ final class AppModel {
                 scheduleThreadSnapshotRefresh(for: key)
             }
         case .threadStreamingDelta(let key, let itemId, let kind, let text):
-            if pendingStreamingDeltaEvents.isEmpty {
-                LLog.debug("streaming", "first delta enqueue", fields: [
-                    "threadId": key.threadId,
-                    "itemId": itemId,
-                    "kind": String(describing: kind),
-                    "textLen": text.count,
-                    "isActiveThread": snapshot?.activeThread == key
-                ])
-            }
-            if kind == .commandOutput, shouldBatchLiveCommandMutation(for: key) {
-                enqueueThreadCommandOutputDelta(key: key, itemId: itemId, text: text)
+            if kind == .assistantText {
+                StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
             } else {
-                enqueueThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text)
+                scheduleThreadSnapshotRefresh(for: key)
             }
         case .threadRemoved(let key, let agentDirectoryVersion):
             removeThreadSnapshot(for: key, agentDirectoryVersion: agentDirectoryVersion)
@@ -632,20 +606,6 @@ final class AppModel {
         schedulePendingCommandRowMutationsFlush()
     }
 
-    private func enqueueThreadCommandOutputDelta(
-        key: ThreadKey,
-        itemId: String,
-        text: String
-    ) {
-        guard !text.isEmpty else { return }
-        let mutationKey = commandRowMutationKey(key: key, itemId: itemId)
-        var mutation = pendingCommandRowMutations[mutationKey]
-            ?? PendingCommandRowMutation(key: key, itemId: itemId)
-        mutation.commandOutputText += text
-        pendingCommandRowMutations[mutationKey] = mutation
-        schedulePendingCommandRowMutationsFlush()
-    }
-
     private func schedulePendingCommandRowMutationsFlush() {
         guard pendingCommandRowMutationTask == nil else { return }
         pendingCommandRowMutationTask = Task { [weak self] in
@@ -678,116 +638,6 @@ final class AppModel {
         for key in refreshKeys {
             await refreshThreadSnapshot(key: key)
         }
-    }
-
-    private func enqueueThreadStreamingDelta(
-        key: ThreadKey,
-        itemId: String,
-        kind: ThreadStreamingDeltaKind,
-        text: String
-    ) {
-        guard !text.isEmpty else { return }
-
-        if let lastIndex = pendingStreamingDeltaEvents.indices.last,
-           pendingStreamingDeltaEvents[lastIndex].key == key,
-           pendingStreamingDeltaEvents[lastIndex].itemId == itemId,
-           pendingStreamingDeltaEvents[lastIndex].kind == kind {
-            pendingStreamingDeltaEvents[lastIndex].text += text
-        } else {
-            pendingStreamingDeltaEvents.append(
-                PendingStreamingDeltaEvent(
-                    key: key,
-                    itemId: itemId,
-                    kind: kind,
-                    text: text
-                )
-            )
-        }
-
-        guard pendingStreamingDeltaTask == nil else { return }
-        pendingStreamingDeltaTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.streamingDeltaCoalescingNanoseconds)
-            guard let self else { return }
-            await self.flushPendingStreamingDeltas()
-        }
-    }
-
-    private func flushPendingStreamingDeltas() async {
-        let events = pendingStreamingDeltaEvents
-        pendingStreamingDeltaEvents.removeAll()
-        pendingStreamingDeltaTask = nil
-        guard !events.isEmpty else { return }
-
-        LLog.debug("streaming", "flush \(events.count) deltas", fields: [
-            "itemIds": events.map(\.itemId).joined(separator: ","),
-            "totalTextLen": events.reduce(0) { $0 + $1.text.count }
-        ])
-
-        let refreshKeys = applyStreamingDeltaBatch(events)
-        if !refreshKeys.isEmpty {
-            LLog.debug("streaming", "delta batch triggered refresh for \(refreshKeys.count) keys")
-        }
-        for key in refreshKeys {
-            await refreshThreadSnapshot(key: key)
-        }
-    }
-
-    private func applyStreamingDeltaBatch(
-        _ events: [PendingStreamingDeltaEvent]
-    ) -> Set<ThreadKey> {
-        guard var snapshot else {
-            return Set(events.map(\.key))
-        }
-
-        var mutated = false
-        var refreshKeys: Set<ThreadKey> = []
-        var touchedThreadIndexes: Set<Int> = []
-
-        for event in events {
-            guard let threadIndex = snapshot.threads.firstIndex(where: { $0.key == event.key }) else {
-                LLog.debug("streaming", "delta: thread not found", fields: ["threadId": event.key.threadId])
-                refreshKeys.insert(event.key)
-                continue
-            }
-            guard let itemIndex = snapshot.threads[threadIndex].hydratedConversationItems.firstIndex(where: { $0.id == event.itemId }) else {
-                LLog.debug("streaming", "delta: item not found", fields: [
-                    "threadId": event.key.threadId,
-                    "itemId": event.itemId,
-                    "itemCount": snapshot.threads[threadIndex].hydratedConversationItems.count
-                ])
-                refreshKeys.insert(event.key)
-                continue
-            }
-
-            var item = snapshot.threads[threadIndex].hydratedConversationItems[itemIndex]
-            guard let updatedContent = Self.applyingStreamingDelta(
-                kind: event.kind,
-                text: event.text,
-                to: item.content
-            ) else {
-                LLog.debug("streaming", "delta: content mismatch", fields: [
-                    "itemId": event.itemId,
-                    "kind": String(describing: event.kind)
-                ])
-                refreshKeys.insert(event.key)
-                continue
-            }
-
-            item.content = updatedContent
-            snapshot.threads[threadIndex].hydratedConversationItems[itemIndex] = item
-            mutated = true
-            touchedThreadIndexes.insert(threadIndex)
-        }
-
-        if mutated {
-            self.snapshot = snapshot
-            for threadIndex in touchedThreadIndexes {
-                cacheThreadSnapshot(snapshot.threads[threadIndex])
-            }
-            lastError = nil
-        }
-
-        return refreshKeys
     }
 
     private func applyCommandRowMutationBatch(
@@ -972,47 +822,20 @@ final class AppModel {
                 continue
             }
 
+            guard let item = mutation.upsertItem else { continue }
             var thread = snapshot.threads[threadIndex]
 
-            if let item = mutation.upsertItem {
-                if let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == item.id }) {
-                    if thread.hydratedConversationItems[itemIndex] != item {
-                        thread.hydratedConversationItems[itemIndex] = item
-                        mutated = true
-                    }
-                } else {
-                    let insertionIndex = Self.insertionIndex(for: item, in: thread.hydratedConversationItems)
-                    thread.hydratedConversationItems.insert(item, at: insertionIndex)
-                    mutated = true
-                }
-            }
-
-            guard let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == mutation.itemId }) else {
-                refreshKeys.insert(mutation.key)
-                continue
-            }
-
-            var item = thread.hydratedConversationItems[itemIndex]
-
-            if !mutation.commandOutputText.isEmpty {
-                guard let updatedContent = Self.applyingStreamingDelta(
-                    kind: .commandOutput,
-                    text: mutation.commandOutputText,
-                    to: item.content
-                ) else {
-                    refreshKeys.insert(mutation.key)
-                    continue
-                }
-                item.content = updatedContent
-            }
-
-            if thread.hydratedConversationItems[itemIndex] != item {
+            if let itemIndex = thread.hydratedConversationItems.firstIndex(where: { $0.id == item.id }) {
+                guard thread.hydratedConversationItems[itemIndex] != item else { continue }
                 thread.hydratedConversationItems[itemIndex] = item
-                mutated = true
+            } else {
+                let insertionIndex = Self.insertionIndex(for: item, in: thread.hydratedConversationItems)
+                thread.hydratedConversationItems.insert(item, at: insertionIndex)
             }
 
             snapshot.threads[threadIndex] = thread
             touchedThreadIndexes.insert(threadIndex)
+            mutated = true
         }
 
         return refreshKeys
@@ -1241,38 +1064,6 @@ final class AppModel {
         guard var snapshot else { return }
         snapshot.activeThread = key
         self.snapshot = snapshot
-    }
-
-    private static func applyingStreamingDelta(
-        kind: ThreadStreamingDeltaKind,
-        text: String,
-        to content: HydratedConversationItemContent
-    ) -> HydratedConversationItemContent? {
-        switch (kind, content) {
-        case (.assistantText, .assistant(var data)):
-            data.text += text
-            return .assistant(data)
-        case (.reasoningText, .reasoning(var data)):
-            if data.content.isEmpty {
-                data.content.append(text)
-            } else {
-                data.content[data.content.count - 1] += text
-            }
-            return .reasoning(data)
-        case (.planText, .proposedPlan(var data)):
-            data.content += text
-            return .proposedPlan(data)
-        case (.commandOutput, .commandExecution(var data)):
-            data.output = (data.output ?? "") + text
-            return .commandExecution(data)
-        case (.mcpProgress, .mcpToolCall(var data)):
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                data.progressMessages.append(text)
-            }
-            return .mcpToolCall(data)
-        default:
-            return nil
-        }
     }
 
     private static func preserveStreamingText(

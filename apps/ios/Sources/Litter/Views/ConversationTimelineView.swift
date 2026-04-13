@@ -1,5 +1,5 @@
 import SwiftUI
-import Textual
+import HairballUI
 import UIKit
 
 enum ConversationLiveDetailRetentionPolicy {
@@ -35,6 +35,10 @@ struct ConversationTurnTimeline: View {
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
 
     var body: some View {
+        timelineContent
+    }
+
+    private var timelineContent: some View {
         let rows = rowDescriptors
         let retainedRichDetailItemIDs = ConversationLiveDetailRetentionPolicy.retainedRichDetailItemIDs(for: items)
         let latestCommandExecutionItemId = rows.reversed().compactMap { row -> String? in
@@ -44,7 +48,7 @@ struct ConversationTurnTimeline: View {
             return item.id
         }.first
 
-        VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 rowView(
                     row,
@@ -55,6 +59,7 @@ struct ConversationTurnTimeline: View {
                     retainedRichDetailItemIDs: retainedRichDetailItemIDs
                 )
                     .id(row.id)
+                    .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
             }
         }
     }
@@ -125,6 +130,11 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
         case .subagentGroup(let id, _, _):
             return id
         }
+    }
+
+    var isAssistantRow: Bool {
+        guard case .item(let item) = self else { return false }
+        return item.isAssistantItem
     }
 
     func preferredExpandedCommandRow(latestCommandExecutionItemId: String?) -> Bool {
@@ -266,6 +276,74 @@ private enum ConversationTimelineRowDescriptor: Identifiable, Equatable {
     }
 }
 
+private struct RowEntranceModifier: ViewModifier {
+    let isAssistantRow: Bool
+
+    func body(content: Content) -> some View {
+        if isAssistantRow {
+            // Block the ambient withAnimation transaction from leaking into
+            // the streaming markdown renderer, which would replay the token
+            // reveal animation on every snapshot update.
+            content
+                .transaction { $0.animation = nil }
+        } else {
+            content
+                .transition(.asymmetric(
+                    insertion: .rowEntranceReveal,
+                    removal: .opacity
+                ))
+        }
+    }
+}
+
+struct RowEntranceEffect: ViewModifier, Animatable {
+    var progress: CGFloat
+    var yOffset: CGFloat
+    var minScale: CGFloat
+    var maxBlur: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let clampedProgress = min(max(progress, 0), 1)
+        let revealProgress = max(clampedProgress, 0.001)
+
+        content
+            .compositingGroup()
+            .scaleEffect(
+                x: 1,
+                y: minScale + ((1 - minScale) * clampedProgress),
+                anchor: .topLeading
+            )
+            .offset(y: yOffset * (1 - clampedProgress))
+            .opacity(clampedProgress)
+            .blur(radius: maxBlur * (1 - clampedProgress))
+            .mask(alignment: .topLeading) {
+                Rectangle()
+                    .scaleEffect(x: 1, y: revealProgress, anchor: .topLeading)
+            }
+    }
+}
+
+extension AnyTransition {
+    static var rowEntranceReveal: AnyTransition {
+        .modifier(
+            active: RowEntranceEffect(progress: 0, yOffset: 10, minScale: 0.965, maxBlur: 2.5),
+            identity: RowEntranceEffect(progress: 1, yOffset: 0, minScale: 1, maxBlur: 0)
+        )
+    }
+
+    static var sectionReveal: AnyTransition {
+        .modifier(
+            active: RowEntranceEffect(progress: 0, yOffset: 6, minScale: 0.985, maxBlur: 1.2),
+            identity: RowEntranceEffect(progress: 1, yOffset: 0, minScale: 1, maxBlur: 0)
+        )
+    }
+}
+
 private struct ConversationTimelineItemRow: View, Equatable {
     private let renderCache = MessageRenderCache.shared
     @Environment(ThemeManager.self) private var themeManager
@@ -286,15 +364,23 @@ private struct ConversationTimelineItemRow: View, Equatable {
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
 
     static func == (lhs: ConversationTimelineItemRow, rhs: ConversationTimelineItemRow) -> Bool {
-        lhs.item.id == rhs.item.id &&
-            lhs.item.renderDigest == rhs.item.renderDigest &&
+        let isAssistant = lhs.item.isAssistantItem
+        // For assistant rows: the StreamingRendererCoordinator owns the
+        // streaming→finished lifecycle.  Skip digest, richDetail, AND
+        // isStreamingMessage so the bubble body never re-evaluates when
+        // a tool call arrives and a new assistant message takes over as
+        // the "streaming" item.  Re-rendering the bubble would recreate
+        // StreamingMarkdownContentView and replay the token reveal.
+        let result = lhs.item.id == rhs.item.id &&
+            (isAssistant || lhs.item.renderDigest == rhs.item.renderDigest) &&
+            (isAssistant || lhs.shouldPreserveRichDetail == rhs.shouldPreserveRichDetail) &&
+            (isAssistant || lhs.isStreamingMessage == rhs.isStreamingMessage) &&
             lhs.serverId == rhs.serverId &&
             lhs.agentDirectoryVersion == rhs.agentDirectoryVersion &&
             lhs.isPreferredExpandedCommandRow == rhs.isPreferredExpandedCommandRow &&
             lhs.isLiveTurn == rhs.isLiveTurn &&
-            lhs.isStreamingMessage == rhs.isStreamingMessage &&
-            lhs.shouldPreserveRichDetail == rhs.shouldPreserveRichDetail &&
             lhs.messageActionsDisabled == rhs.messageActionsDisabled
+        return result
     }
 
     var body: some View {
@@ -362,23 +448,20 @@ private struct ConversationTimelineItemRow: View, Equatable {
 
     @ViewBuilder
     private func commandExecutionRow(_ data: ConversationCommandExecutionData) -> some View {
-        if !isLiveTurn || shouldPreserveRichDetail {
-            ConversationCommandExecutionRow(
-                data: data,
-                isPreferredExpanded: isPreferredExpandedCommandRow || data.isInProgress
-            )
-        } else {
-            ConversationCompactCommandExecutionRow(data: data)
-        }
+        ConversationCommandExecutionRow(
+            data: data,
+            isPreferredExpanded: isPreferredExpandedCommandRow
+                || data.isInProgress
+                || (!isLiveTurn && shouldPreserveRichDetail)
+        )
     }
 
     @ViewBuilder
     private func toolCallRow(_ model: ToolCallCardModel) -> some View {
-        if !isLiveTurn || shouldPreserveRichDetail {
-            ConversationToolCardRow(model: model)
-        } else {
-            ConversationCompactToolCallRow(model: model)
-        }
+        ToolCallCardView(
+            model: model,
+            externalExpanded: !isLiveTurn && shouldPreserveRichDetail
+        )
     }
 
     private func userRow(_ data: ConversationUserMessageData) -> some View {
@@ -408,6 +491,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
         StreamingAssistantBubble(
             itemId: item.id,
             text: data.text,
+            isStreaming: isStreamingMessage,
             label: assistantLabel,
             themeVersion: themeManager.themeVersion,
             onSnapshotRendered: isStreamingMessage ? onStreamingSnapshotRendered : nil
@@ -954,7 +1038,7 @@ private struct ConversationTodoListRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(.horizontal, 12)
                 .padding(.bottom, 10)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.sectionReveal)
             }
         }
     }
@@ -1089,10 +1173,9 @@ private struct ConversationCommandExecutionRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .animation(.spring(duration: 0.35, bounce: 0.15), value: expanded)
         .onChange(of: isPreferredExpanded) { _, newValue in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                expanded = newValue
-            }
+            expanded = newValue
         }
     }
 
@@ -1267,135 +1350,6 @@ private struct ConversationCommandOutputViewport: View {
             } else {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
-        }
-    }
-}
-
-private struct ConversationToolCardRow: View {
-    let model: ToolCallCardModel
-
-    var body: some View {
-        ToolCallCardView(model: model)
-    }
-}
-
-private struct ConversationCompactCommandExecutionRow: View {
-    let data: ConversationCommandExecutionData
-    @State private var expanded = false
-
-    var body: some View {
-        if expanded {
-            ConversationCommandExecutionRow(
-                data: data,
-                isPreferredExpanded: false
-            )
-        } else {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("$")
-                    .litterMonoFont(size: 12, weight: .semibold)
-                    .foregroundColor(LitterTheme.warning)
-
-                Text(collapsedCommand)
-                    .litterMonoFont(size: 12)
-                    .foregroundColor(LitterTheme.textSystem)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let durationText = formatDuration(data.durationMs), !durationText.isEmpty {
-                    Text(durationText)
-                        .litterFont(.caption2)
-                        .foregroundColor(statusColor)
-                }
-
-                Image(systemName: "chevron.down")
-                    .litterFont(size: 11, weight: .medium)
-                    .foregroundColor(LitterTheme.textMuted)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    expanded = true
-                }
-            }
-        }
-    }
-
-    private var collapsedCommand: String {
-        let collapsed = data.command
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return collapsed.isEmpty ? "command" : collapsed
-    }
-
-    private var statusColor: Color { data.status.toolCallStatus.themeColor }
-}
-
-private struct ConversationCompactToolCallRow: View {
-    let model: ToolCallCardModel
-    @State private var expanded = false
-
-    var body: some View {
-        if expanded {
-            ToolCallCardView(model: model)
-        } else {
-            HStack(spacing: 8) {
-                Image(systemName: model.kind.iconName)
-                    .litterFont(size: 12, weight: .semibold)
-                    .foregroundColor(kindAccent)
-
-                if let attributedSummary = model.attributedSummary {
-                    Text(attributedSummary)
-                        .litterFont(size: LitterFont.conversationBodyPointSize)
-                        .lineLimit(1)
-                } else {
-                    Text(model.summary)
-                        .litterFont(size: LitterFont.conversationBodyPointSize)
-                        .foregroundColor(LitterTheme.textSystem)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                if let duration = model.duration, !duration.isEmpty {
-                    Text(duration)
-                        .litterFont(.caption2)
-                        .foregroundColor(durationStatusColor)
-                }
-
-                Image(systemName: "chevron.down")
-                    .litterFont(size: 11, weight: .medium)
-                    .foregroundColor(LitterTheme.textMuted)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    expanded = true
-                }
-            }
-        }
-    }
-
-    private var durationStatusColor: Color { model.status.themeColor }
-
-    private var kindAccent: Color {
-        switch model.kind {
-        case .commandExecution, .commandOutput:
-            return LitterTheme.warning
-        case .fileChange, .fileDiff, .webSearch:
-            return LitterTheme.accent
-        case .mcpToolCall, .widget:
-            return LitterTheme.accentStrong
-        case .mcpToolProgress, .imageView:
-            return LitterTheme.warning
-        case .collaboration:
-            return LitterTheme.success
         }
     }
 }
@@ -1757,7 +1711,7 @@ struct ConversationPinnedContextStrip: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.sectionReveal)
                 }
             }
         }

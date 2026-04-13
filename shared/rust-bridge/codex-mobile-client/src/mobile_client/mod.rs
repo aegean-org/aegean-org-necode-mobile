@@ -66,6 +66,7 @@ pub struct MobileClient {
     pub app_store: Arc<AppStoreReducer>,
     pub(crate) discovery: RwLock<DiscoveryService>,
     oauth_callback_tunnels: Arc<Mutex<HashMap<String, OAuthCallbackTunnel>>>,
+    pub(crate) recorder: Arc<crate::recorder::MessageRecorder>,
 }
 
 #[derive(Debug, Clone)]
@@ -321,6 +322,7 @@ impl MobileClient {
             app_store,
             discovery: RwLock::new(DiscoveryService::new(DiscoveryConfig::default())),
             oauth_callback_tunnels: Arc::new(Mutex::new(HashMap::new())),
+            recorder: Arc::new(crate::recorder::MessageRecorder::new()),
         }
     }
 

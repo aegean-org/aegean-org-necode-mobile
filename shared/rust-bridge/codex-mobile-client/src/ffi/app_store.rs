@@ -362,6 +362,41 @@ impl AppStore {
     pub fn set_voice_handoff_thread(&self, key: Option<ThreadKey>) {
         self.inner.set_voice_handoff_thread(key);
     }
+
+    // -- Recording / Replay --
+
+    pub fn start_recording(&self) {
+        self.inner.recorder.start_recording();
+    }
+
+    pub fn stop_recording(&self) -> String {
+        self.inner.recorder.stop_recording()
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.inner.recorder.is_recording()
+    }
+
+    pub async fn start_replay(&self, data: String, target_key: ThreadKey) -> Result<(), ClientError> {
+        let entries = crate::recorder::MessageRecorder::replay_entries(
+            &data,
+            &target_key.server_id,
+            &target_key.thread_id,
+        )
+        .map_err(|e| ClientError::Serialization(e))?;
+        let processor = Arc::clone(&self.inner.event_processor);
+        for (i, (ts_ms, server_id, notification)) in entries.iter().enumerate() {
+            if i > 0 {
+                let prev_ts = entries[i - 1].0;
+                let delta = ts_ms.saturating_sub(prev_ts);
+                if delta > 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delta)).await;
+                }
+            }
+            processor.process_notification(server_id, notification);
+        }
+        Ok(())
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]

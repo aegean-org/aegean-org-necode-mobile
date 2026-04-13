@@ -16,6 +16,12 @@ struct HeaderView: View {
         appModel.availableModels(for: thread.key.serverId)
     }
 
+    private var headerPermissionPreset: AppThreadPermissionPreset {
+        let approval = appState.launchApprovalPolicy(for: thread.key) ?? thread.effectiveApprovalPolicy
+        let sandbox = appState.turnSandboxPolicy(for: thread.key) ?? thread.effectiveSandboxPolicy
+        return threadPermissionPreset(approvalPolicy: approval, sandboxPolicy: sandbox)
+    }
+
     var body: some View {
         Button {
             appState.showModelSelector.toggle()
@@ -63,6 +69,12 @@ struct HeaderView: View {
                             .padding(.vertical, 2)
                             .background(LitterTheme.accent)
                             .clipShape(Capsule())
+                    }
+
+                    if headerPermissionPreset == .fullAccess {
+                        Image(systemName: "lock.open.fill")
+                            .font(LitterFont.styled(size: 10, weight: .semibold))
+                            .foregroundColor(LitterTheme.danger)
                     }
 
                     if server?.isIpcConnected == true, ExperimentalFeatures.shared.isEnabled(.ipc) {
@@ -209,6 +221,8 @@ struct ConversationModelPickerPanel: View {
             reasoningEffort: reasoningEffortBinding,
             threadKey: thread.key,
             collaborationMode: thread.collaborationMode,
+            effectiveApprovalPolicy: thread.effectiveApprovalPolicy,
+            effectiveSandboxPolicy: thread.effectiveSandboxPolicy,
             onDismiss: {
                 appState.showModelSelector = false
             }
@@ -383,12 +397,21 @@ struct InlineModelSelectorView: View {
     @Binding var reasoningEffort: String
     var threadKey: ThreadKey
     var collaborationMode: AppModeKind = .default
+    var effectiveApprovalPolicy: AppAskForApproval?
+    var effectiveSandboxPolicy: AppSandboxPolicy?
     @Environment(AppModel.self) private var appModel
+    @Environment(AppState.self) private var appState
     @AppStorage("fastMode") private var fastMode = false
     var onDismiss: () -> Void
 
     private var currentModel: ModelInfo? {
         models.first { $0.id == selectedModel }
+    }
+
+    private var isFullAccess: Bool {
+        let approval = appState.launchApprovalPolicy(for: threadKey) ?? effectiveApprovalPolicy
+        let sandbox = appState.turnSandboxPolicy(for: threadKey) ?? effectiveSandboxPolicy
+        return threadPermissionPreset(approvalPolicy: approval, sandboxPolicy: sandbox) == .fullAccess
     }
 
     var body: some View {
@@ -503,6 +526,27 @@ struct InlineModelSelectorView: View {
                     .background(fastMode ? LitterTheme.warning : LitterTheme.surfaceLight)
                     .clipShape(Capsule())
                 }
+
+                Button {
+                    if isFullAccess {
+                        appState.setPermissions(approvalPolicy: "on-request", sandboxMode: "workspace-write", for: threadKey)
+                    } else {
+                        appState.setPermissions(approvalPolicy: "never", sandboxMode: "danger-full-access", for: threadKey)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isFullAccess ? "lock.open.fill" : "lock.fill")
+                            .litterFont(size: 9, weight: .semibold)
+                        Text(isFullAccess ? "Full Access" : "Supervised")
+                            .litterFont(.caption2, weight: .medium)
+                    }
+                    .foregroundColor(isFullAccess ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(isFullAccess ? LitterTheme.danger : LitterTheme.surfaceLight)
+                    .clipShape(Capsule())
+                }
+
                 Spacer()
             }
             .padding(.horizontal, 16)

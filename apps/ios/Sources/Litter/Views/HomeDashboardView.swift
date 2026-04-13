@@ -14,6 +14,7 @@ struct HomeDashboardView: View {
     var onReconnectServer: ((HomeDashboardServer) -> Void)? = nil
     var onDisconnectServer: ((String) -> Void)? = nil
     var onRenameServer: ((String, String) -> Void)? = nil
+    var onOpenRecording: ((URL) -> Void)? = nil
     @State private var deleteTargetThread: HomeDashboardRecentSession?
     @State private var disconnectTargetServer: HomeDashboardServer?
     @State private var renameTargetServer: HomeDashboardServer?
@@ -41,6 +42,9 @@ struct HomeDashboardView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     recentSessionsSection(limit: recentLimit)
                     connectedServersSection
+                    if DebugSettings.shared.enabled {
+                        recordingsSection
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 20)
@@ -312,5 +316,57 @@ struct HomeDashboardView: View {
                 .stroke(LitterTheme.border.opacity(0.65), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Recordings
+
+    @State private var recordings: [URL] = []
+
+    private var recordingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Recordings")
+                .litterFont(.headline)
+                .foregroundColor(LitterTheme.textPrimary)
+
+            if recordings.isEmpty {
+                emptyStateCard(
+                    title: "No recordings",
+                    message: "Record a conversation from the debug popover to replay it here."
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(recordings, id: \.absoluteString) { url in
+                        Button {
+                            onOpenRecording?(url)
+                        } label: {
+                            SessionServerCardRow(
+                                icon: "waveform",
+                                title: url.deletingPathExtension().lastPathComponent,
+                                subtitle: recordingFileSize(url),
+                                trailing: .chevron
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                MessageRecorder.shared.deleteRecording(url: url)
+                                recordings = MessageRecorder.shared.listRecordings()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear { recordings = MessageRecorder.shared.listRecordings() }
+    }
+
+    private func recordingFileSize(_ url: URL) -> String {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? UInt64 else { return "" }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(size))
     }
 }

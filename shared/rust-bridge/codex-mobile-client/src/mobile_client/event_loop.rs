@@ -32,6 +32,7 @@ impl MobileClient {
     pub(super) fn spawn_event_reader(&self, server_id: String, session: Arc<ServerSession>) {
         let mut events = session.events();
         let processor = Arc::clone(&self.event_processor);
+        let recorder = Arc::clone(&self.recorder);
         let oauth_callback_tunnels = Arc::clone(&self.oauth_callback_tunnels);
         let oauth_session = Arc::clone(&session);
         let sessions = Arc::clone(&self.sessions);
@@ -67,6 +68,7 @@ impl MobileClient {
                             "event reader server_id={} notification={:?}",
                             server_id, notification
                         );
+                        recorder.record_notification(&server_id, &notification);
                         processor.process_notification(&server_id, &notification);
                     }
                     Ok(ServerEvent::LegacyNotification { method, params }) => {
@@ -486,6 +488,7 @@ impl MobileClient {
     where
         R: serde::de::DeserializeOwned,
     {
+        self.recorder.record_request(server_id, &request);
         let wire_method = client_request_wire_method(&request);
         let started_at = Instant::now();
         let session = self.get_session(server_id).map_err(|e| e.to_string())?;

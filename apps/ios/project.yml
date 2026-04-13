@@ -23,12 +23,9 @@ settings:
     DEVELOPMENT_TEAM: UH66Q8ZAYG
 
 packages:
-  Textual:
-    url: https://github.com/gonzalezreal/textual
-    from: "0.1.0"
-  SwiftUIMath:
-    url: https://github.com/gonzalezreal/swiftui-math
-    from: "0.1.0"
+  Hairball:
+    url: https://github.com/dnakov/hairball.git
+    branch: main
 targets:
   Litter:
     type: application
@@ -62,8 +59,8 @@ targets:
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
       - sdk: Network.framework
-      - package: Textual
-      - package: SwiftUIMath
+      - package: Hairball
+        product: HairballUI
       - framework: Frameworks/ios_system/ios_system.xcframework
         embed: true
       - framework: Frameworks/ios_system/shell.xcframework

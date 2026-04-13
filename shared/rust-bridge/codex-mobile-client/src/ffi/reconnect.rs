@@ -55,6 +55,12 @@ fn resolved_local_display_name(
         .unwrap_or_else(|| "This Device".to_string())
 }
 
+fn server_counts_as_connected_for_reconnect(
+    server: &crate::store::snapshot::ServerSnapshot,
+) -> bool {
+    matches!(server.health, ServerHealthSnapshot::Connected)
+}
+
 #[derive(uniffi::Object)]
 pub struct ReconnectController {
     inner: Arc<MobileClient>,
@@ -128,7 +134,7 @@ impl ReconnectController {
         let connected_ids: std::collections::HashSet<String> = snapshot
             .servers
             .values()
-            .filter(|s| s.health != ServerHealthSnapshot::Disconnected)
+            .filter(|server| server_counts_as_connected_for_reconnect(server))
             .map(|s| s.server_id.clone())
             .collect();
 
@@ -138,7 +144,7 @@ impl ReconnectController {
         let has_local = snapshot
             .servers
             .values()
-            .any(|s| s.is_local && s.health != ServerHealthSnapshot::Disconnected);
+            .any(|server| server.is_local && server_counts_as_connected_for_reconnect(server));
         let mut local_result: Option<ReconnectResult> = None;
         if !has_local {
             info!("ReconnectController: ensuring local server connected");
@@ -393,7 +399,7 @@ impl ReconnectController {
 
 #[cfg(test)]
 mod tests {
-    use super::resolved_local_display_name;
+    use super::{resolved_local_display_name, server_counts_as_connected_for_reconnect};
     use crate::reconnect::SavedServerRecord;
     use crate::store::snapshot::{
         AppSnapshot, AppVoiceSessionSnapshot, ServerHealthSnapshot, ServerSnapshot,
@@ -411,6 +417,42 @@ mod tests {
             pending_user_inputs: Vec::new(),
             voice_session: AppVoiceSessionSnapshot::default(),
         }
+    }
+
+    fn server_with_health(health: ServerHealthSnapshot) -> ServerSnapshot {
+        ServerSnapshot {
+            server_id: "srv".to_string(),
+            display_name: "Test".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            wake_mac: None,
+            is_local: false,
+            supports_ipc: false,
+            has_ipc: false,
+            health,
+            account: None,
+            requires_openai_auth: false,
+            rate_limits: None,
+            available_models: None,
+            connection_progress: None,
+            transport: ServerTransportDiagnostics::default(),
+        }
+    }
+
+    #[test]
+    fn reconnect_skip_only_counts_fully_connected_servers() {
+        assert!(server_counts_as_connected_for_reconnect(
+            &server_with_health(ServerHealthSnapshot::Connected)
+        ));
+        assert!(!server_counts_as_connected_for_reconnect(
+            &server_with_health(ServerHealthSnapshot::Connecting)
+        ));
+        assert!(!server_counts_as_connected_for_reconnect(
+            &server_with_health(ServerHealthSnapshot::Disconnected)
+        ));
+        assert!(!server_counts_as_connected_for_reconnect(
+            &server_with_health(ServerHealthSnapshot::Unresponsive)
+        ));
     }
 
     #[test]

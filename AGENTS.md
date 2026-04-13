@@ -197,3 +197,4 @@ Incremental policy:
 - Use concise, imperative commit subjects with optional scope (example: `bridge: retry initialize handshake`).
 - PRs should include: purpose, key changes, verification steps (commands/device), and screenshots for UI changes.
 - If project structure changes, include updates to `apps/ios/project.yml` and mention whether project regeneration was run.
+- If using XcodeBuildMCP, use the installed XcodeBuildMCP skill before calling XcodeBuildMCP tools.

@@ -102,7 +102,7 @@ struct ConversationInfoView: View {
 
     private var serverOnlyActionRow: some View {
         HStack(spacing: 0) {
-            actionCircle(icon: "photo.on.rectangle", label: "Wallpaper") {
+            actionCircle(icon: "paintbrush", label: "Appearance") {
                 onOpenWallpaper?()
             }
         }
@@ -193,7 +193,7 @@ struct ConversationInfoView: View {
 
     private var actionButtonsRow: some View {
         HStack(spacing: 0) {
-            actionCircle(icon: "photo.on.rectangle", label: "Wallpaper") {
+            actionCircle(icon: "paintbrush", label: "Appearance") {
                 onOpenWallpaper?()
             }
             actionCircle(icon: "arrow.branch", label: "Fork") {
