@@ -552,13 +552,9 @@ impl MobileClient {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(future);
         } else {
-            std::thread::spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("create detached runtime");
-                runtime.block_on(future);
-            });
+            // Route detached mobile work onto the shared runtime instead of
+            // creating ad-hoc current-thread runtimes with tiny iOS stacks.
+            crate::ffi::shared::shared_runtime().spawn(future);
         }
     }
 }
