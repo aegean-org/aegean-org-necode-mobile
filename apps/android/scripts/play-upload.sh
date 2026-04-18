@@ -9,6 +9,9 @@ GRADLEW="$ANDROID_DIR/gradlew"
 VARIANT="${VARIANT:-Release}"
 UPLOAD="${UPLOAD:-1}"
 TRACK="${LITTER_PLAY_TRACK:-internal}"
+# Comma-separated list of tracks to promote the uploaded artifact to.
+# Each listed track gets its own `promoteReleaseArtifact` invocation with
+# the source `TRACK` as the origin. Empty = upload only, no promotion.
 PROMOTE_TRACK="${LITTER_PLAY_PROMOTE_TRACK:-}"
 # Release status applied to the *final* landing track (promote dest when
 # promoting, else the upload track). The initial upload to the source track
@@ -48,6 +51,8 @@ require_env() {
 }
 
 # Shared signing + service-account props used by every Gradle invocation.
+# Note: -PLITTER_PLAY_PROMOTE_TRACK is NOT set here; it's added per-promote
+# below because we may fan out to multiple destination tracks.
 declare -a BASE_PROPS=(
     -PLITTER_PLAY_SERVICE_ACCOUNT_JSON="${LITTER_PLAY_SERVICE_ACCOUNT_JSON:-}"
     -PLITTER_PLAY_TRACK="$TRACK"
@@ -56,9 +61,6 @@ declare -a BASE_PROPS=(
     -PLITTER_UPLOAD_KEY_ALIAS="${LITTER_UPLOAD_KEY_ALIAS:-}"
     -PLITTER_UPLOAD_KEY_PASSWORD="${LITTER_UPLOAD_KEY_PASSWORD:-}"
 )
-if [[ -n "$PROMOTE_TRACK" ]]; then
-    BASE_PROPS+=(-PLITTER_PLAY_PROMOTE_TRACK="$PROMOTE_TRACK")
-fi
 
 # ── Local build only ───────────────────────────────────────────────────────
 if [[ "$UPLOAD" != "1" ]]; then
@@ -108,20 +110,30 @@ PUBLISH_TASKS+=("$PUBLISH_TASK")
 "$GRADLEW" -p "$ANDROID_DIR" "${GRADLE_ARGS[@]}" "${PUBLISH_TASKS[@]}" "${BASE_PROPS[@]}" \
     -PLITTER_PLAY_RELEASE_STATUS=completed
 
-# ── Step 2: optionally promote to another track ─────────────────────────────
+# ── Step 2: optionally promote to one or more tracks ───────────────────────
+# Each destination is an independent Play release, so fan out.
 if [[ -n "$PROMOTE_TRACK" ]]; then
     PROMOTE_TASK=":app:promote${VARIANT}Artifact"
     status_for_promote="${RELEASE_STATUS:-completed}"
-    declare -a PROMOTE_PROPS=(-PLITTER_PLAY_RELEASE_STATUS="$status_for_promote")
-    if [[ -n "$USER_FRACTION" ]]; then
-        PROMOTE_PROPS+=(-PLITTER_PLAY_USER_FRACTION="$USER_FRACTION")
-    fi
     rollout_info=""
     if [[ "$status_for_promote" == "inProgress" || "$status_for_promote" == "in_progress" ]]; then
         rollout_info=" (staged at userFraction=${USER_FRACTION:-not set})"
     fi
-    echo "==> Promoting '$TRACK' → '$PROMOTE_TRACK' [status=$status_for_promote]${rollout_info}"
-    "$GRADLEW" -p "$ANDROID_DIR" "${GRADLE_ARGS[@]}" "$PROMOTE_TASK" "${BASE_PROPS[@]}" "${PROMOTE_PROPS[@]}"
+
+    IFS=',' read -r -a DESTS <<<"$PROMOTE_TRACK"
+    for dest in "${DESTS[@]}"; do
+        dest_trimmed="${dest// /}"
+        [[ -n "$dest_trimmed" ]] || continue
+        declare -a PROMOTE_PROPS=(
+            -PLITTER_PLAY_PROMOTE_TRACK="$dest_trimmed"
+            -PLITTER_PLAY_RELEASE_STATUS="$status_for_promote"
+        )
+        if [[ -n "$USER_FRACTION" ]]; then
+            PROMOTE_PROPS+=(-PLITTER_PLAY_USER_FRACTION="$USER_FRACTION")
+        fi
+        echo "==> Promoting '$TRACK' → '$dest_trimmed' [status=$status_for_promote]${rollout_info}"
+        "$GRADLEW" -p "$ANDROID_DIR" "${GRADLE_ARGS[@]}" "$PROMOTE_TASK" "${BASE_PROPS[@]}" "${PROMOTE_PROPS[@]}"
+    done
 fi
 
 echo "==> Done"
