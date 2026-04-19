@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,8 +58,10 @@ import androidx.compose.ui.unit.sp
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.ComposerImageAttachment
 import com.litter.android.state.VoiceTranscriptionManager
+import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.scaled
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.AppProject
@@ -68,6 +73,7 @@ import uniffi.codex_mobile_client.ThreadKey
  * new thread on (project.serverId, project.cwd), submits the initial turn,
  * and stays on home — the thread streams in the task list.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun HomeComposerBar(
     project: AppProject?,
@@ -113,7 +119,14 @@ fun HomeComposerBar(
     val canSend = !isSubmitting &&
         (text.isNotBlank() || attachedImage != null)
 
-    val isActive = isFocused ||
+    // IME visibility is authoritative for "the user is interacting with the
+    // composer". `isFocused` alone is unreliable because dismissing the
+    // keyboard via system back/down doesn't always clear Compose focus, so
+    // we omit it and use `imeVisible` instead. The composer stays active
+    // while the user has text or an attachment so unsaved work isn't lost
+    // when they briefly dismiss the keyboard to scroll.
+    val imeVisible = WindowInsets.isImeVisible
+    val isActive = imeVisible ||
         text.isNotBlank() ||
         attachedImage != null ||
         isRecording ||
@@ -143,7 +156,7 @@ fun HomeComposerBar(
                 Text(
                     text = errorMessage ?: "",
                     color = LitterTheme.warning,
-                    fontSize = 12.sp,
+                    fontSize = LitterTextStyle.caption.scaled,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = { errorMessage = null }) {
@@ -232,7 +245,7 @@ fun HomeComposerBar(
                         Text(
                             text = "Message\u2026",
                             color = LitterTheme.textMuted,
-                            fontSize = 14.sp,
+                            fontSize = LitterTextStyle.body.scaled,
                         )
                     }
                     BasicTextField(
@@ -240,7 +253,7 @@ fun HomeComposerBar(
                         onValueChange = { text = it },
                         textStyle = TextStyle(
                             color = LitterTheme.textPrimary,
-                            fontSize = 14.sp,
+                            fontSize = LitterTextStyle.body.scaled,
                             fontFamily = LitterTheme.monoFont,
                         ),
                         cursorBrush = SolidColor(LitterTheme.accent),

@@ -16,16 +16,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -97,6 +93,15 @@ fun SessionCanvasRow(
         )
     }
 
+    // Vertical padding per zoom matches iOS `[3, 6, 10, 12][zoomLevel-1]`
+    // (HomeDashboardView.swift:661). Horizontal kept at 14dp to match iOS.
+    val rowVerticalPadding = when (zoomLevel) {
+        1 -> 3.dp
+        2 -> 6.dp
+        3 -> 10.dp
+        else -> 12.dp
+    }
+
     Box(modifier = modifier) {
         Row(
             modifier = Modifier
@@ -105,14 +110,34 @@ fun SessionCanvasRow(
                     onClick = onClick,
                     onLongClick = { showMenu = true },
                 )
-                .padding(horizontal = 4.dp, vertical = 6.dp),
+                .padding(horizontal = 14.dp, vertical = rowVerticalPadding),
             verticalAlignment = Alignment.Top,
         ) {
-            StatusDot(
-                state = dotState,
-                size = 8.dp,
-                modifier = Modifier.padding(top = if (zoomLevel == 1) 2.dp else 4.dp),
-            )
+            // Mirrors iOS `HomeDashboardView.swift:602-604`:
+            //   .frame(width: markerWidth (14), height: 16)
+            //   .padding(.top, zoomLevel == 1 ? 0 : 2)
+            // 10pt dot centered in a 14×16 slot with a 2pt top nudge puts
+            // the dot center at y≈10 from the row top, which lines up with
+            // the midline of the title's first line (17pt body, line
+            // height ≈20pt). At zoom 1 (pad=0) the dot sits ~2pt higher to
+            // match iOS's slightly terser compact layout.
+            // Top offset is larger than iOS's 2pt because Compose `Text`
+            // applies `includeFontPadding = true` by default, which shifts
+            // the visible glyphs down inside the line box. Tuned so the
+            // dot center lines up with the cap-height midline of the
+            // 17.dp body-size title at zoom ≥ 2.
+            Box(
+                modifier = Modifier
+                    .padding(top = if (zoomLevel == 1) 2.dp else 5.dp)
+                    .width(14.dp)
+                    .height(16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                StatusDot(
+                    state = dotState,
+                    size = 10.dp,
+                )
+            }
             Spacer(Modifier.width(8.dp))
 
             Column(modifier = Modifier.weight(1f)) {
@@ -124,13 +149,17 @@ fun SessionCanvasRow(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                // MetaLine is shown ONLY at zoom 2 (iOS `if zoomLevel == 2`).
+                // At zoom 3+, modelBadgeLine replaces it with the richer,
+                // single-line model/time/server row.
                 AnimatedVisibility(
-                    visible = zoomLevel >= 2,
+                    visible = zoomLevel == 2,
                     enter = fadeIn(tween(200)) + expandVertically(animationSpec = layerSpring),
                     exit = fadeOut(tween(120)) + shrinkVertically(animationSpec = layerSpring),
                 ) {
                     MetaLine(
                         session = session,
+                        items = hydratedItems,
                         isActive = isActive,
                         toolRunning = toolRunning,
                     )
@@ -167,31 +196,40 @@ fun SessionCanvasRow(
                         }
                     }
                 }
+
+                // Working directory line at zoom 4 only, matches iOS
+                // HomeDashboardView.swift:645-652.
+                AnimatedVisibility(
+                    visible = zoomLevel >= 4 && !session.cwd.isNullOrBlank(),
+                    enter = fadeIn(tween(200)) + expandVertically(animationSpec = layerSpring),
+                    exit = fadeOut(tween(120)) + shrinkVertically(animationSpec = layerSpring),
+                ) {
+                    Text(
+                        text = session.cwd.orEmpty(),
+                        color = LitterTheme.textMuted.copy(alpha = 0.7f),
+                        fontFamily = LitterTheme.monoFont,
+                        fontSize = 10f.scaled,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
 
-            Box {
-                IconButton(
-                    onClick = { showMenu = true },
-                    modifier = Modifier.size(28.dp),
-                ) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "Session actions",
-                        tint = LitterTheme.textSecondary,
-                    )
-                }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        },
-                    )
-                }
+            // Long-press on the row opens the action menu — replaces the
+            // former 3-dot IconButton. Menu is anchored here so it pops
+            // near the trailing edge.
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    onClick = {
+                        showMenu = false
+                        onDelete()
+                    },
+                )
             }
         }
     }
@@ -200,6 +238,7 @@ fun SessionCanvasRow(
 @Composable
 private fun MetaLine(
     session: AppSessionSummary,
+    items: List<HydratedConversationItem>,
     isActive: Boolean,
     toolRunning: Boolean,
 ) {
@@ -209,50 +248,64 @@ private fun MetaLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (showActivity) {
-            Text(
-                text = "running tool…",
-                color = LitterTheme.accent,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = META_FONT_SP.scaled,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else {
-            val relative = HomeDashboardSupport.relativeTime(session.updatedAt)
-            if (relative.isNotEmpty()) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (showActivity) {
                 Text(
-                    text = relative,
-                    color = LitterTheme.textMuted,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = META_FONT_SP.scaled,
-                )
-            }
-            Text(
-                text = session.serverDisplayName,
-                color = LitterTheme.textSecondary,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = META_FONT_SP.scaled,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = HomeDashboardSupport.workspaceLabel(session.cwd),
-                color = LitterTheme.textMuted,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = META_FONT_SP.scaled,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (isActive) {
-                Text(
-                    text = "thinking",
+                    text = "running tool…",
                     color = LitterTheme.accent,
                     fontFamily = LitterTheme.monoFont,
                     fontSize = META_FONT_SP.scaled,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+            } else {
+                val relative = HomeDashboardSupport.relativeTime(session.updatedAt)
+                if (relative.isNotEmpty()) {
+                    Text(
+                        text = relative,
+                        color = LitterTheme.textMuted,
+                        fontFamily = LitterTheme.monoFont,
+                        fontSize = META_FONT_SP.scaled,
+                    )
+                }
+                Text(
+                    text = session.serverDisplayName,
+                    color = LitterTheme.textSecondary,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = META_FONT_SP.scaled,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = HomeDashboardSupport.workspaceLabel(session.cwd),
+                    color = LitterTheme.textMuted,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = META_FONT_SP.scaled,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (isActive) {
+                    Text(
+                        text = "thinking",
+                        color = LitterTheme.accent,
+                        fontFamily = LitterTheme.monoFont,
+                        fontSize = META_FONT_SP.scaled,
+                    )
+                }
             }
         }
+
+        // Inline stat chips on the trailing edge of the meta line. iOS
+        // HomeDashboardView.swift:713,722-749 renders these at zoom 2.
+        InlineStats(
+            session = session,
+            items = items,
+            isActive = isActive,
+        )
     }
 }
 

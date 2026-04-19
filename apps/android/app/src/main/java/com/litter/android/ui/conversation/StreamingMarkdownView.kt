@@ -160,18 +160,46 @@ private fun StreamingMarkdownText(
         }
     }
 
+    // Respect the mono/system font toggle from theme settings. iOS mirrors
+    // this via `LitterFont.markdownFontName` (Extensions.swift:131-138):
+    // `.mono` → Berkeley Mono, `.system` → system sans-serif.
+    val useMono = com.litter.android.ui.LitterThemeManager.monoFontEnabled
+    val typeface = remember(context, useMono) {
+        if (useMono) {
+            runCatching {
+                androidx.core.content.res.ResourcesCompat.getFont(
+                    context,
+                    com.sigkitten.litter.android.R.font.berkeley_mono_regular,
+                )
+            }.getOrNull() ?: android.graphics.Typeface.MONOSPACE
+        } else {
+            android.graphics.Typeface.DEFAULT
+        }
+    }
+
     AndroidView(
         factory = { ctx ->
             TextView(ctx).apply {
                 setTextColor(LitterTheme.textBody.toArgb())
-                textSize = bodySize * textScale
+                this.typeface = typeface
+                setTextSize(
+                    android.util.TypedValue.COMPLEX_UNIT_DIP,
+                    bodySize * textScale,
+                )
                 movementMethod = LinkMovementMethod.getInstance()
                 setLinkTextColor(LitterTheme.accent.toArgb())
             }
         },
         update = { tv ->
             tv.setTextColor(LitterTheme.textBody.toArgb())
-            tv.textSize = bodySize * textScale
+            tv.typeface = typeface
+            // COMPLEX_UNIT_DIP so size is in physical dp, bypassing the
+            // system font-scale setting. This matches the `Dp.toSp()` path
+            // in the scaled extension used by Compose-native text.
+            tv.setTextSize(
+                android.util.TypedValue.COMPLEX_UNIT_DIP,
+                bodySize * textScale,
+            )
             markwon.setMarkdown(tv, text)
         },
         modifier = modifier.fillMaxWidth(),

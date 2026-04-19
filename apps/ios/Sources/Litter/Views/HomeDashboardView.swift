@@ -61,9 +61,6 @@ struct HomeDashboardView: View {
     var onLoadAllThreads: (() async -> Void)? = nil
 
     private var isSearchExpanded: Bool { inputMode == .search }
-    /// Keys we've already kicked off hydration for, so we don't re-request
-    /// when the snapshot refreshes.
-    @State private var requestedHydrationKeys: Set<String> = []
 
     private func hydrationId(_ key: ThreadKey) -> String {
         "\(key.serverId)/\(key.threadId)"
@@ -71,10 +68,14 @@ struct HomeDashboardView: View {
 
     private func autoHydrateIfNeeded() {
         guard let onHydrateThread else { return }
+        // Gate on an in-flight request (hydratingKeys), not a persistent
+        // "ever requested" set. After a server disconnect, remove_server
+        // wipes thread items and session.stats drops back to nil; a
+        // persistent set would suppress re-hydration on reconnect until
+        // the user navigated to a conversation and back.
         for session in visibleSessions where session.stats == nil {
             let id = hydrationId(session.key)
-            guard !requestedHydrationKeys.contains(id) else { continue }
-            requestedHydrationKeys.insert(id)
+            guard !hydratingKeys.contains(id) else { continue }
             hydratingKeys.insert(id)
             Task {
                 await onHydrateThread(session.key)
@@ -375,6 +376,7 @@ struct HomeDashboardView: View {
             isCancelling: cancellingKeys.contains(hydrationId(session.key)),
             zoomLevel: zoomLevel
         )
+        .equatable()
         .contentShape(Rectangle())
         .onTapGesture {
             guard !isPinching, openingRecentSessionKey == nil else { return }
@@ -493,7 +495,7 @@ private enum HomeToolRow: Identifiable {
 
 // MARK: - Session Canvas Line
 
-private struct SessionCanvasLine: View {
+private struct SessionCanvasLine: View, Equatable {
     let session: HomeDashboardRecentSession
     let isOpening: Bool
     let isHydrating: Bool
@@ -502,6 +504,21 @@ private struct SessionCanvasLine: View {
 
     @Environment(AppModel.self) private var appModel
 
+    // Applied via `.equatable()` at the call site. When nothing this card
+    // actually displays has changed, SwiftUI skips body evaluation entirely —
+    // which also skips the `hydratedItems` read of `appModel.snapshot` that
+    // was causing every card to re-evaluate on every snapshot bump.
+    // `session` is Hashable (≡ Equatable) on the struct's scalar fields; any
+    // display-relevant change from the Rust side bumps one of those fields
+    // (the reducer re-derives session summaries on every item delta).
+    static func == (lhs: SessionCanvasLine, rhs: SessionCanvasLine) -> Bool {
+        lhs.session == rhs.session &&
+            lhs.isOpening == rhs.isOpening &&
+            lhs.isHydrating == rhs.isHydrating &&
+            lhs.isCancelling == rhs.isCancelling &&
+            lhs.zoomLevel == rhs.zoomLevel
+    }
+
     private var isActive: Bool { session.hasTurnActive }
     private var isHydrated: Bool { session.stats != nil }
     private var timeAgo: String { relativeDate(Int64(session.updatedAt.timeIntervalSince1970)) }
@@ -509,53 +526,30 @@ private struct SessionCanvasLine: View {
     private var toolCallCount: UInt32 { s?.toolCallCount ?? 0 }
     private var turnCount: UInt32 { s?.turnCount ?? 0 }
 
-    /// Full hydrated item list for this thread (empty if the thread hasn't
-    /// been hydrated yet). Used for richer zoom-4 displays that need to see
-    /// item types directly — e.g. grouping exploration commands.
+    /// Raw hydrated items for this thread. Used by zoom-3+/zoom-4 features
+    /// (`hydratedToolRows`, `lastTurnBounds`) that still need the fully-
+    /// materialized `ConversationItem` shape. Kept as a computed property —
+    /// live via `@Observable` — so streaming updates propagate without the
+    /// 120ms debounce on `HomeDashboardModel.refreshState`.
     private var hydratedItems: [ConversationItem] {
         appModel.snapshot?.threadSnapshot(for: session.key)?
             .hydratedConversationItems.map(\.conversationItem) ?? []
     }
 
-    /// Last *non-empty* assistant message on this thread. When a new turn
-    /// starts the latest assistant item is created with empty text and
-    /// fills in as deltas arrive — returning it directly would blank the
-    /// row mid-turn. Walking back to the last non-empty block keeps the
-    /// previous response visible until the new one actually has content,
-    /// at which point `id` changes and the render layer can crossfade.
-    private var displayedAssistantMessage: (id: String, text: String)? {
-        for item in hydratedItems.reversed() {
-            if item.isAssistantItem {
-                let text = (item.assistantText ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty {
-                    return (id: item.id, text: item.assistantText ?? "")
-                }
-            }
-        }
-        return nil
+    /// Same observation source, but walks the raw `HydratedConversationItem`
+    /// values directly — no per-item `ConversationItem` materialization.
+    /// For a thread with hundreds of items that shaves the dominant cost off
+    /// each body evaluation during scroll mount.
+    private var hydratedItemsRaw: [HydratedConversationItem] {
+        appModel.snapshot?.threadSnapshot(for: session.key)?.hydratedConversationItems ?? []
     }
 
-    /// True only when the most recent tool-capable item is actually
-    /// in-progress. Used to gate the zoom-2 tool-activity label + pulsing
-    /// dots so they appear only during real tool execution, not every
-    /// time the assistant is thinking/streaming.
+    /// True when the most recent tool-capable item is still running.
+    /// Direct-walks the hydrated items for the same reason as above.
+    /// Shared with `hydratedItemsRaw.latestToolCallInProgress` — see comment
+    /// on that helper for the de-duplicated switch.
     private var isToolCallRunning: Bool {
-        for item in hydratedItems.reversed() {
-            switch item.content {
-            case .commandExecution(let data):
-                return data.isInProgress
-            case .mcpToolCall(let data):
-                return data.isInProgress
-            case .dynamicToolCall(let data):
-                return data.isInProgress
-            case .fileChange(let data):
-                return data.status == .pending || data.status == .inProgress
-            default:
-                continue
-            }
-        }
-        return false
+        hydratedItemsRaw.latestToolCallInProgress
     }
 
     /// Start/end of the most recent turn, derived from item timestamps.
@@ -1039,17 +1033,21 @@ private struct SessionCanvasLine: View {
 
     @ViewBuilder
     private var responsePreview: some View {
-        // Plain markdown — no streaming token-reveal bubble. The reducer
-        // piggybacks a fresh session summary on every item change, so the
-        // markdown already grows in place as deltas land. We pick the last
-        // *non-empty* assistant item so a new turn's empty assistant block
-        // doesn't blank the row mid-stream, then crossfade via `.id(blockId)`
-        // when a genuinely new block takes over.
-        let live = displayedAssistantMessage
-        let fallback = (session.lastResponsePreview ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let liveText = (live?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let markdown = !liveText.isEmpty ? (live?.text ?? "") : fallback
-        let blockId = live?.id ?? "fallback"
+        // Source the preview from `session.lastResponsePreview` rather than
+        // walking `hydratedConversationItems` live. The Rust reducer
+        // refreshes the session summary on every item delta, but the home
+        // dashboard's observation path is debounced at 120ms in
+        // `HomeDashboardModel.scheduleObservedRefresh` — so the preview
+        // naturally updates at ~8Hz instead of forcing `LitterMarkdownView`
+        // to re-parse markdown on every streaming token (30–60Hz). The old
+        // live-walk path made the streaming card the dominant frame-time
+        // cost after all the other scroll fixes landed.
+        //
+        // Crossfade key: `turnCount` flips exactly when a new assistant
+        // turn begins, so `.id(blockId)` still triggers the opacity
+        // transition on genuine turn boundaries (not on every token).
+        let markdown = (session.lastResponsePreview ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let blockId = "turn-\(session.stats?.turnCount ?? 0)"
         if markdown.count > 20 {
             // ViewThatFits picks the first child whose natural size fits
             // the proposed container. The container is capped at

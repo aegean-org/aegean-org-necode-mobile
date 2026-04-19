@@ -65,8 +65,6 @@ struct HomeDashboardServer: Identifiable, Equatable {
 
 @MainActor
 enum HomeDashboardSupport {
-    /// Pass `limit: nil` to return every session across connected servers
-    /// (used by the thread-search view). Default is the home task list cap.
     static func recentConnectedSessions(
         from sessions: [AppSessionSummary],
         serversById: [String: HomeDashboardServer],

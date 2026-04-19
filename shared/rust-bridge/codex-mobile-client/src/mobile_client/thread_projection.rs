@@ -913,6 +913,44 @@ pub(super) fn active_turn_id_from_turns(turns: &[upstream::Turn]) -> Option<Stri
         .map(|turn| turn.id.clone())
 }
 
+/// Decide active-turn state for a freshly-rebuilt thread snapshot, given the
+/// caller's existing snapshot (if any) and the upstream turn list the rebuild
+/// was derived from.
+///
+/// Rules:
+/// - If `target` already shows an InProgress turn, trust it.
+/// - Otherwise, if existing has an active turn:
+///   - With no turn list available (e.g. include_turns=false), preserve local
+///     state — we have no evidence the turn ended.
+///   - With a turn list, preserve only if our local id appears as InProgress
+///     (defensive); otherwise honor the rebuild and clear.
+/// - `info.status` is derived from the resolved `active_turn_id`: Active iff
+///   Some, otherwise the upstream-supplied value is left untouched.
+pub fn reconcile_active_turn(
+    existing: Option<&ThreadSnapshot>,
+    target: &mut ThreadSnapshot,
+    upstream_turns: &[upstream::Turn],
+) {
+    if target.active_turn_id.is_some() {
+        target.info.status = ThreadSummaryStatus::Active;
+        return;
+    }
+    let Some(local_id) = existing.and_then(|t| t.active_turn_id.clone()) else {
+        return;
+    };
+    let preserve = if upstream_turns.is_empty() {
+        true
+    } else {
+        upstream_turns
+            .iter()
+            .any(|t| t.id == local_id && matches!(t.status, upstream::TurnStatus::InProgress))
+    };
+    if preserve {
+        target.active_turn_id = Some(local_id);
+        target.info.status = ThreadSummaryStatus::Active;
+    }
+}
+
 pub(super) struct ThreadProjection {
     pub(super) snapshot: ThreadSnapshot,
     pub(super) pending_approvals: Vec<PendingApprovalWithSeed>,

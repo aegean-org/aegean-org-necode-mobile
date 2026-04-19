@@ -615,7 +615,7 @@ private struct ConversationMessageList: View {
                                     onOpenConversation: onOpenConversation
                                 )
                                 .equatable()
-                                .modifier(TurnDebugOverlay(turnId: turn.id))
+                                .turnDebugOverlay(turnId: turn.id)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -3160,26 +3160,41 @@ private struct DebugPopoverContent: View {
 
 private struct TurnDebugOverlay: ViewModifier {
     let turnId: String
-    @State private var debugSettings = DebugSettings.shared
 
+    // Debug is already gated at the call site via `.turnDebugOverlay(turnId:)`,
+    // so this modifier only runs when debug overlays should actually render —
+    // no inner if/else branch means SwiftUI no longer has to diff a
+    // `_ConditionalContent<Modified, Content>` per turn on every body eval.
     func body(content: Content) -> some View {
-        if debugSettings.enabled && debugSettings.showTurnMetrics {
-            content
-                .overlay(
-                    GeometryReader { geo in
-                        VStack(alignment: .leading) {
-                            Text("\(turnId.prefix(8)) h=\(Int(geo.size.height)) y=\(Int(geo.frame(in: .global).minY))")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.red)
-                                .padding(2)
-                                .background(.black.opacity(0.7))
-                            Spacer()
-                        }
+        content
+            .overlay(
+                GeometryReader { geo in
+                    VStack(alignment: .leading) {
+                        Text("\(turnId.prefix(8)) h=\(Int(geo.size.height)) y=\(Int(geo.frame(in: .global).minY))")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(.red)
+                            .padding(2)
+                            .background(.black.opacity(0.7))
+                        Spacer()
                     }
-                )
-                .border(Color.red.opacity(0.3), width: 1)
+                }
+            )
+            .border(Color.red.opacity(0.3), width: 1)
+    }
+}
+
+extension View {
+    /// Applies `TurnDebugOverlay` only when debug settings opt into turn
+    /// metrics. Reading the flag here — rather than inside the modifier's
+    /// body — means the overlay node doesn't participate in the view tree
+    /// at all for the common (debug-off) case, saving per-turn per-diff
+    /// modifier evaluation cost.
+    @ViewBuilder
+    fileprivate func turnDebugOverlay(turnId: String) -> some View {
+        if DebugSettings.shared.enabled && DebugSettings.shared.showTurnMetrics {
+            self.modifier(TurnDebugOverlay(turnId: turnId))
         } else {
-            content
+            self
         }
     }
 }

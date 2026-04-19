@@ -259,6 +259,14 @@ impl AppStoreReducer {
                     preserve_thread_title(&entry.info, &mut next_info);
                     preserve_thread_preview(&entry.info, &mut next_info);
                     preserve_thread_created_at(&entry.info, &mut next_info);
+                    // thread/list carries no turn data, so it cannot authoritatively
+                    // close an in-flight turn. Only TurnCompleted (or a rebuild that
+                    // includes the turn list) can downgrade Active → Idle.
+                    if matches!(next_info.status, ThreadSummaryStatus::Idle)
+                        && entry.active_turn_id.is_some()
+                    {
+                        next_info.status = entry.info.status.clone();
+                    }
                     let next_model = next_info.model.clone().or_else(|| entry.model.clone());
                     let info_changed = entry.info != next_info;
                     let model_changed = entry.model != next_model;
@@ -1883,7 +1891,16 @@ impl AppStoreReducer {
             if info.updated_at.is_some() {
                 thread.info.updated_at = info.updated_at;
             }
-            thread.info.status = info.status;
+            // ThreadStatusChanged is metadata-only; it cannot close an in-flight
+            // turn. Only TurnCompleted (or a rebuild with the turn list) is
+            // allowed to downgrade Active → Idle.
+            thread.info.status = if matches!(info.status, ThreadSummaryStatus::Idle)
+                && thread.active_turn_id.is_some()
+            {
+                thread.info.status.clone()
+            } else {
+                info.status
+            };
             mutate(thread);
             inserted
         };

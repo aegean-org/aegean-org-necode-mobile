@@ -416,7 +416,7 @@ fun ComposerBar(
                 Text(
                     text = "Submit",
                     color = Color.Black,
-                    fontSize = 13.sp,
+                    fontSize = LitterTextStyle.code.scaled,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .background(LitterTheme.accent, RoundedCornerShape(8.dp))
@@ -517,7 +517,7 @@ fun ComposerBar(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("/${cmd.name}", color = LitterTheme.accent, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
                                         Spacer(Modifier.width(8.dp))
-                                        Text(cmd.description, color = LitterTheme.textMuted, fontSize = 11.sp)
+                                        Text(cmd.description, color = LitterTheme.textMuted, fontSize = LitterTextStyle.caption2.scaled)
                                     }
                                 },
                                 onClick = {
@@ -538,7 +538,7 @@ fun ComposerBar(
                     ) {
                         for (path in fileSearchResults) {
                             DropdownMenuItem(
-                                text = { Text(path, color = LitterTheme.textPrimary, fontSize = 12.sp, fontFamily = LitterTheme.monoFont) },
+                                text = { Text(path, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.caption.scaled, fontFamily = LitterTheme.monoFont) },
                                 onClick = {
                                     showFileMenu = false
                                     val atIdx = text.lastIndexOf('@')
@@ -850,7 +850,7 @@ private fun QueuedFollowUpsPreviewPanel(
             Text(
                 text = previews.size.toString(),
                 color = LitterTheme.textSecondary,
-                fontSize = 11.sp,
+                fontSize = LitterTextStyle.caption2.scaled,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .background(LitterTheme.surface.copy(alpha = 0.9f), RoundedCornerShape(999.dp))
@@ -904,7 +904,7 @@ private fun QueuedFollowUpCard(
                 Text(
                     text = style.title,
                     color = style.tint,
-                    fontSize = 11.sp,
+                    fontSize = LitterTextStyle.caption2.scaled,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -1119,7 +1119,7 @@ private fun AttachmentActionRow(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, color = LitterTheme.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text(title, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.body.scaled, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -1184,7 +1184,7 @@ private fun RateLimitBadge(window: uniffi.codex_mobile_client.RateLimitWindow) {
         Text(
             text = label,
             color = LitterTheme.textSecondary,
-            fontSize = 10.sp,
+            fontSize = 10f.scaled,
             fontWeight = FontWeight.SemiBold,
             fontFamily = LitterTheme.monoFont,
         )
@@ -1223,7 +1223,7 @@ private fun ContextBadge(
         Text(
             text = "$normalizedPercent",
             color = tint,
-            fontSize = 9.sp,
+            fontSize = 9f.scaled,
             fontWeight = FontWeight.ExtraBold,
             fontFamily = LitterTheme.monoFont,
             modifier = Modifier.align(Alignment.Center),
