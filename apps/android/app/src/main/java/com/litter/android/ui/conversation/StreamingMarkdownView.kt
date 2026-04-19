@@ -1,8 +1,6 @@
 package com.litter.android.ui.conversation
 
 import android.graphics.BitmapFactory
-import android.text.method.LinkMovementMethod
-import android.widget.TextView
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -24,20 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
-import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.scaled
-import io.noties.markwon.Markwon
-import io.noties.markwon.syntax.SyntaxHighlightPlugin
-import io.noties.prism4j.Prism4j
 import uniffi.codex_mobile_client.AppMessageRenderBlock
 
 /**
@@ -147,34 +138,10 @@ private fun StreamingMarkdownText(
     modifier: Modifier = Modifier,
     bodySize: Float = LitterTextStyle.body,
 ) {
-    val context = LocalContext.current
-    val textScale = LocalTextScale.current
-    val markwon = remember(context) {
-        try {
-            val prism4j = Prism4j(com.litter.android.ui.Prism4jGrammarLocator())
-            Markwon.builder(context)
-                .usePlugin(SyntaxHighlightPlugin.create(prism4j, io.noties.markwon.syntax.Prism4jThemeDarkula.create()))
-                .build()
-        } catch (_: Exception) {
-            Markwon.create(context)
-        }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            TextView(ctx).apply {
-                setTextColor(LitterTheme.textBody.toArgb())
-                textSize = bodySize * textScale
-                movementMethod = LinkMovementMethod.getInstance()
-                setLinkTextColor(LitterTheme.accent.toArgb())
-            }
-        },
-        update = { tv ->
-            tv.setTextColor(LitterTheme.textBody.toArgb())
-            tv.textSize = bodySize * textScale
-            markwon.setMarkdown(tv, text)
-        },
+    SelectableMarkdownText(
+        text = text,
         modifier = modifier.fillMaxWidth(),
+        bodySize = bodySize,
     )
 }
 
@@ -203,13 +170,15 @@ private fun StreamingCodeBlock(
                 .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
                 .padding(10.dp),
         ) {
-            Text(
-                text = code,
-                color = LitterTheme.textBody,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = bodySize.scaled,
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            )
+            SelectableConversationText {
+                Text(
+                    text = code,
+                    color = LitterTheme.textBody,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = bodySize.scaled,
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                )
+            }
         }
     }
 }

@@ -7,12 +7,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.text.method.LinkMovementMethod
 import android.util.Base64
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.TextView
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -58,7 +56,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
@@ -78,9 +75,6 @@ import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.scaled
 import com.litter.android.state.AppModel
-import io.noties.markwon.Markwon
-import io.noties.markwon.syntax.SyntaxHighlightPlugin
-import io.noties.prism4j.Prism4j
 import org.json.JSONArray
 import org.json.JSONObject
 import uniffi.codex_mobile_client.AppMessageRenderBlock
@@ -273,11 +267,13 @@ private fun UserMessageRow(
                     )
                     .padding(10.dp),
             ) {
-                com.litter.android.ui.common.FormattedText(
-                    text = data.text,
-                    color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.callout.scaled,
-                )
+                SelectableConversationText {
+                    com.litter.android.ui.common.FormattedText(
+                        text = data.text,
+                        color = LitterTheme.textPrimary,
+                        fontSize = LitterTextStyle.callout.scaled,
+                    )
+                }
                 // Inline images from data URIs
                 for (uri in data.imageDataUris) {
                     val bitmap = remember(uri) {
@@ -579,16 +575,19 @@ private fun ReasoningRow(
 
     if (reasoningText.isBlank()) return
 
-    Text(
-        text = reasoningText,
-        color = LitterTheme.textSecondary,
-        fontSize = LitterTextStyle.body.scaled,
-        fontFamily = LitterTheme.monoFont,
-        fontStyle = FontStyle.Italic,
+    SelectableConversationText(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-    )
+    ) {
+        Text(
+            text = reasoningText,
+            color = LitterTheme.textSecondary,
+            fontSize = LitterTextStyle.body.scaled,
+            fontFamily = LitterTheme.monoFont,
+            fontStyle = FontStyle.Italic,
+        )
+    }
 }
 
 // ── Command Execution ────────────────────────────────────────────────────────
@@ -676,15 +675,17 @@ private fun CommandExecutionRow(
                     .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
-                Text(
-                    text = outputText,
-                    color = LitterTheme.textSecondary,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = LitterTextStyle.body.scaled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(outputScrollState),
-                )
+                SelectableConversationText {
+                    Text(
+                        text = outputText,
+                        color = LitterTheme.textSecondary,
+                        fontFamily = LitterTheme.monoFont,
+                        fontSize = LitterTextStyle.body.scaled,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(outputScrollState),
+                    )
+                }
             }
         }
     }
@@ -1476,25 +1477,27 @@ private fun ErrorRow(
             .background(LitterTheme.surface, RoundedCornerShape(8.dp))
             .padding(8.dp),
     ) {
-        Text(
-            text = data.title.ifBlank { "Error" },
-            color = LitterTheme.danger,
-            fontSize = LitterTextStyle.body.scaled,
-            fontWeight = FontWeight.Medium,
-        )
-        Text(
-            text = data.message,
-            color = LitterTheme.textPrimary,
-            fontSize = LitterTextStyle.body.scaled,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-        data.details?.takeIf { it.isNotBlank() }?.let { details ->
+        SelectableConversationText {
             Text(
-                text = details,
-                color = LitterTheme.textSecondary,
+                text = data.title.ifBlank { "Error" },
+                color = LitterTheme.danger,
+                fontSize = LitterTextStyle.body.scaled,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = data.message,
+                color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.body.scaled,
                 modifier = Modifier.padding(top = 2.dp),
             )
+            data.details?.takeIf { it.isNotBlank() }?.let { details ->
+                Text(
+                    text = details,
+                    color = LitterTheme.textSecondary,
+                    fontSize = LitterTextStyle.body.scaled,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }
@@ -1507,43 +1510,19 @@ private fun MarkdownText(
     modifier: Modifier = Modifier,
 ) {
     if (com.litter.android.state.DebugSettings.enabled && com.litter.android.state.DebugSettings.disableMarkdown) {
-        Text(
-            text = text,
-            color = LitterTheme.textBody,
-            fontFamily = FontFamily.Monospace,
-            fontSize = LitterTextStyle.body.scaled,
-            modifier = modifier.fillMaxWidth(),
-        )
+        SelectableConversationText(modifier = modifier.fillMaxWidth()) {
+            Text(
+                text = text,
+                color = LitterTheme.textBody,
+                fontFamily = FontFamily.Monospace,
+                fontSize = LitterTextStyle.body.scaled,
+            )
+        }
         return
     }
 
-    val context = LocalContext.current
-    val textScale = LocalTextScale.current
-    val markwon = remember(context) {
-        try {
-            val prism4j = Prism4j(com.litter.android.ui.Prism4jGrammarLocator())
-            Markwon.builder(context)
-                .usePlugin(SyntaxHighlightPlugin.create(prism4j, io.noties.markwon.syntax.Prism4jThemeDarkula.create()))
-                .build()
-        } catch (_: Exception) {
-            Markwon.create(context)
-        }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            TextView(ctx).apply {
-                setTextColor(LitterTheme.textBody.toArgb())
-                textSize = LitterTextStyle.body * textScale
-                movementMethod = LinkMovementMethod.getInstance()
-                setLinkTextColor(LitterTheme.accent.toArgb())
-            }
-        },
-        update = { tv ->
-            tv.setTextColor(LitterTheme.textBody.toArgb())
-            tv.textSize = LitterTextStyle.body * textScale
-            markwon.setMarkdown(tv, text)
-        },
+    SelectableMarkdownText(
+        text = text,
         modifier = modifier.fillMaxWidth(),
     )
 }
@@ -1609,13 +1588,15 @@ private fun CodeBlockSegment(
                 .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
                 .padding(10.dp),
         ) {
-            Text(
-                text = code,
-                color = LitterTheme.textBody,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.body.scaled,
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            )
+            SelectableConversationText {
+                Text(
+                    text = code,
+                    color = LitterTheme.textBody,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = LitterTextStyle.body.scaled,
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                )
+            }
         }
     }
 }

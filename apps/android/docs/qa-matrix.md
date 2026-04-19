@@ -75,6 +75,15 @@ Current automated checks:
 - Chat wallpaper can be chosen from the photo library, persists across relaunch, and can be removed from Settings.
 - Conversation screen and appearance preview both render the selected wallpaper instead of the fallback theme gradient.
 
+### Conversation Selection
+
+- Settled assistant markdown supports long-press selection/copy.
+- Reasoning text supports long-press selection/copy.
+- Command output supports selection/copy and still scrolls vertically.
+- Error text supports selection/copy.
+- Code blocks support selection/copy and still scroll horizontally.
+- Markdown links remain tappable after selection support changes.
+
 ## Home Dashboard Zoom + Swipe Reply Parity (mirrors iOS b96961b3 + 52ff299d)
 
 Ported in parallel with the iOS "new ui" and "new ui stuff" commits. Each
