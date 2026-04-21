@@ -433,6 +433,7 @@ private struct HomeNavigationView: View {
     @State private var isStartingNewSession = false
     @State private var isStartingVoice = false
     @State private var actionErrorMessage: String?
+    @State private var homeInputMode: HomeInputMode = .collapsed
     @State private var hasSeededInitialConversationRoute = false
     @State private var pendingWallpaperConfig: WallpaperConfig?
     @State private var pendingWallpaperImage: UIImage?
@@ -476,7 +477,9 @@ private struct HomeNavigationView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if isHomeRouteActive, experimentalFeatures.isEnabled(.realtimeVoice) {
+                if isHomeRouteActive,
+                   experimentalFeatures.isEnabled(.realtimeVoice),
+                   homeInputMode == .collapsed {
                     homeVoiceLauncher
                 }
             }
@@ -978,6 +981,9 @@ private struct HomeNavigationView: View {
             },
             onSendReply: sendQuickReply,
             onCancelThread: cancelThread,
+            onInputModeChange: { mode in
+                homeInputMode = mode
+            },
             onLoadAllThreads: loadAllThreads
         )
     }

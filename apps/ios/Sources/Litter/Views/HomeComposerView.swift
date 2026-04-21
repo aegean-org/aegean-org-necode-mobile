@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import UIKit
 import os
 
@@ -22,6 +23,9 @@ struct HomeComposerView: View {
     @State private var inputText = ""
     @State private var attachedImage: UIImage?
     @State private var showAttachMenu = false
+    @State private var showPhotoPicker = false
+    @State private var showCamera = false
+    @State private var selectedPhoto: PhotosPickerItem?
     @State private var voiceManager = VoiceTranscriptionManager()
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -99,6 +103,29 @@ struct HomeComposerView: View {
         }
         .onChange(of: isActive) { _, active in
             onActiveChange?(active)
+        }
+        .sheet(isPresented: $showAttachMenu) {
+            ConversationComposerAttachSheet(
+                onPickPhotoLibrary: {
+                    showAttachMenu = false
+                    showPhotoPicker = true
+                },
+                onTakePhoto: {
+                    showAttachMenu = false
+                    showCamera = true
+                }
+            )
+            .presentationDetents([.height(210)])
+            .presentationDragIndicator(.visible)
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhoto, matching: .images)
+        .onChange(of: selectedPhoto) { _, item in
+            guard let item else { return }
+            Task { await loadSelectedPhoto(item) }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraView(image: $attachedImage)
+                .ignoresSafeArea()
         }
         .task {
             // Focus as early as possible so the keyboard rises in parallel
@@ -182,6 +209,14 @@ struct HomeComposerView: View {
             guard granted else { return }
             voiceManager.startRecording()
         }
+    }
+
+    private func loadSelectedPhoto(_ item: PhotosPickerItem) async {
+        if let data = try? await item.loadTransferable(type: Data.self),
+           let image = UIImage(data: data) {
+            attachedImage = image
+        }
+        selectedPhoto = nil
     }
 
     private func stopVoiceRecording() {

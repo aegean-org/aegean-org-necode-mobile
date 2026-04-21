@@ -34,6 +34,7 @@ struct HomeDashboardView: View {
     /// Cancels the active turn on the given thread. Caller looks up the
     /// thread's `activeTurnId` and calls `appModel.client.interruptTurn`.
     var onCancelThread: (@MainActor (ThreadKey) async -> Void)? = nil
+    var onInputModeChange: ((HomeInputMode) -> Void)? = nil
 
     @State private var deleteTargetThread: HomeDashboardRecentSession?
     @State private var replyTargetThread: HomeDashboardRecentSession?
@@ -103,6 +104,10 @@ struct HomeDashboardView: View {
 
     var body: some View {
         canvas
+            .onAppear { onInputModeChange?(inputMode) }
+            .onChange(of: inputMode) { _, nextMode in
+                onInputModeChange?(nextMode)
+            }
             .task { await TipJarStore.shared.loadProducts() }
             .onAppear { autoHydrateIfNeeded() }
             .onChange(of: visibleSessions.map { hydrationId($0.key) }) { _, _ in
@@ -433,6 +438,13 @@ struct SessionCanvasLine: View {
         return s == "pending" || s == "inprogress"
     }
 
+    /// Keep home-screen tool activity subordinate to assistant/user text.
+    /// The home card's response preview uses conversation-body sizing, so
+    /// the tool log should step down a tier rather than compete with it.
+    private var toolLogFontSize: CGFloat {
+        max(12, LitterFont.conversationBodyPointSize - 3)
+    }
+
     // ────────────────────────────────────────────────────
     // Zoom levels — each must feel distinct:
     //
@@ -760,11 +772,9 @@ struct SessionCanvasLine: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        // Match the conversation view's tool-call summary size —
-        // `ToolCallCardView` uses `.litterFont(size: contentFontSize)` =
-        // `LitterFont.conversationBodyPointSize` — and a regular (non-mono)
-        // font so titles/messages/tools all read at the same scale.
-        .litterFont(size: LitterFont.conversationBodyPointSize)
+        // Keep tool activity smaller than the assistant response preview so
+        // the response remains the primary content on the card.
+        .litterFont(size: toolLogFontSize)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -778,14 +788,14 @@ struct SessionCanvasLine: View {
         switch tool {
         case "MCP":
             Image(systemName: "desktopcomputer")
-                .litterFont(size: 12, weight: .semibold)
+                .litterFont(size: toolLogFontSize - 1, weight: .semibold)
         case "Tool":
             Image(systemName: "wrench.and.screwdriver")
-                .litterFont(size: 12, weight: .semibold)
+                .litterFont(size: toolLogFontSize - 1, weight: .semibold)
         case "Bash":
-            Text("$").litterFont(size: 12, weight: .semibold)
+            Text("$").litterFont(size: toolLogFontSize - 1, weight: .semibold)
         case "Edit":
-            Text("✎").litterFont(size: 12, weight: .semibold)
+            Text("✎").litterFont(size: toolLogFontSize - 1, weight: .semibold)
         case "Explore", "WebSearch":
             // Use an SF Symbol to match the size/weight of the other
             // Image-based icons (MCP/Tool); the "⌕" glyph renders
@@ -793,10 +803,10 @@ struct SessionCanvasLine: View {
             // Unicode metrics for that character put the visual mass
             // over a bigger box.
             Image(systemName: "magnifyingglass")
-                .litterFont(size: 12, weight: .semibold)
+                .litterFont(size: toolLogFontSize - 1, weight: .semibold)
         default:
             Text(tool.prefix(1).uppercased())
-                .litterFont(size: 12, weight: .semibold)
+                .litterFont(size: toolLogFontSize - 1, weight: .semibold)
         }
     }
 
@@ -1029,4 +1039,3 @@ extension View {
             .allowsHitTesting(visible)
     }
 }
-
