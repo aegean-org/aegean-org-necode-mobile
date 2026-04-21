@@ -11,9 +11,9 @@ final class HomeDashboardModel {
     }
 
     private(set) var connectedServers: [HomeDashboardServer] = []
-    /// Home list source: pinned threads first (in pin order), then filled
-    /// from recent to reach 10 when pinnedCount < 10. When pinnedCount >= 10,
-    /// all pinned threads are shown (unbounded).
+    /// Home list source: pinned threads first (in pin order). If nothing is
+    /// pinned, show the 10 most-recent sessions. Hidden threads are always
+    /// excluded.
     private(set) var recentSessions: [HomeDashboardRecentSession] = []
     /// Every session we know about across connected servers, newest first —
     /// used by the search view so the user can pick any thread.

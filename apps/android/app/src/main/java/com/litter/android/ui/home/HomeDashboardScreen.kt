@@ -139,9 +139,9 @@ fun HomeDashboardScreen(
     var pinnedKeys by remember { mutableStateOf(SavedThreadsStore.pinnedKeys(context)) }
     var hiddenKeys by remember { mutableStateOf(SavedThreadsStore.hiddenKeys(context)) }
 
-    // Home list = pinned first (preserving pin order), filled from recent up
-    // to 10 when pinnedCount < 10, else all pinned (unbounded). Hidden
-    // threads are excluded from both halves.
+    // Home list = pinned first (preserving pin order). If nothing is pinned,
+    // show the 10 most-recent sessions. Hidden threads are excluded from
+    // both halves.
     val homeSessions = remember(pinnedKeys, hiddenKeys, allSessions) {
         mergeHomeSessions(pinnedKeys, hiddenKeys, allSessions)
     }
@@ -627,17 +627,51 @@ fun HomeDashboardScreen(
                         )
                     }
                     else -> {
-                        // Collapsed: two icon pills, + on the left, search on the right.
+                        // Collapsed: realtime voice pill on the left, + and search
+                        // pills on the right. All three share the same 44dp
+                        // circular glass style; only the mic pill's icon tint
+                        // reflects live voice state.
+                        val realtimeAvailable = remember {
+                            ExperimentalFeatures.isEnabled(LitterFeature.REALTIME_VOICE)
+                        }
+                        val voicePhase = snapshot?.voiceSession?.phase
+                        val voiceIconTint = when (voicePhase) {
+                            uniffi.codex_mobile_client.AppVoiceSessionPhase.CONNECTING,
+                            uniffi.codex_mobile_client.AppVoiceSessionPhase.LISTENING,
+                            -> LitterTheme.accent
+                            uniffi.codex_mobile_client.AppVoiceSessionPhase.SPEAKING,
+                            uniffi.codex_mobile_client.AppVoiceSessionPhase.THINKING,
+                            uniffi.codex_mobile_client.AppVoiceSessionPhase.HANDOFF,
+                            -> LitterTheme.warning
+                            uniffi.codex_mobile_client.AppVoiceSessionPhase.ERROR -> LitterTheme.danger
+                            null -> LitterTheme.textSecondary
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(
-                                10.dp,
-                                Alignment.End,
-                            ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            if (realtimeAvailable && onStartVoice != null) {
+                                androidx.compose.material3.IconButton(
+                                    onClick = { onStartVoice() },
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .background(
+                                            LitterTheme.surface.copy(alpha = 0.9f),
+                                            CircleShape,
+                                        ),
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Default.Mic,
+                                        contentDescription = "Start realtime voice",
+                                        tint = voiceIconTint,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
                             androidx.compose.material3.IconButton(
                                 onClick = { isComposerActive = true },
                                 modifier = Modifier
@@ -654,6 +688,7 @@ fun HomeDashboardScreen(
                                     modifier = Modifier.size(22.dp),
                                 )
                             }
+                            Spacer(Modifier.width(10.dp))
                             androidx.compose.material3.IconButton(
                                 onClick = { isSearchExpanded = true },
                                 modifier = Modifier

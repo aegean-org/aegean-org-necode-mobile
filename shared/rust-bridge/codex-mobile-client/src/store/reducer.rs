@@ -238,7 +238,6 @@ impl AppStoreReducer {
         let mut active_thread_cleared = false;
         let mut pending_approvals = None;
         let mut pending_user_inputs = None;
-        let mut voice_session_changed = false;
         let agent_directory_version;
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
@@ -330,17 +329,11 @@ impl AppStoreReducer {
             if snapshot.pending_user_inputs.len() != pending_user_inputs_before {
                 pending_user_inputs = Some(snapshot.pending_user_inputs.clone());
             }
-            if snapshot
-                .voice_session
-                .active_thread
-                .as_ref()
-                .is_some_and(|key| {
-                    key.server_id == server_id && !incoming_ids.contains(&key.thread_id)
-                })
-            {
-                snapshot.voice_session = AppVoiceSessionSnapshot::default();
-                voice_session_changed = true;
-            }
+            // See `finalize_thread_list_sync`: we do NOT tear down an
+            // active voice session just because the thread/list page
+            // happens to omit the voice thread. The thread may simply
+            // be too new, or the page may be filtered. Let
+            // RealtimeStarted/RealtimeClosed drive voice_session state.
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         for key in removed_thread_keys {
@@ -362,9 +355,6 @@ impl AppStoreReducer {
         if let Some(requests) = pending_user_inputs {
             self.emit(AppStoreUpdateRecord::PendingUserInputsChanged { requests });
         }
-        if voice_session_changed {
-            self.emit(AppStoreUpdateRecord::VoiceSessionChanged);
-        }
         if active_thread_cleared {
             self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key: None });
         }
@@ -381,7 +371,6 @@ impl AppStoreReducer {
         let mut active_thread_cleared = false;
         let mut pending_approvals = None;
         let mut pending_user_inputs = None;
-        let mut voice_session_changed = false;
         let agent_directory_version;
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
@@ -439,17 +428,15 @@ impl AppStoreReducer {
             if snapshot.pending_user_inputs.len() != pending_user_inputs_before {
                 pending_user_inputs = Some(snapshot.pending_user_inputs.clone());
             }
-            if snapshot
-                .voice_session
-                .active_thread
-                .as_ref()
-                .is_some_and(|key| {
-                    key.server_id == server_id && !incoming_ids.contains(&key.thread_id)
-                })
-            {
-                snapshot.voice_session = AppVoiceSessionSnapshot::default();
-                voice_session_changed = true;
-            }
+            // Intentionally do NOT clear voice_session here based on
+            // list-sync output. A list_threads RPC may omit a brand-new
+            // voice thread (e.g. the one realtime voice is running on
+            // right now was created seconds ago and isn't materialized
+            // in the listing yet). When the assistant itself calls the
+            // `list_sessions` tool mid-conversation, clearing
+            // voice_session here would tear down the live call. The
+            // authoritative lifecycle signal is RealtimeStarted /
+            // RealtimeClosed.
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         for key in removed_thread_keys {
@@ -463,9 +450,6 @@ impl AppStoreReducer {
         }
         if let Some(requests) = pending_user_inputs {
             self.emit(AppStoreUpdateRecord::PendingUserInputsChanged { requests });
-        }
-        if voice_session_changed {
-            self.emit(AppStoreUpdateRecord::VoiceSessionChanged);
         }
         if active_thread_cleared {
             self.emit(AppStoreUpdateRecord::ActiveThreadChanged { key: None });

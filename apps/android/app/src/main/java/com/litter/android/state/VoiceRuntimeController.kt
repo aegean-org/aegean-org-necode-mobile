@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.AppDynamicToolSpec
 import uniffi.codex_mobile_client.AppStoreUpdateRecord
 import uniffi.codex_mobile_client.HandoffManager
+import uniffi.codex_mobile_client.PinnedThreadKey
 import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.AppAppendRealtimeAudioRequest
 import uniffi.codex_mobile_client.AppFinalizeRealtimeHandoffRequest
@@ -579,6 +580,10 @@ class VoiceRuntimeController {
                     preferredVoiceThreadCwd(appModel, key = null, fallback = cwd),
                 ),
             )
+            SavedThreadsStore.add(
+                appModel.appContext,
+                PinnedThreadKey(serverId = key.serverId, threadId = key.threadId),
+            )
             appModel.store.setActiveThread(key)
             setPersistedLocalVoiceThreadId(appModel, key.threadId)
             appModel.refreshSnapshot()
@@ -718,6 +723,10 @@ class VoiceRuntimeController {
                     val key = appModel.client.startThread(
                         action.targetServerId,
                         appModel.launchState.threadStartRequest(action.cwd),
+                    )
+                    SavedThreadsStore.add(
+                        appModel.appContext,
+                        PinnedThreadKey(serverId = key.serverId, threadId = key.threadId),
                     )
                     handoffManager?.uniffiReportThreadCreated(action.handoffId, action.targetServerId, key.threadId)
                 } catch (e: Exception) {

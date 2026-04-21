@@ -56,7 +56,8 @@ final class VoiceRuntimeController: VoiceActions {
         approvalPolicy: AppAskForApproval?,
         sandboxMode: AppSandboxMode?
     ) async throws {
-        guard activeVoiceSession == nil else { return }
+        if let existing = activeVoiceSession, existing.phase != .error { return }
+        if activeVoiceSession != nil { endVoiceSessionImmediately() }
         let key = try await ensurePinnedLocalVoiceThread(
             cwd: cwd,
             model: model,
@@ -196,6 +197,7 @@ final class VoiceRuntimeController: VoiceActions {
                 persistExtendedHistory: true
             ).threadStartRequest(cwd: preferredVoiceThreadCwd(for: nil, fallback: cwd))
         )
+        SavedThreadsStore.add(.init(threadKey: key))
         appModel.store.setActiveThread(key: key)
         setPersistedLocalVoiceThreadId(key.threadId)
         await appModel.refreshSnapshot()
@@ -392,11 +394,29 @@ final class VoiceRuntimeController: VoiceActions {
         guard activeVoiceSession?.threadKey == key else { return }
 
         let reason = notification.reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if voiceStopRequestedThreadKey == key || reason == "requested" {
+        let userRequested = voiceStopRequestedThreadKey == key
+
+        // User-initiated stop: clean end, even if the session was already in
+        // an error state.
+        if userRequested {
             voiceStopRequestedThreadKey = nil
             endVoiceSessionImmediately()
             return
         }
+
+        // Close arriving after a RealtimeError carries reason="requested"
+        // because the server auto-closes the broken session. Keep the
+        // session alive in its error state so the user can see what went
+        // wrong and dismiss via the End button.
+        if activeVoiceSession?.phase == .error {
+            return
+        }
+
+        if reason == "requested" {
+            endVoiceSessionImmediately()
+            return
+        }
+
         // Unexpected close — end the session with an error so the UI doesn't
         // get stuck in a stale "Listening" / "Speaking" state.
         let message = reason.isEmpty ? "Voice session closed unexpectedly" : "Voice session closed: \(reason)"
@@ -461,6 +481,7 @@ final class VoiceRuntimeController: VoiceActions {
                     persistExtendedHistory: true
                 ).threadStartRequest(cwd: cwd)
             )
+            SavedThreadsStore.add(.init(threadKey: key))
             appModel.store.setActiveThread(key: key)
             await appModel.refreshSnapshot()
             handoffManager.reportThreadCreated(handoffId: handoffId, serverId: serverId, threadId: key.threadId)

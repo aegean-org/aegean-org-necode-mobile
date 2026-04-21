@@ -475,6 +475,11 @@ private struct HomeNavigationView: View {
                     LitterTheme.backgroundGradient.ignoresSafeArea()
                 }
             }
+            .overlay(alignment: .bottomLeading) {
+                if isHomeRouteActive, experimentalFeatures.isEnabled(.realtimeVoice) {
+                    homeVoiceLauncher
+                }
+            }
             .navigationDestination(for: HomeNavigationRoute.self) { route in
                 switch route {
                 case let .sessions(serverId, title):
@@ -692,18 +697,17 @@ private struct HomeNavigationView: View {
     }
 
     private var homeVoiceLauncher: some View {
-        HStack {
-            Spacer()
-            HomeVoiceOrbButton(
-                session: voiceRuntime.activeVoiceSession,
-                isAvailable: true,
-                isStarting: isStartingVoice,
-                action: startHomeVoiceSession
-            )
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, max(bottomInset - 12, 6))
+        HomeVoiceOrbButton(
+            session: voiceRuntime.activeVoiceSession,
+            isAvailable: true,
+            isStarting: isStartingVoice,
+            action: startHomeVoiceSession
+        )
+        // Match the bottom inset used by `HomeBottomBar` inside
+        // `HomeDashboardView.bottomChrome` so the mic button sits on the
+        // same horizontal line as the `+` and search pills on the right.
+        .padding(.leading, 14)
+        .padding(.bottom, 4)
     }
 
     private func startHomeVoiceSession() {
@@ -832,6 +836,7 @@ private struct HomeNavigationView: View {
             )
             startedKey = key
             RecentDirectoryStore.shared.record(path: cwd, for: serverId)
+            homeDashboardModel.pinThread(key)
             appModel.store.setActiveThread(key: startedKey)
             await appModel.refreshSnapshot()
         } catch {
@@ -1006,7 +1011,7 @@ private struct HomeNavigationView: View {
         // flip but the streaming bubble, tool log, and session-summary
         // updates would stay frozen until the user opened the thread.
         //
-        // For a 10-row home list the listener cost is trivial, and
+        // For the home list the listener cost is still low enough, and
         // resuming preemptively avoids the "first half-second of a stream
         // is missed while we set up a subscription" latency window that an
         // active-only subscription strategy would have. `externalResume`

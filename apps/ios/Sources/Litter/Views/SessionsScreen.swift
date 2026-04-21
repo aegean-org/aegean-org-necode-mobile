@@ -1114,6 +1114,7 @@ struct SessionsScreen: View {
                 )
             )
             RecentDirectoryStore.shared.record(path: cwd, for: serverId)
+            SavedThreadsStore.add(.init(threadKey: startedKey))
             appModel.store.setActiveThread(key: startedKey)
             await appModel.refreshSnapshot()
 

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
 import com.litter.android.state.NetworkDiscovery
+import com.litter.android.state.SavedThreadsStore
 import com.litter.android.state.VoiceRuntimeController
 import com.litter.android.state.connectionModeLabel
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ import com.litter.android.ui.sessions.DirectoryPickerSheet
 import com.litter.android.ui.sessions.SessionLaunchSupport
 import com.litter.android.ui.sessions.SessionsUiState
 import uniffi.codex_mobile_client.AppProject
+import uniffi.codex_mobile_client.PinnedThreadKey
 import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.deriveProjects
 import uniffi.codex_mobile_client.projectIdFor
@@ -172,6 +174,10 @@ fun LitterApp(appModel: AppModel) {
                 appModel.launchState.threadStartRequest(cwd),
             )
             RecentDirectoryStore(context).record(serverId, cwd)
+            SavedThreadsStore.add(
+                context,
+                PinnedThreadKey(serverId = startedKey.serverId, threadId = startedKey.threadId),
+            )
             appModel.store.setActiveThread(startedKey)
             appModel.refreshSnapshot()
             val resolvedKey = appModel.ensureThreadLoaded(startedKey)
@@ -260,8 +266,11 @@ fun LitterApp(appModel: AppModel) {
                                 selectedServerId = server.serverId
                             }
                         },
-                        onThreadCreated = { _ ->
-                            // Thread appears in recentSessions via snapshot update.
+                        onThreadCreated = { key ->
+                            SavedThreadsStore.add(
+                                context,
+                                PinnedThreadKey(serverId = key.serverId, threadId = key.threadId),
+                            )
                         },
                         onStartVoice = {
                             scope.launch {
