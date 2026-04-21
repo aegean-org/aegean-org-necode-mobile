@@ -5,7 +5,10 @@ use std::sync::RwLock;
 use codex_app_server_protocol as upstream;
 use tokio::sync::broadcast;
 
-use crate::conversation::{make_error_item, make_model_rerouted_item, make_turn_diff_item};
+use crate::conversation::{
+    command_output_is_truncated, make_error_item, make_model_rerouted_item, make_turn_diff_item,
+    truncate_command_output_text,
+};
 use crate::conversation_uniffi::{
     HydratedAssistantMessageData, HydratedCommandExecutionData, HydratedConversationItem,
     HydratedConversationItemContent, HydratedMcpToolCallData, HydratedProposedPlanData,
@@ -28,8 +31,8 @@ use super::actions::{
     thread_info_from_upstream_status_change,
 };
 use super::boundary::{
-    app_session_summary, current_agent_directory_version, empty_session_summary,
-    project_hydrated_item, project_thread_state_update, project_thread_update, AppSessionSummary,
+    AppSessionSummary, app_session_summary, current_agent_directory_version, empty_session_summary,
+    project_hydrated_item, project_thread_state_update, project_thread_update,
 };
 use super::snapshot::{
     AppConnectionProgressSnapshot, AppLifecyclePhaseSnapshot, AppQueuedFollowUpPreview,
@@ -2447,10 +2450,13 @@ fn append_command_output_delta(
             let item = &mut thread.items[index];
             match &mut item.content {
                 HydratedConversationItemContent::CommandExecution(command) => {
-                    command
-                        .output
-                        .get_or_insert_with(String::new)
-                        .push_str(delta);
+                    let output = command.output.get_or_insert_with(String::new);
+                    if !command_output_is_truncated(output) {
+                        output.push_str(delta);
+                        if output.len() > 128 * 1024 {
+                            *output = truncate_command_output_text(output);
+                        }
+                    }
                     LiveDeltaApplyResult::Streamed
                 }
                 _ => {
@@ -2459,7 +2465,7 @@ fn append_command_output_delta(
                             command: String::new(),
                             cwd: String::new(),
                             status: AppOperationStatus::InProgress,
-                            output: Some(delta.to_string()),
+                            output: Some(truncate_command_output_text(delta)),
                             exit_code: None,
                             duration_ms: None,
                             process_id: None,
@@ -2481,7 +2487,7 @@ fn append_command_output_delta(
                         command: String::new(),
                         cwd: String::new(),
                         status: AppOperationStatus::InProgress,
-                        output: Some(delta.to_string()),
+                        output: Some(truncate_command_output_text(delta)),
                         exit_code: None,
                         duration_ms: None,
                         process_id: None,
@@ -3329,10 +3335,8 @@ mod tests {
             thread_id: "parent".to_string(),
         };
 
-        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(
-            "srv",
-            make_thread_info("parent"),
-        ));
+        reducer
+            .upsert_thread_snapshot(ThreadSnapshot::from_info("srv", make_thread_info("parent")));
 
         let mut child_info = make_thread_info("child-thread");
         child_info.agent_nickname = Some("Scout".to_string());
@@ -3354,11 +3358,13 @@ mod tests {
                         prompt: Some("Inspect".to_string()),
                         targets: vec!["child-thread".to_string()],
                         receiver_thread_ids: vec!["child-thread".to_string()],
-                        agent_states: vec![crate::conversation_uniffi::HydratedMultiAgentStateData {
-                            target_id: "child-thread".to_string(),
-                            status: crate::types::AppSubagentStatus::Running,
-                            message: Some("Working".to_string()),
-                        }],
+                        agent_states: vec![
+                            crate::conversation_uniffi::HydratedMultiAgentStateData {
+                                target_id: "child-thread".to_string(),
+                                status: crate::types::AppSubagentStatus::Running,
+                                message: Some("Working".to_string()),
+                            },
+                        ],
                     },
                 ),
                 source_turn_id: Some("turn-1".to_string()),

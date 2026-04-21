@@ -446,10 +446,10 @@ impl ServerSession {
         use codex_app_server_protocol::{ClientInfo, InitializeCapabilities, InitializeParams};
         use codex_arg0::Arg0DispatchPaths;
         use codex_cloud_requirements::cloud_requirements_loader;
-        use codex_login::AuthManager;
         use codex_core::config::ConfigBuilder;
         use codex_core::config_loader::LoaderOverrides;
         use codex_feedback::CodexFeedback;
+        use codex_login::AuthManager;
         use codex_protocol::protocol::SessionSource;
 
         let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connecting {

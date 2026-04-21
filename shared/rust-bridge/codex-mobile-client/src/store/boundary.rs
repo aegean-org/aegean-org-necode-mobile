@@ -182,7 +182,8 @@ pub(crate) fn project_hydrated_items(
     server_id: &str,
     items: &[HydratedConversationItem],
 ) -> Vec<HydratedConversationItem> {
-    items.iter()
+    items
+        .iter()
         .map(|item| project_hydrated_item(snapshot, server_id, item))
         .collect()
 }
@@ -415,8 +416,7 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                 let can_use_ipc =
                     can_use_transport_actions && ipc_state == AppServerIpcState::Ready;
 
-                let usage_stats =
-                    compute_server_usage_stats(&snapshot, &server.server_id);
+                let usage_stats = compute_server_usage_stats(&snapshot, &server.server_id);
 
                 AppServerSnapshot {
                     server_id: server.server_id,
@@ -693,7 +693,11 @@ pub(crate) fn app_session_summary(
         recent_tool_log: activity.log,
         last_turn_start_ms: activity.last_turn_start_ms,
         last_turn_end_ms: activity.last_turn_end_ms,
-        stats: if thread.items.is_empty() { None } else { Some(activity.stats) },
+        stats: if thread.items.is_empty() {
+            None
+        } else {
+            Some(activity.stats)
+        },
         token_usage: thread_token_usage(thread),
     }
 }
@@ -733,8 +737,7 @@ fn compute_server_usage_stats(
     let mut total_tokens: u64 = 0;
     let mut tokens_by_thread = Vec::new();
     let mut day_buckets: std::collections::HashMap<i64, u32> = std::collections::HashMap::new();
-    let mut model_counts: std::collections::HashMap<String, u32> =
-        std::collections::HashMap::new();
+    let mut model_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
     for thread in &server_threads {
         // Token usage per thread
@@ -873,10 +876,18 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
         if *count == 0 {
             return;
         }
-        let prefix = if *in_progress { "Exploring" } else { "Explored" };
+        let prefix = if *in_progress {
+            "Exploring"
+        } else {
+            "Explored"
+        };
         let mut parts: Vec<String> = Vec::new();
         if *reads > 0 {
-            parts.push(format!("{} {}", reads, if *reads == 1 { "file" } else { "files" }));
+            parts.push(format!(
+                "{} {}",
+                reads,
+                if *reads == 1 { "file" } else { "files" }
+            ));
         }
         if *searches > 0 {
             parts.push(format!(
@@ -889,7 +900,11 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
             parts.push(format!(
                 "{} {}",
                 listings,
-                if *listings == 1 { "listing" } else { "listings" }
+                if *listings == 1 {
+                    "listing"
+                } else {
+                    "listings"
+                }
             ));
         }
         if *fallback > 0 {
@@ -909,7 +924,11 @@ fn extract_conversation_activity(items: &[HydratedConversationItem]) -> Conversa
         } else {
             format!("{} {}", prefix, parts.join(", "))
         };
-        let status = if *in_progress { "inprogress" } else { "completed" };
+        let status = if *in_progress {
+            "inprogress"
+        } else {
+            "completed"
+        };
         log_entries.push(AppToolLogEntry {
             tool: "Explore".to_string(),
             detail,
@@ -1725,20 +1744,23 @@ mod tests {
             .items
             .push(crate::conversation_uniffi::HydratedConversationItem {
                 id: "collab-1".to_string(),
-                content: crate::conversation_uniffi::HydratedConversationItemContent::MultiAgentAction(
-                    crate::conversation_uniffi::HydratedMultiAgentActionData {
-                        tool: "spawnAgent".to_string(),
-                        status: crate::types::AppOperationStatus::Completed,
-                        prompt: Some("Inspect the thread".to_string()),
-                        targets: vec!["child-thread".to_string()],
-                        receiver_thread_ids: vec!["child-thread".to_string()],
-                        agent_states: vec![crate::conversation_uniffi::HydratedMultiAgentStateData {
-                            target_id: "child-thread".to_string(),
-                            status: crate::types::AppSubagentStatus::Running,
-                            message: Some("Working".to_string()),
-                        }],
-                    },
-                ),
+                content:
+                    crate::conversation_uniffi::HydratedConversationItemContent::MultiAgentAction(
+                        crate::conversation_uniffi::HydratedMultiAgentActionData {
+                            tool: "spawnAgent".to_string(),
+                            status: crate::types::AppOperationStatus::Completed,
+                            prompt: Some("Inspect the thread".to_string()),
+                            targets: vec!["child-thread".to_string()],
+                            receiver_thread_ids: vec!["child-thread".to_string()],
+                            agent_states: vec![
+                                crate::conversation_uniffi::HydratedMultiAgentStateData {
+                                    target_id: "child-thread".to_string(),
+                                    status: crate::types::AppSubagentStatus::Running,
+                                    message: Some("Working".to_string()),
+                                },
+                            ],
+                        },
+                    ),
                 source_turn_id: Some("turn-1".to_string()),
                 source_turn_index: Some(0),
                 timestamp: None,

@@ -93,14 +93,6 @@ struct ConversationView: View {
         )
         .activeThreadKey(activeThreadKey)
         .background { ChatWallpaperBackground(threadKey: activeThreadKey) }
-        .mask {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 60)
-                Rectangle().fill(.black)
-            }
-            .ignoresSafeArea()
-        }
         .overlay(alignment: .top) {
             if thread.isSubagent {
                 SubagentBreadcrumbBar(

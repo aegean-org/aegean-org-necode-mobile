@@ -1,10 +1,11 @@
 Summary
 
-- Fixed inline code in rendered messages showing larger than body text
-- Composer autocorrect/smart quotes/spell check now follow iPhone Settings
-- Fixed a deserialization error that prevented some threads from loading after syncing with the latest Codex runtime
-- Fixed subagent names not showing
+- Added expand button to open composer full screen
 - Fixed persistent LiveViews
+- Fixed subagent names not showing
+- Fixed a deserialization error that prevented some threads from loading after syncing with the latest Codex runtime
+- Composer autocorrect/smart quotes/spell check now follow iPhone Settings
+- Fixed inline code in rendered messages showing larger than body text
 
 What to test
 

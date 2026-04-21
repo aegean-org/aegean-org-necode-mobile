@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Close
@@ -56,6 +57,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -142,6 +145,8 @@ fun ComposerBar(
     var text by remember { mutableStateOf("") }
     var attachedImage by remember { mutableStateOf<ComposerImageAttachment?>(null) }
     var showAttachMenu by remember { mutableStateOf(false) }
+    var showExpanded by remember { mutableStateOf(false) }
+    val inlineFocusRequester = remember { FocusRequester() }
     val transcriptionManager = remember { VoiceTranscriptionManager() }
     val isRecording by transcriptionManager.isRecording.collectAsState()
     val isTranscribing by transcriptionManager.isTranscribing.collectAsState()
@@ -259,6 +264,46 @@ fun ComposerBar(
             else -> return false
         }
         return true
+    }
+
+    // Single send path used by both the inline send button and the expanded
+    // dialog. Keep this in sync if you change slash-command dispatch or
+    // payload shape.
+    val sendCurrent: () -> Unit = {
+        val handledAsSlash = parseSlashCommandInvocation(text)?.let { invocation ->
+            if (dispatchSlashCommand(invocation.command.name, invocation.args)) {
+                text = ""
+                attachedImage = null
+                true
+            } else false
+        } ?: false
+        if (!handledAsSlash && (text.isNotBlank() || attachedImage != null)) {
+            val launchState = appModel.launchState.snapshot.value
+            val pendingModel = launchState.selectedModel.trim().ifEmpty { null }
+            val effort = launchState.reasoningEffort.trim().ifEmpty { null }
+                ?.let(::reasoningEffortFromServerValue)
+            val tier = if (HeaderOverrides.pendingFastMode) ServiceTier.FAST else null
+            val attachmentToSend = attachedImage
+            val payload = AppComposerPayload(
+                text = text.trim(),
+                additionalInputs = listOfNotNull(attachmentToSend?.toUserInput()),
+                approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
+                sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
+                model = pendingModel,
+                reasoningEffort = effort,
+                serviceTier = tier,
+            )
+            text = ""
+            attachedImage = null
+            scope.launch {
+                try {
+                    appModel.startTurn(threadKey, payload)
+                } catch (e: Exception) {
+                    text = payload.text
+                    attachedImage = attachmentToSend
+                }
+            }
+        }
     }
 
     Column(
@@ -503,8 +548,33 @@ fun ComposerBar(
                             fontFamily = LitterTheme.monoFont,
                         ),
                         cursorBrush = SolidColor(LitterTheme.accent),
-                        modifier = Modifier.fillMaxWidth(),
+                        // Always reserve trailing space for the expand icon so
+                        // wrapped lines don't slide under it when the icon
+                        // appears (and it doesn't cause a layout jump when it
+                        // toggles on/off at the 60-char threshold).
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(end = 24.dp)
+                            .focusRequester(inlineFocusRequester),
                     )
+
+                    val shouldShowExpand = (text.contains('\n') || text.length > 60) &&
+                        !isRecording && !isTranscribing
+                    if (shouldShowExpand) {
+                        IconButton(
+                            onClick = { showExpanded = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(20.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInFull,
+                                contentDescription = "Expand composer",
+                                tint = LitterTheme.textSecondary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
 
                     // Slash command popup
                     DropdownMenu(
@@ -556,39 +626,7 @@ fun ComposerBar(
                     canSend -> {
                         Spacer(Modifier.width(8.dp))
                         IconButton(
-                            onClick = {
-                                parseSlashCommandInvocation(text)?.let { invocation ->
-                                    if (dispatchSlashCommand(invocation.command.name, invocation.args)) {
-                                        text = ""
-                                        attachedImage = null
-                                        return@IconButton
-                                    }
-                                }
-                                val launchState = appModel.launchState.snapshot.value
-                                val pendingModel = launchState.selectedModel.trim().ifEmpty { null }
-                                val effort = launchState.reasoningEffort.trim().ifEmpty { null }?.let(::reasoningEffortFromServerValue)
-                                val tier = if (HeaderOverrides.pendingFastMode) ServiceTier.FAST else null
-                                val attachmentToSend = attachedImage
-                                val payload = AppComposerPayload(
-                                    text = text.trim(),
-                                    additionalInputs = listOfNotNull(attachmentToSend?.toUserInput()),
-                                    approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
-                                    sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
-                                    model = pendingModel,
-                                    reasoningEffort = effort,
-                                    serviceTier = tier,
-                                )
-                                text = ""
-                                attachedImage = null
-                                scope.launch {
-                                    try {
-                                        appModel.startTurn(threadKey, payload)
-                                    } catch (e: Exception) {
-                                        text = payload.text
-                                        attachedImage = attachmentToSend
-                                    }
-                                }
-                            },
+                            onClick = sendCurrent,
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
@@ -721,6 +759,24 @@ fun ComposerBar(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 )
             }
+        }
+
+        if (showExpanded) {
+            ComposerExpandedDialog(
+                text = text,
+                onTextChange = { text = it },
+                onSend = sendCurrent,
+                onDismiss = {
+                    showExpanded = false
+                    // Restore inline focus after the dialog animates away, so
+                    // the user can keep typing without tapping again.
+                    scope.launch {
+                        kotlinx.coroutines.delay(80)
+                        runCatching { inlineFocusRequester.requestFocus() }
+                    }
+                },
+                canSend = text.isNotBlank() || attachedImage != null,
+            )
         }
 
         val hasIndicators = contextPercent != null || rateLimits?.primary != null || rateLimits?.secondary != null

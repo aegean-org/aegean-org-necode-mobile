@@ -5,6 +5,10 @@ struct ConversationComposerTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let onPasteImage: (UIImage) -> Void
+    /// When true, the view returns no preferred size from `sizeThatFits`, letting
+    /// SwiftUI fill the parent frame. Scrolling kicks in against the actual
+    /// bounds instead of the 5-line clamp.
+    var unboundedHeight: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -50,6 +54,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: PasteAwareComposerUITextView, context: Context) -> CGSize? {
+        if unboundedHeight { return nil }
         let width = proposal.width ?? uiView.bounds.width
         guard width > 0 else { return nil }
 
@@ -127,7 +132,10 @@ struct ConversationComposerTextView: UIViewRepresentable {
             let fittingHeight = textView.sizeThatFits(
                 CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
             ).height
-            let shouldScroll = fittingHeight > maximumHeight(for: textView) + 0.5
+            let threshold = parent.unboundedHeight
+                ? textView.bounds.height
+                : maximumHeight(for: textView)
+            let shouldScroll = fittingHeight > threshold + 0.5
             if textView.isScrollEnabled != shouldScroll {
                 textView.isScrollEnabled = shouldScroll
             }

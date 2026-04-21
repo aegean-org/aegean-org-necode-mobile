@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -89,6 +90,7 @@ fun HomeComposerBar(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
+    var showExpanded by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     // Auto-focus on first composition so the parent's `isComposerActive`
@@ -142,6 +144,50 @@ fun HomeComposerBar(
             onActiveChange?.invoke(true)
         } else if (hasBeenActive) {
             onActiveChange?.invoke(false)
+        }
+    }
+
+    // Single send path used by both the inline send button and the expanded
+    // dialog. Keep in sync if you change thread startup or payload shape.
+    val sendCurrent: () -> Unit = {
+        val currentProject = project
+        if (currentProject == null) {
+            errorMessage = "Pick a project before sending."
+        } else {
+            val payloadText = text.trim()
+            val attachmentToSend = attachedImage
+            text = ""
+            attachedImage = null
+            isSubmitting = true
+            errorMessage = null
+            scope.launch {
+                try {
+                    val threadKey = appModel.client.startThread(
+                        currentProject.serverId,
+                        appModel.launchState.threadStartRequest(currentProject.cwd),
+                    )
+                    com.litter.android.ui.RecentDirectoryStore(context)
+                        .record(currentProject.serverId, currentProject.cwd)
+                    val payload = AppComposerPayload(
+                        text = payloadText,
+                        additionalInputs = listOfNotNull(attachmentToSend?.toUserInput()),
+                        approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
+                        sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
+                        model = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
+                        reasoningEffort = null,
+                        serviceTier = null,
+                    )
+                    appModel.startTurn(threadKey, payload)
+                    appModel.refreshSnapshot()
+                    onThreadCreated(threadKey)
+                } catch (e: Exception) {
+                    errorMessage = e.message ?: "Failed to start thread"
+                    text = payloadText
+                    attachedImage = attachmentToSend
+                } finally {
+                    isSubmitting = false
+                }
+            }
         }
     }
 
@@ -259,56 +305,35 @@ fun HomeComposerBar(
                         cursorBrush = SolidColor(LitterTheme.accent),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(end = 24.dp)
                             .focusRequester(focusRequester)
                             .onFocusChanged { isFocused = it.isFocused },
                     )
+
+                    val shouldShowExpand = (text.contains('\n') || text.length > 60) &&
+                        !isRecording && !isTranscribing
+                    if (shouldShowExpand) {
+                        IconButton(
+                            onClick = { showExpanded = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(20.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInFull,
+                                contentDescription = "Expand composer",
+                                tint = LitterTheme.textSecondary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
                 }
 
                 when {
                     canSend -> {
                         Spacer(Modifier.width(8.dp))
                         IconButton(
-                            onClick = {
-                                val currentProject = project
-                                if (currentProject == null) {
-                                    errorMessage = "Pick a project before sending."
-                                    return@IconButton
-                                }
-                                val payloadText = text.trim()
-                                val attachmentToSend = attachedImage
-                                text = ""
-                                attachedImage = null
-                                isSubmitting = true
-                                errorMessage = null
-                                scope.launch {
-                                    try {
-                                        val threadKey = appModel.client.startThread(
-                                            currentProject.serverId,
-                                            appModel.launchState.threadStartRequest(currentProject.cwd),
-                                        )
-                                        com.litter.android.ui.RecentDirectoryStore(context)
-                                            .record(currentProject.serverId, currentProject.cwd)
-                                        val payload = AppComposerPayload(
-                                            text = payloadText,
-                                            additionalInputs = listOfNotNull(attachmentToSend?.toUserInput()),
-                                            approvalPolicy = appModel.launchState.approvalPolicyValue(threadKey),
-                                            sandboxPolicy = appModel.launchState.turnSandboxPolicy(threadKey),
-                                            model = appModel.launchState.snapshot.value.selectedModel.trim().ifEmpty { null },
-                                            reasoningEffort = null,
-                                            serviceTier = null,
-                                        )
-                                        appModel.startTurn(threadKey, payload)
-                                        appModel.refreshSnapshot()
-                                        onThreadCreated(threadKey)
-                                    } catch (e: Exception) {
-                                        errorMessage = e.message ?: "Failed to start thread"
-                                        text = payloadText
-                                        attachedImage = attachmentToSend
-                                    } finally {
-                                        isSubmitting = false
-                                    }
-                                }
-                            },
+                            onClick = sendCurrent,
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
@@ -387,6 +412,22 @@ fun HomeComposerBar(
                     }
                 }
             }
+        }
+
+        if (showExpanded) {
+            com.litter.android.ui.conversation.ComposerExpandedDialog(
+                text = text,
+                onTextChange = { text = it },
+                onSend = sendCurrent,
+                onDismiss = {
+                    showExpanded = false
+                    scope.launch {
+                        kotlinx.coroutines.delay(80)
+                        runCatching { focusRequester.requestFocus() }
+                    }
+                },
+                canSend = text.isNotBlank() || attachedImage != null,
+            )
         }
     }
 }

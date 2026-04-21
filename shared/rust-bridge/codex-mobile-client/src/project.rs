@@ -84,7 +84,12 @@ mod tests {
     use super::*;
     use crate::types::{AppSubagentStatus, ThreadKey};
 
-    fn session(server: &str, thread: &str, cwd: &str, updated_at: Option<i64>) -> AppSessionSummary {
+    fn session(
+        server: &str,
+        thread: &str,
+        cwd: &str,
+        updated_at: Option<i64>,
+    ) -> AppSessionSummary {
         AppSessionSummary {
             key: ThreadKey {
                 server_id: server.to_string(),
