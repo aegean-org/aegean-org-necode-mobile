@@ -1,5 +1,7 @@
 use super::*;
 use codex_ipc::{BridgeEvent, BridgeOutput, IpcBridge};
+use codex_utils_absolute_path::{AbsolutePathBuf, AbsolutePathBufGuard};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 enum IpcStreamProcessorMessage {
@@ -555,7 +557,7 @@ impl MobileClient {
             started_at.elapsed().as_millis()
         );
         self.app_store.note_server_direct_request_success(server_id);
-        serde_json::from_value(value.clone()).map_err(|e| {
+        deserialize_typed_response(&value).map_err(|e| {
             let error = format_typed_rpc_deserialization_error(wire_method, &e, &value);
             warn!("{error}\nraw payload: {value}");
             error
@@ -598,6 +600,133 @@ impl MobileClient {
             // creating ad-hoc current-thread runtimes with tiny iOS stacks.
             crate::ffi::shared::shared_runtime().spawn(future);
         }
+    }
+}
+
+fn deserialize_typed_response<R>(value: &serde_json::Value) -> Result<R, serde_json::Error>
+where
+    R: serde::de::DeserializeOwned,
+{
+    let mut normalized = value.clone();
+    normalize_relative_absolute_path_fields(&mut normalized, None);
+    if let Some(base_path) = response_deserialization_base(&normalized) {
+        let _guard = AbsolutePathBufGuard::new(base_path.as_path());
+        serde_json::from_value(normalized)
+    } else {
+        serde_json::from_value(normalized)
+    }
+}
+
+fn response_deserialization_base(value: &serde_json::Value) -> Option<PathBuf> {
+    match value {
+        serde_json::Value::Object(map) => absolute_path_from_value(map.get("cwd"))
+            .or_else(|| map.get("thread").and_then(response_deserialization_base)),
+        _ => None,
+    }
+}
+
+fn normalize_relative_absolute_path_fields(
+    value: &mut serde_json::Value,
+    inherited_base: Option<&Path>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            normalize_relative_string_field(map, "cwd", inherited_base);
+            let local_base = absolute_path_from_value(map.get("cwd"))
+                .or_else(|| inherited_base.map(Path::to_path_buf));
+
+            if let Some(base_path) = local_base.as_deref() {
+                normalize_relative_string_array_field(map, "instructionSources", base_path);
+                normalize_relative_string_array_field(map, "readableRoots", base_path);
+                normalize_relative_string_array_field(map, "writableRoots", base_path);
+                normalize_relative_string_field(map, "agentPath", Some(base_path));
+                normalize_relative_string_field(map, "destinationPath", Some(base_path));
+                normalize_relative_string_field(map, "marketplacePath", Some(base_path));
+                normalize_relative_string_field(map, "movePath", Some(base_path));
+                normalize_relative_string_field(map, "savedPath", Some(base_path));
+                normalize_relative_string_field(map, "sourcePath", Some(base_path));
+
+                match object_type(map) {
+                    Some("imageView") | Some("read") => {
+                        normalize_relative_string_field(map, "path", Some(base_path));
+                    }
+                    _ => {}
+                }
+            }
+
+            let next_base = local_base.as_deref();
+            for child in map.values_mut() {
+                normalize_relative_absolute_path_fields(child, next_base);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_relative_absolute_path_fields(child, inherited_base);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_relative_string_field(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    base_path: Option<&Path>,
+) {
+    let Some(base_path) = base_path else {
+        return;
+    };
+    let Some(serde_json::Value::String(text)) = map.get_mut(key) else {
+        return;
+    };
+    if looks_cross_platform_absolute(text) {
+        return;
+    }
+
+    *text = absolutize_relative_text(text, base_path);
+}
+
+fn normalize_relative_string_array_field(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    base_path: &Path,
+) {
+    let Some(serde_json::Value::Array(items)) = map.get_mut(key) else {
+        return;
+    };
+    for item in items {
+        let serde_json::Value::String(text) = item else {
+            continue;
+        };
+        if looks_cross_platform_absolute(text) {
+            continue;
+        }
+
+        *text = absolutize_relative_text(text, base_path);
+    }
+}
+
+fn absolutize_relative_text(text: &str, base_path: &Path) -> String {
+    AbsolutePathBuf::resolve_path_against_base(text, base_path)
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn absolute_path_from_value(value: Option<&serde_json::Value>) -> Option<PathBuf> {
+    let serde_json::Value::String(text) = value? else {
+        return None;
+    };
+    if looks_cross_platform_absolute(text) {
+        Some(PathBuf::from(text))
+    } else {
+        None
+    }
+}
+
+fn object_type(map: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
+    match map.get("type") {
+        Some(serde_json::Value::String(tag)) => Some(tag.as_str()),
+        _ => None,
     }
 }
 
@@ -1012,6 +1141,10 @@ fn client_request_wire_method(request: &upstream::ClientRequest) -> &'static str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_app_server_protocol::{
+        CommandAction, CommandExecutionSource, CommandExecutionStatus, ThreadItem,
+    };
+    use serde::Deserialize;
     use serde::de::Error as _;
     use serde_json::json;
 
@@ -1060,5 +1193,75 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("[method=thread/start]"), "{message}");
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct InstructionSourcesEnvelope {
+        cwd: AbsolutePathBuf,
+        instruction_sources: Vec<AbsolutePathBuf>,
+    }
+
+    #[test]
+    fn deserialize_typed_response_resolves_instruction_sources_against_response_cwd() {
+        let payload = json!({
+            "cwd": "/private/var/mobile/home/codex",
+            "instructionSources": ["AGENTS.md"]
+        });
+
+        let parsed: InstructionSourcesEnvelope =
+            deserialize_typed_response(&payload).expect("payload should deserialize");
+
+        assert_eq!(
+            parsed.cwd.as_path(),
+            Path::new("/private/var/mobile/home/codex")
+        );
+        assert_eq!(
+            parsed.instruction_sources[0].as_path(),
+            Path::new("/private/var/mobile/home/codex/AGENTS.md")
+        );
+    }
+
+    #[test]
+    fn deserialize_typed_response_resolves_read_action_paths_against_command_cwd() {
+        let command_item = ThreadItem::CommandExecution {
+            id: "cmd-1".into(),
+            command: "cat crates/krusty-cli/src/main.rs".into(),
+            cwd: AbsolutePathBuf::from_absolute_path("/repo").expect("absolute cwd"),
+            process_id: None,
+            source: CommandExecutionSource::Agent,
+            status: CommandExecutionStatus::Completed,
+            command_actions: vec![CommandAction::Read {
+                command: "cat crates/krusty-cli/src/main.rs".into(),
+                name: "main.rs".into(),
+                path: AbsolutePathBuf::from_absolute_path("/repo/crates/krusty-cli/src/main.rs")
+                    .expect("absolute read path"),
+            }],
+            aggregated_output: None,
+            exit_code: Some(0),
+            duration_ms: Some(1),
+        };
+        let mut payload = serde_json::to_value(command_item).expect("serialize command item");
+        payload["commandActions"][0]["path"] = json!("crates/krusty-cli/src/main.rs");
+
+        let parsed: ThreadItem =
+            deserialize_typed_response(&payload).expect("payload should deserialize");
+        let ThreadItem::CommandExecution {
+            cwd,
+            command_actions,
+            ..
+        } = parsed
+        else {
+            panic!("expected command execution item");
+        };
+        let CommandAction::Read { path, .. } = &command_actions[0] else {
+            panic!("expected read command action");
+        };
+
+        assert_eq!(cwd.as_path(), Path::new("/repo"));
+        assert_eq!(
+            path.as_path(),
+            Path::new("/repo/crates/krusty-cli/src/main.rs")
+        );
     }
 }
