@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CircularProgressIndicator
@@ -75,6 +76,7 @@ import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
+import com.litter.android.theme.generated.LitterTheme as GeneratedTheme
 import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.scaled
 import com.litter.android.state.AppModel
@@ -280,7 +282,7 @@ private fun UserMessageRow(
                         onClick = {},
                         onLongClick = { showMenu = true },
                     )
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = GeneratedTheme.Spacing.bubblePaddingH, vertical = 10.dp),
             ) {
                 com.litter.android.ui.common.FormattedText(
                     text = data.text,
@@ -1475,25 +1477,32 @@ private fun SavedAsAppChip(
     Row(
         modifier = Modifier
             .background(
-                LitterTheme.surface.copy(alpha = 0.6f),
-                RoundedCornerShape(999.dp),
+                LitterTheme.surfaceLight.copy(alpha = 0.5f),
+                RoundedCornerShape(6.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        Icon(
+            imageVector = Icons.Filled.GridView,
+            contentDescription = null,
+            tint = LitterTheme.accent,
+            modifier = Modifier.size(10.dp),
+        )
         Text(
-            text = "Saved as ",
-            color = LitterTheme.textMuted,
+            text = "Saved as",
+            color = LitterTheme.accent,
             fontSize = 11.sp,
-            fontFamily = LitterTheme.monoFont,
+            fontWeight = FontWeight.Medium,
         )
         Text(
             text = slug,
             color = LitterTheme.accent,
             fontSize = 11.sp,
             fontFamily = LitterTheme.monoFont,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

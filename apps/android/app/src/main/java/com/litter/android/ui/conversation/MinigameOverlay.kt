@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -31,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,11 +54,18 @@ fun MinigameOverlay(
 ) {
     Column(
         modifier = modifier
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = Color.Black.copy(alpha = 0.18f),
+                spotColor = Color.Black.copy(alpha = 0.18f),
+            )
             .clip(RoundedCornerShape(16.dp))
             .background(LitterTheme.surface)
             .border(0.5.dp, LitterTheme.textSecondary.copy(alpha = 0.15f), RoundedCornerShape(16.dp)),
     ) {
         Header(state = state, onClose = onClose)
+        HorizontalDivider(color = LitterTheme.textSecondary.copy(alpha = 0.2f))
         Box(
             modifier = Modifier
                 .fillMaxWidth()

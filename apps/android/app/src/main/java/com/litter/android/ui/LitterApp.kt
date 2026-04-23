@@ -258,6 +258,7 @@ fun LitterApp(appModel: AppModel) {
                         onOpenConversation = navigateToConversation,
                         onShowDiscovery = { showDiscovery = true },
                         onShowSettings = { showSettings = true },
+                        onShowApps = { navigate(Route.Apps) },
                         onOpenProjectPicker = { showProjectPicker = true },
                         selectedProject = selectedProject,
                         selectedServerId = selectedServerId,

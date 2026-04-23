@@ -13,6 +13,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +33,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -132,6 +135,7 @@ fun SavedAppScreen(
             onViewConversation = if (originThreadKey != null && onOpenConversation != null) {
                 { onOpenConversation(originThreadKey) }
             } else null,
+            isUpdating = isUpdating,
         )
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
@@ -355,6 +359,7 @@ private fun TopBar(
     onUpdate: () -> Unit,
     onOpenMenu: () -> Unit,
     onViewConversation: (() -> Unit)?,
+    isUpdating: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -388,8 +393,35 @@ private fun TopBar(
                 )
             }
         }
-        TextButton(onClick = onUpdate) {
-            Text("Update", color = LitterTheme.accent)
+        Row(
+            modifier = Modifier
+                .padding(end = 4.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .border(
+                    width = 0.8.dp,
+                    color = LitterTheme.accent.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(999.dp),
+                )
+                .then(
+                    if (isUpdating) Modifier else Modifier.clickable(onClick = onUpdate),
+                )
+                .alpha(if (isUpdating) 0.6f else 1f)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = null,
+                tint = LitterTheme.accent,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = "Update",
+                color = LitterTheme.accent,
+                fontSize = LitterTextStyle.footnote.scaled,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
         IconButton(onClick = onOpenMenu) {
             Icon(
@@ -590,10 +622,10 @@ private fun AppModeWebView(
 @Composable
 private fun LoadingPlaceholder() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            text = "Loading…",
-            color = LitterTheme.textMuted,
-            fontSize = LitterTextStyle.callout.scaled,
+        CircularProgressIndicator(
+            color = LitterTheme.accent,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(28.dp),
         )
     }
 }
@@ -603,22 +635,28 @@ private fun BrokenPlaceholder(onDelete: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(32.dp),
         ) {
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = null,
+                tint = LitterTheme.warning,
+                modifier = Modifier.size(44.dp),
+            )
             Text(
-                text = "This app is missing its widget file.",
+                text = "This app's files are missing",
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.headline.scaled,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "The HTML blob couldn't be found on disk. You can remove this broken entry.",
+                text = "Delete it to clear the entry.",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.footnote.scaled,
             )
             TextButton(onClick = onDelete) {
-                Text("Delete", color = LitterTheme.danger)
+                Text("Delete App", color = LitterTheme.danger)
             }
         }
     }

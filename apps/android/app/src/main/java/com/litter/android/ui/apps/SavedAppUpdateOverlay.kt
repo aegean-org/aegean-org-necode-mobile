@@ -22,7 +22,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,10 +33,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.scaled
@@ -46,11 +52,26 @@ fun SavedAppUpdateOverlay(
     isSubmitting: Boolean,
 ) {
     var prompt by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    // Fade the dim out while the update is running so the user can see the
+    // widget regenerating underneath. Mirrors iOS SavedAppUpdateOverlay.swift:18.
+    val dimAlpha by animateFloatAsState(
+        targetValue = if (isSubmitting) 0f else 0.55f,
+        animationSpec = tween(durationMillis = 240),
+        label = "update-overlay-dim",
+    )
+
+    LaunchedEffect(Unit) {
+        // Brief delay lets the overlay animation settle before pulling focus so
+        // the IME doesn't fight the dim fade. Mirrors iOS' 200ms asyncAfter.
+        delay(200)
+        runCatching { focusRequester.requestFocus() }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Color.Black.copy(alpha = dimAlpha))
             .pointerInput(isSubmitting) {
                 // Consume taps so they don't fall through to the underlying
                 // WebView. Dismiss on tap outside the card only when not
@@ -126,7 +147,9 @@ fun SavedAppUpdateOverlay(
                     value = prompt,
                     onValueChange = { prompt = it },
                     placeholder = { Text("e.g. make the buttons bigger") },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),

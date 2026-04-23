@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -177,6 +179,7 @@ private fun AppRow(
     onClick: () -> Unit,
 ) {
     val monogram = monogramInitials(app.title)
+    val tint = monogramTint(app.id)
 
     Row(
         modifier = Modifier
@@ -190,14 +193,14 @@ private fun AppRow(
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(LitterTheme.accent.copy(alpha = 0.18f)),
+                .background(tint.copy(alpha = 0.25f)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = monogram,
-                color = LitterTheme.accent,
+                color = tint,
                 fontSize = LitterTextStyle.headline.scaled,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -227,21 +230,46 @@ private fun EmptyState() {
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Icon(
+                imageVector = Icons.Outlined.GridView,
+                contentDescription = null,
+                tint = LitterTheme.textMuted,
+                modifier = Modifier.size(44.dp),
+            )
             Text(
-                text = "No saved apps yet",
+                text = "No apps yet",
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.headline.scaled,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "When the AI generates an interactive widget with an app_id in a local-server conversation, it saves here automatically. State persists across updates.",
+                text = "When the AI generates an interactive widget with an app_id, it saves here automatically.",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.footnote.scaled,
             )
         }
     }
+}
+
+/**
+ * Deterministic per-app tint drawn from a small palette of theme accents so
+ * existing apps keep the same color across launches. Mirrors iOS
+ * `AppsListView.monogramTint(for:)`.
+ */
+@Composable
+private fun monogramTint(id: String): Color {
+    val palette = listOf(
+        LitterTheme.accent,
+        LitterTheme.accentStrong,
+        LitterTheme.success,
+        LitterTheme.warning,
+        LitterTheme.danger,
+        LitterTheme.textSystem,
+    )
+    val idx = (id.hashCode().toLong() and 0x7FFFFFFFL).toInt() % palette.size
+    return palette[idx]
 }
 
 /**

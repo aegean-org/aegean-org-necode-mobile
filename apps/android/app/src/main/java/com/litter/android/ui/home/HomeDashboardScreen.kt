@@ -107,6 +107,7 @@ fun HomeDashboardScreen(
     onOpenConversation: (ThreadKey) -> Unit,
     onShowDiscovery: () -> Unit,
     onShowSettings: () -> Unit,
+    onShowApps: () -> Unit,
     onOpenProjectPicker: () -> Unit,
     selectedProject: AppProject?,
     selectedServerId: String?,
@@ -395,6 +396,14 @@ fun HomeDashboardScreen(
                     Icon(
                         Icons.Default.Settings,
                         contentDescription = "Settings",
+                        tint = LitterTheme.textSecondary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(onClick = onShowApps, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.Outlined.GridView,
+                        contentDescription = "Apps",
                         tint = LitterTheme.textSecondary,
                         modifier = Modifier.size(20.dp),
                     )
@@ -854,9 +863,12 @@ fun HomeDashboardScreen(
 }
 
 /**
- * Merge rule: pinned threads first (preserving pin order — newest-pinned at
- * top), then fill from recent sessions (dedup) to reach 10 total. If the
- * user has pinned more than 10 we show every pin and skip the fill.
+ * Merge rule:
+ * - If the user has pinned anything, the home list is just their pins
+ *   (in pin order, most-recent-pinned first). No auto-fill from recent.
+ * - If nothing is pinned, fill the list with up to 10 most-recent
+ *   sessions so the home screen isn't empty.
+ * - Hidden threads are always excluded.
  */
 private fun mergeHomeSessions(
     pinned: List<PinnedThreadKey>,
@@ -867,21 +879,13 @@ private fun mergeHomeSessions(
     val candidates = allSessions.filter {
         PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId) !in hiddenSet
     }
-    val byKey = candidates.associateBy {
-        PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId)
-    }
-    val pinnedSessions = pinned.mapNotNull { byKey[it] }
-    if (pinnedSessions.size >= 10) return pinnedSessions
-
-    val pinnedSet = pinned.toSet()
-    val fill = candidates
-        .asSequence()
-        .filter {
-            PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId) !in pinnedSet
+    if (pinned.isNotEmpty()) {
+        val byKey = candidates.associateBy {
+            PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId)
         }
-        .take(10 - pinnedSessions.size)
-        .toList()
-    return pinnedSessions + fill
+        return pinned.mapNotNull { byKey[it] }
+    }
+    return candidates.take(10)
 }
 
 private sealed class ConfirmAction {

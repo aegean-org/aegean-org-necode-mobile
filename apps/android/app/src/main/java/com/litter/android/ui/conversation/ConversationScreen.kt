@@ -785,31 +785,35 @@ fun ConversationScreen(
         }
 
         // Thinking-indicator minigame overlay: bottom 40% of the screen.
-        if (isMinigameActive) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.4f)
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                    .navigationBarsPadding(),
-            ) {
-                MinigameOverlay(
-                    state = minigameOverlay,
-                    onClose = { appModel.dismissMinigame() },
-                    onRetry = {
-                        val (lastUser, lastAssistant) = lastUserAndAssistantText(items)
-                        appModel.dismissMinigame()
-                        appModel.requestMinigame(
-                            parentThreadId = threadKey.threadId,
-                            serverId = threadKey.serverId,
-                            lastUserMessage = lastUser,
-                            lastAssistantMessage = lastAssistant,
-                        )
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+        // Slides up from the bottom when appearing and slides back out on
+        // dismiss, mirroring iOS ConversationView.swift:148
+        // `.transition(.move(edge: .bottom).combined(with: .opacity))`.
+        AnimatedVisibility(
+            visible = isMinigameActive,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.4f)
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .navigationBarsPadding(),
+        ) {
+            MinigameOverlay(
+                state = minigameOverlay,
+                onClose = { appModel.dismissMinigame() },
+                onRetry = {
+                    val (lastUser, lastAssistant) = lastUserAndAssistantText(items)
+                    appModel.dismissMinigame()
+                    appModel.requestMinigame(
+                        parentThreadId = threadKey.threadId,
+                        serverId = threadKey.serverId,
+                        lastUserMessage = lastUser,
+                        lastAssistantMessage = lastAssistant,
+                    )
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         if (showPermissionsSheet) {
