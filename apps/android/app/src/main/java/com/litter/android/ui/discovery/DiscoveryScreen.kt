@@ -500,6 +500,7 @@ fun DiscoveryScreen(
                                 password = credential.password,
                                 privateKeyPem = null,
                                 passphrase = null,
+                                unlockMacosKeychain = credential.unlockMacosKeychain,
                                 acceptUnknownHost = true,
                                 workingDir = null,
                                 ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
@@ -516,6 +517,7 @@ fun DiscoveryScreen(
                                 password = null,
                                 privateKeyPem = credential.privateKey,
                                 passphrase = credential.passphrase,
+                                unlockMacosKeychain = false,
                                 acceptUnknownHost = true,
                                 workingDir = null,
                                 ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
@@ -935,6 +937,9 @@ private fun SSHLoginDialog(
     var privateKey by remember(server.id) { mutableStateOf(initialCredential?.privateKey ?: "") }
     var passphrase by remember(server.id) { mutableStateOf(initialCredential?.passphrase ?: "") }
     var rememberCredentials by remember(server.id) { mutableStateOf(initialCredential != null) }
+    var unlockMacosKeychain by remember(server.id) {
+        mutableStateOf(initialCredential?.unlockMacosKeychain ?: false)
+    }
     var isConnecting by remember(server.id) { mutableStateOf(false) }
     var errorMessage by remember(server.id) { mutableStateOf<String?>(null) }
     val hostDisplay = if (server.resolvedSshPort == 22) {
@@ -984,6 +989,28 @@ private fun SSHLoginDialog(
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                     )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Switch(
+                            checked = unlockMacosKeychain,
+                            onCheckedChange = { unlockMacosKeychain = it },
+                            enabled = !isConnecting,
+                        )
+                        Column {
+                            Text(
+                                text = "Unlock keychain (macOS)",
+                                color = LitterTheme.textPrimary,
+                                fontSize = 12.sp,
+                            )
+                            Text(
+                                text = "Uses your SSH/login password during headless bootstrap. Required for tools like gh CLI auth.",
+                                color = LitterTheme.textSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
                 } else {
                     OutlinedTextField(
                         value = privateKey,
@@ -1035,6 +1062,7 @@ private fun SSHLoginDialog(
                             username = username.trim(),
                             method = SshAuthMethod.PASSWORD,
                             password = password,
+                            unlockMacosKeychain = unlockMacosKeychain,
                         )
 
                         SshAuthMethod.KEY -> SavedSshCredential(
@@ -1042,6 +1070,7 @@ private fun SSHLoginDialog(
                             method = SshAuthMethod.KEY,
                             privateKey = privateKey,
                             passphrase = passphrase.ifBlank { null },
+                            unlockMacosKeychain = false,
                         )
                     }
                     scope.launch {

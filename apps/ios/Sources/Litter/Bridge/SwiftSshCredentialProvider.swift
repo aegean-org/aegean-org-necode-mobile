@@ -10,7 +10,8 @@ final class SwiftSshCredentialProvider: SshCredentialProvider {
             authMethod: saved.method == .password ? .password : .key,
             password: saved.password,
             privateKeyPem: saved.privateKey,
-            passphrase: saved.passphrase
+            passphrase: saved.passphrase,
+            unlockMacosKeychain: saved.unlockMacosKeychain ?? false
         )
     }
 }

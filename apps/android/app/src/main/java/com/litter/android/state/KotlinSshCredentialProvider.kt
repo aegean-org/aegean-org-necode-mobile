@@ -16,6 +16,7 @@ class KotlinSshCredentialProvider(private val store: SshCredentialStore) : SshCr
             password = saved.password,
             privateKeyPem = saved.privateKey,
             passphrase = saved.passphrase,
+            unlockMacosKeychain = saved.unlockMacosKeychain,
         )
     }
 }

@@ -44,6 +44,7 @@ pub struct SshCredentialRecord {
     pub password: Option<String>,
     pub private_key_pem: Option<String>,
     pub passphrase: Option<String>,
+    pub unlock_macos_keychain: bool,
 }
 
 /// Result of a single server reconnection attempt.
@@ -321,6 +322,7 @@ pub(crate) async fn execute_reconnect_plan(
                 port: *ssh_port,
                 username: credential.username.clone(),
                 auth,
+                unlock_macos_keychain: credential.unlock_macos_keychain,
             };
             let config = ServerConfig {
                 server_id: server_id.clone(),
@@ -507,6 +509,7 @@ mod tests {
             password: Some("pass".into()),
             private_key_pem: None,
             passphrase: None,
+            unlock_macos_keychain: false,
         }
     }
 

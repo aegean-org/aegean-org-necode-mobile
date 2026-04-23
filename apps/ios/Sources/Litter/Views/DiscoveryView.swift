@@ -859,7 +859,7 @@ struct DiscoveryView: View {
         )
         let ipcSocketPathOverride = ExperimentalFeatures.shared.ipcSocketPathOverride()
         switch credentials {
-        case .password(let username, let password):
+        case .password(let username, let password, let unlockMacosKeychain):
             return try await appModel.ssh.sshStartRemoteServerConnect(
                 serverId: serverId,
                 displayName: displayName,
@@ -869,6 +869,7 @@ struct DiscoveryView: View {
                 password: password,
                 privateKeyPem: nil,
                 passphrase: nil,
+                unlockMacosKeychain: unlockMacosKeychain,
                 acceptUnknownHost: true,
                 workingDir: nil,
                 ipcSocketPathOverride: ipcSocketPathOverride
@@ -883,6 +884,7 @@ struct DiscoveryView: View {
                 password: nil,
                 privateKeyPem: privateKey,
                 passphrase: passphrase,
+                unlockMacosKeychain: false,
                 acceptUnknownHost: true,
                 workingDir: nil,
                 ipcSocketPathOverride: ipcSocketPathOverride
@@ -1007,7 +1009,11 @@ struct DiscoveryView: View {
                     passphrase: env["CODEXIOS_SIM_AUTO_SSH_PASSPHRASE"]
                 )
             } else {
-                credentials = .password(username: user, password: password ?? "")
+                credentials = .password(
+                    username: user,
+                    password: password ?? "",
+                    unlockMacosKeychain: false
+                )
             }
             await connectToServer(
                 server,

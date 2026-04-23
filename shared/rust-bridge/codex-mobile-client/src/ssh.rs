@@ -71,6 +71,7 @@ pub struct SshCredentials {
     pub port: u16,
     pub username: String,
     pub auth: SshAuth,
+    pub unlock_macos_keychain: bool,
 }
 
 /// Authentication method.
@@ -209,6 +210,9 @@ pub struct SshClient {
     handle: Arc<Mutex<Handle<ClientHandler>>>,
     /// Tracks forwarding background tasks so we can abort on disconnect.
     forward_tasks: Mutex<HashMap<u16, ForwardTask>>,
+    /// Optional login password to reuse for unlocking the remote macOS
+    /// login keychain before detached headless launches.
+    macos_keychain_password: Option<String>,
 }
 
 struct ForwardTask {
@@ -235,6 +239,14 @@ impl SshClient {
         credentials: SshCredentials,
         host_key_callback: Box<dyn Fn(&str) -> BoxFuture<'static, bool> + Send + Sync>,
     ) -> Result<Self, SshError> {
+        let macos_keychain_password = if credentials.unlock_macos_keychain {
+            match &credentials.auth {
+                SshAuth::Password(password) => Some(password.clone()),
+                SshAuth::PrivateKey { .. } => None,
+            }
+        } else {
+            None
+        };
         let auth_kind = match &credentials.auth {
             SshAuth::Password(_) => "password",
             SshAuth::PrivateKey { .. } => "key",
@@ -377,6 +389,7 @@ impl SshClient {
         Ok(Self {
             handle: Arc::new(Mutex::new(handle)),
             forward_tasks: Mutex::new(HashMap::new()),
+            macos_keychain_password,
         })
     }
 
@@ -866,9 +879,10 @@ printf '%s/codex-ipc/ipc-%s.sock' "$tmp" "$uid""#;
 
             let launch_cmd = match shell {
                 RemoteShell::Posix => format!(
-                    "{profile_init} {cd_prefix}nohup {launch} \
+                    "{profile_init} {unlock_prefix}{cd_prefix}nohup {launch} \
                      </dev/null >{log} 2>&1 & echo $!",
                     profile_init = PROFILE_INIT,
+                    unlock_prefix = self.posix_macos_keychain_unlock_prefix(),
                     cd_prefix = cd_prefix,
                     launch =
                         server_launch_command(&codex_binary, &format!("ws://{listen_addr}"), shell),
@@ -1872,6 +1886,17 @@ if (Test-Path $sentinel) { (Get-Item $sentinel).LastWriteTime = Get-Date } else 
         self.exec_shell(&script, shell).await?;
         Ok(())
     }
+
+    fn posix_macos_keychain_unlock_prefix(&self) -> String {
+        let Some(password) = self.macos_keychain_password.as_deref() else {
+            return String::new();
+        };
+
+        format!(
+            "if command -v security >/dev/null 2>&1 && [ -e \"$HOME/Library/Keychains/login.keychain-db\" ]; then security unlock-keychain -p {password} \"$HOME/Library/Keychains/login.keychain-db\" >/dev/null; fi && ",
+            password = shell_quote(password),
+        )
+    }
 }
 
 /// Parse the `STATUS:...` / `PATH:...` lines emitted by the tarball install
@@ -2510,6 +2535,7 @@ mod tests {
             port: 22,
             username: "user".into(),
             auth: SshAuth::Password("pass".into()),
+            unlock_macos_keychain: false,
         };
         assert_eq!(creds.port, 22);
         assert_eq!(creds.username, "user");
@@ -2524,6 +2550,7 @@ mod tests {
                         .into(),
                 passphrase: None,
             },
+            unlock_macos_keychain: false,
         };
         assert_eq!(creds_key.port, 2222);
     }

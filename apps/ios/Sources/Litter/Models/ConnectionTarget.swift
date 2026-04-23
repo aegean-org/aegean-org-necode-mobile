@@ -9,7 +9,7 @@ enum ConnectionTarget: Equatable {
 }
 
 enum SSHCredentials: Equatable {
-    case password(username: String, password: String)
+    case password(username: String, password: String, unlockMacosKeychain: Bool)
     case key(username: String, privateKey: String, passphrase: String?)
 }
 
@@ -24,11 +24,16 @@ struct SavedSSHCredential: Codable {
     let password: String?
     let privateKey: String?
     let passphrase: String?
+    let unlockMacosKeychain: Bool?
 
     func toConnectionCredential() -> SSHCredentials {
         switch method {
         case .password:
-            return .password(username: username, password: password ?? "")
+            return .password(
+                username: username,
+                password: password ?? "",
+                unlockMacosKeychain: unlockMacosKeychain ?? false
+            )
         case .key:
             return .key(
                 username: username,

@@ -14,6 +14,7 @@ data class SavedSshCredential(
     val password: String? = null,
     val privateKey: String? = null,
     val passphrase: String? = null,
+    val unlockMacosKeychain: Boolean = false,
 ) {
     fun toJson(): String = JSONObject().apply {
         put("username", username)
@@ -21,6 +22,7 @@ data class SavedSshCredential(
         password?.let { put("password", it) }
         privateKey?.let { put("privateKey", it) }
         passphrase?.let { put("passphrase", it) }
+        put("unlockMacosKeychain", unlockMacosKeychain)
     }.toString()
 
     companion object {
@@ -32,6 +34,7 @@ data class SavedSshCredential(
                 password = obj.optString("password").takeIf { it.isNotBlank() },
                 privateKey = obj.optString("privateKey").takeIf { it.isNotBlank() },
                 passphrase = obj.optString("passphrase").takeIf { it.isNotBlank() },
+                unlockMacosKeychain = obj.optBoolean("unlockMacosKeychain", false),
             )
         }
     }

@@ -78,6 +78,7 @@ impl SshBridge {
         password: Option<String>,
         private_key_pem: Option<String>,
         passphrase: Option<String>,
+        unlock_macos_keychain: bool,
         accept_unknown_host: bool,
         working_dir: Option<String>,
     ) -> Result<AppSshConnectionResult, ClientError> {
@@ -97,6 +98,7 @@ impl SshBridge {
             port,
             username,
             auth,
+            unlock_macos_keychain,
         };
 
         let rt = Arc::clone(&self.rt);
@@ -239,6 +241,7 @@ impl SshBridge {
         password: Option<String>,
         private_key_pem: Option<String>,
         passphrase: Option<String>,
+        unlock_macos_keychain: bool,
         accept_unknown_host: bool,
         working_dir: Option<String>,
         ipc_socket_path_override: Option<String>,
@@ -261,6 +264,7 @@ impl SshBridge {
             port,
             username,
             auth,
+            unlock_macos_keychain,
         };
         let config = ServerConfig {
             server_id,
@@ -317,6 +321,7 @@ impl SshBridge {
         password: Option<String>,
         private_key_pem: Option<String>,
         passphrase: Option<String>,
+        unlock_macos_keychain: bool,
         accept_unknown_host: bool,
         working_dir: Option<String>,
         ipc_socket_path_override: Option<String>,
@@ -339,6 +344,7 @@ impl SshBridge {
             port,
             username,
             auth,
+            unlock_macos_keychain,
         };
         let config = ServerConfig {
             server_id: server_id.clone(),

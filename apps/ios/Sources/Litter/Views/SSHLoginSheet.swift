@@ -12,6 +12,7 @@ struct SSHLoginSheet: View {
     @State private var privateKey = ""
     @State private var passphrase = ""
     @State private var rememberCredentials = true
+    @State private var unlockMacosKeychain = false
     @State private var hasSavedCredentials = false
     @State private var loadedSavedCredentials = false
     @State private var isConnecting = false
@@ -104,6 +105,19 @@ struct SSHLoginSheet: View {
                             SecureField("password", text: $password)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle(isOn: $unlockMacosKeychain) {
+                                    Text("Unlock keychain (macOS)")
+                                        .litterFont(.footnote)
+                                        .foregroundColor(LitterTheme.textPrimary)
+                                }
+                                .tint(LitterTheme.accent)
+
+                                Text("Uses your SSH/login password during headless bootstrap. Required for tools like gh CLI auth.")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textSecondary)
+                            }
                         }
                     } header: {
                         Text("Authentication")
@@ -174,6 +188,11 @@ struct SSHLoginSheet: View {
             guard autoLoadSavedCredentials else { return }
             loadSavedCredentialsIfNeeded()
         }
+        .onChange(of: useKey) { _, isUsingKey in
+            if isUsingKey {
+                unlockMacosKeychain = false
+            }
+        }
     }
 
     private func connect() {
@@ -185,7 +204,11 @@ struct SSHLoginSheet: View {
                 passphrase: passphrase.isEmpty ? nil : passphrase
             )
         } else {
-            credentials = .password(username: username, password: password)
+            credentials = .password(
+                username: username,
+                password: password,
+                unlockMacosKeychain: unlockMacosKeychain
+            )
         }
         isConnecting = true
         errorMessage = nil
@@ -235,10 +258,12 @@ struct SSHLoginSheet: View {
                 privateKey = saved.privateKey ?? ""
                 passphrase = saved.passphrase ?? ""
                 password = ""
+                unlockMacosKeychain = false
             } else {
                 password = saved.password ?? ""
                 privateKey = ""
                 passphrase = ""
+                unlockMacosKeychain = saved.unlockMacosKeychain ?? false
             }
         } catch {
             NSLog("[SSH_CREDENTIALS] failed to load: %@", error.localizedDescription)
@@ -258,13 +283,14 @@ struct SSHLoginSheet: View {
 
     private func savedCredential(from credentials: SSHCredentials) -> SavedSSHCredential {
         switch credentials {
-        case .password(let username, let password):
+        case .password(let username, let password, let unlockMacosKeychain):
             return SavedSSHCredential(
                 username: username,
                 method: .password,
                 password: password,
                 privateKey: nil,
-                passphrase: nil
+                passphrase: nil,
+                unlockMacosKeychain: unlockMacosKeychain
             )
         case .key(let username, let privateKey, let passphrase):
             return SavedSSHCredential(
@@ -272,7 +298,8 @@ struct SSHLoginSheet: View {
                 method: .key,
                 password: nil,
                 privateKey: privateKey,
-                passphrase: passphrase
+                passphrase: passphrase,
+                unlockMacosKeychain: false
             )
         }
     }
