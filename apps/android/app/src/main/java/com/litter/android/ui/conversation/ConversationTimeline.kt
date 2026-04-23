@@ -76,7 +76,6 @@ import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
-import com.litter.android.theme.generated.LitterTheme as GeneratedTheme
 import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.scaled
 import com.litter.android.state.AppModel
@@ -282,7 +281,7 @@ private fun UserMessageRow(
                         onClick = {},
                         onLongClick = { showMenu = true },
                     )
-                    .padding(horizontal = GeneratedTheme.Spacing.bubblePaddingH, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 com.litter.android.ui.common.FormattedText(
                     text = data.text,
