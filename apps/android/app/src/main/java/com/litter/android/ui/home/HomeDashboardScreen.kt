@@ -431,6 +431,23 @@ fun HomeDashboardScreen(
                         lifecycleController.reconnectServer(context, appModel, server.serverId)
                     }
                 },
+                onRestartAppServer = { server ->
+                    scope.launch {
+                        try {
+                            if (server.isLocal) {
+                                appModel.restartLocalServer()
+                            } else {
+                                appModel.serverBridge.restartAppServer(server.serverId)
+                                lifecycleController.reconnectServer(context, appModel, server.serverId)
+                            }
+                            appModel.refreshSnapshot()
+                        } catch (error: Exception) {
+                            confirmAction = ConfirmAction.ReplyError(
+                                error.message ?: "Unable to restart app server.",
+                            )
+                        }
+                    }
+                },
                 onRename = { server ->
                     renameText = server.displayName
                     renameTarget = server

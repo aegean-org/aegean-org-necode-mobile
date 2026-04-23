@@ -1193,6 +1193,7 @@ private struct HomeNavigationView: View {
             onHydrateThread: hydrateThread,
             onDeleteThread: deleteThread,
             onReconnectServer: reconnectServer,
+            onRestartAppServer: restartAppServer,
             onDisconnectServer: disconnectServer,
             onRenameServer: renameServer,
             onOpenRecording: { url in
@@ -1229,6 +1230,7 @@ private struct HomeNavigationView: View {
             onHydrateThread: hydrateThread,
             onDeleteThread: deleteThread,
             onReconnectServer: reconnectServer,
+            onRestartAppServer: restartAppServer,
             onDisconnectServer: disconnectServer,
             onRenameServer: renameServer,
             onOpenRecording: { url in
@@ -1355,6 +1357,22 @@ private struct HomeNavigationView: View {
     private func reconnectServer(_ server: HomeDashboardServer) {
         Task {
             await AppRuntimeController.shared.reconnectServer(serverId: server.id)
+        }
+    }
+
+    private func restartAppServer(_ server: HomeDashboardServer) {
+        Task {
+            do {
+                if server.isLocal {
+                    try await appModel.restartLocalServer()
+                } else {
+                    try await appModel.serverBridge.restartAppServer(serverId: server.id)
+                    await AppRuntimeController.shared.reconnectServer(serverId: server.id)
+                }
+                await appModel.refreshSnapshot()
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
         }
     }
 

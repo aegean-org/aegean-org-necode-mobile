@@ -167,6 +167,14 @@ impl ServerBridge {
     pub fn disconnect_server(&self, server_id: String) {
         self.inner.disconnect_server(&server_id);
     }
+
+    pub async fn restart_app_server(&self, server_id: String) -> Result<(), ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.restart_app_server(&server_id)
+                .await
+                .map_err(|e| ClientError::Transport(e.to_string()))
+        })
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]

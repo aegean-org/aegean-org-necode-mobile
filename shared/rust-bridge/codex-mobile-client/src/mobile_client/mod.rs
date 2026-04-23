@@ -823,6 +823,19 @@ impl MobileClient {
         info!("MobileClient: disconnected server {server_id}");
     }
 
+    pub async fn restart_app_server(&self, server_id: &str) -> Result<(), TransportError> {
+        self.clear_oauth_callback_tunnel(server_id).await;
+        let session = self.sessions_write().remove(server_id);
+        self.app_store.remove_server(server_id);
+        let Some(session) = session else {
+            return Err(TransportError::Disconnected);
+        };
+
+        info!("MobileClient: restarting app server {server_id}");
+        session.restart_app_server_and_disconnect().await;
+        Ok(())
+    }
+
     /// Return the configs of all currently connected servers.
     #[cfg(test)]
     #[allow(dead_code)]

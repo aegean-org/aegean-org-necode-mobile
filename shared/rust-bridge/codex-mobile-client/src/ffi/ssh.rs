@@ -788,15 +788,9 @@ async fn run_guided_ssh_connect(
         host.as_str()
     );
 
-    progress.update_step(
-        AppConnectionStepKind::Connected,
-        AppConnectionStepState::Completed,
-        Some("Connected".to_string()),
-    );
-    progress.terminal_message = None;
     mobile_client
         .app_store
-        .update_server_connection_progress(&server_id, Some(progress.clone()));
+        .update_server_connection_progress(&server_id, None);
     Ok(())
 }
 

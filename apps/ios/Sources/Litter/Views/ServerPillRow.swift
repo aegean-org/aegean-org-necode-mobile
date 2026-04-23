@@ -5,6 +5,7 @@ struct ServerPillRow: View {
     let selectedServerId: String?
     let onTap: (HomeDashboardServer) -> Void
     let onReconnect: (HomeDashboardServer) -> Void
+    let onRestartAppServer: (HomeDashboardServer) -> Void
     let onRename: (HomeDashboardServer) -> Void
     let onRemove: (HomeDashboardServer) -> Void
     let onAdd: () -> Void
@@ -18,6 +19,7 @@ struct ServerPillRow: View {
                         isSelected: server.id == selectedServerId,
                         onTap: { onTap(server) },
                         onReconnect: { onReconnect(server) },
+                        onRestartAppServer: { onRestartAppServer(server) },
                         onRename: { onRename(server) },
                         onRemove: { onRemove(server) }
                     )

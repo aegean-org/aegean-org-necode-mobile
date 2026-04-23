@@ -1014,6 +1014,16 @@ impl ServerSession {
 
     /// Disconnect from the server, shutting down all background tasks.
     pub async fn disconnect(&self) {
+        self.disconnect_inner(false).await;
+    }
+
+    /// Disconnect and force-stop the remote app-server listener even when
+    /// this session reused an existing process whose PID was not tracked.
+    pub async fn restart_app_server_and_disconnect(&self) {
+        self.disconnect_inner(true).await;
+    }
+
+    async fn disconnect_inner(&self, kill_reused_app_server: bool) {
         let _ = self.health_tx.send(ConnectionHealth::Disconnected);
         let _ = self.command_tx.send(SessionCommand::Shutdown).await;
         if let Some(ipc_client) = self.ipc_stream_client.as_ref() {
@@ -1045,6 +1055,25 @@ impl ServerSession {
                 };
                 if let Some(pid) = pid {
                     let _ = ssh_client.exec(&format!("kill {pid} 2>/dev/null")).await;
+                }
+            }
+            if kill_reused_app_server && self.config.port > 0 {
+                match ssh_client.kill_listener_on_port(self.config.port).await {
+                    Ok(result) => {
+                        info!(
+                            "restart app server stop listener port={} exit_code={} stdout={} stderr={}",
+                            self.config.port,
+                            result.exit_code,
+                            result.stdout.trim(),
+                            result.stderr.trim()
+                        );
+                    }
+                    Err(error) => {
+                        warn!(
+                            "restart app server stop listener failed port={} error={}",
+                            self.config.port, error
+                        );
+                    }
                 }
             }
             ssh_client.disconnect().await;

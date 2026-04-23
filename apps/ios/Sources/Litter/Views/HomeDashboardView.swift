@@ -43,6 +43,7 @@ struct HomeDashboardView: View {
     var onHydrateThread: ((ThreadKey) async -> Void)? = nil
     var onDeleteThread: ((ThreadKey) async -> Void)? = nil
     var onReconnectServer: ((HomeDashboardServer) -> Void)? = nil
+    var onRestartAppServer: ((HomeDashboardServer) -> Void)? = nil
     var onDisconnectServer: ((String) -> Void)? = nil
     var onRenameServer: ((String, String) -> Void)? = nil
     var onOpenRecording: ((URL) -> Void)? = nil
@@ -327,6 +328,7 @@ struct HomeDashboardView: View {
             selectedServerId: selectedProject?.serverId ?? selectedServerId,
             onTap: onSelectServer,
             onReconnect: { server in onReconnectServer?(server) },
+            onRestartAppServer: { server in onRestartAppServer?(server) },
             onRename: { server in
                 renameServerText = server.displayName
                 renameServerTarget = server

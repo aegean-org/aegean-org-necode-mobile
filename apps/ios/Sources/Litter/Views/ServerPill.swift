@@ -5,6 +5,7 @@ struct ServerPill: View {
     let isSelected: Bool
     let onTap: () -> Void
     let onReconnect: () -> Void
+    let onRestartAppServer: () -> Void
     let onRename: () -> Void
     let onRemove: () -> Void
 
@@ -36,6 +37,11 @@ struct ServerPill: View {
                 onReconnect()
             } label: {
                 Label("Reconnect", systemImage: "arrow.clockwise")
+            }
+            Button {
+                onRestartAppServer()
+            } label: {
+                Label("Restart app server", systemImage: "arrow.triangle.2.circlepath")
             }
             if !server.isLocal {
                 Button {

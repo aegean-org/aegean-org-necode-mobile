@@ -793,6 +793,7 @@ printf '%s/codex-ipc/ipc-%s.sock' "$tmp" "$uid""#;
             prefer_ipv6,
             working_dir.unwrap_or("<none>")
         );
+        self.log_macos_keychain_unlock_for_bootstrap(shell).await?;
         // --- 2. Try candidate ports until one works ---------------------
         let cd_prefix = match (shell, working_dir) {
             (RemoteShell::Posix, Some(dir)) => format!("cd {} && ", shell_quote(dir)),
@@ -879,10 +880,9 @@ printf '%s/codex-ipc/ipc-%s.sock' "$tmp" "$uid""#;
 
             let launch_cmd = match shell {
                 RemoteShell::Posix => format!(
-                    "{profile_init} {unlock_prefix}{cd_prefix}nohup {launch} \
+                    "{profile_init} {cd_prefix}nohup {launch} \
                      </dev/null >{log} 2>&1 & echo $!",
                     profile_init = PROFILE_INIT,
-                    unlock_prefix = self.posix_macos_keychain_unlock_prefix(),
                     cd_prefix = cd_prefix,
                     launch =
                         server_launch_command(&codex_binary, &format!("ws://{listen_addr}"), shell),
@@ -1312,6 +1312,63 @@ fi"#
             Ok(r) => r.stdout.trim() == "alive",
             Err(_) => false,
         }
+    }
+
+    pub(crate) async fn kill_listener_on_port(&self, port: u16) -> Result<ExecResult, SshError> {
+        let shell = self.detect_remote_shell().await;
+        self.kill_listener_on_port_shell(port, shell).await
+    }
+
+    async fn kill_listener_on_port_shell(
+        &self,
+        port: u16,
+        shell: RemoteShell,
+    ) -> Result<ExecResult, SshError> {
+        let cmd = match shell {
+            RemoteShell::Posix => format!(
+                r#"pids=""
+if command -v lsof >/dev/null 2>&1; then
+  pids="$(lsof -nP -iTCP:{port} -sTCP:LISTEN -t 2>/dev/null | sort -u)"
+fi
+if [ -z "$pids" ] && command -v fuser >/dev/null 2>&1; then
+  pids="$(fuser {port}/tcp 2>/dev/null | tr ' ' '\n' | sort -u)"
+fi
+if [ -z "$pids" ]; then
+  printf 'litter_restart_app_server no_listener port={port}\n'
+  exit 0
+fi
+printf 'litter_restart_app_server killing port={port} pids=%s\n' "$pids"
+kill $pids 2>/dev/null || true
+sleep 1
+alive=""
+for pid in $pids; do
+  if kill -0 "$pid" 2>/dev/null; then
+    alive="$alive $pid"
+  fi
+done
+if [ -n "$alive" ]; then
+  kill -9 $alive 2>/dev/null || true
+  printf 'litter_restart_app_server force_killed port={port} pids=%s\n' "$alive"
+else
+  printf 'litter_restart_app_server stopped port={port}\n'
+fi"#
+            ),
+            RemoteShell::PowerShell => format!(
+                r#"$connections = Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue
+$pids = @($connections | Select-Object -ExpandProperty OwningProcess -Unique)
+if ($pids.Count -eq 0) {{
+  Write-Host 'litter_restart_app_server no_listener port={port}'
+  exit 0
+}}
+Write-Host "litter_restart_app_server killing port={port} pids=$($pids -join ',')"
+foreach ($processId in $pids) {{
+  Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+}}
+Write-Host 'litter_restart_app_server stopped port={port}'"#
+            ),
+        };
+
+        self.exec_shell(&cmd, shell).await
     }
 
     async fn fetch_log_tail_shell(&self, log_path: &str, shell: RemoteShell) -> String {
@@ -1887,15 +1944,53 @@ if (Test-Path $sentinel) { (Get-Item $sentinel).LastWriteTime = Get-Date } else 
         Ok(())
     }
 
-    fn posix_macos_keychain_unlock_prefix(&self) -> String {
-        let Some(password) = self.macos_keychain_password.as_deref() else {
-            return String::new();
+    async fn log_macos_keychain_unlock_for_bootstrap(
+        &self,
+        shell: RemoteShell,
+    ) -> Result<(), SshError> {
+        if shell != RemoteShell::Posix {
+            append_bridge_info_log(&format!(
+                "ssh_bootstrap_keychain_unlock skipped shell={}",
+                remote_shell_name(shell)
+            ));
+            return Ok(());
+        }
+
+        let Some(command) = self.posix_macos_keychain_unlock_command() else {
+            append_bridge_info_log("ssh_bootstrap_keychain_unlock skipped reason=disabled");
+            return Ok(());
         };
 
-        format!(
-            "if command -v security >/dev/null 2>&1 && [ -e \"$HOME/Library/Keychains/login.keychain-db\" ]; then security unlock-keychain -p {password} \"$HOME/Library/Keychains/login.keychain-db\" >/dev/null; fi && ",
+        let result = self.exec_shell(&command, shell).await?;
+        let output = result.stderr.trim();
+        if output.is_empty() {
+            info!(
+                "ssh bootstrap keychain unlock output shell={} exit_code={} <empty>",
+                remote_shell_name(shell),
+                result.exit_code
+            );
+        } else {
+            info!(
+                "ssh bootstrap keychain unlock output shell={} exit_code={} {}",
+                remote_shell_name(shell),
+                result.exit_code,
+                output
+            );
+        }
+        append_bridge_info_log(&format!(
+            "ssh_bootstrap_keychain_unlock exit_code={} stderr={}",
+            result.exit_code, output
+        ));
+        Ok(())
+    }
+
+    fn posix_macos_keychain_unlock_command(&self) -> Option<String> {
+        let password = self.macos_keychain_password.as_deref()?;
+
+        Some(format!(
+            r#"if command -v security >/dev/null 2>&1 && [ -e "$HOME/Library/Keychains/login.keychain-db" ]; then _litter_kc_path="$HOME/Library/Keychains/login.keychain-db"; printf 'litter_keychain_unlock start path=%s\n' "$_litter_kc_path" >&2; _litter_kc_output="$(security unlock-keychain -p {password} "$_litter_kc_path" 2>&1 >/dev/null)"; _litter_kc_status=$?; _litter_kc_output="$(printf '%s' "$_litter_kc_output" | tr '\n' ' ')"; printf 'litter_keychain_unlock result status=%s stderr=%s\n' "$_litter_kc_status" "$_litter_kc_output" >&2; exit 0; else printf 'litter_keychain_unlock skipped reason=security_or_login_keychain_missing\n' >&2; exit 0; fi"#,
             password = shell_quote(password),
-        )
+        ))
     }
 }
 

@@ -50,6 +50,7 @@ fun ServerPillRow(
     selectedServerId: String?,
     onTap: (AppServerSnapshot) -> Unit,
     onReconnect: (AppServerSnapshot) -> Unit,
+    onRestartAppServer: (AppServerSnapshot) -> Unit,
     onRename: (AppServerSnapshot) -> Unit,
     onRemove: (AppServerSnapshot) -> Unit,
     onAdd: () -> Unit,
@@ -68,6 +69,7 @@ fun ServerPillRow(
                 isSelected = server.serverId == selectedServerId,
                 onTap = { onTap(server) },
                 onReconnect = { onReconnect(server) },
+                onRestartAppServer = { onRestartAppServer(server) },
                 onRename = { onRename(server) },
                 onRemove = { onRemove(server) },
             )
@@ -83,6 +85,7 @@ private fun ServerPill(
     isSelected: Boolean,
     onTap: () -> Unit,
     onReconnect: () -> Unit,
+    onRestartAppServer: () -> Unit,
     onRename: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -124,6 +127,10 @@ private fun ServerPill(
             DropdownMenuItem(
                 text = { Text("Reconnect") },
                 onClick = { showMenu = false; onReconnect() },
+            )
+            DropdownMenuItem(
+                text = { Text("Restart app server") },
+                onClick = { showMenu = false; onRestartAppServer() },
             )
             if (!server.isLocal) {
                 DropdownMenuItem(
