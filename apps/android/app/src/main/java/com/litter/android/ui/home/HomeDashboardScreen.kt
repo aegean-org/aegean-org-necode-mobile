@@ -216,7 +216,7 @@ fun HomeDashboardScreen(
             if (!requestedHydrationKeys.add(id)) continue
             scope.launch {
                 runCatching { appModel.externalResumeThread(session.key) }
-                appModel.refreshSnapshot()
+                appModel.refreshThreadSnapshot(session.key)
             }
         }
     }

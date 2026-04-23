@@ -1318,7 +1318,7 @@ private struct HomeNavigationView: View {
         // short-circuits to a no-op when IPC is live and the thread's
         // items are already populated, so warm/IPC paths are cheap.
         try? await appModel.store.externalResumeThread(key: key, hostId: nil)
-        await appModel.refreshSnapshot()
+        await appModel.refreshThreadSnapshot(key: key)
     }
 
     private func deleteThread(_ key: ThreadKey) async {

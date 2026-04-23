@@ -556,7 +556,7 @@ final class AppModel {
         cacheThreadSnapshot(thread)
     }
 
-    private func refreshThreadSnapshot(key: ThreadKey) async {
+    func refreshThreadSnapshot(key: ThreadKey) async {
         guard snapshot != nil else {
             await refreshSnapshot()
             return

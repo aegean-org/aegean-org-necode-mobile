@@ -694,7 +694,7 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
-    private suspend fun refreshThreadSnapshot(key: ThreadKey) {
+    suspend fun refreshThreadSnapshot(key: ThreadKey) {
         if (_snapshot.value == null) {
             refreshSnapshot()
             return
