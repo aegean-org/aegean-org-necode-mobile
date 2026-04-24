@@ -1377,6 +1377,7 @@ pub struct AppMinigameResult {
 const STRUCTURED_RESPONSE_TIMEOUT_SECS: u64 = 60;
 
 const SAVED_APP_UPDATE_TIMEOUT_SECS: u64 = 120;
+const SAVED_APP_UPDATE_DEFAULT_MODEL: &str = "gpt-5.3-codex-spark";
 
 fn is_stale_thread_error(err: &str) -> bool {
     let lower = err.to_ascii_lowercase();
@@ -1622,10 +1623,9 @@ async fn perform_update_saved_app(
         );
     }
 
-    // Inherit the origin thread's model / reasoning / approval / sandbox
-    // settings when the thread is still known to the store. Falls back to
-    // `None` (server defaults) if the app has no origin_thread_id, or the
-    // thread has been archived / never hydrated.
+    // Inherit the origin thread's model / reasoning settings when the
+    // thread is still known to the store. If the app has no recoverable
+    // origin settings, fall back to the fast saved-app update defaults.
     let inherited = inherited_settings_for_origin(
         client,
         &requested_server_id,
@@ -1636,7 +1636,19 @@ async fn perform_update_saved_app(
     } else {
         inherited
     };
-    let (model, reasoning_effort, approval_policy, sandbox_mode) = inherited;
+    let (model, reasoning_effort) = inherited;
+    let has_complete_inherited_settings = model.is_some() && reasoning_effort.is_some();
+    let model = model.unwrap_or_else(|| SAVED_APP_UPDATE_DEFAULT_MODEL.to_string());
+    let reasoning_effort = reasoning_effort.unwrap_or(crate::types::ReasoningEffort::Low);
+    let service_tier = if has_complete_inherited_settings {
+        None
+    } else {
+        Some(Some(
+            crate::types::server_requests::service_tier_into_upstream(
+                crate::types::ServiceTier::Fast,
+            ),
+        ))
+    };
 
     // Resolve the on-disk HTML path. The model edits this file directly
     // via apply_patch; no show_widget round-trip needed. cwd is the
@@ -1645,9 +1657,7 @@ async fn perform_update_saved_app(
     let html_dir = apps_root.join("html");
     let html_filename = format!("{app_id}.html");
     let html_path = html_dir.join(&html_filename);
-    let initial_mtime = std::fs::metadata(&html_path)
-        .and_then(|m| m.modified())
-        .ok();
+    let initial_html = current.widget_html.clone();
 
     let developer_instructions = build_saved_app_update_seed(
         &current.app.title,
@@ -1656,29 +1666,25 @@ async fn perform_update_saved_app(
         &shape_summary,
     );
 
-    // 2. Start a hidden ephemeral thread on the server rooted at the
+    // 2. Start a visible thread on the server rooted at the
     //    saved-apps HTML directory. The model uses its regular file-
     //    editing tools (apply_patch, shell) to modify the HTML file on
     //    disk — no dynamic_tools, no show_widget round-trip.
     let start_params = upstream::ThreadStartParams {
-        model: model.clone(),
+        model: Some(model.clone()),
         model_provider: None,
-        service_tier: None,
+        service_tier: service_tier.clone(),
         cwd: Some(html_dir.to_string_lossy().into_owned()),
-        approval_policy: approval_policy
-            .clone()
-            .map(crate::types::server_requests::ask_for_approval_into_upstream),
+        approval_policy: Some(upstream::AskForApproval::Never),
         approvals_reviewer: None,
-        sandbox: sandbox_mode
-            .clone()
-            .map(crate::types::server_requests::sandbox_mode_into_upstream),
+        sandbox: Some(upstream::SandboxMode::DangerFullAccess),
         permission_profile: None,
         config: None,
         service_name: None,
         base_instructions: None,
         developer_instructions: Some(developer_instructions),
         personality: None,
-        ephemeral: Some(true),
+        ephemeral: Some(false),
         session_start_source: None,
         dynamic_tools: None,
         mock_experimental_field: None,
@@ -1704,15 +1710,6 @@ async fn perform_update_saved_app(
     };
     let thread_id = thread_response.thread.id.clone();
 
-    // Hide the thread from the local home/sidebar for the lifetime of
-    // the update. Removed on cleanup below.
-    let hidden_key = crate::preferences::PinnedThreadKey {
-        server_id: server_id.clone(),
-        thread_id: thread_id.clone(),
-    };
-    let _ =
-        crate::preferences::preferences_add_hidden_thread(directory.clone(), hidden_key.clone());
-
     // 3. Subscribe to store updates BEFORE sending the turn so we don't
     //    miss an extremely fast completion. We wait for ThreadMetadataChanged
     //    on our thread with `active_turn_id = None` AND `status = Idle`
@@ -1728,14 +1725,16 @@ async fn perform_update_saved_app(
         }],
         responsesapi_client_metadata: None,
         cwd: None,
-        approval_policy: None,
+        approval_policy: Some(upstream::AskForApproval::Never),
         approvals_reviewer: None,
-        sandbox_policy: None,
+        sandbox_policy: Some(upstream::SandboxPolicy::DangerFullAccess),
         environments: None,
         permission_profile: None,
-        model,
-        service_tier: None,
-        effort: reasoning_effort.map(crate::types::server_requests::reasoning_effort_into_upstream),
+        model: Some(model),
+        service_tier,
+        effort: Some(
+            crate::types::server_requests::reasoning_effort_into_upstream(reasoning_effort),
+        ),
         summary: None,
         personality: None,
         output_schema: None,
@@ -1751,19 +1750,88 @@ async fn perform_update_saved_app(
         )
         .await;
     if let Err(e) = turn_start_outcome {
-        cleanup_update_thread(client, &server_id, &thread_id, &directory, &hidden_key).await;
         return SavedAppUpdateResult::Error {
             message: format!("turn/start failed: {e}"),
         };
     }
 
-    // 5. Wait for the turn to complete, or time out.
+    // 5. Wait for the turn to complete, or time out. While the turn is
+    //    still running, sync each distinct HTML file change back through
+    //    saved_app_replace_html so preview/detail views can refresh live.
     let wait_outcome = tokio::time::timeout(
         std::time::Duration::from_secs(SAVED_APP_UPDATE_TIMEOUT_SECS),
-        async {
-            let mut saw_active = false;
-            loop {
-                match updates_rx.recv().await {
+        wait_for_saved_app_update_turn_and_sync(
+            &mut updates_rx,
+            &server_id,
+            &thread_id,
+            &directory,
+            &app_id,
+            &html_path,
+            current.app.width,
+            current.app.height,
+            initial_html,
+        ),
+    )
+    .await;
+
+    let final_app = match wait_outcome {
+        Ok(Ok(Some(app))) => app,
+        Ok(Ok(None)) => {
+            return SavedAppUpdateResult::Error {
+                message: "no changes were made to the app".to_string(),
+            };
+        }
+        Ok(Err(e)) => {
+            return SavedAppUpdateResult::Error { message: e };
+        }
+        Err(_) => {
+            return SavedAppUpdateResult::Error {
+                message: format!(
+                    "update timed out after {SAVED_APP_UPDATE_TIMEOUT_SECS}s waiting for turn to complete"
+                ),
+            };
+        }
+    };
+
+    SavedAppUpdateResult::Success { app: final_app }
+}
+
+async fn wait_for_saved_app_update_turn_and_sync(
+    updates_rx: &mut tokio::sync::broadcast::Receiver<crate::store::updates::AppStoreUpdateRecord>,
+    server_id: &str,
+    thread_id: &str,
+    directory: &str,
+    app_id: &str,
+    html_path: &std::path::Path,
+    width: f64,
+    height: f64,
+    initial_html: String,
+) -> Result<Option<crate::saved_apps::SavedApp>, String> {
+    let mut saw_active = false;
+    let mut last_synced_html = initial_html;
+    let mut latest_app: Option<crate::saved_apps::SavedApp> = None;
+    let mut poll = tokio::time::interval(std::time::Duration::from_millis(750));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            _ = poll.tick() => {
+                match sync_saved_app_html_change(
+                    directory,
+                    app_id,
+                    html_path,
+                    width,
+                    height,
+                    &mut last_synced_html,
+                    false,
+                ) {
+                    Ok(Some(app)) => latest_app = Some(app),
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("update_saved_app: live HTML sync skipped: {e}"),
+                }
+            }
+            update = updates_rx.recv() => {
+                match update {
                     Ok(crate::store::updates::AppStoreUpdateRecord::ThreadMetadataChanged {
                         state,
                         ..
@@ -1771,7 +1839,18 @@ async fn perform_update_saved_app(
                         if state.active_turn_id.is_some() {
                             saw_active = true;
                         } else if saw_active {
-                            return Ok(());
+                            if let Some(app) = sync_saved_app_html_change(
+                                directory,
+                                app_id,
+                                html_path,
+                                width,
+                                height,
+                                &mut last_synced_html,
+                                true,
+                            )? {
+                                latest_app = Some(app);
+                            }
+                            return Ok(latest_app);
                         }
                     }
                     Ok(_) => continue,
@@ -1781,73 +1860,44 @@ async fn perform_update_saved_app(
                     }
                 }
             }
-        },
-    )
-    .await;
-
-    match wait_outcome {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            cleanup_update_thread(client, &server_id, &thread_id, &directory, &hidden_key).await;
-            return SavedAppUpdateResult::Error { message: e };
-        }
-        Err(_) => {
-            cleanup_update_thread(client, &server_id, &thread_id, &directory, &hidden_key).await;
-            return SavedAppUpdateResult::Error {
-                message: format!(
-                    "update timed out after {SAVED_APP_UPDATE_TIMEOUT_SECS}s waiting for turn to complete"
-                ),
-            };
         }
     }
+}
 
-    // 6. Read the HTML file from disk — model should have edited it.
-    let new_html = match std::fs::read_to_string(&html_path) {
+fn sync_saved_app_html_change(
+    directory: &str,
+    app_id: &str,
+    html_path: &std::path::Path,
+    width: f64,
+    height: f64,
+    last_synced_html: &mut String,
+    final_check: bool,
+) -> Result<Option<crate::saved_apps::SavedApp>, String> {
+    let html = match std::fs::read_to_string(html_path) {
         Ok(html) => html,
+        Err(e) if !final_check => {
+            tracing::warn!("update_saved_app: could not read live HTML change: {e}");
+            return Ok(None);
+        }
         Err(e) => {
-            cleanup_update_thread(client, &server_id, &thread_id, &directory, &hidden_key).await;
-            return SavedAppUpdateResult::Error {
-                message: format!("could not read updated HTML: {e}"),
-            };
+            return Err(format!("could not read updated HTML: {e}"));
         }
     };
 
-    // If the file wasn't actually changed, report that — better UX than
-    // silently re-saving the same content.
-    let new_mtime = std::fs::metadata(&html_path)
-        .and_then(|m| m.modified())
-        .ok();
-    if let (Some(before), Some(after)) = (initial_mtime, new_mtime) {
-        if before == after {
-            cleanup_update_thread(client, &server_id, &thread_id, &directory, &hidden_key).await;
-            return SavedAppUpdateResult::Error {
-                message: "no changes were made to the app".to_string(),
-            };
-        }
+    if html == *last_synced_html {
+        return Ok(None);
     }
 
-    // 7. Write through saved_app_replace_html so the index's updated_at_ms
-    //    and any derived fields stay in sync. This re-writes the same
-    //    file with the same content, which is fine — the `updated_at_ms`
-    //    bump is what downstream listeners (home-row takeover etc.) care
-    //    about.
-    let replace_result = crate::saved_apps::saved_app_replace_html(
-        directory.clone(),
-        app_id.clone(),
-        new_html,
-        current.app.width,
-        current.app.height,
-    );
-
-    // 8. Clean up the hidden thread regardless of result.
-    cleanup_update_thread(client, &server_id, &thread_id, &directory, &hidden_key).await;
-
-    match replace_result {
-        Ok(app) => SavedAppUpdateResult::Success { app },
-        Err(e) => SavedAppUpdateResult::Error {
-            message: format!("replace_html failed: {e}"),
-        },
-    }
+    let app = crate::saved_apps::saved_app_replace_html(
+        directory.to_string(),
+        app_id.to_string(),
+        html.clone(),
+        width,
+        height,
+    )
+    .map_err(|e| format!("replace_html failed: {e}"))?;
+    *last_synced_html = html;
+    Ok(Some(app))
 }
 
 fn choose_saved_app_update_server_id(
@@ -1882,59 +1932,26 @@ fn choose_saved_app_update_server_id(
     local_server_ids.into_iter().next()
 }
 
-async fn cleanup_update_thread(
-    client: &crate::MobileClient,
-    server_id: &str,
-    thread_id: &str,
-    directory: &str,
-    hidden_key: &crate::preferences::PinnedThreadKey,
-) {
-    let _ = crate::preferences::preferences_remove_hidden_thread(
-        directory.to_string(),
-        hidden_key.clone(),
-    );
-    let archive_params = upstream::ThreadArchiveParams {
-        thread_id: thread_id.to_string(),
-    };
-    let archive_result: Result<upstream::ThreadArchiveResponse, _> = client
-        .request_typed_for_server(
-            server_id,
-            upstream::ClientRequest::ThreadArchive {
-                request_id: upstream::RequestId::Integer(crate::next_request_id()),
-                params: archive_params,
-            },
-        )
-        .await;
-    if let Err(e) = archive_result {
-        tracing::warn!(
-            "update_saved_app: failed to archive hidden thread {thread_id}: {e} (ignored)"
-        );
-    }
-}
-
 type InheritedSettings = (
     Option<String>,
     Option<crate::types::models::ReasoningEffort>,
-    Option<crate::types::models::AppAskForApproval>,
-    Option<crate::types::models::AppSandboxMode>,
 );
 
 fn inherited_settings_empty(settings: &InheritedSettings) -> bool {
-    settings.0.is_none() && settings.1.is_none() && settings.2.is_none() && settings.3.is_none()
+    settings.0.is_none() && settings.1.is_none()
 }
 
 /// Look up an origin thread in the app store and extract its effective
-/// settings (model / reasoning effort / approval / sandbox mode) so the
-/// saved-app update thread can run with the same configuration the user
-/// chose for the source conversation. Returns `(None, None, None, None)`
-/// when the thread is unknown, never hydrated, or belongs to a different
-/// server.
+/// model / reasoning settings so the saved-app update thread can run with
+/// the same model configuration the user chose for the source conversation.
+/// Returns `(None, None)` when the thread is unknown, never hydrated, or
+/// belongs to a different server.
 fn inherited_settings_for_origin(
     client: &crate::MobileClient,
     server_id: &str,
     origin_thread_id: Option<&str>,
 ) -> InheritedSettings {
-    use crate::types::models::{AppSandboxMode, AppSandboxPolicy, ReasoningEffort};
+    use crate::types::models::ReasoningEffort;
 
     let Some(thread_id) = origin_thread_id.and_then(|s| {
         let t = s.trim();
@@ -1944,7 +1961,7 @@ fn inherited_settings_for_origin(
             Some(t.to_string())
         }
     }) else {
-        return (None, None, None, None);
+        return (None, None);
     };
 
     let snapshot = client.app_store.snapshot();
@@ -1953,7 +1970,7 @@ fn inherited_settings_for_origin(
         thread_id,
     };
     let Some(thread) = snapshot.threads.get(&key) else {
-        return (None, None, None, None);
+        return (None, None);
     };
 
     let model = thread
@@ -1972,15 +1989,7 @@ fn inherited_settings_for_origin(
             _ => None,
         }
     });
-    let approval_policy = thread.effective_approval_policy.clone();
-    let sandbox_mode = thread.effective_sandbox_policy.as_ref().map(|p| match p {
-        AppSandboxPolicy::ReadOnly { .. } | AppSandboxPolicy::ExternalSandbox { .. } => {
-            AppSandboxMode::ReadOnly
-        }
-        AppSandboxPolicy::WorkspaceWrite { .. } => AppSandboxMode::WorkspaceWrite,
-        AppSandboxPolicy::DangerFullAccess => AppSandboxMode::DangerFullAccess,
-    });
-    (model, effort, approval_policy, sandbox_mode)
+    (model, effort)
 }
 
 fn build_saved_app_update_seed(

@@ -1781,9 +1781,8 @@ impl AppStoreReducer {
                 self.emit_thread_metadata_changed(key);
             }
             UiEvent::RealtimeSdp { key, notification } => {
-                let protocol_notification = crate::types::AppRealtimeSdpNotification::from(
-                    notification.clone(),
-                );
+                let protocol_notification =
+                    crate::types::AppRealtimeSdpNotification::from(notification.clone());
                 self.emit(AppStoreUpdateRecord::RealtimeSdp {
                     key: key.clone(),
                     notification: protocol_notification,

@@ -266,6 +266,7 @@ private struct SettingsConnectionAccountSection: View {
     @State private var isAuthWorking = false
     @State private var authError: String?
     @State private var hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
+    @State private var hasStoredChatGPTTokens = false
 
     var body: some View {
         Section {
@@ -370,7 +371,8 @@ private struct SettingsConnectionAccountSection: View {
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .task(id: server.serverId) {
-            hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
+            refreshStoredCredentialFlags()
+            await refreshAuthStatusIfNeeded()
         }
     }
 
@@ -385,12 +387,20 @@ private struct SettingsConnectionAccountSection: View {
         return false
     }
 
+    private var hasStoredLocalCredentials: Bool {
+        hasStoredApiKey || hasStoredChatGPTTokens
+    }
+
     private var authColor: Color {
         switch server.account {
         case .chatgpt?:
             return LitterTheme.accent
         case .apiKey?:
             return Color(hex: "#00AAFF")
+        case nil where server.isLocal && hasStoredChatGPTTokens:
+            return LitterTheme.accent.opacity(0.7)
+        case nil where server.isLocal && hasStoredApiKey:
+            return Color(hex: "#00AAFF").opacity(0.7)
         case nil:
             return LitterTheme.textMuted
         }
@@ -401,6 +411,10 @@ private struct SettingsConnectionAccountSection: View {
         case .chatgpt(let email, _)?:
             return email.isEmpty ? "ChatGPT" : email
         case .apiKey?:
+            return "API Key"
+        case nil where server.isLocal && hasStoredChatGPTTokens:
+            return "ChatGPT"
+        case nil where server.isLocal && hasStoredApiKey:
             return "API Key"
         case nil:
             return "Not logged in"
@@ -413,6 +427,10 @@ private struct SettingsConnectionAccountSection: View {
             return "ChatGPT account"
         case .apiKey?:
             return "OpenAI API key"
+        case nil where server.isLocal && hasStoredChatGPTTokens:
+            return "Stored locally; restoring session"
+        case nil where server.isLocal && hasStoredApiKey:
+            return "Saved locally; refreshing local account"
         case nil:
             return nil
         }
@@ -442,6 +460,38 @@ private struct SettingsConnectionAccountSection: View {
         }
     }
 
+    private func refreshStoredCredentialFlags() {
+        hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
+        do {
+            hasStoredChatGPTTokens = try ChatGPTOAuthTokenStore.shared.load() != nil
+        } catch let error as ChatGPTOAuthError where error.isTransientKeychainAvailabilityFailure {
+            hasStoredChatGPTTokens = false
+        } catch {
+            hasStoredChatGPTTokens = false
+        }
+    }
+
+    private func refreshAuthStatusIfNeeded() async {
+        guard server.isLocal, server.account == nil else { return }
+        guard hasStoredLocalCredentials else { return }
+        await appModel.restoreStoredLocalAuthState(serverId: server.serverId)
+        await refreshAccount()
+    }
+
+    private func refreshAccount() async {
+        do {
+            _ = try await appModel.client.refreshAccount(
+                serverId: server.serverId,
+                params: AppRefreshAccountRequest(refreshToken: false)
+            )
+            await appModel.refreshSnapshot()
+            refreshStoredCredentialFlags()
+            authError = nil
+        } catch {
+            authError = error.localizedDescription
+        }
+    }
+
     private func saveApiKey(_ key: String) async {
         guard server.isLocal else {
             authError = "API keys can only be saved for the local server."
@@ -454,7 +504,7 @@ private struct SettingsConnectionAccountSection: View {
                 _ = try await appModel.client.logoutAccount(serverId: server.serverId)
             }
             try await appModel.restartLocalServer()
-            hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
+            refreshStoredCredentialFlags()
             guard hasStoredApiKey else {
                 authError = "API key did not persist locally."
                 return
@@ -474,6 +524,7 @@ private struct SettingsConnectionAccountSection: View {
             try? OpenAIApiKeyStore.shared.clear()
             _ = try await appModel.client.logoutAccount(serverId: server.serverId)
             try await appModel.restartLocalServer()
+            refreshStoredCredentialFlags()
             authError = nil
         } catch {
             authError = error.localizedDescription

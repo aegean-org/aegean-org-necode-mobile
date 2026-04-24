@@ -396,6 +396,7 @@ final class AppModel {
             if storedApiKey != nil {
                 OpenAIApiKeyStore.shared.applyToEnvironment()
                 if await refreshStoredLocalApiKeyAuth(serverId: serverId) {
+                    await refreshSnapshot()
                     return
                 }
             }
@@ -405,6 +406,7 @@ final class AppModel {
                 serverId: serverId,
                 storedTokens: storedTokens
                ) {
+                await refreshSnapshot()
                 return
             }
 
@@ -420,6 +422,13 @@ final class AppModel {
                 ]
             )
             try? await Task.sleep(for: delay)
+        }
+
+        guard storedApiKey != nil else { return }
+        OpenAIApiKeyStore.shared.applyToEnvironment()
+        guard await reconnectLocalServerForStoredApiKeyRestore(serverId: serverId) else { return }
+        if await refreshStoredLocalApiKeyAuth(serverId: serverId) {
+            await refreshSnapshot()
         }
     }
 
@@ -521,6 +530,41 @@ final class AppModel {
             LLog.warn(
                 "auth",
                 "restoring stored local API key auth failed",
+                fields: [
+                    "serverId": serverId,
+                    "error": error.localizedDescription
+                ]
+            )
+            return false
+        }
+    }
+
+    private func reconnectLocalServerForStoredApiKeyRestore(serverId: String) async -> Bool {
+        guard let localServer = snapshot?.servers.first(where: { $0.serverId == serverId && $0.isLocal })
+            ?? snapshot?.servers.first(where: \.isLocal) else {
+            return false
+        }
+
+        LLog.warn(
+            "auth",
+            "reconnecting local server to re-inherit stored API key environment",
+            fields: ["serverId": serverId]
+        )
+
+        serverBridge.disconnectServer(serverId: localServer.serverId)
+
+        do {
+            _ = try await serverBridge.connectLocalServer(
+                serverId: localServer.serverId,
+                displayName: resolvedLocalServerDisplayName(),
+                host: "127.0.0.1",
+                port: 0
+            )
+            return true
+        } catch {
+            LLog.warn(
+                "auth",
+                "reconnecting local server for stored API key restore failed",
                 fields: [
                     "serverId": serverId,
                     "error": error.localizedDescription

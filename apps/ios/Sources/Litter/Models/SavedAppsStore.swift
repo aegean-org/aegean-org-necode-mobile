@@ -199,9 +199,12 @@ final class SavedAppsStore {
 
     /// Ask the shared Rust client to regenerate this saved app's HTML using
     /// the active server. Rust internally inherits the origin thread's
-    /// model / reasoning / approval / sandbox settings when that thread is
-    /// still known to the store. Returns the refreshed `SavedApp` metadata
-    /// on success; throws `UpdateError.rustError` on failure.
+    /// model / reasoning settings when that thread is still known to the
+    /// store. When those settings are missing, Rust falls back to
+    /// gpt-5.3-codex-spark, low reasoning, and fast service tier. It also
+    /// forces full-access permissions for the edit. Returns the refreshed
+    /// `SavedApp` metadata on success; throws
+    /// `UpdateError.rustError` on failure.
     func requestUpdate(id: String, serverId: String, prompt: String) async throws -> SavedApp {
         let result = await AppModel.shared.client.updateSavedApp(
             serverId: serverId,

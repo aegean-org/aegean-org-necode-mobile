@@ -34,7 +34,7 @@ import uniffi.codex_mobile_client.ServerBridge
 import uniffi.codex_mobile_client.SshBridge
 import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.AppListThreadsRequest
-import uniffi.codex_mobile_client.AppRefreshAccountRequest
+import uniffi.codex_mobile_client.AppLoginAccountRequest
 import uniffi.codex_mobile_client.AppRefreshModelsRequest
 import uniffi.codex_mobile_client.AppReadThreadRequest
 import uniffi.codex_mobile_client.registerAndroidTools
@@ -419,8 +419,9 @@ class AppModel private constructor(context: android.content.Context) {
 
     suspend fun restoreStoredLocalAuthState(serverId: String) {
         val apiKeyStore = OpenAIApiKeyStore(appContext)
+        val storedApiKey = apiKeyStore.load()
         apiKeyStore.applyToEnvironment()
-        if (apiKeyStore.hasStoredKey() && refreshStoredLocalApiKeyAuth(serverId)) {
+        if (!storedApiKey.isNullOrBlank() && loginStoredLocalApiKeyAuth(serverId, storedApiKey)) {
             return
         }
         restoreStoredLocalChatGptAuth(serverId)
@@ -476,11 +477,11 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
-    private suspend fun refreshStoredLocalApiKeyAuth(serverId: String): Boolean {
+    private suspend fun loginStoredLocalApiKeyAuth(serverId: String, apiKey: String): Boolean {
         return runCatching {
-            client.refreshAccount(
+            client.loginAccount(
                 serverId,
-                AppRefreshAccountRequest(refreshToken = false),
+                AppLoginAccountRequest.ApiKey(apiKey.trim()),
             )
             _lastError.value = null
             true
