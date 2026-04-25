@@ -248,8 +248,8 @@ jobs:
           RUSTC_WRAPPER: sccache
         run: env -u CARGO_INCREMENTAL ./apps/ios/scripts/build-rust.sh --preserve-current --fast-sim --skip-bindings
 
-      - name: Download ios_system frameworks
-        run: ./apps/ios/scripts/download-ios-system.sh
+      - name: Download Alpine rootfs
+        run: make alpine-fs
 
       - name: Generate Xcode project
         run: ./apps/ios/scripts/regenerate-project.sh
