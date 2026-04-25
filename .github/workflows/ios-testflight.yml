@@ -75,7 +75,7 @@ jobs:
           trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
           sccache --zero-stats || true
           ./apps/ios/scripts/build-rust.sh --preserve-current --device-only
-          make ios-frameworks xcgen
+          make alpine-fs xcgen
           echo "==> sccache stats after iOS release prep"
           sccache --show-stats || true
 
@@ -83,7 +83,7 @@ jobs:
         run: |
           mkdir -p .ci-prep/ios
           tar -czf .ci-prep/ios/ios-release-prep.tgz -C . \
-            apps/ios/Frameworks/ios_system \
+            apps/ios/Resources/fs \
             apps/ios/GeneratedRust \
             apps/ios/Sources/Litter/Bridge/UniFFICodexClient.generated.swift
 
