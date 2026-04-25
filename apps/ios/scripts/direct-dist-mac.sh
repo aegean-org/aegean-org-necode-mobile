@@ -124,6 +124,7 @@ if [[ "$EXPORT_SIGNING_STYLE" == "manual" ]]; then
     archive_cmd+=(
         APP_CODE_SIGN_STYLE=Manual
         APP_CODE_SIGN_IDENTITY="$APP_CODE_SIGN_IDENTITY"
+        ENABLE_HARDENED_RUNTIME=YES
     )
     if [[ -n "$APP_PROVISIONING_PROFILE_SPECIFIER" ]]; then
         archive_cmd+=(APP_PROVISIONING_PROFILE_SPECIFIER="$APP_PROVISIONING_PROFILE_SPECIFIER")
@@ -198,6 +199,7 @@ echo "==> Exported app: $APP_PATH"
 # apps as "Unnotarized Developer ID" before notarytool has run.
 echo "==> Verifying .app Developer ID signature"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n '/Runtime Version/p;/flags=/p'
 
 DMG_NAME="${APP_DISPLAY_NAME}-${MARKETING_VERSION}-mac.dmg"
 DMG_PATH="$BUILD_DIR/$DMG_NAME"
@@ -253,12 +255,17 @@ echo "==> Notary status: $notary_status (submission $notary_id)"
 if [[ "$notary_status" != "Accepted" ]]; then
     echo "Notarization did not succeed. Fetching detailed log..." >&2
     if [[ -n "$notary_id" ]]; then
+        notary_detail_log="$BUILD_DIR/notarytool-log.json"
         xcrun notarytool log "$notary_id" \
             --key "$AUTH_KEY_PATH" \
             --key-id "$AUTH_KEY_ID" \
             --issuer "$AUTH_ISSUER_ID" \
-            "$BUILD_DIR/notarytool-log.json" || true
-        echo "Detailed log: $BUILD_DIR/notarytool-log.json" >&2
+            "$notary_detail_log" || true
+        if [[ -s "$notary_detail_log" ]]; then
+            echo "Detailed notary log:" >&2
+            jq . "$notary_detail_log" >&2 || cat "$notary_detail_log" >&2
+        fi
+        echo "Detailed log: $notary_detail_log" >&2
     fi
     exit 1
 fi

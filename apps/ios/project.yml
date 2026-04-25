@@ -216,6 +216,7 @@ targets:
           APP_CODE_SIGN_IDENTITY: ""
           PROVISIONING_PROFILE_SPECIFIER: "$(APP_PROVISIONING_PROFILE_SPECIFIER)"
           APP_PROVISIONING_PROFILE_SPECIFIER: ""
+          ENABLE_HARDENED_RUNTIME: YES
           CODE_SIGN_ENTITLEMENTS: Sources/Litter/Litter-Catalyst-DeveloperID.entitlements
   LitterLiveActivity:
     type: app-extension
