@@ -88,7 +88,7 @@ fun SessionCanvasRow(
     val dotState = when {
         isActive -> StatusDotState.ACTIVE
         isHydrating -> StatusDotState.PENDING
-        session.stats != null -> StatusDotState.OK
+        session.isResumed -> StatusDotState.OK
         else -> StatusDotState.IDLE
     }
 

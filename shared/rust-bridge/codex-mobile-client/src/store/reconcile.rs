@@ -454,12 +454,19 @@ fn merge_paged_turns(
         turns_in_page.reverse();
     }
 
-    // Build a set of existing turn ids already in the store for dedupe.
+    // Build sets of existing turn ids and item ids already in the store for
+    // dedupe. Item-id dedupe is essential because live ItemStarted/Completed
+    // events hydrate with `source_turn_id: None` (see
+    // `conversation_item_from_upstream` in store/actions.rs), so a paged turn
+    // carrying the same upstream item id won't share a turn id with the
+    // already-stored copy and would otherwise be added twice.
     let existing_turn_ids: HashSet<String> = thread
         .items
         .iter()
         .filter_map(|item| item.source_turn_id.clone())
         .collect();
+    let existing_item_ids: HashSet<String> =
+        thread.items.iter().map(|item| item.id.clone()).collect();
 
     let mut new_items: Vec<HydratedConversationItem> = Vec::new();
     for group in turns_in_page {
@@ -469,7 +476,12 @@ fn merge_paged_turns(
                 continue;
             }
         }
-        new_items.extend(group);
+        for item in group {
+            if existing_item_ids.contains(&item.id) {
+                continue;
+            }
+            new_items.push(item);
+        }
     }
 
     // For Desc direction the `next_cursor` points at older turns; prepend new

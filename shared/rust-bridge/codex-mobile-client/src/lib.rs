@@ -43,7 +43,7 @@ pub fn ish_bootstrap(
     {
         let _ = (bundle_fs_path, application_support_dir, documents_dir);
         Err(IshBootstrapError::Unsupported {
-            message: "iSH is iOS-only".into(),
+            detail: "iSH is iOS-only".into(),
         })
     }
 }
@@ -67,7 +67,11 @@ pub fn ish_default_cwd() -> String {
 pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
     #[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
     {
-        let cwd_opt = if cwd.is_empty() { None } else { Some(cwd.as_str()) };
+        let cwd_opt = if cwd.is_empty() {
+            None
+        } else {
+            Some(cwd.as_str())
+        };
         let (exit_code, output) = ish_runtime::run(&cmd, cwd_opt);
         return IshRunResult { exit_code, output };
     }

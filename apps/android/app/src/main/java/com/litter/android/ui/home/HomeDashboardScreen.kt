@@ -57,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -184,6 +185,7 @@ fun HomeDashboardScreen(
     var searchQuery by remember { mutableStateOf("") }
     var hasLoadedThreadListing by remember { mutableStateOf(false) }
     val requestedHydrationKeys = remember { mutableSetOf<String>() }
+    val resumingKeys = remember { mutableStateMapOf<String, Boolean>() }
 
     // Dashboard zoom state. `zoomLevel` observes DashboardZoomPrefs; the
     // toolbar button cycles 1→2→3→4→3→2→1 via a direction flip at the
@@ -203,7 +205,7 @@ fun HomeDashboardScreen(
         else -> Icons.Outlined.ViewStream
     }
 
-    // Auto-hydrate any visible session that doesn't have stats yet. Runs on
+    // Auto-resume any visible session that doesn't have a listener yet. Runs on
     // first composition and whenever the visible set changes. We resume
     // rather than read: `externalResumeThread` attaches a server-side
     // conversation listener for this connection so the card receives live
@@ -214,12 +216,20 @@ fun HomeDashboardScreen(
     val visibleIds = recentSessions.map { "${it.key.serverId}/${it.key.threadId}" }
     LaunchedEffect(visibleIds) {
         for (session in recentSessions) {
-            if (session.stats != null) continue
+            if (session.isResumed) continue
             val id = "${session.key.serverId}/${session.key.threadId}"
             if (!requestedHydrationKeys.add(id)) continue
+            resumingKeys[id] = true
             scope.launch {
-                runCatching { appModel.externalResumeThread(session.key) }
-                appModel.refreshThreadSnapshot(session.key)
+                try {
+                    val resumed = runCatching { appModel.externalResumeThread(session.key) }.isSuccess
+                    if (resumed) {
+                        appModel.loadInitialTurnsIfNeeded(session.key)
+                    }
+                    appModel.refreshThreadSnapshot(session.key)
+                } finally {
+                    resumingKeys.remove(id)
+                }
             }
         }
     }
@@ -288,7 +298,7 @@ fun HomeDashboardScreen(
             if (recentSessions.isNotEmpty()) {
                 items(recentSessions, key = { "${it.key.serverId}/${it.key.threadId}" }) { session ->
                     val id = "${session.key.serverId}/${session.key.threadId}"
-                    val isHydrating = session.stats == null && id in requestedHydrationKeys
+                    val isHydrating = !session.isResumed && resumingKeys[id] == true
                     // Row hosts both gestures through one swipe handler:
                     // left-swipe (trailing) hides; right-swipe (leading) opens
                     // QuickReplySheet. Nesting `SwipeToHideRow` inside

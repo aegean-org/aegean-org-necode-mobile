@@ -105,6 +105,8 @@ struct UserBubble: View {
     let text: String
     var images: [ChatImage] = []
     var compact: Bool = false
+    var maxVisibleCharacters: Int = 1_000
+    @State private var expandedLongText = false
     private let contentFontSize = LitterFont.conversationBodyPointSize
 
     var body: some View {
@@ -127,19 +129,49 @@ struct UserBubble: View {
                     }
                 }
                 if !text.isEmpty {
-                    FormattedText(text: text)
-                        .litterFont(size: contentFontSize)
-                        .foregroundColor(LitterTheme.textPrimary)
-                        .textSelection(.enabled)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        FormattedText(text: visibleText)
+                            .litterFont(size: contentFontSize)
+                            .foregroundColor(LitterTheme.textPrimary)
+                            .textSelection(.enabled)
+
+                        if shouldLimitText {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    expandedLongText.toggle()
+                                }
+                            } label: {
+                                Text(expandedLongText ? "Show less" : "Show more")
+                                    .litterFont(.caption2, weight: .semibold)
+                                    .foregroundColor(LitterTheme.accent)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(expandedLongText ? "Show less user message" : "Show more user message")
+                        }
+                    }
                 }
             }
             .padding(.horizontal, compact ? 10 : 14)
             .padding(.vertical, compact ? 6 : 10)
             .modifier(GlassRectModifier(cornerRadius: compact ? 10 : 14, tint: LitterTheme.accent.opacity(0.3)))
         }
+        .onChange(of: text) { _, _ in
+            expandedLongText = false
+        }
     }
 
     private static let imageCache = NSCache<NSString, UIImage>()
+
+    private var visibleText: String {
+        guard shouldLimitText, !expandedLongText else {
+            return text
+        }
+        return String(text.prefix(maxVisibleCharacters))
+    }
+
+    private var shouldLimitText: Bool {
+        text.count > maxVisibleCharacters
+    }
 
     private static func decodeImage(_ image: ChatImage) -> UIImage? {
         let key = image.cacheKey as NSString

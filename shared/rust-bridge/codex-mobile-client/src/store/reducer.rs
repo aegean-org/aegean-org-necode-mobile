@@ -27,7 +27,7 @@ use crate::types::{
 };
 
 use super::actions::{
-    conversation_item_from_upstream, thread_info_from_upstream,
+    conversation_item_from_upstream_with_turn, thread_info_from_upstream,
     thread_info_from_upstream_status_change,
 };
 use super::boundary::{
@@ -497,20 +497,14 @@ impl AppStoreReducer {
                     .local_overlay_items
                     .iter()
                     .filter(|item| {
-                        matches!(
-                            &item.content,
-                            HydratedConversationItemContent::User(_)
-                        )
+                        matches!(&item.content, HydratedConversationItemContent::User(_))
                     })
                     .count();
                 let incoming_user_count = thread
                     .items
                     .iter()
                     .filter(|item| {
-                        matches!(
-                            &item.content,
-                            HydratedConversationItemContent::User(_)
-                        )
+                        matches!(&item.content, HydratedConversationItemContent::User(_))
                     })
                     .count();
                 if user_overlay_count > 0 && incoming_user_count > 0 {
@@ -537,6 +531,7 @@ impl AppStoreReducer {
                 preserve_thread_preview(&existing.info, &mut thread.info);
                 preserve_thread_created_at(&existing.info, &mut thread.info);
                 preserve_thread_runtime_state(existing, &mut thread);
+                thread.is_resumed = thread.is_resumed || existing.is_resumed;
                 preserve_local_overlay_items(existing, &mut thread);
                 preserve_queued_follow_ups(existing, &mut thread);
                 // Preserve existing items when the incoming snapshot has none
@@ -551,6 +546,24 @@ impl AppStoreReducer {
             snapshot.threads.insert(key.clone(), thread);
         }
         self.emit_thread_upsert(&key);
+    }
+
+    pub fn mark_thread_resumed(&self, key: &ThreadKey, is_resumed: bool) {
+        let changed = {
+            let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+            let Some(thread) = snapshot.threads.get_mut(key) else {
+                return;
+            };
+            if thread.is_resumed == is_resumed {
+                false
+            } else {
+                thread.is_resumed = is_resumed;
+                true
+            }
+        };
+        if changed {
+            self.emit_thread_metadata_changed(key);
+        }
     }
 
     pub fn enqueue_thread_follow_up_preview(
@@ -1507,7 +1520,10 @@ impl AppStoreReducer {
                 }
             }
             UiEvent::ItemStarted { key, notification } => {
-                if let Some(item) = conversation_item_from_upstream(notification.item.clone()) {
+                if let Some(item) = conversation_item_from_upstream_with_turn(
+                    notification.item.clone(),
+                    Some(&notification.turn_id),
+                ) {
                     self.apply_item_update(key, item);
                 }
             }
@@ -1523,7 +1539,10 @@ impl AppStoreReducer {
                     let item_id = notification.item.id().to_string();
                     self.clear_dynamic_tool_arg_buffers_for_item(key, &item_id);
                 }
-                if let Some(item) = conversation_item_from_upstream(notification.item.clone()) {
+                if let Some(item) = conversation_item_from_upstream_with_turn(
+                    notification.item.clone(),
+                    Some(&notification.turn_id),
+                ) {
                     self.apply_item_update(key, item);
                 }
                 if matches!(
@@ -2306,8 +2325,7 @@ impl AppStoreReducer {
     }
 
     fn apply_item_update(&self, key: &ThreadKey, item: HydratedConversationItem) {
-        let is_user_message =
-            matches!(&item.content, HydratedConversationItemContent::User(_));
+        let is_user_message = matches!(&item.content, HydratedConversationItemContent::User(_));
         let incoming_item_id = item.id.clone();
         let result = self.mutate_thread_with_result(key, |thread| {
             let existing = thread
@@ -2334,10 +2352,7 @@ impl AppStoreReducer {
                     .iter()
                     .filter(|existing| {
                         existing.id != item.id
-                            && matches!(
-                                &existing.content,
-                                HydratedConversationItemContent::User(_)
-                            )
+                            && matches!(&existing.content, HydratedConversationItemContent::User(_))
                     })
                     .map(|existing| existing.id.clone())
                     .collect();
@@ -2346,10 +2361,7 @@ impl AppStoreReducer {
                     .local_overlay_items
                     .iter()
                     .filter_map(|existing| {
-                        if matches!(
-                            &existing.content,
-                            HydratedConversationItemContent::User(_)
-                        ) {
+                        if matches!(&existing.content, HydratedConversationItemContent::User(_)) {
                             Some(existing.id.clone())
                         } else {
                             None
@@ -4284,8 +4296,10 @@ mod tests {
             thread_id: "thread-1".to_string(),
         };
         // Step 1: thread/start equivalent — populate empty thread snapshot.
-        reducer
-            .upsert_thread_snapshot(ThreadSnapshot::from_info("srv", make_thread_info("thread-1")));
+        reducer.upsert_thread_snapshot(ThreadSnapshot::from_info(
+            "srv",
+            make_thread_info("thread-1"),
+        ));
 
         // Step 2: stage overlay + bind via the TurnStarted-event path
         // (`bind_first_pending_local_user_message_overlay_to_turn`), which
@@ -4323,9 +4337,11 @@ mod tests {
             id: "server-user-item".to_string(),
             content: inputs.clone(),
         };
-        let server_user_item =
-            crate::store::actions::conversation_item_from_upstream(upstream_item.clone())
-                .expect("hydrate user item");
+        let server_user_item = crate::store::actions::conversation_item_from_upstream_with_turn(
+            upstream_item.clone(),
+            None,
+        )
+        .expect("hydrate user item");
         reducer.apply_item_update(&key, server_user_item.clone());
 
         // The first apply_item_update must fire `ThreadUpserted` because
@@ -4434,10 +4450,9 @@ mod tests {
         // is what iOS renders. Confirm the merged view also yields exactly
         // one user bubble.
         let app_snapshot = reducer.snapshot();
-        let app_thread =
-            crate::store::boundary::project_thread_snapshot(&app_snapshot, &key)
-                .expect("project ok")
-                .expect("thread present");
+        let app_thread = crate::store::boundary::project_thread_snapshot(&app_snapshot, &key)
+            .expect("project ok")
+            .expect("thread present");
         let user_bubbles_in_view: Vec<_> = app_thread
             .hydrated_conversation_items
             .iter()

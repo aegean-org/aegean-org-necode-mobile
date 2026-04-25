@@ -121,6 +121,7 @@ final class CloudKVSBridge {
             )
             applyWritebacks(writebacks)
             lastAppliedEnvelopeHash = hash
+            NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
         } catch {
             LLog.warn(
                 "cloud_sync",

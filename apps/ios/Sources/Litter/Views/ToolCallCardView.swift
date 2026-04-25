@@ -16,6 +16,8 @@ struct ToolCallCardView: View {
     /// details, diffs, and command output share a typographic baseline.
     private let contentFontSize: CGFloat = 12
     private let terminalFontSize: CGFloat = 12
+    private let maxVisibleTextCharacters = 2_000
+    @State private var expandedLongTextIDs: Set<String> = []
 
     init(
         model: ToolCallCardModel,
@@ -166,14 +168,18 @@ struct ToolCallCardView: View {
                     sectionLabel(label)
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(identifiedKeyValueEntries(entries)) { entry in
+                            let textID = "\(section.id)-kv-\(entry.id)"
                             HStack(alignment: .top, spacing: 8) {
                                 Text(entry.value.key + ":")
                                     .litterFont(size: contentFontSize, weight: .semibold)
                                     .foregroundColor(LitterTheme.textSecondary)
-                                Text(entry.value.value)
-                                    .litterFont(size: contentFontSize)
-                                    .foregroundColor(LitterTheme.textSystem)
-                                    .textSelection(.enabled)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(visibleText(entry.value.value, id: textID))
+                                        .litterFont(size: contentFontSize)
+                                        .foregroundColor(LitterTheme.textSystem)
+                                        .textSelection(.enabled)
+                                    longTextToggle(for: entry.value.value, id: textID)
+                                }
                                 Spacer(minLength: 0)
                             }
                         }
@@ -184,27 +190,31 @@ struct ToolCallCardView: View {
                 }
             }
         case .code(let label, let language, let content):
-            codeLikeSection(label: label, language: language, content: content)
+            codeLikeSection(id: section.id, label: label, language: language, content: content)
         case .json(let label, let content):
-            codeLikeSection(label: label, language: "json", content: content)
+            codeLikeSection(id: section.id, label: label, language: "json", content: content)
         case .diff(let label, let content):
             diffSection(id: section.id, label: label, content: content)
         case .text(let label, let content):
-            inlineTextSection(label: label, content: content)
+            inlineTextSection(id: section.id, label: label, content: content)
         case .list(let label, let items):
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     sectionLabel(label)
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(identifiedTextItems(items, prefix: "list")) { item in
+                            let textID = "\(section.id)-list-\(item.id)"
                             HStack(alignment: .top, spacing: 6) {
                                 Text("•")
                                     .litterFont(size: contentFontSize)
                                     .foregroundColor(LitterTheme.textSecondary)
-                                Text(item.value)
-                                    .litterFont(size: contentFontSize)
-                                    .foregroundColor(LitterTheme.textSystem)
-                                    .textSelection(.enabled)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(visibleText(item.value, id: textID))
+                                        .litterFont(size: contentFontSize)
+                                        .foregroundColor(LitterTheme.textSystem)
+                                        .textSelection(.enabled)
+                                    longTextToggle(for: item.value, id: textID)
+                                }
                             }
                         }
                     }
@@ -220,15 +230,19 @@ struct ToolCallCardView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         let identifiedItems = identifiedTextItems(items, prefix: "progress")
                         ForEach(identifiedItems) { item in
+                            let textID = "\(section.id)-progress-\(item.id)"
                             HStack(alignment: .top, spacing: 8) {
                                 Circle()
                                     .fill(item.index == identifiedItems.count - 1 ? kindAccent : LitterTheme.textMuted)
                                     .frame(width: 6, height: 6)
                                     .padding(.top, 5)
-                                Text(item.value)
-                                    .litterFont(size: contentFontSize)
-                                    .foregroundColor(LitterTheme.textSystem)
-                                    .textSelection(.enabled)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(visibleText(item.value, id: textID))
+                                        .litterFont(size: contentFontSize)
+                                        .foregroundColor(LitterTheme.textSystem)
+                                        .textSelection(.enabled)
+                                    longTextToggle(for: item.value, id: textID)
+                                }
                                 Spacer(minLength: 0)
                             }
                         }
@@ -247,17 +261,18 @@ struct ToolCallCardView: View {
             .foregroundColor(LitterTheme.textSecondary)
     }
 
-    private func codeLikeSection(label: String, language: String, content: String) -> some View {
+    private func codeLikeSection(id: String, label: String, language: String, content: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel(label)
-            CodeBlockView(language: language, code: content, fontSize: contentFontSize)
+            CodeBlockView(language: language, code: visibleText(content, id: id), fontSize: contentFontSize)
+            longTextToggle(for: content, id: id)
         }
     }
 
-    private func inlineTextSection(label: String, content: String) -> some View {
+    private func inlineTextSection(id: String, label: String, content: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel(label)
-            Text(verbatim: content)
+            Text(verbatim: visibleText(content, id: id))
                 .litterMonoFont(size: contentFontSize)
                 .foregroundColor(LitterTheme.textBody)
                 .textSelection(.enabled)
@@ -267,6 +282,7 @@ struct ToolCallCardView: View {
                 .background(LitterTheme.codeBackground.opacity(0.72))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .fixedSize(horizontal: false, vertical: true)
+            longTextToggle(for: content, id: id)
         }
     }
 
@@ -298,7 +314,7 @@ struct ToolCallCardView: View {
             if isExpanded {
                 ScrollView(.horizontal, showsIndicators: true) {
                     SyntaxHighlightedDiffText(
-                        diff: content,
+                        diff: visibleText(content, id: id),
                         titleHint: label.isEmpty ? nil : label,
                         fontSize: terminalFontSize
                     )
@@ -307,6 +323,7 @@ struct ToolCallCardView: View {
                 }
                 .background(LitterTheme.codeBackground.opacity(0.72))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                longTextToggle(for: content, id: id)
             }
         }
     }
@@ -316,6 +333,38 @@ struct ToolCallCardView: View {
             collapsedDiffSections.remove(id)
         } else {
             collapsedDiffSections.insert(id)
+        }
+    }
+
+    private func visibleText(_ text: String, id: String) -> String {
+        guard shouldLimitText(text), !expandedLongTextIDs.contains(id) else {
+            return text
+        }
+        return String(text.prefix(maxVisibleTextCharacters))
+    }
+
+    private func shouldLimitText(_ text: String) -> Bool {
+        text.count > maxVisibleTextCharacters
+    }
+
+    @ViewBuilder
+    private func longTextToggle(for text: String, id: String) -> some View {
+        if shouldLimitText(text) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if expandedLongTextIDs.contains(id) {
+                        expandedLongTextIDs.remove(id)
+                    } else {
+                        expandedLongTextIDs.insert(id)
+                    }
+                }
+            } label: {
+                Text(expandedLongTextIDs.contains(id) ? "Show less" : "Show more")
+                    .litterFont(.caption2, weight: .semibold)
+                    .foregroundColor(LitterTheme.accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expandedLongTextIDs.contains(id) ? "Show less text" : "Show more text")
         }
     }
 

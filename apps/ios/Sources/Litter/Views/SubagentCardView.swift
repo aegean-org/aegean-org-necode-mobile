@@ -364,6 +364,7 @@ private struct SubagentDetailSheet: View {
                                 agentDirectoryVersion: 0,
                                 messageActionsDisabled: true,
                                 onStreamingSnapshotRendered: nil,
+                                onLiveContentLayoutChanged: nil,
                                 resolveTargetLabel: { _ in nil },
                                 onWidgetPrompt: { _ in },
                                 onEditUserItem: { _ in },

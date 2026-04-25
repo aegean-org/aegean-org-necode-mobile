@@ -1361,7 +1361,9 @@ private struct HomeNavigationView: View {
         // active-only subscription strategy would have. `externalResume`
         // short-circuits to a no-op when IPC is live and the thread's
         // items are already populated, so warm/IPC paths are cheap.
-        try? await appModel.store.externalResumeThread(key: key, hostId: nil)
+        if (try? await appModel.store.externalResumeThread(key: key, hostId: nil)) != nil {
+            await appModel.loadInitialTurnsIfNeeded(threadId: key)
+        }
         await appModel.refreshThreadSnapshot(key: key)
     }
 

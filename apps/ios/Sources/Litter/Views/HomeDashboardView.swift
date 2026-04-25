@@ -40,7 +40,7 @@ struct HomeDashboardView: View {
     let onHideThread: (ThreadKey) -> Void
     /// Sidebar-only: fired when the user taps the "+" in the toolbar.
     var onNewThread: (() -> Void)? = nil
-    /// Hydrate a single thread (load full conversation items). Dashboard
+    /// Resume a single thread so the connection has a live listener. Dashboard
     /// orchestrates the parallel calls and tracks per-row state so the left
     /// indicator can reflect it.
     var onHydrateThread: ((ThreadKey) async -> Void)? = nil
@@ -92,19 +92,17 @@ struct HomeDashboardView: View {
 
     private func autoHydrateIfNeeded() {
         guard let onHydrateThread else { return }
-        // Gate on an in-flight request (hydratingKeys), not a persistent
-        // "ever requested" set. After a server disconnect, remove_server
-        // wipes thread items and session.stats drops back to nil; a
-        // persistent set would suppress re-hydration on reconnect until
-        // the user navigated to a conversation and back.
-        for session in visibleSessions where session.stats == nil {
+        // Gate on the explicit resumed bit rather than hydrated stats. With
+        // paginated threads, loaded items and attached live listeners are now
+        // separate states.
+        for session in visibleSessions where !session.isResumed {
             let id = hydrationId(session.key)
             guard !hydratingKeys.contains(id) else { continue }
             hydratingKeys.insert(id)
             Task {
                 await onHydrateThread(session.key)
                 await MainActor.run {
-                    hydratingKeys.remove(id)
+                    _ = hydratingKeys.remove(id)
                 }
             }
         }
@@ -521,7 +519,6 @@ struct SessionCanvasLine: View {
     }
 
     private var isActive: Bool { session.hasTurnActive }
-    private var isHydrated: Bool { session.stats != nil }
     private var timeAgo: String { relativeDate(Int64(session.updatedAt.timeIntervalSince1970)) }
     private var s: AppConversationStats? { session.stats }
     private var toolCallCount: UInt32 { s?.toolCallCount ?? 0 }
@@ -994,7 +991,7 @@ struct SessionCanvasLine: View {
         if isCancelling { return .error }
         if isActive { return .active }
         if isHydrating { return .pending }
-        if isHydrated { return .ok }
+        if session.isResumed { return .ok }
         return .idle
     }
 

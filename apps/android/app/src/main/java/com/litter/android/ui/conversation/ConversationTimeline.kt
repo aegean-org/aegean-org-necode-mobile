@@ -46,6 +46,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,9 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+
+private const val ToolCallTextPreviewLimit = 2_000
+private const val UserMessageTextPreviewLimit = 1_000
 
 /**
  * Renders a single [HydratedConversationItem] by matching on its content type.
@@ -283,11 +287,7 @@ private fun UserMessageRow(
                     )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                com.litter.android.ui.common.FormattedText(
-                    text = data.text,
-                    color = LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.callout.scaled,
-                )
+                LimitedUserMessageText(data.text)
                 // Inline images from data URIs
                 for (uri in data.imageDataUris) {
                     val bitmap = remember(uri) {
@@ -338,6 +338,33 @@ private fun UserMessageRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LimitedUserMessageText(text: String) {
+    val isLong = text.length > UserMessageTextPreviewLimit
+    var expanded by remember(text) { mutableStateOf(false) }
+    val display = remember(text, expanded) {
+        if (isLong && !expanded) text.take(UserMessageTextPreviewLimit) else text
+    }
+
+    com.litter.android.ui.common.FormattedText(
+        text = display,
+        color = LitterTheme.textPrimary,
+        fontSize = LitterTextStyle.callout.scaled,
+    )
+
+    if (isLong) {
+        Text(
+            text = if (expanded) "Show less" else "Show more",
+            color = LitterTheme.accent,
+            fontSize = LitterTextStyle.caption2.scaled,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .clickable { expanded = !expanded },
+        )
     }
 }
 
@@ -689,23 +716,25 @@ private fun CommandExecutionRow(
 
         if (expanded) {
             Spacer(Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp, max = 116.dp)
-                    .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            ) {
-                SelectableConversationText {
-                    Text(
-                        text = outputText,
-                        color = LitterTheme.textSecondary,
-                        fontFamily = LitterTheme.monoFont,
-                        fontSize = LitterTextStyle.body.scaled,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(outputScrollState),
-                    )
+            LimitedToolTextBlock(outputText) { display ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp, max = 116.dp)
+                        .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    SelectableConversationText {
+                        Text(
+                            text = display,
+                            color = LitterTheme.textSecondary,
+                            fontFamily = LitterTheme.monoFont,
+                            fontSize = LitterTextStyle.body.scaled,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(outputScrollState),
+                        )
+                    }
                 }
             }
         }
@@ -981,7 +1010,7 @@ private fun AccessibilityTreeSection(text: String) {
             )
             if (lines.size > previewLineCount) {
                 Text(
-                    text = if (expanded) "Collapse" else "Expand",
+                    text = if (expanded) "Show less" else "Show more",
                     color = LitterTheme.accent,
                     fontSize = 10f.scaled,
                     fontWeight = FontWeight.Medium,
@@ -1161,7 +1190,7 @@ private fun RevisedPromptSection(prompt: String) {
             Spacer(Modifier.weight(1f))
             if (isLong) {
                 Text(
-                    text = if (expanded) "Collapse" else "Expand",
+                    text = if (expanded) "Show less" else "Show more",
                     color = LitterTheme.accent,
                     fontSize = LitterTextStyle.caption2.scaled,
                     fontWeight = FontWeight.Medium,
@@ -2173,19 +2202,21 @@ private fun CodeSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SectionLabel(label)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
-                .padding(10.dp),
-        ) {
-            Text(
-                text = content,
-                color = LitterTheme.textBody,
-                fontFamily = LitterTheme.monoFont,
-                fontSize = LitterTextStyle.body.scaled,
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-            )
+        LimitedToolTextBlock(content) { display ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+            ) {
+                Text(
+                    text = display,
+                    color = LitterTheme.textBody,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = LitterTextStyle.body.scaled,
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                )
+            }
         }
     }
 }
@@ -2198,16 +2229,18 @@ private fun InlineTextSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SectionLabel(label)
-        Text(
-            text = content,
-            color = tone,
-            fontFamily = LitterTheme.monoFont,
-            fontSize = LitterTextStyle.body.scaled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        )
+        LimitedToolTextBlock(content) { display ->
+            Text(
+                text = display,
+                color = tone,
+                fontFamily = LitterTheme.monoFont,
+                fontSize = LitterTextStyle.body.scaled,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 
@@ -2234,11 +2267,15 @@ private fun KeyValueSection(
                         fontSize = LitterTextStyle.body.scaled,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        text = value,
-                        color = LitterTheme.textSystem,
-                        fontSize = LitterTextStyle.body.scaled,
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        LimitedToolTextBlock(value) { display ->
+                            Text(
+                                text = display,
+                                color = LitterTheme.textSystem,
+                                fontSize = LitterTextStyle.body.scaled,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2263,11 +2300,15 @@ private fun ListSection(
             items.forEach { item ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("•", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.body.scaled)
-                    Text(
-                        text = item,
-                        color = LitterTheme.textSystem,
-                        fontSize = LitterTextStyle.body.scaled,
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        LimitedToolTextBlock(item) { display ->
+                            Text(
+                                text = display,
+                                color = LitterTheme.textSystem,
+                                fontSize = LitterTextStyle.body.scaled,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2296,11 +2337,15 @@ private fun ProgressSection(
                         color = if (index == items.lastIndex) LitterTheme.accentStrong else LitterTheme.textMuted,
                         fontSize = LitterTextStyle.body.scaled,
                     )
-                    Text(
-                        text = item,
-                        color = LitterTheme.textSystem,
-                        fontSize = LitterTextStyle.body.scaled,
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        LimitedToolTextBlock(item) { display ->
+                            Text(
+                                text = display,
+                                color = LitterTheme.textSystem,
+                                fontSize = LitterTextStyle.body.scaled,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2316,15 +2361,42 @@ private fun DiffSection(
         if (label.isNotEmpty()) {
             SectionLabel(label)
         }
-        SyntaxHighlightedDiffBlock(
-            diff = content,
-            titleHint = label.ifEmpty { null },
-            fontSize = LitterTextStyle.caption.scaled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-        )
+        LimitedToolTextBlock(content) { display ->
+            SyntaxHighlightedDiffBlock(
+                diff = display,
+                titleHint = label.ifEmpty { null },
+                fontSize = LitterTextStyle.caption.scaled,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LimitedToolTextBlock(
+    content: String,
+    body: @Composable (String) -> Unit,
+) {
+    val isLong = content.length > ToolCallTextPreviewLimit
+    var expanded by remember(content) { mutableStateOf(false) }
+    val display = remember(content, expanded) {
+        if (isLong && !expanded) content.take(ToolCallTextPreviewLimit) else content
+    }
+
+    body(display)
+
+    if (isLong) {
+        TextButton(onClick = { expanded = !expanded }) {
+            Text(
+                text = if (expanded) "Show less" else "Show more",
+                color = LitterTheme.accent,
+                fontSize = LitterTextStyle.caption2.scaled,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 

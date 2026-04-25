@@ -30,8 +30,8 @@ pub enum IshBootstrapError {
     Ish(String),
     /// Returned from UniFFI stubs on non-iOS targets (Mac Catalyst, Android,
     /// host bindgen build) where the iSH kernel is not linked in.
-    #[error("unsupported on this platform: {message}")]
-    Unsupported { message: String },
+    #[error("unsupported on this platform: {detail}")]
+    Unsupported { detail: String },
 }
 
 impl From<std::io::Error> for IshBootstrapError {

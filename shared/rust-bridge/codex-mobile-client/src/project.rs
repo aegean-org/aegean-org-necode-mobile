@@ -109,6 +109,7 @@ mod tests {
             agent_status: AppSubagentStatus::Unknown,
             updated_at,
             has_active_turn: false,
+            is_resumed: false,
             is_subagent: false,
             is_fork: false,
             last_response_preview: None,

@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let litterThreadPreferencesDidChange = Notification.Name("litterThreadPreferencesDidChange")
+}
+
 /// Thin Swift wrapper around the Rust `preferences_*` functions. Rust owns
 /// the storage format and (later) cloud-sync policy; Swift just picks the
 /// directory and exposes a Swift-shaped API to the rest of the app.
@@ -11,11 +15,13 @@ enum SavedThreadsStore {
 
     static func add(_ key: PinnedThreadKey) {
         _ = preferencesAddPinnedThread(directory: MobilePreferencesDirectory.path, key: key)
+        NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
         CloudKVSBridge.shared.notifyRustPreferencesChanged()
     }
 
     static func remove(_ key: PinnedThreadKey) {
         _ = preferencesRemovePinnedThread(directory: MobilePreferencesDirectory.path, key: key)
+        NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
         CloudKVSBridge.shared.notifyRustPreferencesChanged()
     }
 
@@ -29,11 +35,13 @@ enum SavedThreadsStore {
 
     static func hide(_ key: PinnedThreadKey) {
         _ = preferencesAddHiddenThread(directory: MobilePreferencesDirectory.path, key: key)
+        NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
         CloudKVSBridge.shared.notifyRustPreferencesChanged()
     }
 
     static func unhide(_ key: PinnedThreadKey) {
         _ = preferencesRemoveHiddenThread(directory: MobilePreferencesDirectory.path, key: key)
+        NotificationCenter.default.post(name: .litterThreadPreferencesDidChange, object: nil)
         CloudKVSBridge.shared.notifyRustPreferencesChanged()
     }
 

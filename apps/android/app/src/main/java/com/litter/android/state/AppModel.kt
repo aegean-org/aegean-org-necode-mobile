@@ -69,10 +69,10 @@ class AppModel private constructor(context: android.content.Context) {
         }
 
         /**
-         * Matches the iOS `turnPageSize`. Server clamps this at 100.
+         * Matches the iOS page sizes. Server clamps this at 100.
          */
-        const val INITIAL_TURN_PAGE_LIMIT: UInt = 20u
-        const val OLDER_TURN_PAGE_LIMIT: UInt = 20u
+        const val INITIAL_TURN_PAGE_LIMIT: UInt = 5u
+        const val OLDER_TURN_PAGE_LIMIT: UInt = 5u
     }
 
     // --- Rust bridges (singletons behind the scenes) -------------------------
@@ -627,6 +627,17 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
+    fun loadInitialTurnsIfNeeded(key: ThreadKey, limit: UInt = INITIAL_TURN_PAGE_LIMIT) {
+        val current = _snapshot.value ?: return
+        val supportsTurnPagination = current.servers
+            .firstOrNull { it.serverId == key.serverId }
+            ?.capabilities
+            ?.supportsTurnPagination == true
+        if (!supportsTurnPagination) return
+        if (threadSnapshot(key)?.initialTurnsLoaded == true) return
+        loadInitialTurns(key, limit)
+    }
+
     /**
      * Fetch the next older page using the thread's stored
      * `older_turns_cursor`. No-op when the cursor is null.
@@ -682,14 +693,7 @@ class AppModel private constructor(context: android.content.Context) {
         repeat(maxAttempts) { attempt ->
             var readSucceeded = false
             try {
-                val nextKey = client.readThread(
-                    currentKey.serverId,
-                    AppReadThreadRequest(
-                        threadId = currentKey.threadId,
-                        includeTurns = true,
-                    ),
-                )
-                currentKey = nextKey
+                store.externalResumeThread(currentKey, null)
                 store.setActiveThread(currentKey)
                 readSucceeded = true
             } catch (e: Exception) {
@@ -962,7 +966,7 @@ class AppModel private constructor(context: android.content.Context) {
                 key.serverId,
                 AppReadThreadRequest(
                     threadId = key.threadId,
-                    includeTurns = true,
+                    includeTurns = false,
                 ),
             )
             val threadSnapshot = store.threadSnapshot(nextKey)

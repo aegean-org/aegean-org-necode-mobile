@@ -57,11 +57,29 @@ final class HomeDashboardModel {
     /// Set by the UI when the user intentionally clears the server filter
     /// so the snapshot reconciler doesn't re-select a default server.
     private var userClearedSelection = false
+    @ObservationIgnored private var preferencesObserver: NSObjectProtocol?
 
     init() {
         selectedServerId = SavedProjectStore.selectedServerId
         pinnedKeys = SavedThreadsStore.pinnedKeys()
         hiddenKeys = SavedThreadsStore.hiddenKeys()
+        preferencesObserver = NotificationCenter.default.addObserver(
+            forName: .litterThreadPreferencesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.reloadThreadPreferences()
+                self.refreshState()
+            }
+        }
+    }
+
+    deinit {
+        if let preferencesObserver {
+            NotificationCenter.default.removeObserver(preferencesObserver)
+        }
     }
 
     /// Add a thread to the home list. No-op if already pinned.
@@ -153,6 +171,7 @@ final class HomeDashboardModel {
             return
         }
 
+        reloadThreadPreferences()
         observationGeneration &+= 1
         let generation = observationGeneration
         let snapshot = withObservationTracking {
@@ -197,6 +216,11 @@ final class HomeDashboardModel {
         }
 
         reconcileSelectedProject()
+    }
+
+    private func reloadThreadPreferences() {
+        pinnedKeys = SavedThreadsStore.pinnedKeys()
+        hiddenKeys = SavedThreadsStore.hiddenKeys()
     }
 
     private func reconcileSelectedProject() {

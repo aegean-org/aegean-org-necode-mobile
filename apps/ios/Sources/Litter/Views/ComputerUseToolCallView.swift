@@ -8,6 +8,7 @@ struct ComputerUseToolCallView: View {
     private let onExpandedChange: ((Bool) -> Void)?
     @State private var expanded: Bool
     @State private var a11yExpanded = false
+    @State private var errorExpanded = false
     /// Header row (icon + summary). A half-step smaller than body so tool
     /// calls read as secondary to assistant messages.
     private let summaryFontSize: CGFloat = 13
@@ -15,6 +16,7 @@ struct ComputerUseToolCallView: View {
     /// (`ConversationCommandOutputViewport` renders at 12pt) so tool-call
     /// details share a typographic baseline with terminal output.
     private let contentFontSize: CGFloat = 12
+    private let maxVisibleTextCharacters = 2_000
 
     init(
         data: ConversationMcpToolCallData,
@@ -125,10 +127,23 @@ struct ComputerUseToolCallView: View {
             Text("ERROR")
                 .litterFont(.caption2, weight: .bold)
                 .foregroundColor(LitterTheme.danger)
-            Text(message)
+            Text(errorExpanded ? message : limitedText(message))
                 .litterFont(size: contentFontSize)
                 .foregroundColor(LitterTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
+            if shouldLimitText(message) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        errorExpanded.toggle()
+                    }
+                } label: {
+                    Text(errorExpanded ? "Show less" : "Show more")
+                        .litterFont(.caption2, weight: .semibold)
+                        .foregroundColor(LitterTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(errorExpanded ? "Show less error text" : "Show more error text")
+            }
         }
     }
 
@@ -145,7 +160,7 @@ struct ComputerUseToolCallView: View {
                         a11yExpanded.toggle()
                     }
                 } label: {
-                    Text(a11yExpanded ? "Collapse" : "Expand")
+                    Text(a11yExpanded ? "Show less" : "Show more")
                         .litterFont(.caption2, weight: .medium)
                         .foregroundColor(LitterTheme.accent)
                 }
@@ -179,9 +194,20 @@ struct ComputerUseToolCallView: View {
 
     private func collapsedPreview(_ text: String) -> String {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        if lines.count <= 6 { return text }
+        if lines.count <= 6 { return limitedText(text) }
         let head = lines.prefix(6).joined(separator: "\n")
-        return "\(head)\n… (\(lines.count - 6) more lines)"
+        return "\(limitedText(head))\n… (\(lines.count - 6) more lines)"
+    }
+
+    private func limitedText(_ text: String) -> String {
+        guard shouldLimitText(text) else {
+            return text
+        }
+        return String(text.prefix(maxVisibleTextCharacters))
+    }
+
+    private func shouldLimitText(_ text: String) -> Bool {
+        text.count > maxVisibleTextCharacters
     }
 
     private var resolvedExpanded: Bool { expanded }

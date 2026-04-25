@@ -30,8 +30,16 @@ pub(crate) fn thread_info_from_upstream_status_change(
     }
 }
 
-pub(crate) fn conversation_item_from_upstream(
+/// Hydrate an upstream `ThreadItem` into a UI-ready `HydratedConversationItem`.
+/// Pass `Some(turn_id)` for items that arrive via `ItemStarted` /
+/// `ItemCompleted` notifications, which carry the turn id in the envelope.
+/// Setting the turn id makes the live-event item match the turn-id-keyed
+/// dedupe in `merge_paged_turns` so the same logical item from
+/// `thread/turns/list` (which the upstream rollout-history layer may emit with
+/// a synthesized `item-N` id rather than the live UUID) is not added twice.
+pub(crate) fn conversation_item_from_upstream_with_turn(
     item: upstream::ThreadItem,
+    turn_id: Option<&str>,
 ) -> Option<HydratedConversationItem> {
-    hydrate_thread_item(&item, None, None, &Default::default())
+    hydrate_thread_item(&item, turn_id, None, &Default::default())
 }

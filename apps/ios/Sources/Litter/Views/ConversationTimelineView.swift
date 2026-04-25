@@ -29,6 +29,7 @@ struct ConversationTurnTimeline: View {
     let agentDirectoryVersion: UInt64
     let messageActionsDisabled: Bool
     let onStreamingSnapshotRendered: (() -> Void)?
+    let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
@@ -61,6 +62,12 @@ struct ConversationTurnTimeline: View {
                 )
                     .id(row.id)
                     .modifier(RowEntranceModifier(isAssistantRow: row.isAssistantRow))
+                    .onGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.size.height
+                    } action: { oldHeight, newHeight in
+                        guard isLive, abs(newHeight - oldHeight) > 0.5 else { return }
+                        onLiveContentLayoutChanged?()
+                    }
             }
         }
     }
@@ -101,6 +108,7 @@ struct ConversationTurnTimeline: View {
                     shouldPreserveRichDetail: retainedRichDetailItemIDs.contains(item.id),
                     messageActionsDisabled: messageActionsDisabled,
                     onStreamingSnapshotRendered: item.id == streamingAssistantItemId ? onStreamingSnapshotRendered : nil,
+                    onLiveContentLayoutChanged: onLiveContentLayoutChanged,
                     resolveTargetLabel: resolveTargetLabel,
                     onWidgetPrompt: onWidgetPrompt,
                     onEditUserItem: onEditUserItem,
@@ -370,6 +378,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
     let shouldPreserveRichDetail: Bool
     let messageActionsDisabled: Bool
     let onStreamingSnapshotRendered: (() -> Void)?
+    let onLiveContentLayoutChanged: (() -> Void)?
     let resolveTargetLabel: (String) -> String?
     let onWidgetPrompt: (String) -> Void
     let onEditUserItem: (ConversationItem) -> Void
@@ -1327,8 +1336,10 @@ private struct ConversationCommandOutputViewport: View {
     let status: ToolCallStatus
     let durationText: String?
     @Environment(\.textScale) private var textScale
+    @State private var expandedLongOutput = false
 
     private let bottomAnchorId = "command-output-bottom"
+    private let maxVisibleTextCharacters = 2_000
 
     private var lineFontSize: CGFloat {
         11 * textScale
@@ -1339,64 +1350,92 @@ private struct ConversationCommandOutputViewport: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(verbatim: output)
-                        .litterMonoFont(size: 12)
-                        .foregroundColor(LitterTheme.textSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 6) {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(verbatim: visibleOutput)
+                            .litterMonoFont(size: 12)
+                            .foregroundColor(LitterTheme.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomAnchorId)
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorId)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-            }
-            .frame(height: viewportHeight)
-            .background(LitterTheme.codeBackground.opacity(0.78))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    colors: [LitterTheme.codeBackground.opacity(0.96), LitterTheme.codeBackground.opacity(0)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 18)
+                .frame(height: viewportHeight)
+                .background(LitterTheme.codeBackground.opacity(0.78))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .allowsHitTesting(false)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if let durationText, !durationText.isEmpty {
-                    Text(durationText)
-                        .foregroundColor(statusColor)
-                        .accessibilityLabel(durationAccessibilityLabel(durationText))
-                        .litterFont(.caption2)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(alignment: .bottom) {
-                            LinearGradient(
-                                colors: [.clear, LitterTheme.codeBackground.opacity(0.94)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                .overlay(alignment: .top) {
+                    LinearGradient(
+                        colors: [LitterTheme.codeBackground.opacity(0.96), LitterTheme.codeBackground.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if let durationText, !durationText.isEmpty {
+                        Text(durationText)
+                            .foregroundColor(statusColor)
+                            .accessibilityLabel(durationAccessibilityLabel(durationText))
+                            .litterFont(.caption2)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(alignment: .bottom) {
+                                LinearGradient(
+                                    colors: [.clear, LitterTheme.codeBackground.opacity(0.94)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            }
                         }
+                    }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(LitterTheme.border.opacity(0.35), lineWidth: 1)
+                }
+                .onAppear {
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: output) { _, _ in
+                    expandedLongOutput = false
+                    scrollToBottom(proxy, animated: true)
                 }
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(LitterTheme.border.opacity(0.35), lineWidth: 1)
-            }
-            .onAppear {
-                scrollToBottom(proxy)
-            }
-            .onChange(of: output) { _, _ in
-                scrollToBottom(proxy, animated: true)
+
+            if shouldLimitOutput {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        expandedLongOutput.toggle()
+                    }
+                } label: {
+                    Text(expandedLongOutput ? "Show less" : "Show more")
+                        .litterFont(.caption2, weight: .semibold)
+                        .foregroundColor(LitterTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expandedLongOutput ? "Show less command output" : "Show more command output")
             }
         }
+    }
+
+    private var visibleOutput: String {
+        guard shouldLimitOutput, !expandedLongOutput else {
+            return output
+        }
+        return String(output.prefix(maxVisibleTextCharacters))
+    }
+
+    private var shouldLimitOutput: Bool {
+        output.count > maxVisibleTextCharacters
     }
 
     private var statusColor: Color { status.themeColor }

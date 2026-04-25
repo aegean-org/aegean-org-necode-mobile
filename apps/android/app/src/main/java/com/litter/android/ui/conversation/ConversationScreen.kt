@@ -165,7 +165,8 @@ fun ConversationScreen(
     val supportsTurnPagination = server?.capabilities?.supportsTurnPagination == true
     val isInitialTurnsLoading = thread != null &&
         !thread.initialTurnsLoaded &&
-        supportsTurnPagination
+        supportsTurnPagination &&
+        displayedTurns.isNotEmpty()
     var isLoadingOlderTurns by remember(threadKey) { mutableStateOf(false) }
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }
     var streamingRenderTick by remember(threadKey) { mutableStateOf(0) }
@@ -243,7 +244,7 @@ fun ConversationScreen(
     // capability flag to avoid dispatching the RPC at all.
     LaunchedEffect(threadKey, thread?.initialTurnsLoaded, supportsTurnPagination) {
         if (thread != null && !thread.initialTurnsLoaded && supportsTurnPagination) {
-            appModel.loadInitialTurns(threadKey)
+            appModel.loadInitialTurnsIfNeeded(threadKey)
         }
     }
 

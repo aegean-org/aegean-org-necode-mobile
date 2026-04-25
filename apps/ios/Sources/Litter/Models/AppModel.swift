@@ -1285,7 +1285,7 @@ final class AppModel {
                 serverId: key.serverId,
                 params: AppReadThreadRequest(
                     threadId: key.threadId,
-                    includeTurns: true
+                    includeTurns: false
                 )
             )
             if let threadSnapshot = try await store.threadSnapshot(key: nextKey) {
@@ -1774,14 +1774,7 @@ final class AppModel {
         for attempt in 0..<maxAttempts {
             var readSucceeded = false
             do {
-                let nextKey = try await client.readThread(
-                    serverId: currentKey.serverId,
-                    params: AppReadThreadRequest(
-                        threadId: currentKey.threadId,
-                        includeTurns: true
-                    )
-                )
-                currentKey = nextKey
+                try await store.externalResumeThread(key: currentKey, hostId: nil)
                 store.setActiveThread(key: currentKey)
                 readSucceeded = true
             } catch {
@@ -1831,13 +1824,27 @@ final class AppModel {
         return nil
     }
 
-    private static let paginatedTurnPageSize: UInt32 = 20
+    private static let initialTurnPageSize: UInt32 = 5
+    private static let olderTurnPageSize: UInt32 = 5
 
     /// Fetch the first page of turns for a thread whose `initialTurnsLoaded`
     /// is still false. Called after a resume that sent `exclude_turns: true`
     /// against a v0.125+ server.
     func loadInitialTurns(threadId key: ThreadKey) async {
-        await loadTurnPage(key: key, cursor: nil)
+        await loadTurnPage(key: key, cursor: nil, limit: Self.initialTurnPageSize)
+    }
+
+    func loadInitialTurnsIfNeeded(threadId key: ThreadKey) async {
+        guard snapshot?
+            .serverSnapshot(for: key.serverId)?
+            .capabilities
+            .supportsTurnPagination == true else {
+            return
+        }
+        guard threadSnapshot(for: key)?.initialTurnsLoaded != true else {
+            return
+        }
+        await loadInitialTurns(threadId: key)
     }
 
     /// Fetch the next older page of turns using the thread's current cursor.
@@ -1848,10 +1855,10 @@ final class AppModel {
               !cursor.isEmpty else {
             return
         }
-        await loadTurnPage(key: key, cursor: cursor)
+        await loadTurnPage(key: key, cursor: cursor, limit: Self.olderTurnPageSize)
     }
 
-    private func loadTurnPage(key: ThreadKey, cursor: String?) async {
+    private func loadTurnPage(key: ThreadKey, cursor: String?, limit: UInt32) async {
         if loadingTurnPageThreadKeys.contains(key) { return }
         loadingTurnPageThreadKeys.insert(key)
         defer { loadingTurnPageThreadKeys.remove(key) }
@@ -1860,7 +1867,7 @@ final class AppModel {
             _ = try await store.loadThreadTurnsPage(
                 key: key,
                 cursor: cursor,
-                limit: Self.paginatedTurnPageSize
+                limit: limit
             )
         } catch {
             lastError = error.localizedDescription

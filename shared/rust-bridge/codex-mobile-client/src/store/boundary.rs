@@ -377,6 +377,7 @@ pub struct AppSessionSummary {
     pub agent_status: AppSubagentStatus,
     pub updated_at: Option<i64>,
     pub has_active_turn: bool,
+    pub is_resumed: bool,
     pub is_subagent: bool,
     pub is_fork: bool,
     // Display-specific fields
@@ -625,6 +626,7 @@ pub(crate) fn empty_session_summary(key: ThreadKey) -> AppSessionSummary {
         agent_status: AppSubagentStatus::Unknown,
         updated_at: None,
         has_active_turn: false,
+        is_resumed: false,
         is_subagent: false,
         is_fork: false,
         last_response_preview: None,
@@ -714,6 +716,7 @@ pub(crate) fn app_session_summary(
             .unwrap_or(AppSubagentStatus::Unknown),
         updated_at: thread.info.updated_at,
         has_active_turn: thread.active_turn_id.is_some(),
+        is_resumed: thread.is_resumed,
         is_subagent: is_fork && has_agent_label,
         is_fork,
         last_response_preview: activity.last_response,
@@ -1500,6 +1503,7 @@ mod tests {
                 pending_plan_implementation_turn_id: None,
                 older_turns_cursor: None,
                 initial_turns_loaded: false,
+                is_resumed: false,
             },
         );
 

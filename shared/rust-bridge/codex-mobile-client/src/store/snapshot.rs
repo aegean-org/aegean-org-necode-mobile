@@ -285,6 +285,9 @@ pub struct ThreadSnapshot {
     /// or from an explicit `thread/turns/list` call on a paginated server).
     /// Gates the UI spinner when a thread is opened with `exclude_turns`.
     pub initial_turns_loaded: bool,
+    /// Whether this mobile client has resumed the thread and attached a live
+    /// listener during the current store lifetime.
+    pub is_resumed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -335,6 +338,7 @@ impl ThreadSnapshot {
             pending_plan_implementation_turn_id: None,
             older_turns_cursor: None,
             initial_turns_loaded: false,
+            is_resumed: false,
         }
     }
 }

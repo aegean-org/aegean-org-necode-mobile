@@ -146,7 +146,7 @@ struct ImageGenerationToolCallView: View {
                             promptExpanded.toggle()
                         }
                     } label: {
-                        Text(promptExpanded ? "Collapse" : "Expand")
+                        Text(promptExpanded ? "Show less" : "Show more")
                             .litterFont(.caption2, weight: .medium)
                             .foregroundColor(LitterTheme.accent)
                     }

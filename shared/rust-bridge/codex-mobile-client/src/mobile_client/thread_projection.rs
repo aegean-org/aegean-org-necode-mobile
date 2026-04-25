@@ -58,6 +58,7 @@ pub fn copy_thread_runtime_fields(source: &ThreadSnapshot, target: &mut ThreadSn
         target.pending_plan_implementation_turn_id =
             source.pending_plan_implementation_turn_id.clone();
     }
+    target.is_resumed = target.is_resumed || source.is_resumed;
 }
 
 #[cfg(test)]
@@ -679,19 +680,21 @@ pub(super) async fn refresh_thread_list_from_app_server(
     app_store: Arc<AppStoreReducer>,
     server_id: &str,
 ) -> Result<(), RpcError> {
-    let response = session
-        .request("thread/list", serde_json::json!({}))
-        .await?;
-    let threads = response
-        .get("data")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| RpcError::Deserialization("thread/list response missing data".to_string()))?
-        .iter()
-        .cloned()
-        .filter_map(|value| serde_json::from_value::<upstream::Thread>(value).ok())
-        .map(ThreadInfo::from)
-        .collect::<Vec<_>>();
-    app_store.sync_thread_list(server_id, &threads);
+    let mut cursor = None;
+    let mut incoming_ids = HashSet::new();
+
+    loop {
+        let response = request_thread_list_page(&session, cursor).await?;
+        let page = thread_list_page_to_thread_infos(response.data, &mut incoming_ids);
+        app_store.upsert_thread_list_page(server_id, &page);
+
+        let Some(next_cursor) = response.next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
+    }
+
+    app_store.finalize_thread_list_sync(server_id, &incoming_ids);
     Ok(())
 }
 
@@ -728,23 +731,53 @@ pub(super) async fn refresh_thread_list_from_app_server_if_current(
     if !session_is_current(&sessions, server_id, &session) {
         return Ok(());
     }
-    let response = session
-        .request("thread/list", serde_json::json!({}))
-        .await?;
-    if !session_is_current(&sessions, server_id, &session) {
-        return Ok(());
+
+    let mut cursor = None;
+    let mut incoming_ids = HashSet::new();
+    loop {
+        let response = request_thread_list_page(&session, cursor).await?;
+        if !session_is_current(&sessions, server_id, &session) {
+            return Ok(());
+        }
+
+        let page = thread_list_page_to_thread_infos(response.data, &mut incoming_ids);
+        app_store.upsert_thread_list_page(server_id, &page);
+        let Some(next_cursor) = response.next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
     }
-    let threads = response
-        .get("data")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| RpcError::Deserialization("thread/list response missing data".to_string()))?
-        .iter()
-        .cloned()
-        .filter_map(|value| serde_json::from_value::<upstream::Thread>(value).ok())
-        .map(ThreadInfo::from)
-        .collect::<Vec<_>>();
-    app_store.sync_thread_list(server_id, &threads);
+
+    app_store.finalize_thread_list_sync(server_id, &incoming_ids);
     Ok(())
+}
+
+async fn request_thread_list_page(
+    session: &ServerSession,
+    cursor: Option<String>,
+) -> Result<upstream::ThreadListResponse, RpcError> {
+    let params = match cursor {
+        Some(cursor) => serde_json::json!({ "cursor": cursor }),
+        None => serde_json::json!({}),
+    };
+    let response = session.request("thread/list", params).await?;
+    serde_json::from_value::<upstream::ThreadListResponse>(response)
+        .map_err(|error| RpcError::Deserialization(format!("deserialize thread/list: {error}")))
+}
+
+fn thread_list_page_to_thread_infos(
+    data: Vec<upstream::Thread>,
+    incoming_ids: &mut HashSet<String>,
+) -> Vec<ThreadInfo> {
+    let mut threads = Vec::new();
+    for thread in data {
+        let Some(info) = thread_info_from_upstream_thread(thread) else {
+            continue;
+        };
+        incoming_ids.insert(info.id.clone());
+        threads.push(info);
+    }
+    threads
 }
 
 pub(super) fn session_is_current(

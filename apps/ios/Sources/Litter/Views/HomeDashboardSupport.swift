@@ -13,6 +13,7 @@ struct HomeDashboardRecentSession: Identifiable, Hashable {
     let agentLabel: String?
     let updatedAt: Date
     let hasTurnActive: Bool
+    let isResumed: Bool
     let isSubagent: Bool
     let isFork: Bool
     let lastResponsePreview: String?
@@ -109,6 +110,7 @@ enum HomeDashboardSupport {
                     agentLabel: session.agentDisplayLabel,
                     updatedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt ?? 0)),
                     hasTurnActive: session.hasActiveTurn,
+                    isResumed: session.isResumed,
                     isSubagent: session.isSubagent,
                     isFork: session.isFork,
                     lastResponsePreview: session.lastResponsePreview,

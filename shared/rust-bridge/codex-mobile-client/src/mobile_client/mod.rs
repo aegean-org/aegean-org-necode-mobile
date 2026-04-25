@@ -973,6 +973,20 @@ impl MobileClient {
         );
     }
 
+    pub(crate) async fn refresh_thread_list_for_connected_server(
+        &self,
+        server_id: &str,
+    ) -> Result<(), RpcError> {
+        let session = self.get_session(server_id)?;
+        refresh_thread_list_from_app_server_if_current(
+            session,
+            Arc::clone(&self.app_store),
+            Arc::clone(&self.sessions),
+            server_id,
+        )
+        .await
+    }
+
     pub async fn start_remote_ssh_oauth_login(&self, server_id: &str) -> Result<String, RpcError> {
         let session = self.get_session(server_id)?;
         if session.config().is_local {
@@ -1086,6 +1100,7 @@ impl MobileClient {
                     "external_resume_thread: skipping RPC for server={} thread={} — IPC is live and thread data exists in store",
                     server_id, thread_id
                 );
+                self.app_store.mark_thread_resumed(&key, true);
                 return Ok(());
             }
             debug!(
@@ -1098,6 +1113,7 @@ impl MobileClient {
                 "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session",
                 server_id, thread_id
             );
+            self.app_store.mark_thread_resumed(&key, true);
             return Ok(());
         }
         // Use thread/resume (not thread/read) so the server attaches a
@@ -1180,6 +1196,7 @@ impl MobileClient {
                     snapshot.older_turns_cursor = None;
                 }
                 reconcile_active_turn(existing.as_ref(), &mut snapshot, &turns);
+                snapshot.is_resumed = true;
                 self.app_store.upsert_thread_snapshot(snapshot);
                 self.mark_direct_resumed_thread(key);
                 Ok(())
@@ -1316,6 +1333,13 @@ impl MobileClient {
             server_id: server_id.to_string(),
             thread_id: thread_id.to_string(),
         });
+        self.app_store.mark_thread_resumed(
+            &ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: thread_id.to_string(),
+            },
+            false,
+        );
         Ok(())
     }
 

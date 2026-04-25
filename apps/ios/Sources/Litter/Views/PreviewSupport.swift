@@ -397,6 +397,7 @@ enum LitterPreviewData {
                 agentStatus: .unknown,
                 updatedAt: thread.info.updatedAt,
                 hasActiveTurn: thread.hasActiveTurn,
+                isResumed: false,
                 isSubagent: thread.info.parentThreadId != nil,
                 isFork: thread.info.parentThreadId != nil,
                 lastResponsePreview: nil,

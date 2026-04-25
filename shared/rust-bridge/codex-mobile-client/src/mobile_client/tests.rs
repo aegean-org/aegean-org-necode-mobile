@@ -395,6 +395,7 @@ mod mobile_client_tests {
             pending_plan_implementation_turn_id: Some("turn-1".to_string()),
             older_turns_cursor: None,
             initial_turns_loaded: false,
+            is_resumed: true,
         };
         let mut target = ThreadSnapshot::from_info("srv", make_thread_info("thread-1"));
 
@@ -421,6 +422,7 @@ mod mobile_client_tests {
             target.pending_plan_implementation_turn_id,
             source.pending_plan_implementation_turn_id
         );
+        assert!(target.is_resumed);
     }
 
     #[test]
@@ -449,6 +451,7 @@ mod mobile_client_tests {
             pending_plan_implementation_turn_id: None,
             older_turns_cursor: None,
             initial_turns_loaded: false,
+            is_resumed: false,
         };
         let mut target = ThreadSnapshot::from_info("srv", make_thread_info("thread-1"));
 

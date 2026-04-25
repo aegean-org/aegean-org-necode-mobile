@@ -14,7 +14,7 @@
 //! persistent `/bin/sh` the same way `codex_ish_run` did in Obj-C.
 
 use std::collections::HashMap;
-use std::ffi::{c_char, c_int, c_uint, CStr};
+use std::ffi::{CStr, c_char, c_int, c_uint};
 use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
@@ -27,16 +27,16 @@ use crate::ish_types::IshBootstrapError;
 
 // Numeric error codes preserved for back-compat with the previous `ish` crate
 // surface. The Swift side observes these as negative `Int32` values.
-pub const ISH_E_BOOT:        i32 = -1;
-pub const ISH_E_MOUNT:       i32 = -2;
-pub const ISH_E_EXECVE:      i32 = -3;
-pub const ISH_E_PIPE:        i32 = -4;
-pub const ISH_E_THREAD:      i32 = -5;
+pub const ISH_E_BOOT: i32 = -1;
+pub const ISH_E_MOUNT: i32 = -2;
+pub const ISH_E_EXECVE: i32 = -3;
+pub const ISH_E_PIPE: i32 = -4;
+pub const ISH_E_THREAD: i32 = -5;
 pub const ISH_E_NOT_RUNNING: i32 = -6;
-pub const ISH_E_IO:          i32 = -7;
-pub const ISH_E_TIMEOUT:     i32 = -8;
-pub const ISH_E_NOMEM:       i32 = -9;
-pub const ISH_E_ARGS:        i32 = -10;
+pub const ISH_E_IO: i32 = -7;
+pub const ISH_E_TIMEOUT: i32 = -8;
+pub const ISH_E_NOMEM: i32 = -9;
+pub const ISH_E_ARGS: i32 = -10;
 
 const RUN_TIMEOUT_MS: u64 = 60_000;
 
@@ -130,11 +130,7 @@ pub fn run(cmd: &str, cwd: Option<&str>) -> (i32, Vec<u8>) {
         _ => cmd.to_string(),
     };
 
-    let argv = [
-        "/bin/sh".to_string(),
-        "-c".to_string(),
-        wrapped,
-    ];
+    let argv = ["/bin/sh".to_string(), "-c".to_string(), wrapped];
     let env = HashMap::new();
     let cwd_path = PathBuf::from("/");
     instance.run_oneshot(&argv, &cwd_path, &env, Some(RUN_TIMEOUT_MS))
@@ -317,20 +313,14 @@ fn resolv_conf_body() -> String {
     let init_rc = unsafe { res_9_ninit(res_state.as_mut_ptr()) };
     if init_rc == 0 {
         let mut servers = [0u8; RES_SOCKADDR_UNION_BUF * MAXNS as usize];
-        let found = unsafe {
-            res_9_getservers(
-                res_state.as_mut_ptr(),
-                servers.as_mut_ptr(),
-                MAXNS,
-            )
-        };
+        let found =
+            unsafe { res_9_getservers(res_state.as_mut_ptr(), servers.as_mut_ptr(), MAXNS) };
         for i in 0..found.max(0) {
             // SAFETY: Each sockaddr_union slot is RES_SOCKADDR_UNION_BUF
             // bytes; the first byte is sin_len (Apple BSD sockaddr has
             // sa_len as the first byte). A zero sin_len means the slot was
             // left empty by the resolver — skip it, matching IshBridge.m.
-            let slot =
-                unsafe { servers.as_ptr().add(i as usize * RES_SOCKADDR_UNION_BUF) };
+            let slot = unsafe { servers.as_ptr().add(i as usize * RES_SOCKADDR_UNION_BUF) };
             let sa_len = unsafe { *slot };
             if sa_len == 0 {
                 continue;
@@ -384,9 +374,6 @@ mod tests {
 
     #[test]
     fn shell_quote_path_with_spaces() {
-        assert_eq!(
-            shell_quote("/var/Documents/Apps"),
-            "'/var/Documents/Apps'"
-        );
+        assert_eq!(shell_quote("/var/Documents/Apps"), "'/var/Documents/Apps'");
     }
 }
