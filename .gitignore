@@ -47,6 +47,7 @@ apps/android/.kotlin/
 *.log
 *.tmp
 tmp/
+__pycache__/
 
 # Local screenshots
 Simulator Screenshot*.png

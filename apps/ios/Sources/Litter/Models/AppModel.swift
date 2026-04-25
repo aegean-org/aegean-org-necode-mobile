@@ -236,6 +236,8 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
+        await restoreStoredLocalAuthIfNeeded(serverId: key.serverId, reason: "resumeThread")
+
         let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requiresResumeOverrides = requiresResumeOverrides(
             for: key,
@@ -267,6 +269,8 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
+        await restoreStoredLocalAuthIfNeeded(serverId: key.serverId, reason: "reloadThread")
+
         let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requiresResumeOverrides = requiresResumeOverrides(
             for: key,
@@ -420,9 +424,7 @@ final class AppModel {
             return true
         }
 
-        if let storedApiKey = await loadStoredLocalApiKey(),
-           !storedApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await restoreStoredLocalAuthState(serverId: serverId)
+        if await restoreStoredLocalAuthIfNeeded(serverId: serverId, reason: "startThread") {
             return true
         }
 
@@ -436,6 +438,32 @@ final class AppModel {
             throw LocalAccountLoginFlowError.loginDidNotAttach
         }
         return true
+    }
+
+    @discardableResult
+    private func restoreStoredLocalAuthIfNeeded(serverId: String, reason: String) async -> Bool {
+        guard let server = snapshot?.serverSnapshot(for: serverId), server.isLocal else {
+            return false
+        }
+        guard server.account == nil else {
+            return false
+        }
+        let storedApiKey = await loadStoredLocalApiKey()?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedTokens = await loadStoredLocalChatGPTTokens()
+        guard storedTokens != nil || storedApiKey?.isEmpty == false else {
+            return false
+        }
+
+        LLog.info(
+            "auth",
+            "restoring stored local auth before local session operation",
+            fields: [
+                "serverId": serverId,
+                "reason": reason
+            ]
+        )
+        await restoreStoredLocalAuthState(serverId: serverId)
+        return snapshot?.serverSnapshot(for: serverId)?.account != nil
     }
 
     func resolvedLocalServerDisplayName() -> String {
@@ -486,14 +514,6 @@ final class AppModel {
         guard storedApiKey != nil || storedTokens != nil else { return }
 
         for attempt in 0...Self.localAuthRestoreRetryDelays.count {
-            if storedApiKey != nil {
-                OpenAIApiKeyStore.shared.applyToEnvironment()
-                if await refreshStoredLocalApiKeyAuth(serverId: serverId) {
-                    await refreshSnapshot()
-                    return
-                }
-            }
-
             if let storedTokens,
                await restoreStoredLocalChatGPTAuth(
                 serverId: serverId,
@@ -501,6 +521,14 @@ final class AppModel {
                ) {
                 await refreshSnapshot()
                 return
+            }
+
+            if let storedApiKey {
+                OpenAIApiKeyStore.shared.applyToEnvironment()
+                if await loginStoredLocalApiKeyAuth(serverId: serverId, apiKey: storedApiKey) {
+                    await refreshSnapshot()
+                    return
+                }
             }
 
             guard attempt < Self.localAuthRestoreRetryDelays.count else { break }
@@ -520,7 +548,7 @@ final class AppModel {
         guard storedApiKey != nil else { return }
         OpenAIApiKeyStore.shared.applyToEnvironment()
         guard await reconnectLocalServerForStoredApiKeyRestore(serverId: serverId) else { return }
-        if await refreshStoredLocalApiKeyAuth(serverId: serverId) {
+        if let storedApiKey, await loginStoredLocalApiKeyAuth(serverId: serverId, apiKey: storedApiKey) {
             await refreshSnapshot()
         }
     }
@@ -611,11 +639,11 @@ final class AppModel {
         return false
     }
 
-    private func refreshStoredLocalApiKeyAuth(serverId: String) async -> Bool {
+    private func loginStoredLocalApiKeyAuth(serverId: String, apiKey: String) async -> Bool {
         do {
-            _ = try await client.refreshAccount(
+            _ = try await client.loginAccount(
                 serverId: serverId,
-                params: AppRefreshAccountRequest(refreshToken: false)
+                params: .apiKey(apiKey: apiKey)
             )
             lastError = nil
             return true
@@ -1753,6 +1781,8 @@ final class AppModel {
     }
 
     func startTurn(key: ThreadKey, payload: AppComposerPayload) async throws {
+        await restoreStoredLocalAuthIfNeeded(serverId: key.serverId, reason: "startTurn")
+
         do {
             try await store.startTurn(
                 key: key,

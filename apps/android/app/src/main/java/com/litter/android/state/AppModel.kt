@@ -37,8 +37,12 @@ import uniffi.codex_mobile_client.AppListThreadsRequest
 import uniffi.codex_mobile_client.AppLoginAccountRequest
 import uniffi.codex_mobile_client.AppRefreshModelsRequest
 import uniffi.codex_mobile_client.AppReadThreadRequest
+import uniffi.codex_mobile_client.AppStartThreadRequest
 import uniffi.codex_mobile_client.registerAndroidTools
 import uniffi.codex_mobile_client.threadPermissionsAreAuthoritative
+
+class LocalAccountLoginRequiredException(val serverId: String) :
+    IllegalStateException("Local account login is required.")
 
 /**
  * Central app state singleton. Thin wrapper over Rust [AppStore] — all business
@@ -426,15 +430,51 @@ class AppModel private constructor(context: android.content.Context) {
     suspend fun restoreStoredLocalAuthState(serverId: String) {
         val apiKeyStore = OpenAIApiKeyStore(appContext)
         val storedApiKey = apiKeyStore.load()
+        if (restoreStoredLocalChatGptAuth(serverId)) {
+            return
+        }
         apiKeyStore.applyToEnvironment()
         if (!storedApiKey.isNullOrBlank() && loginStoredLocalApiKeyAuth(serverId, storedApiKey)) {
             return
         }
-        restoreStoredLocalChatGptAuth(serverId)
     }
 
-    suspend fun restoreStoredLocalChatGptAuth(serverId: String) {
-        val storedTokens = ChatGPTOAuthTokenStore(appContext).load() ?: return
+    suspend fun ensureLocalAuthForThreadStart(serverId: String): Boolean {
+        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return true
+        if (!server.isLocal) return true
+        if (server.account != null) return true
+
+        if (restoreStoredLocalAuthIfNeeded(serverId, reason = "startThread")) {
+            return true
+        }
+
+        return false
+    }
+
+    private suspend fun restoreStoredLocalAuthIfNeeded(serverId: String, reason: String): Boolean {
+        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return false
+        if (!server.isLocal || server.account != null) return false
+
+        val apiKeyStore = OpenAIApiKeyStore(appContext)
+        val storedApiKey = apiKeyStore.load()?.trim().orEmpty()
+        val hasStoredChatGptTokens = ChatGPTOAuthTokenStore(appContext).load() != null
+        if (!hasStoredChatGptTokens && storedApiKey.isBlank()) return false
+
+        LLog.i(
+            "AppModel",
+            "restoring stored local auth before local session operation",
+            fields = mapOf(
+                "serverId" to serverId,
+                "reason" to reason,
+            ),
+        )
+        restoreStoredLocalAuthState(serverId)
+        refreshSnapshot()
+        return snapshot.value?.servers?.firstOrNull { it.serverId == serverId }?.account != null
+    }
+
+    suspend fun restoreStoredLocalChatGptAuth(serverId: String): Boolean {
+        val storedTokens = ChatGPTOAuthTokenStore(appContext).load() ?: return false
         val refreshedTokens = runCatching {
             ChatGPTOAuth.refreshStoredTokens(
                 context = appContext,
@@ -444,23 +484,23 @@ class AppModel private constructor(context: android.content.Context) {
         if (refreshedTokens != null &&
             loginStoredLocalChatGptAuth(serverId, refreshedTokens)
         ) {
-            return
+            return true
         }
         if (loginStoredLocalChatGptAuth(serverId, storedTokens)) {
-            return
+            return true
         }
         if (refreshedTokens != null) {
-            return
+            return false
         }
         delay(2_000)
-        runCatching {
+        return runCatching {
             ChatGPTOAuth.refreshStoredTokens(
                 context = appContext,
                 previousAccountId = null,
             )
         }.getOrNull()?.let { retriedRefresh ->
             loginStoredLocalChatGptAuth(serverId, retriedRefresh)
-        }
+        } == true
     }
 
     private suspend fun loginStoredLocalChatGptAuth(
@@ -552,10 +592,22 @@ class AppModel private constructor(context: android.content.Context) {
         scheduleDeferredActiveThreadHydrationIfNeeded(key)
     }
 
+    suspend fun startThread(
+        serverId: String,
+        params: AppStartThreadRequest,
+    ): ThreadKey {
+        if (!ensureLocalAuthForThreadStart(serverId)) {
+            throw LocalAccountLoginRequiredException(serverId)
+        }
+        return client.startThread(serverId, params)
+    }
+
     suspend fun startTurn(
         key: ThreadKey,
         payload: AppComposerPayload,
     ) {
+        restoreStoredLocalAuthIfNeeded(key.serverId, reason = "startTurn")
+
         try {
             store.startTurn(key, payload.toAppStartTurnRequest(key.threadId))
             _lastError.value = null
@@ -569,6 +621,8 @@ class AppModel private constructor(context: android.content.Context) {
         key: ThreadKey,
         hostId: String? = null,
     ) {
+        restoreStoredLocalAuthIfNeeded(key.serverId, reason = "resumeThread")
+
         try {
             store.externalResumeThread(key, hostId)
             _lastError.value = null
@@ -716,7 +770,7 @@ class AppModel private constructor(context: android.content.Context) {
         repeat(maxAttempts) { attempt ->
             var readSucceeded = false
             try {
-                store.externalResumeThread(currentKey, null)
+                externalResumeThread(currentKey, null)
                 store.setActiveThread(currentKey)
                 readSucceeded = true
             } catch (e: Exception) {

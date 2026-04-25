@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +58,7 @@ import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
+import com.litter.android.state.TipJarSupporterState
 import com.litter.android.ui.LitterTheme
 
 private data class TipProduct(
@@ -114,6 +116,7 @@ fun TipJarScreen(onBack: () -> Unit) {
     var state by remember { mutableStateOf<TipJarState>(TipJarState.Loading) }
     // Cache products so we can restore ready state after cancel
     var cachedProducts by remember { mutableStateOf<List<TipProduct>>(emptyList()) }
+    val selectedHeaderKeys by TipJarSupporterState.selectedHeaderKeys
 
     val purchasesUpdatedListener = remember {
         PurchasesUpdatedListener { billingResult, _ ->
@@ -226,6 +229,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                         } else {
                             null
                         }
+                        TipJarSupporterState.updateOwnedProductIds(context, ownedProductIds)
                         cachedProducts = products
                         state = TipJarState.Ready(
                             products,
@@ -424,6 +428,71 @@ fun TipJarScreen(onBack: () -> Unit) {
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             }
+                        }
+                    }
+                    val purchasedTips = currentState.products.filter { it.isPurchased }
+                    if (purchasedTips.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Home Header",
+                                color = LitterTheme.textSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+                        items(purchasedTips, key = { "header-${it.productIds.first()}" }) { tip ->
+                            val isSelected = selectedHeaderKeys?.contains(tip.productIds.first()) ?: true
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        TipJarSupporterState.setHeaderKittySelected(
+                                            context = context,
+                                            productIds = tip.productIds,
+                                            selected = !isSelected,
+                                        )
+                                    }
+                                    .padding(12.dp),
+                            ) {
+                                Image(
+                                    painter = painterResource(tip.iconRes),
+                                    contentDescription = tip.displayName,
+                                    modifier = Modifier.size(40.dp),
+                                    contentScale = ContentScale.Fit,
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        tip.displayName,
+                                        color = LitterTheme.textPrimary,
+                                        fontSize = 14.sp,
+                                    )
+                                    Text(
+                                        if (isSelected) "Shown on home" else "Hidden from home",
+                                        color = LitterTheme.textSecondary,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = if (isSelected) "Shown on home" else "Hidden from home",
+                                    tint = if (isSelected) LitterTheme.accent else LitterTheme.textMuted,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .alpha(if (isSelected) 1f else 0.35f),
+                                )
+                            }
+                        }
+                        item {
+                            Text(
+                                "Pick which purchased kitties appear around the home logo.",
+                                color = LitterTheme.textMuted,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
                         }
                     }
 

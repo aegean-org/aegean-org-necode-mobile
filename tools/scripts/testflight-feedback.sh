@@ -14,6 +14,8 @@ set -euo pipefail
 #   DOWNLOAD_SCREENSHOTS — set to 1 to download screenshots locally (default: 0)
 #   OUTPUT_DIR         — where to save screenshots (default: /tmp/testflight-feedback)
 #   OUTPUT_FORMAT      — json, markdown, or summary (default: summary)
+#   SINCE              — optional ISO-8601 lower bound for createdDate filtering
+#   UNTIL              — optional ISO-8601 upper bound for createdDate filtering
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -23,6 +25,8 @@ BUNDLE_ID="${BUNDLE_ID:-com.sigkitten.litter}"
 DOWNLOAD_SCREENSHOTS="${DOWNLOAD_SCREENSHOTS:-0}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/testflight-feedback}"
 OUTPUT_FORMAT="${OUTPUT_FORMAT:-summary}"
+SINCE="${SINCE:-}"
+UNTIL="${UNTIL:-}"
 
 # --- Resolve asc binary ---
 resolve_asc() {
@@ -103,11 +107,78 @@ FEEDBACK_JSON="$("$ASC" testflight feedback list \
     --paginate \
     --output json 2>&1)"
 
+SCREENSHOT_DIR=""
+if [[ "$DOWNLOAD_SCREENSHOTS" == "1" ]]; then
+    SCREENSHOT_DIR="$OUTPUT_DIR/${VERSION:-all}"
+    mkdir -p "$SCREENSHOT_DIR"
+    echo "Screenshots will be saved to: $SCREENSHOT_DIR" >&2
+fi
+
+FEEDBACK_JSON="$(printf '%s' "$FEEDBACK_JSON" | python3 -c "
+import json, os, pathlib, sys, urllib.parse, urllib.request
+from datetime import datetime, timezone
+
+payload = json.load(sys.stdin)
+since_raw = os.environ.get('SINCE', '').strip()
+until_raw = os.environ.get('UNTIL', '').strip()
+download = os.environ.get('DOWNLOAD_SCREENSHOTS', '0') == '1'
+screenshot_dir = os.environ.get('SCREENSHOT_DIR', '').strip()
+
+def parse_ts(value):
+    if not value:
+        return None
+    raw = value.strip()
+    if raw.endswith('Z'):
+        raw = raw[:-1] + '+00:00'
+    parsed = datetime.fromisoformat(raw)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return parsed.astimezone(timezone.utc)
+
+since = parse_ts(since_raw)
+until = parse_ts(until_raw)
+
+filtered = []
+for item in payload.get('data', []):
+    created = parse_ts(item.get('attributes', {}).get('createdDate', ''))
+    if created is None:
+        continue
+    if since and created < since:
+        continue
+    if until and created > until:
+        continue
+    if download and screenshot_dir:
+        attrs = item.setdefault('attributes', {})
+        downloaded = []
+        for index, screenshot in enumerate(attrs.get('screenshots', []) or [], start=1):
+            url = screenshot.get('url')
+            if not url:
+                continue
+            suffix = pathlib.Path(urllib.parse.urlparse(url).path).suffix or '.jpg'
+            target = pathlib.Path(screenshot_dir) / f\"{item.get('id', 'feedback')}-{index}{suffix}\"
+            try:
+                with urllib.request.urlopen(url, timeout=30) as response:
+                    target.write_bytes(response.read())
+                downloaded.append(str(target))
+            except Exception as exc:
+                downloaded.append(f'download_failed: {exc}')
+        if downloaded:
+            attrs['downloadedScreenshotPaths'] = downloaded
+    filtered.append(item)
+
+payload['data'] = filtered
+print(json.dumps(payload))
+")"
+
 TOTAL="$(echo "$FEEDBACK_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['data']))")"
 echo "Found $TOTAL feedback submission(s)" >&2
 
 if [[ "$TOTAL" -eq 0 ]]; then
-    echo "No feedback found${VERSION:+ for version $VERSION}."
+    if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+        printf '{"data":[]}\n'
+    else
+        echo "No feedback found${VERSION:+ for version $VERSION}."
+    fi
     exit 0
 fi
 
@@ -129,14 +200,6 @@ if [[ "$OUTPUT_FORMAT" == "markdown" ]]; then
 fi
 
 # --- Output: summary (default) ---
-# Download screenshots if requested
-SCREENSHOT_DIR=""
-if [[ "$DOWNLOAD_SCREENSHOTS" == "1" ]]; then
-    SCREENSHOT_DIR="$OUTPUT_DIR/${VERSION:-all}"
-    mkdir -p "$SCREENSHOT_DIR"
-    echo "Screenshots will be saved to: $SCREENSHOT_DIR" >&2
-fi
-
 echo "$FEEDBACK_JSON" | python3 -c "
 import sys, json, subprocess, os
 
@@ -171,6 +234,7 @@ for i, item in enumerate(data, 1):
     model = DEVICES.get(model_raw, model_raw)
     os_ver = attrs.get('osVersion', '')
     screenshots = attrs.get('screenshots', [])
+    downloaded_paths = attrs.get('downloadedScreenshotPaths', [])
 
     print(f'## #{i} — {date}')
     print(f'**Device:** {model} (iOS {os_ver})')
@@ -187,7 +251,9 @@ for i, item in enumerate(data, 1):
             url = ss['url']
             w, h = ss.get('width', '?'), ss.get('height', '?')
             print(f'  - [{w}x{h}]({url})')
-            if download and screenshot_dir:
+            if j-1 < len(downloaded_paths):
+                print(f'    Saved: {downloaded_paths[j-1]}')
+            elif download and screenshot_dir:
                 fname = f'feedback-{i}-screenshot-{j+1}.jpg'
                 fpath = os.path.join(screenshot_dir, fname)
                 try:

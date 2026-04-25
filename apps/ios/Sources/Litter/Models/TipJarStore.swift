@@ -31,16 +31,30 @@ final class TipJarStore {
     ]
     private(set) var purchaseState: PurchaseState = .idle
     private(set) var isLoading = true
+    private(set) var selectedHeaderTierIDs: Set<String>?
     private nonisolated(unsafe) var updatesTask: Task<Void, Never>?
 
     static let shared = TipJarStore()
+    private static let selectedHeaderTierIDsKey = "tipJar.selectedHeaderTierIDs"
 
     /// The highest purchased tier, or nil if none.
     var supporterTier: TipTier? {
         tiers.last(where: \.isPurchased)
     }
 
+    var purchasedTiers: [TipTier] {
+        tiers.filter(\.isPurchased)
+    }
+
+    var selectedHeaderTiers: [TipTier] {
+        guard let selectedHeaderTierIDs else { return purchasedTiers }
+        return purchasedTiers.filter { selectedHeaderTierIDs.contains($0.id) }
+    }
+
     init() {
+        if let ids = UserDefaults.standard.array(forKey: Self.selectedHeaderTierIDsKey) as? [String] {
+            selectedHeaderTierIDs = Set(ids)
+        }
         updatesTask = Task { [weak self] in
             for await result in Transaction.updates {
                 if case .verified(let tx) = result {
@@ -116,6 +130,24 @@ final class TipJarStore {
         } catch {
             purchaseState = .failed(error.localizedDescription)
         }
+    }
+
+    func isHeaderKittySelected(_ tier: TipTier) -> Bool {
+        guard tier.isPurchased else { return false }
+        guard let selectedHeaderTierIDs else { return true }
+        return selectedHeaderTierIDs.contains(tier.id)
+    }
+
+    func setHeaderKitty(_ tier: TipTier, selected: Bool) {
+        guard tier.isPurchased else { return }
+        var ids = selectedHeaderTierIDs ?? Set(purchasedTiers.map(\.id))
+        if selected {
+            ids.insert(tier.id)
+        } else {
+            ids.remove(tier.id)
+        }
+        selectedHeaderTierIDs = ids
+        UserDefaults.standard.set(Array(ids).sorted(), forKey: Self.selectedHeaderTierIDsKey)
     }
 
     private func refreshPurchasedState() async {

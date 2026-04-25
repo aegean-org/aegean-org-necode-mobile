@@ -263,7 +263,7 @@ class VoiceRuntimeController {
         }
 
         return try {
-            val key = appModel.client.startThread(
+            val key = appModel.startThread(
                 serverId,
                 launchConfig.toAppStartThreadRequest(
                     preferredVoiceThreadCwd(appModel, key = null, fallback = cwd),
@@ -411,7 +411,7 @@ class VoiceRuntimeController {
                         ?.servers
                         ?.firstOrNull { it.serverId == action.targetServerId }
                         ?.isLocal == true
-                    val key = appModel.client.startThread(
+                    val key = appModel.startThread(
                         action.targetServerId,
                         appModel.launchState.threadStartRequest(
                             action.cwd,

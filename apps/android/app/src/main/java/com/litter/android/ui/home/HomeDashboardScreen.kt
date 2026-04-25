@@ -111,6 +111,7 @@ fun HomeDashboardScreen(
     onShowSettings: () -> Unit,
     onShowApps: () -> Unit,
     onOpenProjectPicker: () -> Unit,
+    onOpenAccount: (String) -> Unit,
     selectedProject: AppProject?,
     selectedServerId: String?,
     onSelectServer: (AppServerSnapshot) -> Unit,
@@ -414,13 +415,15 @@ fun HomeDashboardScreen(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                IconButton(onClick = onShowApps, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        Icons.Outlined.GridView,
-                        contentDescription = "Apps",
-                        tint = LitterTheme.textSecondary,
-                        modifier = Modifier.size(20.dp),
-                    )
+                if (savedAppsAll.isNotEmpty()) {
+                    IconButton(onClick = onShowApps, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Outlined.GridView,
+                            contentDescription = "Apps",
+                            tint = LitterTheme.textSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 Row(
@@ -704,6 +707,7 @@ fun HomeDashboardScreen(
                         HomeComposerBar(
                             project = selectedProject,
                             onThreadCreated = onThreadCreated,
+                            onLoginRequired = onOpenAccount,
                             onActiveChange = { active ->
                                 if (active) {
                                     isComposerActive = true

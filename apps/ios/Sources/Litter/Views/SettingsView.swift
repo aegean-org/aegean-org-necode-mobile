@@ -28,11 +28,11 @@ struct SettingsView: View {
             ZStack {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
                 Form {
+                    supportSection
                     appearanceSection
                     fontSection
                     conversationSection
                     experimentalSection
-                    supportSection
                     accountSection
                     serversSection
                 }

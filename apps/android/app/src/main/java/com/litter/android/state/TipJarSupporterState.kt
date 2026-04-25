@@ -19,6 +19,8 @@ import com.android.billingclient.api.QueryPurchasesParams
  */
 object TipJarSupporterState {
     private const val TAG = "TipJarSupporter"
+    private const val PREFS_NAME = "tip_jar_supporter"
+    private const val SELECTED_HEADER_KEYS = "selected_header_keys"
 
     /**
      * Ordered by tier (smallest → largest) so we pick the highest purchased.
@@ -26,18 +28,22 @@ object TipJarSupporterState {
      */
     private val tiers: List<Tier> = listOf(
         Tier(
+            key = "tip_10",
             iconRes = com.sigkitten.litter.android.R.drawable.tip_cat_10,
             productIds = listOf("tip_10", "com.sigkitten.litter.tip.10", "com.sigkitten.litter.android.tip.10"),
         ),
         Tier(
+            key = "tip_25",
             iconRes = com.sigkitten.litter.android.R.drawable.tip_cat_25,
             productIds = listOf("tip_25", "com.sigkitten.litter.tip.25", "com.sigkitten.litter.android.tip.25"),
         ),
         Tier(
+            key = "tip_50",
             iconRes = com.sigkitten.litter.android.R.drawable.tip_cat_50,
             productIds = listOf("tip_50", "com.sigkitten.litter.tip.50", "com.sigkitten.litter.android.tip.50"),
         ),
         Tier(
+            key = "tip_100",
             iconRes = com.sigkitten.litter.android.R.drawable.tip_cat_100,
             productIds = listOf("tip_100", "com.sigkitten.litter.tip.100", "com.sigkitten.litter.android.tip.100"),
         ),
@@ -52,9 +58,13 @@ object TipJarSupporterState {
      * to show e.g. left (tiers 0..1) and right (tiers 2..3) of the logo.
      */
     val tierIcons = mutableStateOf<List<Int?>>(List(4) { null })
+    val selectedHeaderKeys = mutableStateOf<Set<String>?>(null)
+
+    private var ownedProductIds: Set<String> = emptySet()
 
     fun refresh(context: Context) {
         val app = context.applicationContext
+        selectedHeaderKeys.value = loadSelectedHeaderKeys(app)
         val client = BillingClient.newBuilder(app)
             .setListener(PurchasesUpdatedListener { _, _ -> })
             .enablePendingPurchases()
@@ -75,13 +85,7 @@ object TipJarSupporterState {
                         .filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }
                         .flatMap { it.products }
                         .toSet()
-                    val highest = tiers.lastOrNull { tier ->
-                        tier.productIds.any(owned::contains)
-                    }
-                    supporterIconRes.value = highest?.iconRes
-                    tierIcons.value = tiers.map { tier ->
-                        if (tier.productIds.any(owned::contains)) tier.iconRes else null
-                    }
+                    updateOwnedProductIds(app, owned)
                     client.endConnection()
                 }
             }
@@ -92,5 +96,63 @@ object TipJarSupporterState {
         })
     }
 
-    private data class Tier(val iconRes: Int, val productIds: List<String>)
+    fun updateOwnedProductIds(context: Context, owned: Set<String>) {
+        val app = context.applicationContext
+        ownedProductIds = owned
+        selectedHeaderKeys.value = loadSelectedHeaderKeys(app)
+        publishState()
+    }
+
+    fun isHeaderKittySelected(productIds: List<String>): Boolean {
+        val tier = tiers.firstOrNull { it.productIds == productIds } ?: return false
+        if (!tier.productIds.any(ownedProductIds::contains)) return false
+        val selected = selectedHeaderKeys.value ?: return true
+        return tier.key in selected
+    }
+
+    fun setHeaderKittySelected(context: Context, productIds: List<String>, selected: Boolean) {
+        val tier = tiers.firstOrNull { it.productIds == productIds } ?: return
+        if (!tier.productIds.any(ownedProductIds::contains)) return
+        val purchasedKeys = tiers
+            .filter { it.productIds.any(ownedProductIds::contains) }
+            .map { it.key }
+            .toSet()
+        val next = (selectedHeaderKeys.value ?: purchasedKeys).toMutableSet()
+        if (selected) {
+            next.add(tier.key)
+        } else {
+            next.remove(tier.key)
+        }
+        selectedHeaderKeys.value = next
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(SELECTED_HEADER_KEYS, next)
+            .apply()
+        publishState()
+    }
+
+    private fun publishState() {
+        val selected = selectedHeaderKeys.value
+        val highest = tiers.lastOrNull { tier ->
+            tier.productIds.any(ownedProductIds::contains)
+        }
+        supporterIconRes.value = highest?.iconRes
+        tierIcons.value = tiers.map { tier ->
+            val purchased = tier.productIds.any(ownedProductIds::contains)
+            val shown = selected?.contains(tier.key) ?: true
+            if (purchased && shown) tier.iconRes else null
+        }
+    }
+
+    private fun loadSelectedHeaderKeys(context: Context): Set<String>? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return if (prefs.contains(SELECTED_HEADER_KEYS)) {
+            prefs.getStringSet(SELECTED_HEADER_KEYS, emptySet())?.toSet() ?: emptySet()
+        } else {
+            null
+        }
+    }
+
+    private data class Tier(val key: String, val iconRes: Int, val productIds: List<String>)
 }

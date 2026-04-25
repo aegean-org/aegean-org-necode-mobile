@@ -20,6 +20,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
+import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.NetworkDiscovery
 import com.litter.android.state.SavedThreadsStore
 import com.litter.android.state.VoiceRuntimeController
@@ -173,7 +174,7 @@ fun LitterApp(appModel: AppModel) {
                 ?.servers
                 ?.firstOrNull { it.serverId == serverId }
                 ?.isLocal == true
-            val startedKey = appModel.client.startThread(
+            val startedKey = appModel.startThread(
                 serverId,
                 appModel.launchState.threadStartRequest(cwd, serverIsLocal = serverIsLocal),
             )
@@ -260,6 +261,7 @@ fun LitterApp(appModel: AppModel) {
                         onShowSettings = { showSettings = true },
                         onShowApps = { navigate(Route.Apps) },
                         onOpenProjectPicker = { showProjectPicker = true },
+                        onOpenAccount = { serverId -> showAccountForServer = serverId },
                         selectedProject = selectedProject,
                         selectedServerId = selectedServerId,
                         onSelectServer = { server ->
@@ -515,6 +517,11 @@ fun LitterApp(appModel: AppModel) {
                         } else {
                             scope.launch {
                                 runCatching { startNewSession(serverId, cwd) }
+                                    .onFailure { error ->
+                                        if (error is LocalAccountLoginRequiredException) {
+                                            showAccountForServer = error.serverId
+                                        }
+                                    }
                             }
                         }
                     },

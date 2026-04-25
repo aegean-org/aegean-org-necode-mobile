@@ -2,7 +2,7 @@ import SwiftUI
 import StoreKit
 
 struct TipJarView: View {
-    @State private var store = TipJarStore()
+    private var store: TipJarStore { TipJarStore.shared }
 
     var body: some View {
         ZStack {
@@ -19,6 +19,9 @@ struct TipJarView: View {
                     }
                 } else {
                     tipsSection
+                    if !store.purchasedTiers.isEmpty {
+                        headerKittySelectionSection
+                    }
                     restoreSection
                 }
 
@@ -116,6 +119,41 @@ struct TipJarView: View {
         }
     }
 
+    private var headerKittySelectionSection: some View {
+        Section {
+            ForEach(store.purchasedTiers) { tier in
+                Button {
+                    store.setHeaderKitty(tier, selected: !store.isHeaderKittySelected(tier))
+                } label: {
+                    HStack(spacing: 12) {
+                        TipCatIcon(name: tier.icon, size: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(tier.displayName)
+                                .litterFont(.subheadline)
+                                .foregroundColor(LitterTheme.textPrimary)
+                            Text(store.isHeaderKittySelected(tier) ? "Shown on home" : "Hidden from home")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: store.isHeaderKittySelected(tier) ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(store.isHeaderKittySelected(tier) ? LitterTheme.accent : LitterTheme.textMuted)
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 4)
+                .listRowBackground(LitterTheme.surface.opacity(0.6))
+            }
+        } header: {
+            Text("Home Header")
+                .foregroundColor(LitterTheme.textSecondary)
+        } footer: {
+            Text("Pick which purchased kitties appear around the home logo.")
+                .foregroundColor(LitterTheme.textMuted)
+        }
+    }
+
     private var restoreSection: some View {
         Section {
             Button {
@@ -190,7 +228,7 @@ struct SupporterKittyBadges: View {
     var body: some View {
         let store = TipJarStore.shared
         let purchased = store.tiers.enumerated()
-            .filter { tierIndices.contains($0.offset) && $0.element.isPurchased }
+            .filter { tierIndices.contains($0.offset) && store.isHeaderKittySelected($0.element) }
             .map(\.element)
         if !purchased.isEmpty {
             HStack(spacing: 2) {

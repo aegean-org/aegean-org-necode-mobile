@@ -184,6 +184,12 @@ private fun SettingsTopLevel(
             Spacer(Modifier.height(8.dp))
         }
 
+        // ── Support ──
+        item { SectionHeader("Support") }
+        item {
+            NavRow(icon = Icons.Default.Pets, label = "Tip the Kitty", onClick = onOpenTipJar)
+        }
+
         // ── Theme ──
         item { SectionHeader("Theme") }
         item {
@@ -245,12 +251,6 @@ private fun SettingsTopLevel(
             item {
                 NavRow(icon = Icons.Default.Science, label = "Debug Settings", onClick = onOpenDebug)
             }
-        }
-
-        // ── Support ──
-        item { SectionHeader("Support") }
-        item {
-            NavRow(icon = Icons.Default.Pets, label = "Tip the Kitty", onClick = onOpenTipJar)
         }
 
         // ── Account ──

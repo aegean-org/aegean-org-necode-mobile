@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.ComposerImageAttachment
+import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.VoiceTranscriptionManager
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LocalAppModel
@@ -79,6 +80,7 @@ import uniffi.codex_mobile_client.ThreadKey
 fun HomeComposerBar(
     project: AppProject?,
     onThreadCreated: (ThreadKey) -> Unit,
+    onLoginRequired: (String) -> Unit = {},
     onActiveChange: ((Boolean) -> Unit)? = null,
 ) {
     val appModel = LocalAppModel.current
@@ -166,7 +168,7 @@ fun HomeComposerBar(
                         ?.servers
                         ?.firstOrNull { it.serverId == currentProject.serverId }
                         ?.isLocal == true
-                    val threadKey = appModel.client.startThread(
+                    val threadKey = appModel.startThread(
                         currentProject.serverId,
                         appModel.launchState.threadStartRequest(
                             currentProject.cwd,
@@ -187,6 +189,10 @@ fun HomeComposerBar(
                     appModel.startTurn(threadKey, payload)
                     appModel.refreshThreadSnapshot(threadKey)
                     onThreadCreated(threadKey)
+                } catch (e: LocalAccountLoginRequiredException) {
+                    onLoginRequired(e.serverId)
+                    text = payloadText
+                    attachedImage = attachmentToSend
                 } catch (e: Exception) {
                     errorMessage = e.message ?: "Failed to start thread"
                     text = payloadText

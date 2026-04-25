@@ -5,6 +5,16 @@ import Observation
 import UIKit
 import simd
 
+enum NearbyMacPairingState: Equatable {
+    case searching
+    case connecting
+    case handshaking
+    case awaitingConfirm
+    case paired
+    case rejected
+    case failed
+}
+
 /// iOS-only first-launch onboarding: browse for a nearby `_litter-pair._tcp.`
 /// service, open a WebSocket pair session via Rust, run NISession against
 /// the Mac's NI discovery token, and save a SavedServer on accept. Runs
