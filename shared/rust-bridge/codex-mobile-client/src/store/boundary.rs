@@ -7,7 +7,7 @@ use crate::conversation_uniffi::{
 use crate::types::AppSubagentStatus;
 use crate::types::{
     AppModeKind, AppPlanImplementationPromptSnapshot, AppPlanProgressSnapshot, PendingApproval,
-    PendingUserInputRequest, ThreadInfo, ThreadKey,
+    PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
 };
 
 use super::snapshot::{
@@ -715,7 +715,7 @@ pub(crate) fn app_session_summary(
             .map(AppSubagentStatus::from_raw)
             .unwrap_or(AppSubagentStatus::Unknown),
         updated_at: thread.info.updated_at,
-        has_active_turn: thread.active_turn_id.is_some(),
+        has_active_turn: thread_has_active_turn(thread),
         is_resumed: thread.is_resumed,
         is_subagent: is_fork && has_agent_label,
         is_fork,
@@ -764,7 +764,7 @@ fn compute_server_usage_stats(
     let total_threads = server_threads.len() as u32;
     let active_threads = server_threads
         .iter()
-        .filter(|t| t.active_turn_id.is_some())
+        .filter(|t| thread_has_active_turn(t))
         .count() as u32;
 
     let mut total_tokens: u64 = 0;
@@ -1345,9 +1345,13 @@ pub(crate) fn current_agent_directory_version(snapshot: &AppSnapshot) -> u64 {
             .unwrap_or(AppSubagentStatus::Unknown)
             .hash(&mut hasher);
         thread.info.updated_at.hash(&mut hasher);
-        thread.active_turn_id.is_some().hash(&mut hasher);
+        thread_has_active_turn(thread).hash(&mut hasher);
     }
     hasher.finish()
+}
+
+fn thread_has_active_turn(thread: &ThreadSnapshot) -> bool {
+    thread.active_turn_id.is_some() || matches!(thread.info.status, ThreadSummaryStatus::Active)
 }
 
 impl From<ServerHealthSnapshot> for AppServerHealth {
@@ -1509,6 +1513,33 @@ mod tests {
 
         let expected = agent_directory_version(&session_summaries_from_snapshot(&snapshot));
         assert_eq!(current_agent_directory_version(&snapshot), expected);
+    }
+
+    #[test]
+    fn app_session_summary_treats_active_status_as_active_turn() {
+        let thread = ThreadSnapshot::from_info(
+            "srv",
+            ThreadInfo {
+                id: "thread-active".to_string(),
+                title: Some("Active thread".to_string()),
+                model: None,
+                preview: Some("working".to_string()),
+                cwd: None,
+                path: None,
+                model_provider: None,
+                agent_nickname: None,
+                agent_role: None,
+                parent_thread_id: None,
+                agent_status: None,
+                created_at: None,
+                status: ThreadSummaryStatus::Active,
+                updated_at: Some(20),
+            },
+        );
+
+        assert!(thread.active_turn_id.is_none());
+        let summary = app_session_summary(&thread, None);
+        assert!(summary.has_active_turn);
     }
 
     #[test]

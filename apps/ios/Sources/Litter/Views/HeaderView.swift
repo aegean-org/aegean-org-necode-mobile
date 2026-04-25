@@ -344,15 +344,13 @@ struct ConversationToolbarControls: View {
                 if server?.account == nil {
                     appState.showSettings = true
                 } else {
-                    let nextKey = try? await appModel.reloadThread(
-                        key: thread.key,
-                        launchConfig: reloadLaunchConfig(),
-                        cwdOverride: thread.info.cwd
-                    )
-                    if let nextKey {
+                    do {
+                        let nextKey = try await appModel.refreshThreadIncludingTurns(key: thread.key)
                         appModel.store.setActiveThread(
                             key: nextKey
                         )
+                    } catch {
+                        // `AppModel` records the failure; keep the toolbar interaction quiet.
                     }
                 }
             }
@@ -405,18 +403,6 @@ struct ConversationToolbarControls: View {
             }
         } catch {}
         return true
-    }
-
-    private func reloadLaunchConfig() -> AppThreadLaunchConfig {
-        let pendingModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedModel = pendingModel.isEmpty ? nil : pendingModel
-        return AppThreadLaunchConfig(
-            model: resolvedModel,
-            approvalPolicy: appState.launchApprovalPolicy(for: thread.key),
-            sandbox: appState.launchSandboxMode(for: thread.key),
-            developerInstructions: nil,
-            persistExtendedHistory: true
-        )
     }
 }
 

@@ -656,6 +656,7 @@ private fun CommandExecutionRow(
             } else {
                 "No output"
             }
+    val isRunning = data.status == AppOperationStatus.PENDING || data.status == AppOperationStatus.IN_PROGRESS
     val displayedCommand = remember(data.command) { displayCommandText(data.command) }
     val collapsedCommand = remember(data.command) { collapseCommandText(data.command) }
 
@@ -716,7 +717,7 @@ private fun CommandExecutionRow(
 
         if (expanded) {
             Spacer(Modifier.height(6.dp))
-            LimitedToolTextBlock(outputText) { display ->
+            LimitedToolTextBlock(outputText, previewFromTail = isRunning) { display ->
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2378,12 +2379,17 @@ private fun DiffSection(
 @Composable
 private fun LimitedToolTextBlock(
     content: String,
+    previewFromTail: Boolean = false,
     body: @Composable (String) -> Unit,
 ) {
     val isLong = content.length > ToolCallTextPreviewLimit
-    var expanded by remember(content) { mutableStateOf(false) }
-    val display = remember(content, expanded) {
-        if (isLong && !expanded) content.take(ToolCallTextPreviewLimit) else content
+    var expanded by remember(content, previewFromTail) { mutableStateOf(false) }
+    val display = remember(content, expanded, previewFromTail) {
+        if (isLong && !expanded) {
+            if (previewFromTail) content.takeLast(ToolCallTextPreviewLimit) else content.take(ToolCallTextPreviewLimit)
+        } else {
+            content
+        }
     }
 
     body(display)

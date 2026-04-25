@@ -1350,8 +1350,8 @@ private struct ConversationCommandOutputViewport: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ScrollViewReader { proxy in
+        ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 6) {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(verbatim: visibleOutput)
@@ -1409,20 +1409,23 @@ private struct ConversationCommandOutputViewport: View {
                     expandedLongOutput = false
                     scrollToBottom(proxy, animated: true)
                 }
-            }
-
-            if shouldLimitOutput {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        expandedLongOutput.toggle()
-                    }
-                } label: {
-                    Text(expandedLongOutput ? "Show less" : "Show more")
-                        .litterFont(.caption2, weight: .semibold)
-                        .foregroundColor(LitterTheme.accent)
+                .onChange(of: expandedLongOutput) { _, _ in
+                    scrollToBottom(proxy, animated: true)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(expandedLongOutput ? "Show less command output" : "Show more command output")
+
+                if shouldLimitOutput {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            expandedLongOutput.toggle()
+                        }
+                    } label: {
+                        Text(expandedLongOutput ? "Show less" : "Show more")
+                            .litterFont(.caption2, weight: .semibold)
+                            .foregroundColor(LitterTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(expandedLongOutput ? "Show less command output" : "Show more command output")
+                }
             }
         }
     }
@@ -1431,11 +1434,23 @@ private struct ConversationCommandOutputViewport: View {
         guard shouldLimitOutput, !expandedLongOutput else {
             return output
         }
+        if usesTailPreview {
+            return String(output.suffix(maxVisibleTextCharacters))
+        }
         return String(output.prefix(maxVisibleTextCharacters))
     }
 
     private var shouldLimitOutput: Bool {
         output.count > maxVisibleTextCharacters
+    }
+
+    private var usesTailPreview: Bool {
+        switch status {
+        case .inProgress:
+            return true
+        case .completed, .failed, .unknown:
+            return false
+        }
     }
 
     private var statusColor: Color { status.themeColor }

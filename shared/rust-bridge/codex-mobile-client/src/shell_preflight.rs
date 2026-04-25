@@ -1,16 +1,21 @@
 //! Normalize local mobile shell argv before the local codex shell tool
 //! forks/execs.
 //!
-//! iOS and Android app sandboxes have no real `/tmp` — attempts to `cat
-//! /tmp/foo` or `echo x > /tmp/foo` either hit a read-only `/` (iOS) or
-//! `ENOENT/EACCES` (Android). But model-emitted shell commands routinely
-//! hardcode `/tmp/...` paths. We cover both:
+//! Android app sandboxes have no real `/tmp` — attempts to `cat /tmp/foo`
+//! or `echo x > /tmp/foo` hit `ENOENT/EACCES`. But model-emitted shell
+//! commands routinely hardcode `/tmp/...` paths, so Android rewrites those
+//! tokens to its real app temp dir.
 //!
 //! - Well-behaved tools pick up `$TMPDIR`, which each platform sets at boot
-//!   (iOS: `NSTemporaryDirectory()`; Android: `filesDir/litter-tmp`).
-//! - Literal `/tmp` and `/tmp/*` path tokens in argv, including inside
-//!   recognized shell-wrapper scripts, are rewritten here to the `$TMPDIR`
-//!   target so `cat /tmp/foo` ends up reading the real temp.
+//!   (Android: `filesDir/litter-tmp`; iOS iSH commands get `TMPDIR=/tmp`).
+//! - Literal `/tmp` and `/tmp/*` Android path tokens in argv, including
+//!   inside recognized shell-wrapper scripts, are rewritten here to the
+//!   `$TMPDIR` target so `cat /tmp/foo` ends up reading the real temp.
+//!
+//! iOS is intentionally excluded from `/tmp` rewriting. Its local shell runs
+//! inside iSH's Alpine fakefs, where `/tmp` is a real writable fakefs path.
+//! Rewriting it to the native iOS container TMPDIR produces paths that iSH
+//! cannot traverse.
 //!
 //! Only mutates exact `/tmp` and `/tmp/...` absolute path boundaries. Other
 //! absolute paths pass through unchanged. Only fires for **local** codex shell
@@ -22,8 +27,24 @@ use std::path::Path;
 /// Normalize argv for the mobile local executor. This is installed as the
 /// single preflight hook called by upstream Codex immediately before exec.
 pub(crate) fn prepare_mobile_exec_argv(argv: &mut Vec<String>) {
+    prepare_mobile_exec_argv_inner(argv, should_rewrite_tmp_paths_for_platform());
+}
+
+fn prepare_mobile_exec_argv_inner(argv: &mut Vec<String>, rewrite_tmp_paths_enabled: bool) {
     normalize_shell_invocation(argv);
-    rewrite_tmp_paths(argv);
+    if rewrite_tmp_paths_enabled {
+        rewrite_tmp_paths(argv);
+    }
+}
+
+#[cfg(target_os = "android")]
+fn should_rewrite_tmp_paths_for_platform() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "android"))]
+fn should_rewrite_tmp_paths_for_platform() -> bool {
+    false
 }
 
 fn normalize_shell_invocation(argv: &mut Vec<String>) {
@@ -227,6 +248,46 @@ mod tests {
             argv,
             vec!["sh".to_string(), "-c".to_string(), "echo hello".to_string()]
         );
+    }
+
+    #[test]
+    fn prepare_can_leave_slash_tmp_for_ish_fakefs() {
+        with_tmpdir("/real/tmp", || {
+            let mut argv = vec![
+                "sh".into(),
+                "-c".into(),
+                "printf ok > /tmp/preflight-test".into(),
+            ];
+            prepare_mobile_exec_argv_inner(&mut argv, false);
+            assert_eq!(
+                argv,
+                vec![
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    "printf ok > /tmp/preflight-test".to_string(),
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn prepare_rewrites_slash_tmp_when_enabled_for_android() {
+        with_tmpdir("/real/tmp", || {
+            let mut argv = vec![
+                "sh".into(),
+                "-c".into(),
+                "printf ok > /tmp/preflight-test".into(),
+            ];
+            prepare_mobile_exec_argv_inner(&mut argv, true);
+            assert_eq!(
+                argv,
+                vec![
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    "printf ok > /real/tmp/preflight-test".to_string(),
+                ]
+            );
+        });
     }
 
     #[test]

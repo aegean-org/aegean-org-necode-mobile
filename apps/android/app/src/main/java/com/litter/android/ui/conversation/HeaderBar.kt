@@ -293,30 +293,8 @@ fun HeaderBar(
                                     .launchUrl(context, Uri.parse(authUrl))
                                 return@launch
                             }
-                            if (server?.isIpcConnected == true) {
-                                try {
-                                    appModel.externalResumeThread(thread.key)
-                                } catch (_: Exception) {
-                                    appModel.client.resumeThread(
-                                        thread.key.serverId,
-                                        appModel.launchState.threadResumeRequest(
-                                            thread.key.threadId,
-                                            cwdOverride = thread.info.cwd,
-                                            threadKey = thread.key,
-                                        ),
-                                    )
-                                }
-                            } else {
-                                appModel.client.resumeThread(
-                                    thread.key.serverId,
-                                    appModel.launchState.threadResumeRequest(
-                                        thread.key.threadId,
-                                        cwdOverride = thread.info.cwd,
-                                        threadKey = thread.key,
-                                    ),
-                                )
-                            }
-                            appModel.refreshThreadSnapshot(thread.key)
+                            val nextKey = appModel.refreshThreadIncludingTurns(thread.key)
+                            appModel.store.setActiveThread(nextKey)
                         } catch (e: Exception) {
                             onReloadError?.invoke(e.message ?: "Failed to reload conversation")
                         } finally {

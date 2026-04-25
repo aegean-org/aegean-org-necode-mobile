@@ -5,7 +5,8 @@
 //! 1. Extract the bundled `fs` rootfs into `<app_support>/fs/` on first launch.
 //! 2. `chmod 0644` the fakefs `meta.db` so SQLite can write.
 //! 3. Boot the iSH kernel at `<app_support>/fs/data` with `/root` as cwd.
-//! 4. Install a small runtime-env preamble (`LANG`, `PAGER`, `CODEX_HOME`, …).
+//! 4. Install small runtime directories and pass the iSH environment on every
+//!    command (`LANG`, `TMPDIR`, `CODEX_HOME`, …).
 //! 5. Snapshot host DNS into `/etc/resolv.conf` inside the fakefs.
 //! 6. Mount `<documents>/Apps/` at `/mnt/apps/` via iSH's `realfs` driver.
 //! 7. Register the `codex_core` exec hook (`ish_exec::install()`).
@@ -21,7 +22,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use ish_embed_host::{IshInstance, SpawnOpts};
+use ish_embed_host::IshInstance;
 
 use crate::ish_types::IshBootstrapError;
 
@@ -131,7 +132,7 @@ pub fn run(cmd: &str, cwd: Option<&str>) -> (i32, Vec<u8>) {
     };
 
     let argv = ["/bin/sh".to_string(), "-c".to_string(), wrapped];
-    let env = HashMap::new();
+    let env = runtime_env();
     let cwd_path = PathBuf::from("/");
     instance.run_oneshot(&argv, &cwd_path, &env, Some(RUN_TIMEOUT_MS))
 }
@@ -142,22 +143,33 @@ pub fn run(cmd: &str, cwd: Option<&str>) -> (i32, Vec<u8>) {
 // ish crate's own lock serializes the actual dispatches.
 
 const RUNTIME_SETUP_SCRIPT: &str = concat!(
-    "export LANG=C.UTF-8 LC_ALL=C.UTF-8 ;",
-    "export LOGNAME=root ;",
-    "export TMPDIR=/tmp ;",
-    // No tty under the exec hook — force pagers to dump-and-exit so
-    // things like `git log` / `man` don't block the persistent shell.
-    "export PAGER=cat ;",
-    "export EDITOR=vi ;",
-    "export HOSTNAME=litter ;",
-    // Symmetric with the iOS-side CODEX_HOME (which points into the iOS
-    // sandbox the codex Rust process actually uses). Tools running inside
-    // iSH that look for $CODEX_HOME find a path local to the fakefs.
-    "export CODEX_HOME=/root/.codex ;",
     "mkdir -p /root/.codex /tmp ;",
     "chmod 700 /root/.codex ;",
     "chmod 1777 /tmp",
 );
+
+fn runtime_env() -> HashMap<String, String> {
+    HashMap::from([
+        (
+            "PATH".to_string(),
+            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
+        ),
+        ("HOME".to_string(), "/root".to_string()),
+        ("USER".to_string(), "root".to_string()),
+        ("LOGNAME".to_string(), "root".to_string()),
+        ("LANG".to_string(), "C.UTF-8".to_string()),
+        ("LC_ALL".to_string(), "C.UTF-8".to_string()),
+        ("TMPDIR".to_string(), "/tmp".to_string()),
+        // No tty under the exec hook: force pagers to dump and exit so
+        // commands like `git log` do not block waiting for interaction.
+        ("PAGER".to_string(), "cat".to_string()),
+        ("EDITOR".to_string(), "vi".to_string()),
+        ("HOSTNAME".to_string(), "litter".to_string()),
+        // Symmetric with the native CODEX_HOME used by the Rust process.
+        // Tools inside iSH need a fakefs-local config path.
+        ("CODEX_HOME".to_string(), "/root/.codex".to_string()),
+    ])
+}
 
 fn runtime_setup() {
     let (rc, _) = run(RUNTIME_SETUP_SCRIPT, None);

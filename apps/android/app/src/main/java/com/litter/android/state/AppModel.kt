@@ -578,6 +578,29 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
+    suspend fun refreshThreadIncludingTurns(key: ThreadKey): ThreadKey {
+        try {
+            val nextKey = client.readThread(
+                key.serverId,
+                AppReadThreadRequest(
+                    threadId = key.threadId,
+                    includeTurns = true,
+                ),
+            )
+            val threadSnapshot = store.threadSnapshot(nextKey)
+            if (threadSnapshot != null) {
+                applyThreadSnapshot(threadSnapshot)
+            } else {
+                refreshThreadSnapshot(nextKey)
+            }
+            _lastError.value = null
+            return nextKey
+        } catch (e: Exception) {
+            _lastError.value = e.message
+            throw e
+        }
+    }
+
     /**
      * Load the first page of turns for a thread. Intended to be called when
      * the conversation view appears for a thread whose

@@ -276,6 +276,27 @@ final class AppModel {
         return key
     }
 
+    func refreshThreadIncludingTurns(key: ThreadKey) async throws -> ThreadKey {
+        do {
+            let nextKey = try await client.readThread(
+                serverId: key.serverId,
+                params: AppReadThreadRequest(
+                    threadId: key.threadId,
+                    includeTurns: true
+                )
+            )
+            if let threadSnapshot = try await store.threadSnapshot(key: nextKey) {
+                applyThreadSnapshot(threadSnapshot)
+            } else {
+                await refreshThreadSnapshot(key: nextKey)
+            }
+            return nextKey
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
     private func requiresResumeCwdOverride(
         for key: ThreadKey,
         cwdOverride: String?
