@@ -154,6 +154,7 @@ final class HomeSessionsScrollUIView: UIView {
     private var bottomInsetValue: CGFloat = 0
     private var catFooterCountEligible = false
     private var catFooterHostVisible = false
+    private var catFooterEntranceStarted = false
     private var widthUsed: CGFloat = 0
     private var lastCommittedInteger: Int = 2
     /// Last-seen text scale. A change here invalidates every row's
@@ -389,7 +390,9 @@ final class HomeSessionsScrollUIView: UIView {
         guard catFooterHostVisible != visible else { return }
         catFooterHostVisible = visible
         if visible {
-            catFooterHostingController.rootView = AnyView(HomeCatFooterView())
+            let playEntrance = !catFooterEntranceStarted
+            catFooterEntranceStarted = true
+            catFooterHostingController.rootView = AnyView(HomeCatFooterView(playEntrance: playEntrance))
         } else {
             catFooterHostingController.rootView = AnyView(EmptyView())
         }
@@ -709,14 +712,30 @@ extension HomeSessionsScrollUIView: UIGestureRecognizerDelegate {
 }
 
 private struct HomeCatFooterView: View {
-    private let imageURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
+    let playEntrance: Bool
+
+    @State private var showingLoop: Bool
+
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
+
+    init(playEntrance: Bool) {
+        self.playEntrance = playEntrance
+        self._showingLoop = State(initialValue: !playEntrance)
+    }
 
     var body: some View {
         GeometryReader { proxy in
-            if let imageURL {
+            if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
                 let width = min(max(0, proxy.size.width - 48), 340)
                 VStack {
-                    AlphaAnimatedImageView(fileURL: imageURL)
+                    AlphaAnimatedImageView(
+                        fileURL: imageURL,
+                        repeatCount: showingLoop ? 0 : 1,
+                        onFinished: showingLoop ? nil : {
+                            showingLoop = true
+                        }
+                    )
                         .frame(width: width, height: width * 9.0 / 16.0)
                         .accessibilityHidden(true)
                 }
@@ -731,6 +750,8 @@ private struct HomeCatFooterView: View {
 
 private struct AlphaAnimatedImageView: UIViewRepresentable {
     let fileURL: URL
+    var repeatCount: Int = 0
+    var onFinished: (() -> Void)?
 
     func makeUIView(context: Context) -> UIImageView {
         let imageView = UIImageView()
@@ -738,24 +759,95 @@ private struct AlphaAnimatedImageView: UIViewRepresentable {
         imageView.isOpaque = false
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = false
-        imageView.image = Self.animatedImage(from: fileURL)
-        imageView.startAnimating()
+        context.coordinator.configure(
+            imageView,
+            fileURL: fileURL,
+            repeatCount: repeatCount,
+            onFinished: onFinished
+        )
         return imageView
     }
 
     func updateUIView(_ imageView: UIImageView, context: Context) {
-        imageView.image = Self.animatedImage(from: fileURL)
-        imageView.startAnimating()
+        context.coordinator.configure(
+            imageView,
+            fileURL: fileURL,
+            repeatCount: repeatCount,
+            onFinished: onFinished
+        )
     }
 
-    private static func animatedImage(from url: URL) -> UIImage? {
+    static func dismantleUIView(_ imageView: UIImageView, coordinator: Coordinator) {
+        coordinator.cancelFinishCallback()
+        imageView.stopAnimating()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        private var configuredURL: URL?
+        private var configuredRepeatCount: Int?
+        private var finishWorkItem: DispatchWorkItem?
+        private var onFinished: (() -> Void)?
+
+        func configure(
+            _ imageView: UIImageView,
+            fileURL: URL,
+            repeatCount: Int,
+            onFinished: (() -> Void)?
+        ) {
+            self.onFinished = onFinished
+            guard configuredURL != fileURL || configuredRepeatCount != repeatCount else { return }
+            configuredURL = fileURL
+            configuredRepeatCount = repeatCount
+            cancelFinishCallback()
+
+            let animation = AlphaAnimatedImageView.animation(from: fileURL)
+            imageView.stopAnimating()
+            imageView.image = animation.frames.first
+            imageView.animationImages = animation.frames
+            imageView.animationDuration = animation.duration
+            imageView.animationRepeatCount = repeatCount
+            imageView.startAnimating()
+
+            if repeatCount > 0 {
+                let item = DispatchWorkItem { [weak self] in
+                    imageView.stopAnimating()
+                    imageView.image = animation.frames.last ?? animation.frames.first
+                    self?.onFinished?()
+                }
+                finishWorkItem = item
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + animation.duration * Double(repeatCount),
+                    execute: item
+                )
+            }
+        }
+
+        func cancelFinishCallback() {
+            finishWorkItem?.cancel()
+            finishWorkItem = nil
+        }
+    }
+
+    private struct Animation {
+        let frames: [UIImage]
+        let duration: TimeInterval
+    }
+
+    private static func animation(from url: URL) -> Animation {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            return UIImage(contentsOfFile: url.path)
+            let fallback = UIImage(contentsOfFile: url.path) ?? UIImage()
+            return Animation(frames: [fallback], duration: 0.1)
         }
         let count = CGImageSourceGetCount(source)
         guard count > 1 else {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-            return UIImage(cgImage: cgImage)
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                return Animation(frames: [UIImage()], duration: 0.1)
+            }
+            return Animation(frames: [UIImage(cgImage: cgImage)], duration: 0.1)
         }
 
         var frames: [UIImage] = []
@@ -766,7 +858,7 @@ private struct AlphaAnimatedImageView: UIViewRepresentable {
             frames.append(UIImage(cgImage: cgImage))
             duration += frameDuration(source: source, index: index)
         }
-        return UIImage.animatedImage(with: frames, duration: max(duration, 0.1))
+        return Animation(frames: frames, duration: max(duration, 0.1))
     }
 
     private static func frameDuration(source: CGImageSource, index: Int) -> TimeInterval {

@@ -139,6 +139,7 @@ fun HomeDashboardScreen(
     var showTipJar by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var catEntranceFinished by remember { mutableStateOf(false) }
     val appVersionLabel = remember { "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" }
 
     val snap = snapshot
@@ -358,7 +359,10 @@ fun HomeDashboardScreen(
                 }
                 if (zoomLevel == 1 && recentSessions.size <= 10) {
                     item(key = "home-cat-footer") {
-                        HomeCatFooter()
+                        HomeCatFooter(
+                            playEntrance = !catEntranceFinished,
+                            onEntranceFinished = { catEntranceFinished = true },
+                        )
                     }
                 }
             } else {
@@ -912,15 +916,28 @@ fun HomeDashboardScreen(
 }
 
 @Composable
-private fun HomeCatFooter() {
+private fun HomeCatFooter(
+    playEntrance: Boolean,
+    onEntranceFinished: () -> Unit,
+) {
     val context = LocalContext.current
-    val drawable = remember(context) {
+    var showingLoop by remember(playEntrance) { mutableStateOf(!playEntrance) }
+    val resourceId = if (showingLoop) R.drawable.home_cat else R.drawable.home_cat_entrance
+    val drawable = remember(context, resourceId) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             ImageDecoder.decodeDrawable(
-                ImageDecoder.createSource(context.resources, R.drawable.home_cat),
+                ImageDecoder.createSource(context.resources, resourceId),
             )
         } else {
-            ContextCompat.getDrawable(context, R.drawable.home_cat)
+            ContextCompat.getDrawable(context, resourceId)
+        }
+    }
+
+    LaunchedEffect(showingLoop) {
+        if (!showingLoop) {
+            kotlinx.coroutines.delay(HOME_CAT_ENTRANCE_DURATION_MS)
+            showingLoop = true
+            onEntranceFinished()
         }
     }
 
@@ -960,6 +977,8 @@ private fun HomeCatFooter() {
         )
     }
 }
+
+private const val HOME_CAT_ENTRANCE_DURATION_MS = 11_100L
 
 /**
  * Merge rule:

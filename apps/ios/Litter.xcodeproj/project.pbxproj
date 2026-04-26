@@ -140,6 +140,7 @@
 		3F40B95032B31B87D8DD870F /* dark-plus-B1yOZ-Hy.json in Resources */ = {isa = PBXBuildFile; fileRef = 9A59EFF7219CFC315A13C34D /* dark-plus-B1yOZ-Hy.json */; };
 		40BE68DE19BEE162E0F2C25B /* MessageRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2325BAE1FF0D41A4D5ADE3AD /* MessageRecorder.swift */; };
 		40F262594905BCA726B1DF88 /* HomeBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C2A455B0E2E7C8B6EE59A93 /* HomeBottomBar.swift */; };
+		41EBAC505474E27E708900E0 /* home_cat_entrance.png in Resources */ = {isa = PBXBuildFile; fileRef = D70AE5F73F3A58B628BFC08D /* home_cat_entrance.png */; };
 		421F71E305371CDE71D5A10D /* github-light.json in Resources */ = {isa = PBXBuildFile; fileRef = 760BBA087DD7F86B27829E23 /* github-light.json */; };
 		421FFC77E9CD0E243F365BBF /* HomeVoiceOrbButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 592BE0CE703BB2B31738D8C2 /* HomeVoiceOrbButton.swift */; };
 		43085FEE6339B734DE71C448 /* ThemeDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD31922D3510DA506B0EC85 /* ThemeDefinition.swift */; };
@@ -195,6 +196,7 @@
 		5A262DF631E7FC201F8281FC /* NewThreadHeroView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E603FBE2AAD5D7C19649F986 /* NewThreadHeroView.swift */; };
 		5A66F52BBAB0439DB07A21C4 /* CrossServerToolResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A94747FCE745BAA2DBEBF4 /* CrossServerToolResultView.swift */; };
 		5A6C7A8B00825144B26A68B6 /* ProximityPairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C41CA257D0C3F206C36F81 /* ProximityPairView.swift */; };
+		5AED2E47AD8981E378D94894 /* home_cat_entrance.png in Resources */ = {isa = PBXBuildFile; fileRef = D70AE5F73F3A58B628BFC08D /* home_cat_entrance.png */; };
 		5BA1B524AFAC55D5A65B5CE4 /* temple-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 885259DDCC6E448B237FAA61 /* temple-dark.json */; };
 		5BC3B3EEA1E1D9D01CECF85B /* kitty-litter-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 92B1669CE17E1EB46A17C610 /* kitty-litter-dark.json */; };
 		5BE946A75955C183D9E32CFC /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB7D40730BFA8569737636E /* ThemeManager.swift */; };
@@ -876,6 +878,7 @@
 		D5294396A986F27242D0F814 /* ProjectChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChip.swift; sourceTree = "<group>"; };
 		D58FC0D181B46D56485C2AAB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		D6D5716D8E24645F6A7ACFF4 /* LitterComplicationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterComplicationProvider.swift; sourceTree = "<group>"; };
+		D70AE5F73F3A58B628BFC08D /* home_cat_entrance.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = home_cat_entrance.png; sourceTree = "<group>"; };
 		D887FC87082710CC7B75CC8A /* CodexTurnAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnAttributes.swift; sourceTree = "<group>"; };
 		D88DE6E95BD289268352F0B9 /* WatchProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProjection.swift; sourceTree = "<group>"; };
 		D8AFE95BAB92C6CD6AAD8D69 /* HomeDashboardModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardModel.swift; sourceTree = "<group>"; };
@@ -1069,6 +1072,7 @@
 			children = (
 				17BD69B0550C63596995AC18 /* brand_logo.png */,
 				74E5DF89D0937E6C17F2BB94 /* brand_logo.svg */,
+				D70AE5F73F3A58B628BFC08D /* home_cat_entrance.png */,
 				49D8F8EB81409A95F0AA81B6 /* home_cat.png */,
 				3AF1303B192D17E47D3F9183 /* TipJarProducts.storekit */,
 				EB7A91131021ED64DF88AF8B /* Fonts */,
@@ -1673,6 +1677,7 @@
 				EA4F18FAE0A95A2151B4E967 /* gruvbox-light-medium.json in Resources */,
 				7238212F682875E246F51241 /* gruvbox-light-soft.json in Resources */,
 				09E8DA1996E97F6DA6184FE3 /* home_cat.png in Resources */,
+				5AED2E47AD8981E378D94894 /* home_cat_entrance.png in Resources */,
 				C2CA8578344D8E5159C00C65 /* houston.json in Resources */,
 				3D79967494F9235E83B7ABBA /* kanagawa-dragon-VscOyZL-.json in Resources */,
 				E1C1DBC137D5562B08F5E88D /* kanagawa-lotus.json in Resources */,
@@ -1767,6 +1772,7 @@
 				83B5C99E5AEC4D413A79F05D /* gruvbox-light-medium.json in Resources */,
 				EA949A544AB380498924C89C /* gruvbox-light-soft.json in Resources */,
 				AC910E0696AA0D1E5E5B1366 /* home_cat.png in Resources */,
+				41EBAC505474E27E708900E0 /* home_cat_entrance.png in Resources */,
 				A77B4456D03F50B2EC91C0E6 /* houston.json in Resources */,
 				9900BAB337EAA16B25B5709E /* kanagawa-dragon-VscOyZL-.json in Resources */,
 				2C1E2164BB03C57BDC4151EA /* kanagawa-lotus.json in Resources */,
