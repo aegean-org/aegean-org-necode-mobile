@@ -276,6 +276,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "alleycat-client"
+version = "0.1.0"
+dependencies = [
+ "alleycat-protocol",
+ "anyhow",
+ "futures",
+ "hex",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "alleycat-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "allocative"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2575,6 +2602,7 @@ dependencies = [
 name = "codex-mobile-client"
 version = "0.1.0"
 dependencies = [
+ "alleycat-client",
  "async-trait",
  "base64 0.22.1",
  "chrono",

@@ -15,7 +15,9 @@ enum SavedServerStore {
         let decoded = (try? JSONDecoder().decode([SavedServer].self, from: data)) ?? []
         let migrated = decoded.map { saved -> SavedServer in
             let server = saved.toDiscoveredServer()
-            let restored = SavedServer.from(server, rememberedByUser: saved.rememberedByUser)
+            let restored = SavedServer
+                .from(server, rememberedByUser: saved.rememberedByUser)
+                .withAlleycatHost(saved.alleycatHost)
             if shouldReplaceLegacyLocalPlaceholder(restored) {
                 return SavedServer(
                     id: restored.id,
@@ -31,7 +33,8 @@ enum SavedServerStore {
                     preferredCodexPort: restored.preferredCodexPort,
                     sshPortForwardingEnabled: restored.sshPortForwardingEnabled,
                     websocketURL: restored.websocketURL,
-                    rememberedByUser: restored.rememberedByUser
+                    rememberedByUser: restored.rememberedByUser,
+                    alleycatHost: restored.alleycatHost
                 )
             }
             return restored
@@ -62,6 +65,20 @@ enum SavedServerStore {
         save(saved)
     }
 
+    /// Persists an alleycat-tunneled server. Stores the original relay
+    /// hostname so the rescan flow can find it on launch — cert and token
+    /// are per-launch and live only in `AlleycatCredentialStore`.
+    static func rememberAlleycat(_ server: DiscoveredServer, relayHost: String) {
+        var saved = load()
+        saved.removeAll { entry in matches(server, entry) }
+        saved.append(
+            SavedServer
+                .from(server, rememberedByUser: true)
+                .withAlleycatHost(relayHost)
+        )
+        save(saved)
+    }
+
     static func rememberedServers() -> [SavedServer] {
         load().filter(\.rememberedByUser)
     }
@@ -89,7 +106,9 @@ enum SavedServerStore {
                     preferredCodexPort: nil,
                     sshPortForwardingEnabled: nil,
                     websocketUrl: nil,
-                    rememberedByUser: true
+                    rememberedByUser: true,
+                    alleycatHost: nil,
+                    alleycatUdpPort: nil
                 )
             )
         }
@@ -120,7 +139,8 @@ enum SavedServerStore {
             preferredCodexPort: old.preferredCodexPort,
             sshPortForwardingEnabled: old.sshPortForwardingEnabled,
             websocketURL: old.websocketURL,
-            rememberedByUser: old.rememberedByUser
+            rememberedByUser: old.rememberedByUser,
+            alleycatHost: old.alleycatHost
         )
         save(saved)
     }
@@ -152,7 +172,8 @@ enum SavedServerStore {
             preferredCodexPort: existing.preferredCodexPort,
             sshPortForwardingEnabled: existing.sshPortForwardingEnabled,
             websocketURL: existing.websocketURL,
-            rememberedByUser: existing.rememberedByUser
+            rememberedByUser: existing.rememberedByUser,
+            alleycatHost: existing.alleycatHost
         )
         save(saved)
     }

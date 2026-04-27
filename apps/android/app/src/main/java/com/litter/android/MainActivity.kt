@@ -173,14 +173,17 @@ class MainActivity : ComponentActivity() {
         if (cachedToken != null) {
             lifecycleController.setDevicePushToken(cachedToken)
         }
-        if (FirebaseApp.getApps(applicationContext).isEmpty() &&
-            FirebaseApp.initializeApp(applicationContext) == null
-        ) {
-            LLog.i("MainActivity", "Firebase is not configured; skipping FCM token fetch")
+        val messaging = try {
+            if (FirebaseApp.getApps(applicationContext).isEmpty()) {
+                FirebaseApp.initializeApp(applicationContext)
+            }
+            FirebaseMessaging.getInstance()
+        } catch (e: IllegalStateException) {
+            LLog.i("MainActivity", "Firebase is not configured; skipping FCM token fetch: ${e.message}")
             return
         }
 
-        FirebaseMessaging.getInstance().token
+        messaging.token
             .addOnSuccessListener { token ->
                 if (token.isNotBlank()) {
                     getSharedPreferences("litter_push", MODE_PRIVATE)

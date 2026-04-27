@@ -9,6 +9,7 @@ struct DiscoveryView: View {
     @State private var connectionChoiceServer: DiscoveredServer?
     @State private var pendingSSHServer: DiscoveredServer?
     @State private var showManualEntry = false
+    @State private var showAlleycatSheet = false
     @State private var manualConnectionMode: ManualConnectionMode = .ssh
     @State private var manualCodexURL = ""
     @State private var manualHost = ""
@@ -76,7 +77,6 @@ struct DiscoveryView: View {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             List {
                 serversSection
-                manualSection
             }
             .scrollContentBackground(.hidden)
             .refreshable { refreshDiscovery() }
@@ -86,16 +86,6 @@ struct DiscoveryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button { appState.showSettings = true } label: {
-                    Image(systemName: "gearshape")
-                        .foregroundColor(LitterTheme.textSecondary)
-                }
-                .keyboardShortcut(",", modifiers: [.command])
-            }
-            ToolbarItem(placement: .principal) {
-                BrandLogo(size: 44)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     refreshDiscovery()
                 } label: {
@@ -105,6 +95,27 @@ struct DiscoveryView: View {
                 .accessibilityIdentifier("discovery.refreshButton")
                 .disabled(discovery.isScanning)
                 .keyboardShortcut("r", modifiers: [.command])
+            }
+            ToolbarItem(placement: .principal) {
+                BrandLogo(size: 44)
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if ExperimentalFeatures.shared.isEnabled(.alleycat) {
+                    Button {
+                        showAlleycatSheet = true
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                            .foregroundColor(LitterTheme.accent)
+                    }
+                    .accessibilityIdentifier("discovery.alleycatButton")
+                }
+                Button {
+                    showManualEntry = true
+                } label: {
+                    Image(systemName: "plus")
+                        .foregroundColor(LitterTheme.accent)
+                }
+                .accessibilityIdentifier("discovery.manualEntryButton")
             }
         }
         .onAppear { handleAppear() }
@@ -146,6 +157,12 @@ struct DiscoveryView: View {
         }
         .sheet(isPresented: $showManualEntry) {
             manualEntrySheet
+        }
+        .sheet(isPresented: $showAlleycatSheet) {
+            AlleycatAddServerSheet(appModel: appModel, startScanningOnAppear: true) { result in
+                showAlleycatSheet = false
+                Task { await connectAlleycatTarget(result) }
+            }
         }
         .onChange(of: showManualEntry) { _, isPresented in
             guard !isPresented, let pendingSSHServer else { return }
@@ -347,28 +364,6 @@ struct DiscoveryView: View {
             }
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
-    }
-
-    private var manualSection: some View {
-        Section {
-                Button {
-                    manualConnectionMode = .ssh
-                    showManualEntry = true
-                } label: {
-                HStack {
-                    Image(systemName: "plus.circle")
-                        .foregroundColor(LitterTheme.accent)
-                    Text("Add Server")
-                        .litterFont(.subheadline)
-                        .foregroundColor(LitterTheme.accent)
-                }
-            }
-            .accessibilityIdentifier("discovery.addServerButton")
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
-            #if !targetEnvironment(macCatalyst)
-            .keyboardShortcut("n", modifiers: [.command])
-            #endif
-        }
     }
 
     // MARK: - Row
@@ -813,6 +808,35 @@ struct DiscoveryView: View {
             navigateAfterConnect(server)
         } else {
             connectError = "Failed to connect"
+        }
+    }
+
+    /// Called by `AlleycatAddServerSheet` after the sheet has already
+    /// driven `connectRemoteOverAlleycat` to a fully-connected ServerSession.
+    /// We just persist the saved-server record (so it auto-reconnects on
+    /// next launch via the Rust reconnect path) and navigate.
+    private func connectAlleycatTarget(_ result: AlleycatConnectedTarget) async {
+        let synthesized = DiscoveredServer(
+            id: result.serverId,
+            name: result.displayName,
+            hostname: result.connectedHost,
+            port: nil,
+            codexPorts: [],
+            sshPort: nil,
+            source: .manual,
+            hasCodexServer: true,
+            wakeMAC: nil,
+            sshPortForwardingEnabled: false,
+            websocketURL: nil,
+            preferredConnectionMode: nil,
+            preferredCodexPort: nil,
+            os: nil,
+            sshBanner: nil
+        )
+        SavedServerStore.rememberAlleycat(synthesized, relayHost: result.connectedHost)
+        await appModel.refreshSnapshot()
+        if appModel.snapshot?.servers.first(where: { $0.serverId == result.serverId })?.health == .connected {
+            navigateAfterConnect(synthesized)
         }
     }
 

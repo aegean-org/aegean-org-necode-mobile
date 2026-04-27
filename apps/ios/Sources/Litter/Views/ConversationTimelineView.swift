@@ -2062,7 +2062,7 @@ private struct ConversationDiffDetailSheet: View {
     @Environment(ThemeManager.self) private var themeManager
     @Environment(\.dismiss) private var dismiss
     @State private var collapsedSectionIDs: Set<String> = []
-    private let fullDiffFontSize = LitterFont.conversationBodyPointSize
+    private let fullDiffFontSize = LitterFont.conversationDiffPointSize
     private let maxStickyDiffSections = 8
     private let maxStickyDiffCharacters = 20_000
 

@@ -891,9 +891,39 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
 }
 
 struct LitterCodeBlockRenderer: CodeBlockRenderer {
+    @ViewBuilder
     func makeBody(configuration: CodeBlockConfiguration) -> some View {
-        DefaultCodeBlockRenderer().makeBody(configuration: configuration)
+        if isDiffLanguage(configuration.language) {
+            VStack(alignment: .leading, spacing: 0) {
+                if configuration.hasLanguage {
+                    HStack {
+                        Text(configuration.languageDisplayName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    SyntaxHighlightedDiffText(
+                        diff: configuration.code,
+                        titleHint: configuration.language,
+                        fontSize: LitterFont.conversationDiffPointSize
+                    )
+                    .padding(configuration.theme.codeBlock.padding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .background(configuration.theme.codeBlock.backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: configuration.theme.codeBlock.cornerRadius))
             .modifier(GlassRectModifier(cornerRadius: 8))
+        } else {
+            DefaultCodeBlockRenderer().makeBody(configuration: configuration)
+                .modifier(GlassRectModifier(cornerRadius: 8))
+        }
     }
 }
 

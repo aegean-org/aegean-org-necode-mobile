@@ -7,12 +7,22 @@ struct CodeBlockView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            Text(code)
-                .litterMonoFont(size: fontSize)
-                .foregroundColor(LitterTheme.textBody)
-                .textSelection(.enabled)
+            if isDiffLanguage(language) {
+                SyntaxHighlightedDiffText(
+                    diff: code,
+                    titleHint: language.isEmpty ? nil : language,
+                    fontSize: LitterFont.conversationDiffPointSize
+                )
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(code)
+                    .litterMonoFont(size: fontSize)
+                    .foregroundColor(LitterTheme.textBody)
+                    .textSelection(.enabled)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .background(LitterTheme.codeBackground.opacity(0.8))
         .clipShape(RoundedRectangle(cornerRadius: 8))

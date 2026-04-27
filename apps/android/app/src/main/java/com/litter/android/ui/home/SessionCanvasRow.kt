@@ -123,15 +123,14 @@ fun SessionCanvasRow(
         ) {
             // Mirrors iOS `HomeDashboardView.swift:602-604`:
             //   .frame(width: markerWidth (14), height: 16)
-            //   .padding(.top, zoomLevel == 1 ? 0 : 2)
+            //   .padding(.top, 2)
             // 10pt dot centered in a 14×16 slot with a 2pt top nudge puts
             // the dot center at y≈10 from the row top, which lines up with
             // the midline of the title's first line (17pt body, line
-            // height ≈20pt). At zoom 1 (pad=0) the dot sits ~2pt higher to
-            // match iOS's slightly terser compact layout.
+            // height ≈20pt), including when the title wraps to two lines.
             Box(
                 modifier = Modifier
-                    .padding(top = if (zoomLevel == 1) 0.dp else 2.dp)
+                    .padding(top = 2.dp)
                     .width(14.dp)
                     .height(16.dp),
                 contentAlignment = Alignment.Center,
@@ -150,7 +149,7 @@ fun SessionCanvasRow(
                         text = session.displayTitle,
                         color = if (isActive) LitterTheme.accent else LitterTheme.textPrimary,
                         fontSize = titleStyle.fontSize,
-                        maxLines = if (zoomLevel >= 4) 4 else 1,
+                        maxLines = if (zoomLevel >= 4) 4 else 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

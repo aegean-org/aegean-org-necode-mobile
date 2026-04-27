@@ -1517,6 +1517,8 @@ private struct HomeNavigationView: View {
     private func disconnectServer(_ serverId: String) {
         SavedServerStore.remove(serverId: serverId)
         Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
+        // Alleycat sessions are owned by the Rust `ServerSession` and dropped
+        // automatically inside `serverBridge.disconnectServer`.
         appModel.serverBridge.disconnectServer(serverId: serverId)
     }
 

@@ -30,7 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +57,7 @@ fun ServerPillRow(
     onRename: (AppServerSnapshot) -> Unit,
     onRemove: (AppServerSnapshot) -> Unit,
     onAdd: () -> Unit,
+    onAddBoundsChanged: (Rect) -> Unit = {},
 ) {
     val scroll = rememberScrollState()
     Row(
@@ -74,7 +78,10 @@ fun ServerPillRow(
                 onRemove = { onRemove(server) },
             )
         }
-        AddServerPill(onTap = onAdd)
+        AddServerPill(
+            onTap = onAdd,
+            onBoundsChanged = onAddBoundsChanged,
+        )
     }
 }
 
@@ -147,9 +154,13 @@ private fun ServerPill(
 }
 
 @Composable
-private fun AddServerPill(onTap: () -> Unit) {
+private fun AddServerPill(
+    onTap: () -> Unit,
+    onBoundsChanged: (Rect) -> Unit,
+) {
     Row(
         modifier = Modifier
+            .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
             .clip(RoundedCornerShape(20.dp))
             .background(LitterTheme.textPrimary.copy(alpha = 0.06f))
             .border(0.6.dp, LitterTheme.accent.copy(alpha = 0.45f), RoundedCornerShape(20.dp))

@@ -21,6 +21,14 @@ import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LocalTextScale
 import com.litter.android.ui.LitterTheme
 
+internal fun isDiffLanguage(language: String?): Boolean {
+    return language
+        ?.trim()
+        ?.lowercase()
+        ?.let { it == "diff" || it == "patch" }
+        ?: false
+}
+
 @Composable
 internal fun SyntaxHighlightedDiffBlock(
     diff: String,

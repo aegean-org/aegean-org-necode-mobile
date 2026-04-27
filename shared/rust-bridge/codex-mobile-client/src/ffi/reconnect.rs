@@ -5,8 +5,8 @@ use crate::ffi::shared::{shared_mobile_client, shared_runtime};
 use crate::mobile_client::MobileClient;
 use crate::next_request_id;
 use crate::reconnect::{
-    ReconnectResult, SavedServerRecord, SshCredentialProvider, compute_reconnect_plan,
-    execute_reconnect_plan,
+    AlleycatCredentialProvider, ReconnectResult, SavedServerRecord, SshCredentialProvider,
+    compute_reconnect_plan, execute_reconnect_plan,
 };
 use crate::session::connection::{InProcessConfig, ServerConfig};
 use crate::store::ServerHealthSnapshot;
@@ -67,6 +67,8 @@ pub struct ReconnectController {
     rt: Arc<Runtime>,
     saved_servers: Arc<RwLock<Vec<SavedServerRecord>>>,
     credential_provider: Arc<tokio::sync::Mutex<Option<Arc<dyn SshCredentialProvider>>>>,
+    alleycat_credential_provider:
+        Arc<tokio::sync::Mutex<Option<Arc<dyn AlleycatCredentialProvider>>>>,
     ipc_socket_path_override: Arc<std::sync::Mutex<Option<String>>>,
     reconnect_guard: Arc<tokio::sync::Mutex<()>>,
 }
@@ -80,6 +82,7 @@ impl ReconnectController {
             rt: shared_runtime(),
             saved_servers: Arc::new(RwLock::new(Vec::new())),
             credential_provider: Arc::new(tokio::sync::Mutex::new(None)),
+            alleycat_credential_provider: Arc::new(tokio::sync::Mutex::new(None)),
             ipc_socket_path_override: Arc::new(std::sync::Mutex::new(None)),
             reconnect_guard: Arc::new(tokio::sync::Mutex::new(())),
         }
@@ -96,6 +99,25 @@ impl ReconnectController {
         };
         if fast.is_none() {
             let cp = Arc::clone(&self.credential_provider);
+            self.rt.spawn(async move {
+                *cp.lock().await = Some(provider);
+            });
+        }
+    }
+
+    pub fn set_alleycat_credential_provider(
+        &self,
+        provider: Box<dyn AlleycatCredentialProvider>,
+    ) {
+        let provider: Arc<dyn AlleycatCredentialProvider> = Arc::from(provider);
+        let fast = {
+            let cp = Arc::clone(&self.alleycat_credential_provider);
+            cp.try_lock().ok().map(|mut g| {
+                *g = Some(Arc::clone(&provider));
+            })
+        };
+        if fast.is_none() {
+            let cp = Arc::clone(&self.alleycat_credential_provider);
             self.rt.spawn(async move {
                 *cp.lock().await = Some(provider);
             });
@@ -120,6 +142,7 @@ impl ReconnectController {
         let inner = Arc::clone(&self.inner);
         let saved_servers = Arc::clone(&self.saved_servers);
         let credential_provider = Arc::clone(&self.credential_provider);
+        let alleycat_credential_provider = Arc::clone(&self.alleycat_credential_provider);
         let ipc_socket_path_override = Arc::clone(&self.ipc_socket_path_override);
         let reconnect_guard = Arc::clone(&self.reconnect_guard);
 
@@ -132,6 +155,7 @@ impl ReconnectController {
                     inner,
                     saved_servers,
                     credential_provider,
+                    alleycat_credential_provider,
                     ipc_socket_path_override,
                     reconnect_guard,
                 )
@@ -148,6 +172,7 @@ impl ReconnectController {
         let inner = Arc::clone(&self.inner);
         let saved_servers = Arc::clone(&self.saved_servers);
         let credential_provider = Arc::clone(&self.credential_provider);
+        let alleycat_credential_provider = Arc::clone(&self.alleycat_credential_provider);
         let ipc_socket_path_override = Arc::clone(&self.ipc_socket_path_override);
         let server_id_for_error = server_id.clone();
 
@@ -159,6 +184,7 @@ impl ReconnectController {
                     Arc::clone(&inner),
                     saved_servers,
                     credential_provider,
+                    alleycat_credential_provider,
                     ipc_socket_path_override,
                     server_id,
                 )
@@ -257,6 +283,9 @@ async fn reconnect_saved_servers_inner(
     inner: Arc<MobileClient>,
     saved_servers: Arc<RwLock<Vec<SavedServerRecord>>>,
     credential_provider: Arc<tokio::sync::Mutex<Option<Arc<dyn SshCredentialProvider>>>>,
+    alleycat_credential_provider: Arc<
+        tokio::sync::Mutex<Option<Arc<dyn AlleycatCredentialProvider>>>,
+    >,
     ipc_socket_path_override: Arc<std::sync::Mutex<Option<String>>>,
     reconnect_guard: Arc<tokio::sync::Mutex<()>>,
 ) -> Vec<ReconnectResult> {
@@ -323,6 +352,7 @@ async fn reconnect_saved_servers_inner(
     };
 
     let credential_provider = credential_provider.lock().await;
+    let alleycat_credential_provider = alleycat_credential_provider.lock().await;
 
     let mut plans = Vec::new();
     for server in &servers {
@@ -334,11 +364,25 @@ async fn reconnect_saved_servers_inner(
             let ssh_port = crate::reconnect::resolved_ssh_port(server);
             p.load_credential(server.hostname.clone(), ssh_port)
         });
-        if let Some(plan) = compute_reconnect_plan(server, credential.as_ref(), is_connected) {
+        let alleycat_credential = match (
+            server.alleycat_host.as_ref(),
+            server.alleycat_udp_port,
+            alleycat_credential_provider.as_ref(),
+        ) {
+            (Some(host), Some(udp_port), Some(p)) => p.load_credential(host.clone(), udp_port),
+            _ => None,
+        };
+        if let Some(plan) = compute_reconnect_plan(
+            server,
+            credential.as_ref(),
+            alleycat_credential.as_ref(),
+            is_connected,
+        ) {
             plans.push(plan);
         }
     }
     drop(credential_provider);
+    drop(alleycat_credential_provider);
 
     let mut join_set = JoinSet::new();
     for plan in plans {
@@ -366,6 +410,9 @@ async fn reconnect_server_inner(
     inner: Arc<MobileClient>,
     saved_servers: Arc<RwLock<Vec<SavedServerRecord>>>,
     credential_provider: Arc<tokio::sync::Mutex<Option<Arc<dyn SshCredentialProvider>>>>,
+    alleycat_credential_provider: Arc<
+        tokio::sync::Mutex<Option<Arc<dyn AlleycatCredentialProvider>>>,
+    >,
     ipc_socket_path_override: Arc<std::sync::Mutex<Option<String>>>,
     server_id: String,
 ) -> ReconnectResult {
@@ -428,7 +475,23 @@ async fn reconnect_server_inner(
         });
         drop(credential_provider);
 
-        if let Some(plan) = compute_reconnect_plan(&server, credential.as_ref(), false) {
+        let alleycat_credential_provider = alleycat_credential_provider.lock().await;
+        let alleycat_credential = match (
+            server.alleycat_host.as_ref(),
+            server.alleycat_udp_port,
+            alleycat_credential_provider.as_ref(),
+        ) {
+            (Some(host), Some(udp_port), Some(p)) => p.load_credential(host.clone(), udp_port),
+            _ => None,
+        };
+        drop(alleycat_credential_provider);
+
+        if let Some(plan) = compute_reconnect_plan(
+            &server,
+            credential.as_ref(),
+            alleycat_credential.as_ref(),
+            false,
+        ) {
             let ipc_override = match ipc_socket_path_override.lock() {
                 Ok(g) => g.clone(),
                 Err(e) => e.into_inner().clone(),
@@ -580,6 +643,8 @@ mod tests {
             ssh_port_forwarding_enabled: None,
             websocket_url: None,
             remembered_by_user: true,
+            alleycat_host: None,
+            alleycat_udp_port: None,
         };
 
         assert_eq!(
@@ -629,6 +694,8 @@ mod tests {
             ssh_port_forwarding_enabled: None,
             websocket_url: None,
             remembered_by_user: true,
+            alleycat_host: None,
+            alleycat_udp_port: None,
         };
 
         assert_eq!(

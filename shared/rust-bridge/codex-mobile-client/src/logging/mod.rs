@@ -41,12 +41,34 @@ impl LogLevelName {
 
 pub(crate) fn install_tracing_subscriber() {
     TRACING_SUBSCRIBER_INSTALLED.get_or_init(|| {
+        // Default filter: keep our own crate logs verbose but silence chatty
+        // transport-layer crates. quinn / quinn_proto at TRACE under heavy
+        // QUIC load (e.g., the alleycat tunnel streaming a multi-MB
+        // thread/list response) emits multiple log lines per packet, which
+        // on iOS jetsamed the app inside seconds. RUST_LOG overrides if set.
+        const DEFAULT_FILTER: &str = "info,\
+            codex_mobile_client=trace,\
+            mobile=trace,\
+            store=debug,\
+            quinn=warn,\
+            quinn_proto=warn,\
+            quinn_udp=warn,\
+            rustls=warn,\
+            ring=warn,\
+            h2=warn,\
+            hyper=warn,\
+            tokio_tungstenite=warn,\
+            tungstenite=warn";
+
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(DEFAULT_FILTER));
+
         let subscriber = tracing_subscriber::fmt()
             .with_ansi(false)
             .without_time()
             .compact()
             .with_target(true)
-            .with_max_level(Level::TRACE);
+            .with_env_filter(env_filter);
         #[cfg(target_os = "ios")]
         let subscriber = subscriber.with_writer(std::io::stderr).finish();
         #[cfg(not(target_os = "ios"))]

@@ -2100,14 +2100,23 @@ private fun CodeBlockSegment(
                 .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
                 .padding(10.dp),
         ) {
-            SelectableConversationText {
-                Text(
-                    text = code,
-                    color = LitterTheme.textBody,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = LitterTextStyle.body.scaled,
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+            if (isDiffLanguage(language)) {
+                SyntaxHighlightedDiffBlock(
+                    diff = code,
+                    titleHint = language,
+                    fontSize = LitterTextStyle.caption.sp,
+                    modifier = Modifier.fillMaxWidth(),
                 )
+            } else {
+                SelectableConversationText {
+                    Text(
+                        text = code,
+                        color = LitterTheme.textBody,
+                        fontFamily = LitterTheme.monoFont,
+                        fontSize = LitterTextStyle.body.scaled,
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    )
+                }
             }
         }
     }

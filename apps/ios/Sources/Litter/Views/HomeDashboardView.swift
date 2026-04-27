@@ -587,11 +587,11 @@ struct SessionCanvasLine: View {
             }
             .frame(width: SessionCanvasLayout.markerWidth, height: 16)
             .padding(.trailing, SessionCanvasLayout.markerSpacing)
-            .padding(.top, zoomLevel == 1 ? 0 : 2)
+            .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 0) {
                 // Title — always solo on its own line at every zoom level.
-                FormattedText(text: session.sessionTitle, lineLimit: zoomLevel >= 4 ? 4 : 1)
+                FormattedText(text: session.sessionTitle, lineLimit: zoomLevel >= 4 ? 4 : 2)
                     .modifier(MarkdownMatchedTitleFont())
                     .foregroundStyle(isActive ? LitterTheme.accent : LitterTheme.textPrimary)
                     .modifier(SessionShimmerEffect(active: isActive))

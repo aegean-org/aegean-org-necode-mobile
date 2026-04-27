@@ -68,6 +68,7 @@ final class AppModel {
 
         let rc = ReconnectController()
         rc.setCredentialProvider(provider: SwiftSshCredentialProvider())
+        rc.setAlleycatCredentialProvider(provider: IOSAlleycatCredentialProvider())
         rc.setIpcSocketPathOverride(path: ExperimentalFeatures.shared.ipcSocketPathOverride())
         return RustBridges(
             store: AppStore(),

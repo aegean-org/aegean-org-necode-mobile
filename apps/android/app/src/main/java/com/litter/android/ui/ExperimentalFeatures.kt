@@ -29,6 +29,12 @@ enum class LitterFeature(
         description = "Tap the Thinking shimmer while the assistant generates to play a tiny generated minigame.",
         defaultEnabled = false,
     ),
+    ALLEYCAT(
+        id = "alleycat",
+        displayName = "Alleycat",
+        description = "Pair with a remote Codex server through an alleycat QUIC tunnel. Adds a QR-scan button to the discovery toolbar.",
+        defaultEnabled = false,
+    ),
 }
 
 object ExperimentalFeatures {

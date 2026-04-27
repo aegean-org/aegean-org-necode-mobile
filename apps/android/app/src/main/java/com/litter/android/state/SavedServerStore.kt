@@ -288,6 +288,39 @@ object SavedServerStore {
         save(context, existing)
     }
 
+    /**
+     * Persists an alleycat-tunneled server. Stores the original relay
+     * hostname so the rescan flow can find it on launch — cert and token
+     * are per-launch and live only in `AlleycatCredentialStore`.
+     *
+     * `serverId` is expected to be the synth `alleycat:<host>:<udpPort>` so
+     * `SavedServer.alleycatUdpPort` can parse the port back for the Rust
+     * `SavedServerRecord.alleycatUdpPort` field.
+     */
+    fun rememberAlleycat(
+        context: Context,
+        serverId: String,
+        displayName: String,
+        relayHost: String,
+    ) {
+        val server = SavedServer(
+            id = serverId,
+            name = displayName,
+            hostname = relayHost,
+            port = 0,
+            codexPorts = emptyList(),
+            sshPort = null,
+            source = "manual",
+            hasCodexServer = true,
+            rememberedByUser = true,
+            alleycatHost = relayHost,
+        )
+        val existing = load(context).toMutableList()
+        existing.removeAll { it.id == server.id || it.deduplicationKey == server.deduplicationKey }
+        existing.add(server)
+        save(context, existing)
+    }
+
     fun remembered(context: Context): List<SavedServer> =
         load(context).filter { it.rememberedByUser }
 

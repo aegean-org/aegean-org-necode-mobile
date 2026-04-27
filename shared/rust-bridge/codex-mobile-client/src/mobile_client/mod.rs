@@ -13,7 +13,9 @@ use crate::session::connection::{
     RemoteSessionResources, ServerConfig, ServerEvent, ServerSession, SshReconnectTransport,
 };
 use crate::session::events::{EventProcessor, UiEvent};
+use crate::alleycat::ParsedPairPayload;
 use crate::ssh::{SshBootstrapResult, SshClient, SshCredentials};
+use alleycat_client::Target as AlleycatTarget;
 use crate::store::snapshot::{
     IpcFailureClassification, ServerMutatingCommandKind, ServerMutatingCommandRoute,
     ServerTransportAuthority,
@@ -102,6 +104,15 @@ pub struct WidgetFinalizedPayload {
 struct OAuthCallbackTunnel {
     login_id: String,
     local_port: u16,
+}
+
+/// Returned by `MobileClient::connect_remote_over_alleycat` so the caller
+/// (FFI surface or shared reconnect path) can persist `connected_host` —
+/// the host that won the candidate race — onto the saved-server record.
+#[derive(Debug, Clone)]
+pub struct AlleycatConnectOutcome {
+    pub server_id: String,
+    pub connected_host: String,
 }
 
 const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
@@ -642,6 +653,143 @@ impl MobileClient {
         Ok(server_id)
     }
 
+    /// Connect to a remote Codex server through an alleycat QUIC tunnel.
+    ///
+    /// Races `hosts` (typically the user's preferred host first, then the
+    /// host candidates the relay advertised in the QR), opens a QUIC session
+    /// to whichever wins, ensures a loopback forward to the Codex app-server
+    /// port, then opens the standard JSON-RPC WebSocket against that local
+    /// port. The `AlleycatSession` is retained on the resulting
+    /// `ServerSession` so it dies with the WebSocket on disconnect.
+    ///
+    /// Mirrors the layering of `connect_remote_over_ssh` — both are
+    /// "transport bootstrap, then loopback WebSocket."
+    pub async fn connect_remote_over_alleycat(
+        &self,
+        server_id: String,
+        display_name: String,
+        hosts: Vec<String>,
+        params: ParsedPairPayload,
+        codex_loopback_port: u16,
+    ) -> Result<AlleycatConnectOutcome, TransportError> {
+        info!(
+            "MobileClient: connect_remote_over_alleycat start server_id={} host_count={} udp_port={} codex_port={}",
+            server_id,
+            hosts.len(),
+            params.udp_port,
+            codex_loopback_port
+        );
+
+        // Show "connecting" eagerly so the UI updates while QUIC handshakes.
+        let placeholder_config = ServerConfig {
+            server_id: server_id.clone(),
+            display_name: display_name.clone(),
+            host: hosts.first().cloned().unwrap_or_else(|| "127.0.0.1".into()),
+            port: 0,
+            websocket_url: None,
+            is_local: false,
+            tls: false,
+        };
+        self.app_store
+            .upsert_server(&placeholder_config, ServerHealthSnapshot::Connecting, true);
+        self.replace_existing_session(server_id.as_str()).await;
+
+        let alleycat_session = match crate::alleycat::connect_and_forward(
+            hosts,
+            params,
+            vec![AlleycatTarget::Tcp {
+                host: "127.0.0.1".to_string(),
+                port: codex_loopback_port,
+            }],
+        )
+        .await
+        {
+            Ok(session) => session,
+            Err(error) => {
+                warn!(
+                    "MobileClient: alleycat tunnel bring-up failed server_id={} error={}",
+                    server_id, error
+                );
+                self.app_store
+                    .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+                return Err(TransportError::ConnectionFailed(error.to_string()));
+            }
+        };
+
+        let forward = alleycat_session.forwards.first().ok_or_else(|| {
+            TransportError::ConnectionFailed("alleycat returned no forwards".into())
+        })?;
+        let local_port = forward.local_port;
+        let connected_host = alleycat_session.connected_host.clone();
+        info!(
+            "MobileClient: alleycat tunnel up server_id={} connected_host={} local_port={}",
+            server_id, connected_host, local_port
+        );
+
+        let websocket_url = format!("ws://127.0.0.1:{local_port}");
+        let config = ServerConfig {
+            server_id: server_id.clone(),
+            display_name,
+            host: "127.0.0.1".to_string(),
+            port: local_port,
+            websocket_url: Some(websocket_url.clone()),
+            is_local: false,
+            tls: false,
+        };
+        let alleycat_session = Arc::new(alleycat_session);
+
+        let session = match ServerSession::connect_remote_with_resources(
+            config,
+            RemoteSessionResources {
+                ssh_client: None,
+                ssh_pid: None,
+                ipc_stream_client: None,
+                ipc_ssh_client: None,
+                ipc_stream_bridge_pid: None,
+                ssh_reconnect_transport: None,
+                alleycat_session: Some(Arc::clone(&alleycat_session)),
+                alleycat_reconnect_transport: None,
+            },
+        )
+        .await
+        {
+            Ok(session) => Arc::new(session),
+            Err(error) => {
+                warn!(
+                    "MobileClient: alleycat loopback websocket failed server_id={} error={}",
+                    server_id, error
+                );
+                // Drop the QUIC session explicitly so we don't leak a relay
+                // peer connection while the user retries.
+                drop(alleycat_session);
+                self.app_store
+                    .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+                return Err(error);
+            }
+        };
+
+        self.app_store.upsert_server(
+            session.config(),
+            ServerHealthSnapshot::Connected,
+            server_supports_ipc(&session),
+        );
+
+        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
+        self.spawn_health_reader(server_id.clone(), session.health());
+
+        self.sessions_write()
+            .insert(server_id.clone(), Arc::clone(&session));
+        self.spawn_post_connect_warmup(server_id.clone(), session);
+
+        info!(
+            "MobileClient: connected remote alleycat server {server_id} via {connected_host}"
+        );
+        Ok(AlleycatConnectOutcome {
+            server_id,
+            connected_host,
+        })
+    }
+
     pub async fn connect_remote_over_ssh(
         &self,
         config: ServerConfig,
@@ -813,6 +961,8 @@ impl MobileClient {
                 ipc_ssh_client: None,
                 ipc_stream_bridge_pid,
                 ssh_reconnect_transport: Some(ssh_reconnect_transport),
+                alleycat_session: None,
+                alleycat_reconnect_transport: None,
             },
         )
         .await

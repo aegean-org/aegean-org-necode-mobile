@@ -98,6 +98,7 @@ pub mod android_exec;
 ))]
 pub mod shell_preflight;
 
+pub mod alleycat;
 pub mod ambient_suggestions;
 pub mod capability;
 pub mod cloud_sync;

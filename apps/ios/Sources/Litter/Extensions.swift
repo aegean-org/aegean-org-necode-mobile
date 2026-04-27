@@ -217,6 +217,10 @@ enum LitterFont {
     static var conversationBodyPointSize: CGFloat {
         UIFont.preferredFont(forTextStyle: .body).pointSize
     }
+
+    static var conversationDiffPointSize: CGFloat {
+        UIFont.preferredFont(forTextStyle: .caption1).pointSize
+    }
 }
 
 // MARK: - App-Wide Text Scaling

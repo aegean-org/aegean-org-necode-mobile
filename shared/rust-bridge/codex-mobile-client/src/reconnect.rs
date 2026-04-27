@@ -27,6 +27,13 @@ pub struct SavedServerRecord {
     pub ssh_port_forwarding_enabled: Option<bool>,
     pub websocket_url: Option<String>,
     pub remembered_by_user: bool,
+    /// Alleycat: hostname/IP that won the QUIC handshake last time we
+    /// connected. Used as the preferred candidate on reconnect; absent for
+    /// non-alleycat servers.
+    pub alleycat_host: Option<String>,
+    /// Alleycat: relay UDP port. Required alongside `alleycat_host` to look
+    /// up the cached pair payload via `AlleycatCredentialProvider`.
+    pub alleycat_udp_port: Option<u16>,
 }
 
 /// SSH auth method discriminator.
@@ -62,6 +69,27 @@ pub trait SshCredentialProvider: Send + Sync {
     fn load_credential(&self, host: String, port: u16) -> Option<SshCredentialRecord>;
 }
 
+/// Cached alleycat pair payload, persisted by the platform after a
+/// successful initial connect. Mirrors `AlleycatCredentialStore` / Keychain
+/// on iOS. Tokens and cert fingerprints are per-launch on the alleycat
+/// side, so reconnect attempts will fail (silently) when the relay has
+/// been restarted — the platform UI should prompt the user to rescan in
+/// that case.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AlleycatCredentialRecord {
+    pub protocol_version: u32,
+    pub udp_port: u16,
+    pub cert_fingerprint: String,
+    pub token: String,
+    pub host_candidates: Vec<String>,
+}
+
+/// Callback interface for platform-side alleycat credential storage.
+#[uniffi::export(callback_interface)]
+pub trait AlleycatCredentialProvider: Send + Sync {
+    fn load_credential(&self, host: String, udp_port: u16) -> Option<AlleycatCredentialRecord>;
+}
+
 // ── Internal reconnect plan ─────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
@@ -88,7 +116,22 @@ pub(crate) enum ReconnectPlan {
         display_name: String,
         websocket_url: String,
     },
+    Alleycat {
+        server_id: String,
+        display_name: String,
+        /// Ranked host list; the executor races them. The saved
+        /// `alleycat_host` (last winner) is prepended; the rest comes from
+        /// the credential's QR-supplied candidates.
+        hosts: Vec<String>,
+        credential: AlleycatCredentialRecord,
+    },
 }
+
+/// Default loopback port the mobile client tunnels to. Today this is just
+/// the upstream Codex app-server's default; the alleycat allowlist must
+/// have been launched with `--allow-tcp 127.0.0.1:8390` (or matching) for
+/// the forward to land.
+pub(crate) const ALLEYCAT_CODEX_LOOPBACK_PORT: u16 = 8390;
 
 // ── Transport resolution helpers ────────────────────────────────────────
 
@@ -220,6 +263,7 @@ pub(crate) fn direct_codex_port(server: &SavedServerRecord) -> Option<u16> {
 pub(crate) fn compute_reconnect_plan(
     server: &SavedServerRecord,
     credential: Option<&SshCredentialRecord>,
+    alleycat_credential: Option<&AlleycatCredentialRecord>,
     is_connected: bool,
 ) -> Option<ReconnectPlan> {
     // 1. Skip if already connected
@@ -227,7 +271,30 @@ pub(crate) fn compute_reconnect_plan(
         return None;
     }
 
-    // 2. WebSocket URL override → RemoteUrl
+    // 2. Alleycat hint + cached credential wins before any other transport:
+    // the saved record marked itself as alleycat-tunneled, so the direct
+    // hostname/ssh_port/codex_ports paths would be wrong.
+    if let (Some(alleycat_host), Some(_), Some(creds)) = (
+        server.alleycat_host.as_ref(),
+        server.alleycat_udp_port,
+        alleycat_credential,
+    ) {
+        let mut hosts: Vec<String> = Vec::with_capacity(1 + creds.host_candidates.len());
+        hosts.push(alleycat_host.clone());
+        for host in &creds.host_candidates {
+            if !hosts.iter().any(|h| h == host) {
+                hosts.push(host.clone());
+            }
+        }
+        return Some(ReconnectPlan::Alleycat {
+            server_id: server.id.clone(),
+            display_name: server.name.clone(),
+            hosts,
+            credential: creds.clone(),
+        });
+    }
+
+    // 3. WebSocket URL override → RemoteUrl
     if let Some(ref ws_url) = server.websocket_url {
         return Some(ReconnectPlan::RemoteUrl {
             server_id: server.id.clone(),
@@ -474,6 +541,55 @@ pub(crate) async fn execute_reconnect_plan(
                 }
             }
         }
+        ReconnectPlan::Alleycat {
+            server_id,
+            display_name,
+            hosts,
+            credential,
+        } => {
+            info!(
+                "reconnect: executing Alleycat plan server_id={} host_count={} udp_port={}",
+                server_id,
+                hosts.len(),
+                credential.udp_port,
+            );
+            let params = crate::alleycat::ParsedPairPayload {
+                protocol_version: credential.protocol_version,
+                udp_port: credential.udp_port,
+                cert_fingerprint: credential.cert_fingerprint.clone(),
+                token: credential.token.clone(),
+                host_candidates: credential.host_candidates.clone(),
+            };
+            match client
+                .connect_remote_over_alleycat(
+                    server_id.clone(),
+                    display_name.clone(),
+                    hosts.clone(),
+                    params,
+                    ALLEYCAT_CODEX_LOOPBACK_PORT,
+                )
+                .await
+            {
+                Ok(_) => ReconnectResult {
+                    server_id: server_id.clone(),
+                    success: true,
+                    needs_local_auth_restore: false,
+                    error_message: None,
+                },
+                Err(e) => {
+                    warn!(
+                        "reconnect: Alleycat plan failed server_id={} error={}",
+                        server_id, e
+                    );
+                    ReconnectResult {
+                        server_id: server_id.clone(),
+                        success: false,
+                        needs_local_auth_restore: false,
+                        error_message: Some(e.to_string()),
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -499,6 +615,8 @@ mod tests {
             ssh_port_forwarding_enabled: None,
             websocket_url: None,
             remembered_by_user: true,
+            alleycat_host: None,
+            alleycat_udp_port: None,
         }
     }
 
@@ -644,14 +762,14 @@ mod tests {
     #[test]
     fn plan_skip_when_connected() {
         let s = base_server();
-        assert!(compute_reconnect_plan(&s, None, true).is_none());
+        assert!(compute_reconnect_plan(&s, None, None,true).is_none());
     }
 
     #[test]
     fn plan_remote_url_when_websocket_set() {
         let mut s = base_server();
         s.websocket_url = Some("wss://example.com/ws".into());
-        let plan = compute_reconnect_plan(&s, None, false);
+        let plan = compute_reconnect_plan(&s, None, None,false);
         assert!(matches!(plan, Some(ReconnectPlan::RemoteUrl { .. })));
     }
 
@@ -660,7 +778,7 @@ mod tests {
         let mut s = base_server();
         s.preferred_connection_mode = Some("ssh".into());
         let cred = ssh_credential();
-        let plan = compute_reconnect_plan(&s, Some(&cred), false);
+        let plan = compute_reconnect_plan(&s, Some(&cred), None,false);
         assert!(matches!(plan, Some(ReconnectPlan::Ssh { .. })));
     }
 
@@ -668,13 +786,13 @@ mod tests {
     fn plan_none_when_mode_is_ssh_but_no_credential() {
         let mut s = base_server();
         s.preferred_connection_mode = Some("ssh".into());
-        assert!(compute_reconnect_plan(&s, None, false).is_none());
+        assert!(compute_reconnect_plan(&s, None, None,false).is_none());
     }
 
     #[test]
     fn plan_direct_remote_when_port_available() {
         let s = base_server();
-        let plan = compute_reconnect_plan(&s, None, false);
+        let plan = compute_reconnect_plan(&s, None, None,false);
         assert!(matches!(plan, Some(ReconnectPlan::DirectRemote { .. })));
         if let Some(ReconnectPlan::DirectRemote { port, .. }) = plan {
             assert_eq!(port, 8080);
@@ -689,7 +807,7 @@ mod tests {
         s.port = 0;
         s.codex_ports = vec![];
         let cred = ssh_credential();
-        let plan = compute_reconnect_plan(&s, Some(&cred), false);
+        let plan = compute_reconnect_plan(&s, Some(&cred), None,false);
         assert!(matches!(plan, Some(ReconnectPlan::Ssh { .. })));
     }
 
@@ -700,7 +818,7 @@ mod tests {
         s.has_codex_server = false;
         s.port = 0;
         s.codex_ports = vec![];
-        let plan = compute_reconnect_plan(&s, None, false);
+        let plan = compute_reconnect_plan(&s, None, None,false);
         assert!(matches!(plan, Some(ReconnectPlan::Local { .. })));
     }
 
@@ -711,6 +829,71 @@ mod tests {
         s.port = 0;
         s.codex_ports = vec![];
         s.source = "manual".into();
-        assert!(compute_reconnect_plan(&s, None, false).is_none());
+        assert!(compute_reconnect_plan(&s, None, None,false).is_none());
+    }
+
+    fn alleycat_credential() -> AlleycatCredentialRecord {
+        AlleycatCredentialRecord {
+            protocol_version: 1,
+            udp_port: 51820,
+            cert_fingerprint: "a".repeat(64),
+            token: "b".repeat(32),
+            host_candidates: vec!["studio.tail.ts.net".into(), "192.168.1.5".into()],
+        }
+    }
+
+    #[test]
+    fn plan_alleycat_wins_over_other_transports_when_hint_and_creds_present() {
+        let mut s = base_server();
+        // Even if direct codex looks viable, the alleycat hint should pre-empt it.
+        s.has_codex_server = true;
+        s.port = 8390;
+        s.codex_ports = vec![8390];
+        s.alleycat_host = Some("studio.tail.ts.net".into());
+        s.alleycat_udp_port = Some(51820);
+        let creds = alleycat_credential();
+
+        let plan = compute_reconnect_plan(&s, None, Some(&creds), false);
+        let Some(ReconnectPlan::Alleycat { hosts, credential, .. }) = plan else {
+            panic!("expected Alleycat plan, got {plan:?}");
+        };
+        // Saved alleycat_host comes first, then unique candidates, no dupes.
+        assert_eq!(
+            hosts,
+            vec![
+                "studio.tail.ts.net".to_string(),
+                "192.168.1.5".to_string(),
+            ]
+        );
+        assert_eq!(credential.udp_port, 51820);
+    }
+
+    #[test]
+    fn plan_alleycat_skipped_when_credential_missing_falls_through() {
+        // Missing credential should NOT short-circuit the planner — the
+        // server still has a direct codex port reachable, so we should fall
+        // through to DirectRemote rather than returning None. (Otherwise an
+        // expired Keychain entry would lose the user's saved direct port too.)
+        let mut s = base_server();
+        s.has_codex_server = true;
+        s.port = 8390;
+        s.codex_ports = vec![8390];
+        s.alleycat_host = Some("studio.tail.ts.net".into());
+        s.alleycat_udp_port = Some(51820);
+
+        let plan = compute_reconnect_plan(&s, None, None, false);
+        assert!(
+            matches!(plan, Some(ReconnectPlan::DirectRemote { .. })),
+            "expected DirectRemote fallback, got {plan:?}"
+        );
+    }
+
+    #[test]
+    fn plan_alleycat_skipped_when_already_connected() {
+        let mut s = base_server();
+        s.alleycat_host = Some("studio.tail.ts.net".into());
+        s.alleycat_udp_port = Some(51820);
+        let creds = alleycat_credential();
+        assert!(compute_reconnect_plan(&s, None, Some(&creds), true).is_none());
     }
 }

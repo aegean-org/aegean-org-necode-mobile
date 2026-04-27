@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.DeveloperBoard
@@ -67,6 +68,7 @@ import com.litter.android.state.isConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
 import com.litter.android.ui.ExperimentalFeatures
+import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.util.LLog
@@ -105,6 +107,7 @@ fun DiscoveryScreen(
     val sshCredentialStore = remember(context) { SshCredentialStore(context.applicationContext) }
 
     var showManualEntry by remember { mutableStateOf(false) }
+    var showAlleycatSheet by remember { mutableStateOf(false) }
     var pendingManualSshServer by remember { mutableStateOf<SavedServer?>(null) }
     var sshServer by remember { mutableStateOf<SavedServer?>(null) }
     var connectionChoiceServer by remember { mutableStateOf<SavedServer?>(null) }
@@ -296,6 +299,15 @@ fun DiscoveryScreen(
             }
             IconButton(onClick = onRefresh) {
                 Icon(Icons.Default.Refresh, "Refresh", tint = LitterTheme.textSecondary)
+            }
+            if (ExperimentalFeatures.isEnabled(LitterFeature.ALLEYCAT)) {
+                IconButton(onClick = { showAlleycatSheet = true }) {
+                    Icon(
+                        Icons.Default.QrCodeScanner,
+                        "Add via Alleycat",
+                        tint = LitterTheme.textSecondary,
+                    )
+                }
             }
             IconButton(onClick = { showManualEntry = true }) {
                 Icon(Icons.Default.Add, "Add Server", tint = LitterTheme.textSecondary)
@@ -648,6 +660,41 @@ fun DiscoveryScreen(
                 }
             },
         )
+    }
+
+    if (showAlleycatSheet) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAlleycatSheet = false },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false,
+            ),
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LitterTheme.background),
+            ) {
+                AlleycatAddServerSheet(
+                    onDismiss = { showAlleycatSheet = false },
+                    onConnected = { result ->
+                        showAlleycatSheet = false
+                        scope.launch {
+                            SavedServerStore.rememberAlleycat(
+                                context = context,
+                                serverId = result.serverId,
+                                displayName = result.displayName,
+                                relayHost = result.connectedHost,
+                            )
+                            reloadSavedServers()
+                            appModel.refreshSnapshot()
+                            pendingAutoNavigateServerId = result.serverId
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 

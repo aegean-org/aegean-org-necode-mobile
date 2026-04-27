@@ -38,6 +38,7 @@ Current automated checks:
 | Thread start/resume fallback sandbox | `workspace-write` with `danger-full-access` fallback when linux sandbox missing | Same |
 | Thread turn pagination (v0.125+ remote) | Conversation opens with last 5 turns; "Load earlier messages" button fetches older 5-turn pages via `thread/turns/list` | Same |
 | Thread turn pagination fallback (v0.124 remote) | Capability flips off via response inspection; embedded turns load fully; "Load earlier" button hidden | Same |
+| Alleycat tunnel | Discovery toolbar QR button opens `AlleycatAddServerSheet`; CameraX + ML Kit scan parses payload via `AlleycatBridge.parsePairPayload`; debug builds expose paste-JSON path; preview card shows udp port, protocol vN, fingerprint short hash, host candidates; host override field collapsed when QR carries candidates and visible otherwise; Connect calls `serverBridge.connectRemoteOverAlleycat(serverId = "alleycat:<host_lowercased>:<udpPort>", ...)` and persists params via `AlleycatCredentialStore`; `SavedServerStore.rememberAlleycat` writes the saved record; reconnect on app foreground hits the relay via the cached `AlleycatCredentialProvider`; alleycat server appears in home/discovery list after relaunch (sourced from saved server with `alleycatHost` set + `alleycatUdpPort` parsed back from the synth `serverId`); disconnect tears down the QUIC session via shared Rust `disconnectServer`. | Same |
 
 ## Suggested Smoke Steps
 

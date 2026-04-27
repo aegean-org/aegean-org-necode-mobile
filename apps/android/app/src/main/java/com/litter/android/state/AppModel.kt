@@ -109,6 +109,9 @@ class AppModel private constructor(context: android.content.Context) {
         reconnectController.setCredentialProvider(
             KotlinSshCredentialProvider(SshCredentialStore(context))
         )
+        reconnectController.setAlleycatCredentialProvider(
+            KotlinAlleycatCredentialProvider(AlleycatCredentialStore(context))
+        )
         reconnectController.setIpcSocketPathOverride(
             com.litter.android.ui.ExperimentalFeatures.ipcSocketPathOverride()
         )

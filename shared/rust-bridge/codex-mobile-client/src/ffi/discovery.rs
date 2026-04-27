@@ -164,6 +164,36 @@ impl ServerBridge {
         })
     }
 
+    /// Add-server entry point for alleycat: races the supplied `hosts`,
+    /// brings up a QUIC tunnel + loopback forward to the Codex app-server
+    /// port, then opens the JSON-RPC WebSocket on that loopback. Mirrors
+    /// `ssh_start_remote_server_connect` in shape — one call, two
+    /// transports stacked.
+    pub async fn connect_remote_over_alleycat(
+        &self,
+        server_id: String,
+        display_name: String,
+        hosts: Vec<String>,
+        params: crate::ffi::alleycat::AppAlleycatParams,
+    ) -> Result<crate::ffi::alleycat::AppAlleycatConnectResult, ClientError> {
+        let parsed: crate::alleycat::ParsedPairPayload = params.into();
+        blocking_async!(self.rt, self.inner, |c| {
+            c.connect_remote_over_alleycat(
+                server_id,
+                display_name,
+                hosts,
+                parsed,
+                crate::reconnect::ALLEYCAT_CODEX_LOOPBACK_PORT,
+            )
+            .await
+            .map(|outcome| crate::ffi::alleycat::AppAlleycatConnectResult {
+                server_id: outcome.server_id,
+                connected_host: outcome.connected_host,
+            })
+            .map_err(|e| ClientError::Transport(e.to_string()))
+        })
+    }
+
     pub fn disconnect_server(&self, server_id: String) {
         self.inner.disconnect_server(&server_id);
     }

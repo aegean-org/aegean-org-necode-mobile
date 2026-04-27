@@ -1435,7 +1435,7 @@ private fun SessionDiffSheet(
                     SyntaxHighlightedDiffBlock(
                         diff = section.diff,
                         titleHint = section.title.ifEmpty { null },
-                        fontSize = LitterTextStyle.body.sp,
+                        fontSize = LitterTextStyle.caption.sp,
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(LitterTheme.codeBackground, RoundedCornerShape(10.dp))

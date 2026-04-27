@@ -72,10 +72,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -200,6 +202,8 @@ fun HomeDashboardScreen(
     var searchQuery by remember { mutableStateOf("") }
     var hasLoadedThreadListing by remember { mutableStateOf(false) }
     val resumingKeys = remember { mutableStateMapOf<String, Boolean>() }
+    var coachmarkRootBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
+    val coachmarkTargetBounds = remember { mutableStateMapOf<CoachmarkTarget, Rect>() }
 
     // Dashboard zoom state. `zoomLevel` observes DashboardZoomPrefs; the
     // toolbar button cycles 1→2→3→4→3→2→1 via a direction flip at the
@@ -278,7 +282,16 @@ fun HomeDashboardScreen(
         hasLoadedThreadListing = true
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val showOnboardingCoachmarks = recentSessions.isEmpty() && !isComposerActive && !isSearchExpanded
+    val relativeCoachmarkTargets = coachmarkTargetBounds.mapValues { (_, rect) ->
+        rect.relativeTo(coachmarkRootBounds)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coachmarkRootBounds = it.boundsInRoot() },
+    ) {
         // Sessions list fills the whole screen, with top/bottom content padding
         // so items don't sit under the floating chrome.
         LazyColumn(
@@ -393,29 +406,7 @@ fun HomeDashboardScreen(
                 }
             } else {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 48.dp, bottom = 8.dp, start = 16.dp, end = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text(
-                            text = "No sessions yet",
-                            color = LitterTheme.textSecondary,
-                            fontSize = LitterTextStyle.body.scaled,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Text(
-                            text = if (servers.isEmpty())
-                                "Connect a server to start your first session."
-                            else
-                                "Pick a project and send a message to start one.",
-                            color = LitterTheme.textMuted,
-                            fontSize = LitterTextStyle.caption.scaled,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        )
-                    }
+                    Spacer(Modifier.height(1.dp))
                 }
             }
         }
@@ -427,10 +418,10 @@ fun HomeDashboardScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .fillMaxWidth()
                 .onGloballyPositioned {
                     topChromeHeight = with(density) { it.size.height.toDp() }
                 }
-                .fillMaxWidth()
                 .background(
                     androidx.compose.ui.graphics.Brush.verticalGradient(
                         colors = listOf(
@@ -525,7 +516,7 @@ fun HomeDashboardScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(2.dp))
 
             ServerPillRow(
                 servers = servers,
@@ -561,6 +552,7 @@ fun HomeDashboardScreen(
                     confirmAction = ConfirmAction.DisconnectServer(server)
                 },
                 onAdd = onShowDiscovery,
+                onAddBoundsChanged = { coachmarkTargetBounds[CoachmarkTarget.AddServer] = it },
             )
 
             // Short fade at the bottom of the top scrim for a soft transition.
@@ -797,6 +789,9 @@ fun HomeDashboardScreen(
                                     onClick = { onStartVoice() },
                                     modifier = Modifier
                                         .size(44.dp)
+                                        .onGloballyPositioned {
+                                            coachmarkTargetBounds[CoachmarkTarget.Voice] = it.boundsInRoot()
+                                        }
                                         .background(
                                             LitterTheme.surface.copy(alpha = 0.9f),
                                             CircleShape,
@@ -815,6 +810,9 @@ fun HomeDashboardScreen(
                                 onClick = { isComposerActive = true },
                                 modifier = Modifier
                                     .size(44.dp)
+                                    .onGloballyPositioned {
+                                        coachmarkTargetBounds[CoachmarkTarget.NewThread] = it.boundsInRoot()
+                                    }
                                     .background(
                                         LitterTheme.surface.copy(alpha = 0.9f),
                                         CircleShape,
@@ -832,6 +830,9 @@ fun HomeDashboardScreen(
                                 onClick = { isSearchExpanded = true },
                                 modifier = Modifier
                                     .size(44.dp)
+                                    .onGloballyPositioned {
+                                        coachmarkTargetBounds[CoachmarkTarget.Search] = it.boundsInRoot()
+                                    }
                                     .background(
                                         LitterTheme.surface.copy(alpha = 0.9f),
                                         CircleShape,
@@ -848,6 +849,13 @@ fun HomeDashboardScreen(
                     }
                 }
             }
+        }
+
+        if (showOnboardingCoachmarks) {
+            OnboardingCoachmarks(
+                targets = relativeCoachmarkTargets,
+                modifier = Modifier.matchParentSize(),
+            )
         }
 
     }
@@ -1096,6 +1104,15 @@ private sealed class ConfirmAction {
         override val title = "Reply Failed"
         override val message = reason
     }
+}
+
+private fun Rect.relativeTo(root: Rect): Rect {
+    return Rect(
+        left = left - root.left,
+        top = top - root.top,
+        right = right - root.left,
+        bottom = bottom - root.top,
+    )
 }
 
 @Composable

@@ -356,6 +356,10 @@ android-device-run: android-fast
 				echo "ERROR: installed app signature does not match this APK. Re-run with ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to uninstall the existing app and install this build."; \
 				exit 1; \
 			fi; \
+		elif printf '%s' "$$INSTALL_OUTPUT" | grep -q 'INSTALL_FAILED_VERSION_DOWNGRADE'; then \
+			echo "==> Installed app has a higher versionCode; uninstalling $(ANDROID_PACKAGE) and retrying..."; \
+			adb -s "$$DEVICE" uninstall $(ANDROID_PACKAGE) && \
+			adb -s "$$DEVICE" install -r $(ANDROID_APK) || exit $$?; \
 		else \
 			exit $$status; \
 		fi; \
@@ -440,7 +444,7 @@ help:
 		'make android            fast Android dev build (default ABI/profile: arm64-v8a/android-dev)' \
 		'make android-emulator-fast fast Android dev build using emulator ABI ($(ANDROID_EMULATOR_ABIS))' \
 		'make android-emulator-run  fast emulator build + install + launch on emulator' \
-		'make android-device-run    fast Android dev build + install + launch with attached logcat on connected device (override ANDROID_DEVICE_SERIAL; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=0 to keep installed app)' \
+		'make android-device-run    fast Android dev build + install + launch with attached logcat on connected device (override ANDROID_DEVICE_SERIAL; auto-uninstalls on versionCode downgrade; set ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to also uninstall on signature mismatch)' \
 		'make android-release    Android build using release Rust profile and multi-ABI output' \
 		'make rust-check         host cargo check for shared crates' \
 		'make rust-test          host cargo test for shared crates'
@@ -617,6 +621,10 @@ android-install: android-debug
 				echo "ERROR: installed app signature does not match this APK. Re-run with ANDROID_REINSTALL_ON_SIGNATURE_MISMATCH=1 to uninstall the existing app and install this build."; \
 				exit 1; \
 			fi; \
+		elif printf '%s' "$$INSTALL_OUTPUT" | grep -q 'INSTALL_FAILED_VERSION_DOWNGRADE'; then \
+			echo "==> Installed app has a higher versionCode; uninstalling $(ANDROID_PACKAGE) and retrying..."; \
+			adb -s "$$DEVICE" uninstall $(ANDROID_PACKAGE) && \
+			adb -s "$$DEVICE" install -r $(ANDROID_DIR)/app/build/outputs/apk/debug/app-debug.apk || exit $$?; \
 		else \
 			exit $$status; \
 		fi; \

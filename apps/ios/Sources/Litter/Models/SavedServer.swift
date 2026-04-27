@@ -15,6 +15,10 @@ struct SavedServer: Codable, Identifiable, Equatable {
     let sshPortForwardingEnabled: Bool?
     let websocketURL: String?
     let rememberedByUser: Bool
+    /// Marks this saved server as alleycat-tunneled. The relay's hostname is
+    /// preserved so the UI can re-open the rescan sheet on launch — cert and
+    /// token are per-launch and not persisted.
+    let alleycatHost: String?
 
     init(
         id: String,
@@ -30,7 +34,8 @@ struct SavedServer: Codable, Identifiable, Equatable {
         preferredCodexPort: UInt16?,
         sshPortForwardingEnabled: Bool?,
         websocketURL: String?,
-        rememberedByUser: Bool = false
+        rememberedByUser: Bool = false,
+        alleycatHost: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,6 +51,7 @@ struct SavedServer: Codable, Identifiable, Equatable {
         self.sshPortForwardingEnabled = sshPortForwardingEnabled
         self.websocketURL = websocketURL
         self.rememberedByUser = rememberedByUser
+        self.alleycatHost = alleycatHost
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -63,6 +69,7 @@ struct SavedServer: Codable, Identifiable, Equatable {
         case sshPortForwardingEnabled
         case websocketURL
         case rememberedByUser
+        case alleycatHost
     }
 
     init(from decoder: Decoder) throws {
@@ -91,6 +98,7 @@ struct SavedServer: Codable, Identifiable, Equatable {
         )
         self.websocketURL = try container.decodeIfPresent(String.self, forKey: .websocketURL)
         self.rememberedByUser = try container.decodeIfPresent(Bool.self, forKey: .rememberedByUser) ?? true
+        self.alleycatHost = try container.decodeIfPresent(String.self, forKey: .alleycatHost)
     }
 
     func toDiscoveredServer() -> DiscoveredServer {
@@ -128,7 +136,28 @@ struct SavedServer: Codable, Identifiable, Equatable {
             preferredCodexPort: server.preferredCodexPort,
             sshPortForwardingEnabled: nil,
             websocketURL: server.websocketURL,
-            rememberedByUser: rememberedByUser
+            rememberedByUser: rememberedByUser,
+            alleycatHost: nil
+        )
+    }
+
+    func withAlleycatHost(_ alleycatHost: String?) -> SavedServer {
+        SavedServer(
+            id: id,
+            name: name,
+            hostname: hostname,
+            port: port,
+            codexPorts: codexPorts,
+            sshPort: sshPort,
+            source: source,
+            hasCodexServer: hasCodexServer,
+            wakeMAC: wakeMAC,
+            preferredConnectionMode: preferredConnectionMode,
+            preferredCodexPort: preferredCodexPort,
+            sshPortForwardingEnabled: sshPortForwardingEnabled,
+            websocketURL: websocketURL,
+            rememberedByUser: rememberedByUser,
+            alleycatHost: alleycatHost
         )
     }
 
@@ -161,7 +190,19 @@ struct SavedServer: Codable, Identifiable, Equatable {
             preferredCodexPort: preferredCodexPort,
             sshPortForwardingEnabled: sshPortForwardingEnabled,
             websocketUrl: websocketURL,
-            rememberedByUser: rememberedByUser
+            rememberedByUser: rememberedByUser,
+            alleycatHost: alleycatHost,
+            alleycatUdpPort: alleycatUdpPort
         )
+    }
+
+    /// UDP port the alleycat relay was bound on, parsed from the
+    /// synth `serverId` of `alleycat:<host>:<udpPort>` minted in
+    /// `AlleycatAddServerSheet`. Nil for non-alleycat records.
+    var alleycatUdpPort: UInt16? {
+        guard alleycatHost != nil else { return nil }
+        guard id.hasPrefix("alleycat:") else { return nil }
+        guard let portString = id.split(separator: ":").last else { return nil }
+        return UInt16(portString)
     }
 }

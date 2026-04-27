@@ -23,6 +23,9 @@ use serde_json::Value as JsonValue;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
+use alleycat_client::{ForwardSpec, Target as AlleycatTarget};
+
+use crate::alleycat::AlleycatSession;
 use crate::logging::{LogLevelName, log_rust, summarize_json_for_log};
 use crate::ssh::{SshBootstrapResult, SshClient};
 use crate::transport::{RpcError, TransportError};
@@ -38,6 +41,14 @@ pub(crate) struct SshReconnectTransport {
     pub(crate) prefer_ipv6: bool,
     pub(crate) working_dir: Option<String>,
     pub(crate) ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
+}
+
+/// Holds the alleycat session and the targets it forwards so the WebSocket
+/// reconnect path can re-`ensure_forward` if the loopback listener has died.
+#[derive(Clone)]
+pub(crate) struct AlleycatReconnectTransport {
+    pub(crate) session: Arc<AlleycatSession>,
+    pub(crate) targets: Vec<AlleycatTarget>,
 }
 
 fn append_android_debug_log(line: &str) {
@@ -332,6 +343,11 @@ pub struct RemoteSessionResources {
     pub ipc_ssh_client: Option<Arc<SshClient>>,
     pub ipc_stream_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
     pub(crate) ssh_reconnect_transport: Option<SshReconnectTransport>,
+    /// Alleycat QUIC session retained alongside the WebSocket so the tunnel
+    /// is dropped when the server session disconnects, and can be re-bound
+    /// during WebSocket reconnects without rescanning the QR.
+    pub alleycat_session: Option<Arc<AlleycatSession>>,
+    pub(crate) alleycat_reconnect_transport: Option<AlleycatReconnectTransport>,
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +439,8 @@ pub struct ServerSession {
     ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
     ipc_ssh_client: Option<Arc<SshClient>>,
     ipc_stream_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
+    #[allow(dead_code)] // Retained so the QUIC tunnel outlives the WebSocket.
+    alleycat_session: Option<Arc<AlleycatSession>>,
     worker_handle: tokio::task::JoinHandle<()>,
 }
 
@@ -656,6 +674,7 @@ impl ServerSession {
             ssh_pid: None,
             ipc_ssh_client: None,
             ipc_stream_bridge_pid: None,
+            alleycat_session: None,
             worker_handle,
         })
     }
@@ -679,6 +698,7 @@ impl ServerSession {
 
         let (url, args) = remote_connect_args(&config);
         let ssh_reconnect_transport = resources.ssh_reconnect_transport.clone();
+        let alleycat_reconnect_transport = resources.alleycat_reconnect_transport.clone();
         let mut client = connect_remote_client(&args).await?;
 
         let (event_tx, _) = broadcast::channel::<ServerEvent>(256);
@@ -689,6 +709,7 @@ impl ServerSession {
         let reconnect_args = args.clone();
         let reconnect_url = url.clone();
         let reconnect_transport = ssh_reconnect_transport.clone();
+        let reconnect_alleycat = alleycat_reconnect_transport.clone();
 
         let worker_handle = tokio::spawn(async move {
             loop {
@@ -740,6 +761,7 @@ impl ServerSession {
                                                         &reconnect_url,
                                                         &health_tx_clone,
                                                         reconnect_transport.as_ref(),
+                                                        reconnect_alleycat.as_ref(),
                                                     )
                                                     .await
                                                 {
@@ -827,6 +849,7 @@ impl ServerSession {
                                                 &reconnect_url,
                                                 &health_tx_clone,
                                                 reconnect_transport.as_ref(),
+                                                reconnect_alleycat.as_ref(),
                                             )
                                             .await {
                                                 continue;
@@ -845,6 +868,7 @@ impl ServerSession {
                                                 &reconnect_url,
                                                 &health_tx_clone,
                                                 reconnect_transport.as_ref(),
+                                                reconnect_alleycat.as_ref(),
                                             )
                                             .await {
                                                 continue;
@@ -875,6 +899,7 @@ impl ServerSession {
             ssh_pid: resources.ssh_pid,
             ipc_ssh_client: resources.ipc_ssh_client,
             ipc_stream_bridge_pid: resources.ipc_stream_bridge_pid,
+            alleycat_session: resources.alleycat_session,
             worker_handle,
         })
     }
@@ -1133,6 +1158,7 @@ async fn reconnect_remote_client(
     websocket_url: &str,
     health_tx: &watch::Sender<ConnectionHealth>,
     ssh_transport: Option<&SshReconnectTransport>,
+    alleycat_transport: Option<&AlleycatReconnectTransport>,
 ) -> bool {
     for attempt in 1..=REMOTE_RECONNECT_MAX_ATTEMPTS {
         append_android_debug_log(&format!(
@@ -1159,6 +1185,30 @@ async fn reconnect_remote_client(
                     "remote reconnect forward restore failed: {} local_port={} remote={}:{} error={}",
                     websocket_url, ssh_transport.local_port, remote_host, remote_port, error
                 );
+            }
+        }
+        if let Some(alleycat) = alleycat_transport {
+            // Best-effort: re-`ensure_forward` for each tracked target. If the
+            // existing loopback listener is still bound, this fails with
+            // `address already in use` — that's fine, the WebSocket can keep
+            // using the already-bound port. We only care about the case where
+            // the forward task died (relay restart, transient network) and we
+            // need to rebind so the WebSocket reconnect has somewhere to dial.
+            for target in &alleycat.targets {
+                if let Err(error) = alleycat
+                    .session
+                    .session
+                    .ensure_forward(ForwardSpec {
+                        local_port: 0,
+                        target: target.clone(),
+                    })
+                    .await
+                {
+                    debug!(
+                        "remote reconnect alleycat ensure_forward failed (likely benign): {} target={:?} error={}",
+                        websocket_url, target, error
+                    );
+                }
             }
         }
         match connect_remote_client(args).await {
@@ -1447,6 +1497,7 @@ impl ServerSession {
             ssh_pid: None,
             ipc_ssh_client: None,
             ipc_stream_bridge_pid: None,
+            alleycat_session: None,
             worker_handle,
         }
     }

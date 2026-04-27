@@ -2,6 +2,13 @@ import SwiftUI
 import HairballUI
 import UIKit
 
+func isDiffLanguage(_ language: String?) -> Bool {
+    guard let normalized = language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+        return false
+    }
+    return normalized == "diff" || normalized == "patch"
+}
+
 struct SyntaxHighlightedDiffText: View {
     let diff: String
     var titleHint: String? = nil

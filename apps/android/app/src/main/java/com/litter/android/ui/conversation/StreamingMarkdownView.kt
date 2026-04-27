@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
@@ -171,14 +172,23 @@ private fun StreamingCodeBlock(
                 .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
                 .padding(10.dp),
         ) {
-            SelectableConversationText {
-                Text(
-                    text = code,
-                    color = LitterTheme.textBody,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = bodySize.scaled,
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+            if (isDiffLanguage(language)) {
+                SyntaxHighlightedDiffBlock(
+                    diff = code,
+                    titleHint = language,
+                    fontSize = LitterTextStyle.caption.sp,
+                    modifier = Modifier.fillMaxWidth(),
                 )
+            } else {
+                SelectableConversationText {
+                    Text(
+                        text = code,
+                        color = LitterTheme.textBody,
+                        fontFamily = LitterTheme.monoFont,
+                        fontSize = bodySize.scaled,
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    )
+                }
             }
         }
     }
