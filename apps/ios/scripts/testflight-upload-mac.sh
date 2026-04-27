@@ -322,6 +322,8 @@ fi
 if [[ "$ASSIGN_BETA_GROUP" == "1" && -n "$build_id" ]]; then
     beta_group_ids=()
     external_group_requested=0
+    beta_review_submit_attempted=0
+    beta_review_submit_succeeded=0
 
     IFS=',' read -r -a requested_group_names <<<"$BETA_GROUP_NAMES"
     for raw_group_name in "${requested_group_names[@]}"; do
@@ -378,14 +380,41 @@ if [[ "$ASSIGN_BETA_GROUP" == "1" && -n "$build_id" ]]; then
 
         if [[ "$SUBMIT_BETA_REVIEW" == "1" && "$external_group_requested" -eq 1 ]]; then
             echo "==> Submitting build $build_id for Beta App Review"
-            asc testflight review submit --build-id "$build_id" --confirm --output json >/dev/null
+            beta_review_submit_attempted=1
+            submit_log="$BUILD_DIR/beta-review-submit.log"
+            rm -f "$submit_log"
+            for attempt in 1 2 3; do
+                if asc testflight review submit --build-id "$build_id" --confirm --output json >"$submit_log" 2>&1; then
+                    beta_review_submit_succeeded=1
+                    break
+                fi
+                if [[ "$attempt" -lt 3 ]]; then
+                    echo "Beta App Review submit failed on attempt $attempt; retrying..." >&2
+                    sleep "$BUILD_POLL_INTERVAL_SECONDS"
+                fi
+            done
+            if [[ "$beta_review_submit_succeeded" -ne 1 ]]; then
+                echo "WARNING: Beta App Review submit failed after upload and group assignment." >&2
+                echo "         App Store Connect accepted build $build_id; leaving CI green so the build is not lost." >&2
+                sed 's/^/         /' "$submit_log" >&2 || true
+            fi
         fi
     fi
 fi
 
 if [[ -n "$build_id" ]]; then
     echo "==> Validating TestFlight readiness"
-    asc validate testflight --app "$APP_STORE_APP_ID" --build "$build_id" --strict --output json >/dev/null
+    validate_log="$BUILD_DIR/testflight-validate.log"
+    if ! asc validate testflight --app "$APP_STORE_APP_ID" --build "$build_id" --strict --output json >"$validate_log" 2>&1; then
+        if [[ "${beta_review_submit_attempted:-0}" == "1" && "${beta_review_submit_succeeded:-0}" != "1" ]]; then
+            echo "WARNING: strict TestFlight validation failed after Beta App Review submit failed." >&2
+            echo "         Build $build_id is uploaded and assigned; ASC may need manual/retry review submission." >&2
+            sed 's/^/         /' "$validate_log" >&2 || true
+        else
+            cat "$validate_log" >&2
+            exit 1
+        fi
+    fi
 fi
 
 echo "==> Mac TestFlight upload complete"
