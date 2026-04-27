@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,7 +40,6 @@ import com.litter.android.ui.common.FormattedText
 import com.litter.android.ui.common.StatusDot
 import com.litter.android.ui.common.StatusDotState
 import com.litter.android.ui.scaled
-import com.litter.android.ui.LitterTextStyle
 import uniffi.codex_mobile_client.AppOperationStatus
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.AppToolLogEntry
@@ -128,14 +129,9 @@ fun SessionCanvasRow(
             // the midline of the title's first line (17pt body, line
             // height ≈20pt). At zoom 1 (pad=0) the dot sits ~2pt higher to
             // match iOS's slightly terser compact layout.
-            // Top offset is larger than iOS's 2pt because Compose `Text`
-            // applies `includeFontPadding = true` by default, which shifts
-            // the visible glyphs down inside the line box. Tuned so the
-            // dot center lines up with the cap-height midline of the
-            // 17.dp body-size title at zoom ≥ 2.
             Box(
                 modifier = Modifier
-                    .padding(top = if (zoomLevel == 1) 2.dp else 5.dp)
+                    .padding(top = if (zoomLevel == 1) 0.dp else 2.dp)
                     .width(14.dp)
                     .height(16.dp),
                 contentAlignment = Alignment.Center,
@@ -148,13 +144,16 @@ fun SessionCanvasRow(
             Spacer(Modifier.width(8.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                FormattedText(
-                    text = session.displayTitle,
-                    color = if (isActive) LitterTheme.accent else LitterTheme.textPrimary,
-                    fontSize = LitterTextStyle.body.scaled,
-                    maxLines = if (zoomLevel >= 4) 4 else 1,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                val titleStyle = markdownMatchedTitleStyle()
+                CompositionLocalProvider(LocalTextStyle provides titleStyle) {
+                    FormattedText(
+                        text = session.displayTitle,
+                        color = if (isActive) LitterTheme.accent else LitterTheme.textPrimary,
+                        fontSize = titleStyle.fontSize,
+                        maxLines = if (zoomLevel >= 4) 4 else 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 // MetaLine is shown ONLY at zoom 2 (iOS `if zoomLevel == 2`).
                 // At zoom 3+, modelBadgeLine replaces it with the richer,

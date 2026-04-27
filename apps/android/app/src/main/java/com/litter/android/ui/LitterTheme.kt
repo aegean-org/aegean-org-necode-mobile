@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -136,64 +137,78 @@ val BerkeleyMono =
 
 private val Mono = BerkeleyMono
 
+@Suppress("DEPRECATION")
+private val LitterPlatformTextStyle = PlatformTextStyle(includeFontPadding = false)
+
+private fun litterTextStyle(
+    fontFamily: FontFamily,
+    fontWeight: FontWeight,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+) = TextStyle(
+    fontFamily = fontFamily,
+    fontWeight = fontWeight,
+    fontSize = fontSize,
+    platformStyle = LitterPlatformTextStyle,
+)
+
 private fun buildTypography(fontFamily: FontFamily) =
     Typography(
         titleLarge =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp,
             ),
         titleMedium =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 16.sp,
             ),
         titleSmall =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 14.sp,
             ),
         headlineSmall =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp,
             ),
         bodyLarge =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
                 fontSize = 16.sp,
             ),
         bodyMedium =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
                 fontSize = 14.sp,
             ),
         bodySmall =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Normal,
                 fontSize = 12.sp,
             ),
         labelLarge =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 12.sp,
             ),
         labelMedium =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 11.sp,
             ),
         labelSmall =
-            TextStyle(
+            litterTextStyle(
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = 10.sp,

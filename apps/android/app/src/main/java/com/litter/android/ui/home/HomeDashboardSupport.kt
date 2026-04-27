@@ -1,15 +1,14 @@
 package com.litter.android.ui.home
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LitterThemeManager
-import com.litter.android.ui.LocalTextScale
+import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSessionSummary
@@ -28,14 +27,14 @@ import uniffi.codex_mobile_client.Account
  * Swift reference: HomeDashboardView.swift MarkdownMatchedTitleFont (L1203-1213).
  */
 @Composable
-@ReadOnlyComposable
+@Suppress("DEPRECATION")
 fun markdownMatchedTitleStyle(): TextStyle {
-    val scale = LocalTextScale.current
     val family = if (LitterThemeManager.monoFontEnabled) LitterTheme.monoFont else FontFamily.Default
     return TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Medium,
-        fontSize = (LitterTextStyle.body * scale).sp,
+        fontSize = LitterTextStyle.body.scaled,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
     )
 }
 

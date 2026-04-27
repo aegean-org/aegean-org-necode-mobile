@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppToolLogEntry
@@ -52,7 +51,7 @@ fun HomeToolRowView(
         Text(
             text = entry.detail,
             color = LitterTheme.textSecondary.copy(alpha = 0.8f),
-            fontSize = LitterTextStyle.body.scaled,
+            fontSize = TOOL_LOG_FONT_SP.scaled,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -85,10 +84,12 @@ private fun ToolIcon(tool: String) {
             Text(
                 text = glyph,
                 color = tint,
-                fontSize = 12f.scaled,
+                fontSize = (TOOL_LOG_FONT_SP - 1f).scaled,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.defaultMinSize(minWidth = 12.dp),
             )
         }
     }
 }
+
+private const val TOOL_LOG_FONT_SP = 14f

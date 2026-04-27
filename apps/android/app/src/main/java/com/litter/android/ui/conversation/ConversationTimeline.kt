@@ -2363,7 +2363,7 @@ private fun DiffSection(
             SyntaxHighlightedDiffBlock(
                 diff = display,
                 titleHint = label.ifEmpty { null },
-                fontSize = LitterTextStyle.caption.scaled,
+                fontSize = LitterTextStyle.caption.sp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))

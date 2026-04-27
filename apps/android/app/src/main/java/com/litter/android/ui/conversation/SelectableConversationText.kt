@@ -94,6 +94,7 @@ internal fun configureSelectableMarkdownTextView(
 ) {
     textView.setTextColor(textColor)
     textView.typeface = typeface
+    textView.includeFontPadding = false
     if (usePhysicalDpTextSize) {
         textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, textSize)
     } else {

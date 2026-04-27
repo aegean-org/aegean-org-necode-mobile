@@ -385,7 +385,7 @@ fun ExplorationGroupRow(
     )
     val bulletSize = (6f * textScale).dp
     val bulletTopPadding = (5f * textScale).dp
-    val previewHeight = (LitterTextStyle.caption.scaled.value * textScale * 3.6f).dp + 18.dp
+    val previewHeight = (LitterTextStyle.caption * textScale * 3.6f).dp + 18.dp
 
     LaunchedEffect(entries, previewScrollState.maxValue, expanded, showsCollapsedPreview) {
         if (expanded || !showsCollapsedPreview || previewScrollState.maxValue <= 0) return@LaunchedEffect

@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.sp
 
 /**
  * Text scaling system matching iOS ConversationTextSize.
- * 7-level scale from tiny (0.65x) to huge (1.8x), default large (1.2x).
+ * 7-level scale from tiny (0.65x) to huge (1.8x), default medium (1.0x).
  * All conversation text sizes are multiplied by this scale.
  */
 enum class ConversationTextSize(val step: Int, val scale: Float, val label: String) {
@@ -27,7 +27,7 @@ enum class ConversationTextSize(val step: Int, val scale: Float, val label: Stri
     HUGE(6, 1.8f, "Huge");
 
     companion object {
-        val DEFAULT = LARGE
+        val DEFAULT = MEDIUM
 
         fun fromStep(step: Int): ConversationTextSize =
             entries.firstOrNull { it.step == step } ?: DEFAULT
