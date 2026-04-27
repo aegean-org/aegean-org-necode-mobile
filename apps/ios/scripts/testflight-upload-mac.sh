@@ -67,6 +67,7 @@ AUTH_ISSUER_ID="${AUTH_ISSUER_ID:-${ASC_ISSUER_ID:-}}"
 
 BUILD_DIR="${BUILD_DIR:-$IOS_DIR/build/testflight-mac}"
 ARCHIVE_PATH="$BUILD_DIR/$SCHEME.xcarchive"
+DERIVED_DATA_PATH="$BUILD_DIR/DerivedData"
 EXPORT_OPTIONS_PLIST="$BUILD_DIR/ExportOptions.plist"
 PKG_PATH="$BUILD_DIR/$SCHEME.pkg"
 BUILD_METADATA_PATH="${BUILD_METADATA_PATH:-$BUILD_DIR/testflight-mac-build.env}"
@@ -154,18 +155,21 @@ if [[ "$TESTFLIGHT_SKIP_BUILD" != "1" ]]; then
     echo "==> Regenerating Xcode project"
     "$PROJECT_DIR/scripts/regenerate-project.sh"
 
-    echo "==> Archiving $SCHEME ($MARKETING_VERSION/$BUILD_NUMBER) for Mac Catalyst"
-    archive_cmd=(
+    echo "==> Building $SCHEME ($MARKETING_VERSION/$BUILD_NUMBER) for Mac Catalyst"
+    rm -rf "$DERIVED_DATA_PATH"
+    build_cmd=(
         xcodebuild
         -project "$PROJECT_PATH"
         -scheme "$SCHEME"
         -configuration "$CONFIGURATION"
         -destination "generic/platform=macOS,variant=Mac Catalyst"
-        -archivePath "$ARCHIVE_PATH"
+        -derivedDataPath "$DERIVED_DATA_PATH"
         -showBuildTimingSummary
-        clean archive
+        clean build
         MARKETING_VERSION="$MARKETING_VERSION"
         CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+        ARCHS=arm64
+        ONLY_ACTIVE_ARCH=NO
         SWIFT_COMPILATION_MODE=singlefile
         SWIFT_WHOLE_MODULE_OPTIMIZATION=NO
         SWIFT_ENABLE_EXPLICIT_MODULES=NO
@@ -174,54 +178,53 @@ if [[ "$TESTFLIGHT_SKIP_BUILD" != "1" ]]; then
     )
 
     if [[ -n "$TEAM_ID" ]]; then
-        archive_cmd+=(DEVELOPMENT_TEAM="$TEAM_ID")
+        build_cmd+=(DEVELOPMENT_TEAM="$TEAM_ID")
     fi
 
     if [[ "$EXPORT_SIGNING_STYLE" == "manual" ]]; then
-        archive_cmd+=(
+        build_cmd+=(
             APP_CODE_SIGN_STYLE=Manual
             APP_PROVISIONING_PROFILE_SPECIFIER="$APP_PROVISIONING_PROFILE_SPECIFIER"
             APP_CODE_SIGN_IDENTITY="$APP_CODE_SIGN_IDENTITY"
         )
     else
-        archive_cmd+=(-allowProvisioningUpdates)
+        build_cmd+=(-allowProvisioningUpdates)
     fi
 
     if [[ "$EXPORT_SIGNING_STYLE" == "automatic" && "${#auth_args[@]}" -gt 0 ]]; then
-        archive_cmd+=("${auth_args[@]}")
+        build_cmd+=("${auth_args[@]}")
     fi
 
-    "${archive_cmd[@]}"
+    "${build_cmd[@]}"
 
     # Sandbox-entitlement gate — catches ITMS-90296 before we waste a build
     # slot on App Store Connect.
-    archived_app="$ARCHIVE_PATH/Products/Applications/Litter.app"
-    if [[ ! -d "$archived_app" ]]; then
-        echo "No Litter.app found at $archived_app — cannot verify entitlements." >&2
+    built_app="$(find "$DERIVED_DATA_PATH/Build/Products" -path "*/Release-maccatalyst/Litter.app" -type d | head -n 1)"
+    if [[ -z "$built_app" || ! -d "$built_app" ]]; then
+        echo "No Litter.app found under $DERIVED_DATA_PATH/Build/Products — cannot verify entitlements." >&2
         exit 1
     fi
-    entitlements_xml="$(codesign -d --entitlements :- "$archived_app" 2>/dev/null || true)"
+    entitlements_xml="$(codesign -d --entitlements :- "$built_app" 2>/dev/null || true)"
     if ! grep -q "com\.apple\.security\.app-sandbox" <<<"$entitlements_xml"; then
-        echo "ERROR: signed $archived_app is missing com.apple.security.app-sandbox" >&2
+        echo "ERROR: signed $built_app is missing com.apple.security.app-sandbox" >&2
         echo "       ASC will reject this with ITMS-90296. Check that APP_PROVISIONING_PROFILE_SPECIFIER" >&2
         echo "       points at the Mac App Store profile (not the iOS Litter distribution profile)." >&2
         exit 1
     fi
     if ! grep -A1 "com\.apple\.security\.app-sandbox" <<<"$entitlements_xml" | grep -q "<true/>"; then
-        echo "ERROR: com.apple.security.app-sandbox is present but not <true/> on $archived_app" >&2
+        echo "ERROR: com.apple.security.app-sandbox is present but not <true/> on $built_app" >&2
         exit 1
     fi
     echo "==> Verified app-sandbox entitlement is present on signed binary"
 
     echo "==> Packaging PKG with productbuild (installer signing: $INSTALLER_CODE_SIGN_IDENTITY)"
-    # Avoid `xcodebuild -exportArchive` for Mac App Store/TestFlight exports.
-    # On GitHub macos-26 runners it can hang inside its productbuild wrapper
-    # after the archive succeeds, leaving productbuild/xcodebuild orphaned
-    # until workflow cancellation. The archived app is already signed with the
-    # Mac App Store profile, so create the installer package directly.
+    # Avoid Xcode's archive/export wrappers for Mac App Store/TestFlight.
+    # On GitHub macos-26 runners they have hung in Swift archive and
+    # productbuild phases. A signed Mac App Store .app plus a signed installer
+    # package is enough for `asc builds upload --pkg`.
     rm -f "$PKG_PATH"
     productbuild \
-        --component "$archived_app" \
+        --component "$built_app" \
         /Applications \
         --sign "$INSTALLER_CODE_SIGN_IDENTITY" \
         "$PKG_PATH"
