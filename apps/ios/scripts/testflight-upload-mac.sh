@@ -74,7 +74,7 @@ BUILD_METADATA_PATH="${BUILD_METADATA_PATH:-$BUILD_DIR/testflight-mac-build.env}
 
 require_cmd asc
 require_cmd jq
-require_cmd productbuild
+require_cmd pkgbuild
 require_cmd xcodebuild
 require_cmd xcodegen
 
@@ -217,15 +217,15 @@ if [[ "$TESTFLIGHT_SKIP_BUILD" != "1" ]]; then
     fi
     echo "==> Verified app-sandbox entitlement is present on signed binary"
 
-    echo "==> Packaging PKG with productbuild (installer signing: $INSTALLER_CODE_SIGN_IDENTITY)"
+    echo "==> Packaging PKG with pkgbuild (installer signing: $INSTALLER_CODE_SIGN_IDENTITY)"
     # Avoid Xcode's archive/export wrappers for Mac App Store/TestFlight.
     # On GitHub macos-26 runners they have hung in Swift archive and
     # productbuild phases. A signed Mac App Store .app plus a signed installer
     # package is enough for `asc builds upload --pkg`.
     rm -f "$PKG_PATH"
-    productbuild \
+    pkgbuild \
         --component "$built_app" \
-        /Applications \
+        --install-location /Applications \
         --sign "$INSTALLER_CODE_SIGN_IDENTITY" \
         "$PKG_PATH"
 
