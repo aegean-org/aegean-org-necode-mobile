@@ -87,13 +87,6 @@ android {
         }
     }
 
-    packaging {
-        jniLibs {
-            // Ensure native libs are extracted to a filesystem path so they can be executed.
-            useLegacyPackaging = true
-        }
-    }
-
     bundle {
         storeArchive {
             enable = false

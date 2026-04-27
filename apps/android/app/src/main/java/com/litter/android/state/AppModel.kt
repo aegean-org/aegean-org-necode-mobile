@@ -93,7 +93,7 @@ class AppModel private constructor(context: android.content.Context) {
     val appContext: android.content.Context = context
     init {
         UniffiInit.ensure(context)
-        registerBundledCliTools(context)
+        registerBundledCliTools()
         LLog.bootstrap(context)
         store = AppStore()
         client = AppClient()
@@ -1414,23 +1414,8 @@ class AppModel private constructor(context: android.content.Context) {
     }
 }
 
-/**
- * CLI tools we ship as ELF executables under `app/src/main/jniLibs/<abi>/lib<tool>.so`.
- * Android packs these into `nativeLibraryDir`, which is the only execute-allowed
- * directory in an app sandbox on Android 10+. Tools not present here fall through
- * to PATH-based lookup (which finds `/system/bin/{ls,cat,grep,sed,awk,...}`).
- */
-private val BUNDLED_CLI_TOOLS = listOf("git", "curl", "wget")
-
-private fun registerBundledCliTools(context: android.content.Context) {
-    val nativeDir = context.applicationInfo.nativeLibraryDir ?: return
-    val tools = HashMap<String, String>()
-    for (tool in BUNDLED_CLI_TOOLS) {
-        val candidate = java.io.File(nativeDir, "lib$tool.so")
-        if (candidate.exists() && candidate.canExecute()) {
-            tools[tool] = candidate.absolutePath
-        }
-    }
+private fun registerBundledCliTools() {
+    val tools = emptyMap<String, String>()
     try {
         registerAndroidTools(tools)
         android.util.Log.i(

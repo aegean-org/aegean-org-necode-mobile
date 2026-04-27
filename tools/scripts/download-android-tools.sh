@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Download Android arm64 CLI binaries for the on-device Codex agent.
 #
-# Source: bnsmb/binaries-for-Android pinned to a specific commit SHA so the
-# downloaded artifacts can't shift under us. Binaries are placed under
-# `apps/android/app/src/main/jniLibs/arm64-v8a/lib<tool>.so`; the package
-# installer extracts them into the app's `nativeLibraryDir`, which is the
-# only execute-allowed location in the app sandbox on Android 10+.
+# Deprecated: Android 16 KB page-size compatibility requires app native
+# libraries to stay uncompressed and page-aligned in the APK. The old approach
+# packaged CLI executables as `lib<tool>.so` only to force extraction into
+# `nativeLibraryDir`; that extraction mode now triggers compatibility warnings
+# on current Android builds, and the pinned wget binary is only 4 KB aligned.
 #
-# Tools we don't bundle (`ls`, `cat`, `grep`, `sed`, `awk`, etc.) are already
-# present at `/system/bin` on every Android device and resolve via PATH.
+# The old source was bnsmb/binaries-for-Android pinned by SHA. Keep this script
+# as a no-op placeholder until Android gets a non-JNI delivery path for bundled
+# CLI tools. Tools we don't bundle (`ls`, `cat`, `grep`, `sed`, `awk`, etc.)
+# still resolve through `/system/bin` via PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -19,10 +21,12 @@ PIN_SHA="728fde6d326ccc80b87b87305de919afd5891f37"
 BASE_URL="https://raw.githubusercontent.com/bnsmb/binaries-for-Android/${PIN_SHA}/binaries"
 
 # Format: <local-name>:<remote-name>:<sha256>
-TOOLS=(
-    "libcurl.so:curl-8.19.0:7331475099de07acc8e5d0ec8139e35394f65d5fb596d9411ef7a46eb44b7bde"
-    "libwget.so:wget2:a8468065b605f87e2af5bd782e36bc7fac0e6cf3e5678699fc8f282658066be1"
-)
+TOOLS=()
+
+if [ "${#TOOLS[@]}" -eq 0 ]; then
+    echo "==> Android bundled CLI tools are disabled for 16 KB page-size compatibility"
+    exit 0
+fi
 
 if ! command -v curl >/dev/null 2>&1; then
     echo "error: curl is required" >&2
