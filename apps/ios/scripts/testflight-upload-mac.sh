@@ -56,6 +56,8 @@ WHAT_TO_TEST_MAX_COMMITS="${WHAT_TO_TEST_MAX_COMMITS:-8}"
 AUTO_ASSIGN_ENCRYPTION_DECLARATION="${AUTO_ASSIGN_ENCRYPTION_DECLARATION:-1}"
 TESTFLIGHT_SKIP_BUILD="${TESTFLIGHT_SKIP_BUILD:-0}"
 TESTFLIGHT_SKIP_UPLOAD="${TESTFLIGHT_SKIP_UPLOAD:-0}"
+XCODE_ARCHIVE_TIMEOUT_SECONDS="${XCODE_ARCHIVE_TIMEOUT_SECONDS:-3600}"
+XCODE_EXPORT_TIMEOUT_SECONDS="${XCODE_EXPORT_TIMEOUT_SECONDS:-1800}"
 # Version bump is owned by the iOS script — it runs first in a shared
 # release and advances MARKETING_VERSION in project.yml once per cycle.
 # The Mac script just reads the current value.
@@ -74,7 +76,6 @@ BUILD_METADATA_PATH="${BUILD_METADATA_PATH:-$BUILD_DIR/testflight-mac-build.env}
 
 require_cmd asc
 require_cmd jq
-require_cmd pkgbuild
 require_cmd xcodebuild
 require_cmd xcodegen
 
@@ -98,6 +99,34 @@ APP_PROVISIONING_PROFILE_SPECIFIER=$(printf '%q' "$APP_PROVISIONING_PROFILE_SPEC
 MARKETING_VERSION=$(printf '%q' "$MARKETING_VERSION")
 WHAT_TO_TEST_LOCALE=$(printf '%q' "$WHAT_TO_TEST_LOCALE")
 EOF
+}
+
+run_with_timeout() {
+    local label="$1"
+    local timeout_seconds="$2"
+    shift 2
+
+    "$@" &
+    local pid=$!
+    local deadline=$(( $(date +%s) + timeout_seconds ))
+    local status=0
+
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ "$(date +%s)" -ge "$deadline" ]]; then
+            echo "ERROR: $label exceeded ${timeout_seconds}s; terminating pid $pid" >&2
+            kill -TERM "$pid" 2>/dev/null || true
+            sleep 10
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -KILL "$pid" 2>/dev/null || true
+            fi
+            wait "$pid" 2>/dev/null || true
+            return 124
+        fi
+        sleep 5
+    done
+
+    wait "$pid" || status=$?
+    return "$status"
 }
 
 APP_STORE_APP_ID="$(resolve_app_store_app_id "$APP_STORE_APP_ID" "$APP_BUNDLE_ID")"
@@ -155,17 +184,19 @@ if [[ "$TESTFLIGHT_SKIP_BUILD" != "1" ]]; then
     echo "==> Regenerating Xcode project"
     "$PROJECT_DIR/scripts/regenerate-project.sh"
 
-    echo "==> Building $SCHEME ($MARKETING_VERSION/$BUILD_NUMBER) for Mac Catalyst"
+    echo "==> Archiving $SCHEME ($MARKETING_VERSION/$BUILD_NUMBER) for Mac Catalyst"
     rm -rf "$DERIVED_DATA_PATH"
-    build_cmd=(
+    rm -rf "$ARCHIVE_PATH"
+    archive_cmd=(
         xcodebuild
         -project "$PROJECT_PATH"
         -scheme "$SCHEME"
         -configuration "$CONFIGURATION"
         -destination "generic/platform=macOS,variant=Mac Catalyst"
+        -archivePath "$ARCHIVE_PATH"
         -derivedDataPath "$DERIVED_DATA_PATH"
         -showBuildTimingSummary
-        clean build
+        clean archive
         MARKETING_VERSION="$MARKETING_VERSION"
         CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
         ARCHS=arm64
@@ -178,56 +209,102 @@ if [[ "$TESTFLIGHT_SKIP_BUILD" != "1" ]]; then
     )
 
     if [[ -n "$TEAM_ID" ]]; then
-        build_cmd+=(DEVELOPMENT_TEAM="$TEAM_ID")
+        archive_cmd+=(DEVELOPMENT_TEAM="$TEAM_ID")
     fi
 
     if [[ "$EXPORT_SIGNING_STYLE" == "manual" ]]; then
-        build_cmd+=(
+        archive_cmd+=(
             APP_CODE_SIGN_STYLE=Manual
             APP_PROVISIONING_PROFILE_SPECIFIER="$APP_PROVISIONING_PROFILE_SPECIFIER"
             APP_CODE_SIGN_IDENTITY="$APP_CODE_SIGN_IDENTITY"
         )
     else
-        build_cmd+=(-allowProvisioningUpdates)
+        archive_cmd+=(-allowProvisioningUpdates)
     fi
 
     if [[ "$EXPORT_SIGNING_STYLE" == "automatic" && "${#auth_args[@]}" -gt 0 ]]; then
-        build_cmd+=("${auth_args[@]}")
+        archive_cmd+=("${auth_args[@]}")
     fi
 
-    "${build_cmd[@]}"
+    run_with_timeout "xcodebuild archive" "$XCODE_ARCHIVE_TIMEOUT_SECONDS" "${archive_cmd[@]}"
 
     # Sandbox-entitlement gate — catches ITMS-90296 before we waste a build
     # slot on App Store Connect.
-    built_app="$(find "$DERIVED_DATA_PATH/Build/Products" -path "*/Release-maccatalyst/Litter.app" -type d | head -n 1)"
-    if [[ -z "$built_app" || ! -d "$built_app" ]]; then
-        echo "No Litter.app found under $DERIVED_DATA_PATH/Build/Products — cannot verify entitlements." >&2
+    archived_app="$ARCHIVE_PATH/Products/Applications/Litter.app"
+    if [[ ! -d "$archived_app" ]]; then
+        echo "No archived app found at $archived_app — cannot verify entitlements." >&2
         exit 1
     fi
-    entitlements_xml="$(codesign -d --entitlements :- "$built_app" 2>/dev/null || true)"
+    entitlements_xml="$(codesign -d --entitlements :- "$archived_app" 2>/dev/null || true)"
     if ! grep -q "com\.apple\.security\.app-sandbox" <<<"$entitlements_xml"; then
-        echo "ERROR: signed $built_app is missing com.apple.security.app-sandbox" >&2
+        echo "ERROR: signed $archived_app is missing com.apple.security.app-sandbox" >&2
         echo "       ASC will reject this with ITMS-90296. Check that APP_PROVISIONING_PROFILE_SPECIFIER" >&2
         echo "       points at the Mac App Store profile (not the iOS Litter distribution profile)." >&2
         exit 1
     fi
     if ! grep -A1 "com\.apple\.security\.app-sandbox" <<<"$entitlements_xml" | grep -q "<true/>"; then
-        echo "ERROR: com.apple.security.app-sandbox is present but not <true/> on $built_app" >&2
+        echo "ERROR: com.apple.security.app-sandbox is present but not <true/> on $archived_app" >&2
         exit 1
     fi
     echo "==> Verified app-sandbox entitlement is present on signed binary"
 
-    echo "==> Packaging PKG with pkgbuild (installer signing: $INSTALLER_CODE_SIGN_IDENTITY)"
-    # Avoid Xcode's archive/export wrappers for Mac App Store/TestFlight.
-    # On GitHub macos-26 runners they have hung in Swift archive and
-    # productbuild phases. A signed Mac App Store .app plus a signed installer
-    # package is enough for `asc builds upload --pkg`.
-    rm -f "$PKG_PATH"
-    pkgbuild \
-        --component "$built_app" \
-        --install-location /Applications \
-        --sign "$INSTALLER_CODE_SIGN_IDENTITY" \
-        "$PKG_PATH"
+    cat >"$EXPORT_OPTIONS_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>destination</key>
+    <string>export</string>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>signingStyle</key>
+    <string>${EXPORT_SIGNING_STYLE}</string>
+    <key>manageAppVersionAndBuildNumber</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+    if [[ -n "$TEAM_ID" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" "$EXPORT_OPTIONS_PLIST"
+    fi
+    if [[ "$EXPORT_SIGNING_STYLE" == "manual" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS_PLIST"
+        /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$APP_BUNDLE_ID string $APP_PROVISIONING_PROFILE_SPECIFIER" "$EXPORT_OPTIONS_PLIST"
+        /usr/libexec/PlistBuddy -c "Add :signingCertificate string $APP_CODE_SIGN_IDENTITY" "$EXPORT_OPTIONS_PLIST"
+        /usr/libexec/PlistBuddy -c "Add :installerSigningCertificate string $INSTALLER_CODE_SIGN_IDENTITY" "$EXPORT_OPTIONS_PLIST"
+    fi
+
+    echo "==> Exporting PKG with xcodebuild -exportArchive (signing: $EXPORT_SIGNING_STYLE)"
+    rm -f "$BUILD_DIR"/*.pkg
+    export_cmd=(
+        xcodebuild
+        -exportArchive
+        -archivePath "$ARCHIVE_PATH"
+        -exportPath "$BUILD_DIR"
+        -exportOptionsPlist "$EXPORT_OPTIONS_PLIST"
+    )
+
+    if [[ "$EXPORT_SIGNING_STYLE" == "automatic" ]]; then
+        export_cmd+=(-allowProvisioningUpdates)
+    fi
+
+    if [[ "$EXPORT_SIGNING_STYLE" == "automatic" && "${#auth_args[@]}" -gt 0 ]]; then
+        export_cmd+=("${auth_args[@]}")
+    fi
+
+    run_with_timeout "xcodebuild -exportArchive" "$XCODE_EXPORT_TIMEOUT_SECONDS" "${export_cmd[@]}"
+
+    exported_pkg="$(find "$BUILD_DIR" -maxdepth 1 -name "*.pkg" | head -n 1)"
+    if [[ -z "$exported_pkg" ]]; then
+        echo "No PKG produced in $BUILD_DIR" >&2
+        exit 1
+    fi
+    if [[ "$exported_pkg" != "$PKG_PATH" ]]; then
+        cp "$exported_pkg" "$PKG_PATH"
+    fi
 
     if [[ ! -f "$PKG_PATH" ]]; then
         echo "No PKG produced at $PKG_PATH" >&2
