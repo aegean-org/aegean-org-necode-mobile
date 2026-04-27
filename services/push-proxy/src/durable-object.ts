@@ -1,5 +1,6 @@
 import { sendSilentPush } from "./apns"
-import { Env, RegisterRequest } from "./types"
+import { sendFCMPush } from "./fcm"
+import { ContentState, Env, RegisterRequest } from "./types"
 
 interface StoredRegistration {
   platform: "ios" | "android"
@@ -9,6 +10,7 @@ interface StoredRegistration {
   ttlSeconds: number
   pushCount: number
   createdAt: number // ms
+  contentState?: ContentState
 }
 
 export class PushRegistration implements DurableObject {
@@ -33,6 +35,7 @@ export class PushRegistration implements DurableObject {
         ttlSeconds: body.ttlSeconds ?? 7200,
         pushCount: 0,
         createdAt: Date.now(),
+        contentState: body.contentState,
       }
       await this.state.storage.put("reg", reg)
       await this.state.storage.setAlarm(Date.now() + reg.intervalSeconds * 1000)
@@ -63,6 +66,15 @@ export class PushRegistration implements DurableObject {
     if (reg.platform === "ios") {
       const result = await sendSilentPush(this.env, reg.pushToken, reg.apnsEnvironment)
       if (result.gone) {
+        await this.state.storage.deleteAll()
+        return
+      }
+    } else {
+      const result = await sendFCMPush(this.env, reg.pushToken, {
+        ...(reg.contentState ?? {}),
+        elapsedSeconds: Math.floor((now - reg.createdAt) / 1000),
+      })
+      if (result.unregistered) {
         await this.state.storage.deleteAll()
         return
       }

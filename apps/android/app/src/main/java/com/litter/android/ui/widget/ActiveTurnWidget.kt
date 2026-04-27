@@ -36,7 +36,7 @@ import uniffi.codex_mobile_client.HydratedConversationItemContent
 class ActiveTurnWidget : GlanceAppWidget() {
 
     companion object {
-        /** Call from TurnForegroundService to trigger widget refresh. */
+        /** Refresh active-turn widget content from the current Rust store snapshot. */
         suspend fun triggerUpdate(context: Context) {
             val manager = GlanceAppWidgetManager(context)
             val ids = manager.getGlanceIds(ActiveTurnWidget::class.java)

@@ -1,6 +1,12 @@
 package com.litter.android.state
 
 import android.content.Context
+import com.litter.android.push.PushProxyClient
+import com.litter.android.util.LLog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ThreadKey
 
 /**
@@ -13,6 +19,11 @@ class AppLifecycleController {
 
     /** Threads that were active when the app went to background. */
     private val backgroundedTurnKeys = mutableSetOf<ThreadKey>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pushProxy = PushProxyClient()
+    private val pushProxyLock = Any()
+    private var pushProxyRegistrationId: String? = null
+    private var pushProxyGeneration: Long = 0
 
     /** FCM device push token. */
     var devicePushToken: String? = null
@@ -48,6 +59,10 @@ class AppLifecycleController {
      * Called when the app enters the foreground.
      */
     suspend fun onResume(context: Context, appModel: AppModel) {
+        synchronized(pushProxyLock) {
+            pushProxyGeneration += 1
+        }
+        deregisterPushProxy()
         val keysToRefresh = buildSet {
             addAll(backgroundedTurnKeys)
             appModel.snapshot.value?.activeThread?.let(::add)
@@ -63,23 +78,10 @@ class AppLifecycleController {
     }
 
     /**
-     * Called when the background foreground-service starts monitoring active turns.
-     * The app is still backgrounded, so this must not mark the shared store active.
-     */
-    suspend fun onBackgroundServiceStart(context: Context, appModel: AppModel) {
-        val servers = SavedServerStore.remembered(context).map { it.toRecord() }
-        appModel.reconnectController.syncSavedServers(servers)
-        appModel.reconnectController.onAppEnteredBackground()
-        val results = appModel.reconnectController.reconnectSavedServers()
-        restoreLocalStateAfterReconnect(appModel, results)
-        appModel.refreshSnapshot()
-    }
-
-    /**
      * Called when the app goes to background.
      * Tracks active turns for notification on completion.
      */
-    fun onPause(appModel: AppModel) {
+    fun onPause(context: Context, appModel: AppModel) {
         appModel.reconnectController.onAppEnteredBackground()
         backgroundedTurnKeys.clear()
         val snap = appModel.snapshot.value ?: return
@@ -88,13 +90,77 @@ class AppLifecycleController {
                 backgroundedTurnKeys.add(thread.key)
             }
         }
+        if (backgroundedTurnKeys.isNotEmpty()) {
+            registerPushProxy(context)
+        }
     }
 
-    /**
-     * Returns the set of threads that were active when the app was backgrounded.
-     * Used by foreground service / push handler to know what to track.
-     */
-    fun getBackgroundedTurnKeys(): Set<ThreadKey> = backgroundedTurnKeys.toSet()
+    private fun registerPushProxy(context: Context) {
+        val generation = synchronized(pushProxyLock) {
+            if (pushProxyRegistrationId != null) return
+            pushProxyGeneration
+        }
+        val token = devicePushToken ?: context
+            .getSharedPreferences("litter_push", Context.MODE_PRIVATE)
+            .getString("fcm_token", null)
+            ?.takeIf { it.isNotBlank() }
+        if (token.isNullOrBlank()) {
+            LLog.i("AppLifecycleController", "Skipping push proxy registration; no FCM token")
+            return
+        }
+
+        val trackedKeys = backgroundedTurnKeys.toList()
+        val primaryKey = trackedKeys.firstOrNull()
+        scope.launch {
+            try {
+                val registrationId = pushProxy.register(
+                    platform = "android",
+                    pushToken = token,
+                    contentState = mapOf(
+                        "phase" to "thinking",
+                        "elapsedSeconds" to 0,
+                        "toolCallCount" to 0,
+                        "activeThreadCount" to trackedKeys.size,
+                        "serverId" to (primaryKey?.serverId ?: ""),
+                        "threadId" to (primaryKey?.threadId ?: ""),
+                    ),
+                    startTimestamp = System.currentTimeMillis() / 1000,
+                )
+                val shouldKeepRegistration = synchronized(pushProxyLock) {
+                    if (pushProxyGeneration == generation && pushProxyRegistrationId == null) {
+                        pushProxyRegistrationId = registrationId
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (!shouldKeepRegistration) {
+                    pushProxy.deregister(registrationId)
+                    LLog.i("AppLifecycleController", "Deregistered stale push proxy $registrationId")
+                    return@launch
+                }
+                LLog.i("AppLifecycleController", "Registered push proxy $registrationId")
+            } catch (error: Exception) {
+                LLog.e("AppLifecycleController", "Push proxy registration failed", error)
+            }
+        }
+    }
+
+    private fun deregisterPushProxy() {
+        val registrationId = synchronized(pushProxyLock) {
+            val id = pushProxyRegistrationId ?: return
+            pushProxyRegistrationId = null
+            id
+        }
+        scope.launch {
+            try {
+                pushProxy.deregister(registrationId)
+                LLog.i("AppLifecycleController", "Deregistered push proxy $registrationId")
+            } catch (error: Exception) {
+                LLog.e("AppLifecycleController", "Push proxy deregistration failed", error)
+            }
+        }
+    }
 
     private suspend fun restoreLocalStateAfterReconnect(
         appModel: AppModel,

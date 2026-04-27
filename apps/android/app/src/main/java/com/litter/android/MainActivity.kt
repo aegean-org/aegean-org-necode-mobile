@@ -19,12 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import com.google.firebase.messaging.FirebaseMessaging
 import com.litter.android.state.AppLifecycleController
 import com.litter.android.state.AppModel
 import com.litter.android.state.OpenAIApiKeyStore
-import com.litter.android.state.TurnForegroundService
 import com.litter.android.ui.AnimatedSplashScreen
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterApp
@@ -32,7 +31,6 @@ import com.litter.android.ui.LitterAppTheme
 import com.litter.android.ui.WallpaperManager
 import com.litter.android.util.LLog
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ThreadKey
 
@@ -44,8 +42,6 @@ class MainActivity : ComponentActivity() {
 
     private var appModel: AppModel? = null
     private val lifecycleController = AppLifecycleController()
-    private var backgroundServiceStartJob: Job? = null
-    private var userLeavingApp = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must be called before super.onCreate to hand off the system splash
@@ -65,6 +61,7 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             LLog.e("MainActivity", "AppModel.start() failed", e)
         }
+        loadPushToken()
 
         var showSplash by mutableStateOf(true)
         var contentReady by mutableStateOf(false)
@@ -120,9 +117,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        userLeavingApp = false
-        backgroundServiceStartJob?.cancel()
-        TurnForegroundService.stop(this)
         val model = appModel ?: return
         lifecycleScope.launch {
             lifecycleController.onResume(this@MainActivity, model)
@@ -132,16 +126,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         val model = appModel ?: return
-        lifecycleController.onPause(model)
-        if (userLeavingApp && lifecycleController.getBackgroundedTurnKeys().isNotEmpty()) {
-            scheduleTurnForegroundServiceStart()
-        }
-        userLeavingApp = false
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        userLeavingApp = true
+        lifecycleController.onPause(this, model)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -180,14 +165,25 @@ class MainActivity : ComponentActivity() {
         return ThreadKey(serverId = serverId, threadId = threadId)
     }
 
-    private fun scheduleTurnForegroundServiceStart() {
-        backgroundServiceStartJob?.cancel()
-        backgroundServiceStartJob = lifecycleScope.launch {
-            delay(250)
-            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                return@launch
-            }
-            TurnForegroundService.start(this@MainActivity)
+    private fun loadPushToken() {
+        val cachedToken = getSharedPreferences("litter_push", MODE_PRIVATE)
+            .getString("fcm_token", null)
+            ?.takeIf { it.isNotBlank() }
+        if (cachedToken != null) {
+            lifecycleController.setDevicePushToken(cachedToken)
         }
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                if (token.isNotBlank()) {
+                    getSharedPreferences("litter_push", MODE_PRIVATE)
+                        .edit()
+                        .putString("fcm_token", token)
+                        .apply()
+                    lifecycleController.setDevicePushToken(token)
+                }
+            }
+            .addOnFailureListener { error ->
+                LLog.e("MainActivity", "Failed to fetch FCM token", error)
+            }
     }
 }

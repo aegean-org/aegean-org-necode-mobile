@@ -11,6 +11,18 @@ import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.litter.android.MainActivity
+import com.litter.android.state.AppLifecycleController
+import com.litter.android.state.AppModel
+import com.litter.android.state.contextPercent
+import com.litter.android.state.hasActiveTurn
+import com.litter.android.state.latestAssistantSnippet
+import com.litter.android.state.resolvedModel
+import com.litter.android.state.resolvedPreview
+import com.litter.android.util.LLog
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
+import uniffi.codex_mobile_client.AppThreadSnapshot
+import uniffi.codex_mobile_client.ThreadKey
 
 class LitterFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
@@ -23,7 +35,7 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         val data = remoteMessage.data
         when (data["type"]) {
-            "turn_keepalive" -> showOrUpdateTurnNotification(data)
+            "turn_keepalive" -> handleTurnKeepalive(data)
             "turn_end" -> showTurnCompleteNotification(data)
         }
     }
@@ -33,6 +45,45 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
             .edit()
             .putString("fcm_token", token)
             .apply()
+    }
+
+    private fun handleTurnKeepalive(data: Map<String, String>) {
+        showOrUpdateTurnNotification(data)
+        runBlocking {
+            withTimeoutOrNull(10_000) {
+                refreshTurnFromPush(data)
+            }
+        }
+    }
+
+    private suspend fun refreshTurnFromPush(data: Map<String, String>) {
+        val key = notificationThreadKey(data) ?: return
+        try {
+            val appModel = AppModel.init(applicationContext).also { it.start() }
+            AppLifecycleController().reconnectServer(this, appModel, key.serverId)
+            val resolvedKey = appModel.ensureThreadLoaded(key, maxAttempts = 2) ?: key
+            appModel.refreshThreadSnapshot(resolvedKey)
+            val thread = appModel.snapshot.value
+                ?.threads
+                ?.firstOrNull { it.key == resolvedKey || it.key == key }
+            if (thread == null) {
+                LLog.i("LitterFirebaseMessagingService", "Push wake refreshed but thread was unavailable")
+                return
+            }
+            if (thread.hasActiveTurn) {
+                showSnapshotTurnNotification(thread)
+            } else {
+                showTurnCompleteNotification(
+                    mapOf(
+                        "serverId" to thread.key.serverId,
+                        "threadId" to thread.key.threadId,
+                        "summary" to thread.resolvedPreview,
+                    ),
+                )
+            }
+        } catch (error: Exception) {
+            LLog.e("LitterFirebaseMessagingService", "Push wake refresh failed", error)
+        }
     }
 
     private fun showOrUpdateTurnNotification(data: Map<String, String>) {
@@ -51,6 +102,35 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
             .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setContentTitle("Codex turn in progress")
             .setContentText(text)
+            .setContentIntent(notificationContentIntent(data))
+            .setOngoing(true)
+            .setSilent(true)
+            .setAutoCancel(false)
+            .build()
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun showSnapshotTurnNotification(thread: AppThreadSnapshot) {
+        ensureChannel()
+        val model = thread.resolvedModel.ifBlank { "unknown" }
+        val snippet = thread.latestAssistantSnippet
+            ?: thread.resolvedPreview.takeIf { it.isNotBlank() }
+            ?: "Working..."
+        val details = buildString {
+            append(model)
+            val contextPct = thread.contextPercent
+            if (contextPct > 0) append(" | ctx $contextPct%")
+        }
+        val data = mapOf(
+            "serverId" to thread.key.serverId,
+            "threadId" to thread.key.threadId,
+        )
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_popup_sync)
+            .setContentTitle("Codex turn in progress")
+            .setContentText(snippet)
+            .setSubText(details)
             .setContentIntent(notificationContentIntent(data))
             .setOngoing(true)
             .setSilent(true)
@@ -87,8 +167,9 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private fun notificationContentIntent(data: Map<String, String>): PendingIntent? {
-        val serverId = data["serverId"] ?: data["server_id"] ?: return null
-        val threadId = data["threadId"] ?: data["thread_id"] ?: return null
+        val key = notificationThreadKey(data) ?: return null
+        val serverId = key.serverId
+        val threadId = key.threadId
         if (serverId.isBlank() || threadId.isBlank()) {
             return null
         }
@@ -105,5 +186,14 @@ class LitterFirebaseMessagingService : FirebaseMessagingService() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    private fun notificationThreadKey(data: Map<String, String>): ThreadKey? {
+        val serverId = data["serverId"] ?: data["server_id"] ?: return null
+        val threadId = data["threadId"] ?: data["thread_id"] ?: return null
+        if (serverId.isBlank() || threadId.isBlank()) {
+            return null
+        }
+        return ThreadKey(serverId = serverId, threadId = threadId)
     }
 }

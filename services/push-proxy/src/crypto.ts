@@ -1,5 +1,7 @@
-export function base64UrlEncode(data: ArrayBuffer): string {
-  const bytes = new Uint8Array(data)
+export function base64UrlEncode(data: BufferSource): string {
+  const bytes = ArrayBuffer.isView(data)
+    ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+    : new Uint8Array(data)
   let binary = ""
   for (const b of bytes) binary += String.fromCharCode(b)
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")

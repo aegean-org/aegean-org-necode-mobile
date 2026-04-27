@@ -2,8 +2,18 @@ export interface RegisterRequest {
   platform: "ios" | "android"
   pushToken: string
   apnsEnvironment?: "production" | "sandbox"
+  contentState?: ContentState
   intervalSeconds?: number
   ttlSeconds?: number
+}
+
+export interface ContentState {
+  phase?: string
+  elapsedSeconds?: number
+  toolCallCount?: number
+  activeThreadCount?: number
+  serverId?: string
+  threadId?: string
 }
 
 export interface Env {
