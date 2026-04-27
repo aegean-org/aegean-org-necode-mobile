@@ -162,9 +162,15 @@ if [[ "$TESTFLIGHT_SKIP_BUILD" != "1" ]]; then
         -configuration "$CONFIGURATION"
         -destination "generic/platform=macOS,variant=Mac Catalyst"
         -archivePath "$ARCHIVE_PATH"
+        -showBuildTimingSummary
         clean archive
         MARKETING_VERSION="$MARKETING_VERSION"
         CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+        SWIFT_COMPILATION_MODE=singlefile
+        SWIFT_WHOLE_MODULE_OPTIMIZATION=NO
+        SWIFT_ENABLE_EXPLICIT_MODULES=NO
+        CLANG_ENABLE_EXPLICIT_MODULES=NO
+        COMPILER_INDEX_STORE_ENABLE=NO
     )
 
     if [[ -n "$TEAM_ID" ]]; then
