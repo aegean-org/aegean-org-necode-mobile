@@ -29,6 +29,7 @@ data class SavedServer(
     val os: String? = null,
     val sshBanner: String? = null,
     val rememberedByUser: Boolean = false,
+    val alleycatHost: String? = null,
 ) {
     /** Stable key for deduplication across discovery cycles. */
     val deduplicationKey: String
@@ -61,6 +62,7 @@ data class SavedServer(
         os?.let { put("os", it) }
         sshBanner?.let { put("sshBanner", it) }
         put("rememberedByUser", rememberedByUser)
+        alleycatHost?.let { put("alleycatHost", it) }
     }
 
     val availableDirectCodexPorts: List<Int>
@@ -193,6 +195,7 @@ data class SavedServer(
             } else {
                 true
             },
+            alleycatHost = if (obj.has("alleycatHost")) obj.getString("alleycatHost") else null,
         )
 
         fun from(server: AppDiscoveredServer): SavedServer = SavedServer(
@@ -232,7 +235,15 @@ fun SavedServer.toRecord() = SavedServerRecord(
     sshPortForwardingEnabled = sshPortForwardingEnabled,
     websocketUrl = websocketURL,
     rememberedByUser = rememberedByUser,
+    alleycatHost = alleycatHost,
+    alleycatUdpPort = alleycatUdpPort,
 )
+
+private val SavedServer.alleycatUdpPort: UShort?
+    get() {
+        if (alleycatHost == null || !id.startsWith("alleycat:")) return null
+        return id.substringAfterLast(':').toUShortOrNull()
+    }
 
 object SavedServerStore {
     private const val PREFS_NAME = "codex_saved_servers_prefs"

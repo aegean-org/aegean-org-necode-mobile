@@ -76,8 +76,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -208,6 +210,8 @@ fun HomeDashboardScreen(
     var pinchBaseZoom by remember { mutableStateOf<Int?>(null) }
     var pinchAccumulator by remember { mutableStateOf(1f) }
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    var topChromeHeight by remember { mutableStateOf(0.dp) }
 
     fun zoomIconFor(level: Int): ImageVector = when (level) {
         // Matches iOS semantics: 1 = most compact (scan), 4 = most detail (deep).
@@ -315,12 +319,16 @@ fun HomeDashboardScreen(
             contentPadding = run {
                 // Respect system bars so list content can scroll under the
                 // translucent top/bottom chrome *and* past the status/nav bar
-                // insets (edge-to-edge). The fixed dp offsets cover the
-                // floating chrome (server pills on top, composer buttons on
-                // bottom) so the first/last items aren't hidden behind them.
+                // insets (edge-to-edge). The measured top offset covers the
+                // floating header/server pills so the first row isn't hidden
+                // behind them when the chrome height changes.
                 val sysInsets = WindowInsets.systemBars.asPaddingValues()
                 androidx.compose.foundation.layout.PaddingValues(
-                    top = 72.dp + sysInsets.calculateTopPadding(),
+                    top = if (topChromeHeight > 0.dp) {
+                        topChromeHeight
+                    } else {
+                        72.dp + sysInsets.calculateTopPadding()
+                    },
                     bottom = 72.dp + sysInsets.calculateBottomPadding(),
                 )
             },
@@ -419,6 +427,9 @@ fun HomeDashboardScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .onGloballyPositioned {
+                    topChromeHeight = with(density) { it.size.height.toDp() }
+                }
                 .fillMaxWidth()
                 .background(
                     androidx.compose.ui.graphics.Brush.verticalGradient(
