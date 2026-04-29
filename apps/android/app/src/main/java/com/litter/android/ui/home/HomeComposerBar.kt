@@ -53,7 +53,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.AppComposerPayload
@@ -87,7 +89,8 @@ fun HomeComposerBar(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var text by remember { mutableStateOf("") }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    val text = textFieldValue.text
     var attachedImage by remember { mutableStateOf<ComposerImageAttachment?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
@@ -120,8 +123,8 @@ fun HomeComposerBar(
         }
     }
 
-    val canSend = !isSubmitting &&
-        (text.isNotBlank() || attachedImage != null)
+    val hasSendContent = text.isNotBlank() || attachedImage != null
+    val canSend = !isSubmitting && hasSendContent
 
     // IME visibility is authoritative for "the user is interacting with the
     // composer". `isFocused` alone is unreliable because dismissing the
@@ -158,7 +161,7 @@ fun HomeComposerBar(
         } else {
             val payloadText = text.trim()
             val attachmentToSend = attachedImage
-            text = ""
+            textFieldValue = TextFieldValue("")
             attachedImage = null
             isSubmitting = true
             errorMessage = null
@@ -191,11 +194,17 @@ fun HomeComposerBar(
                     onThreadCreated(threadKey)
                 } catch (e: LocalAccountLoginRequiredException) {
                     onLoginRequired(e.serverId)
-                    text = payloadText
+                    textFieldValue = TextFieldValue(
+                        text = payloadText,
+                        selection = TextRange(payloadText.length),
+                    )
                     attachedImage = attachmentToSend
                 } catch (e: Exception) {
                     errorMessage = e.message ?: "Failed to start thread"
-                    text = payloadText
+                    textFieldValue = TextFieldValue(
+                        text = payloadText,
+                        selection = TextRange(payloadText.length),
+                    )
                     attachedImage = attachmentToSend
                 } finally {
                     isSubmitting = false
@@ -308,8 +317,8 @@ fun HomeComposerBar(
                         )
                     }
                     BasicTextField(
-                        value = text,
-                        onValueChange = { text = it },
+                        value = textFieldValue,
+                        onValueChange = { textFieldValue = it },
                         textStyle = TextStyle(
                             color = LitterTheme.textPrimary,
                             fontSize = LitterTextStyle.body.scaled,
@@ -343,24 +352,6 @@ fun HomeComposerBar(
                 }
 
                 when {
-                    canSend -> {
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(
-                            onClick = sendCurrent,
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(LitterTheme.accent, CircleShape),
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                tint = Color.Black,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-
                     isRecording -> {
                         Spacer(Modifier.width(8.dp))
                         IconButton(
@@ -384,7 +375,7 @@ fun HomeComposerBar(
                                         authToken = auth?.authToken,
                                     )
                                     transcript?.let {
-                                        text = if (text.isBlank()) it else "$text $it"
+                                        textFieldValue = insertHomeComposerTranscript(textFieldValue, it)
                                     }
                                 }
                             },
@@ -425,12 +416,43 @@ fun HomeComposerBar(
                     }
                 }
             }
+
+            if (hasSendContent) {
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = sendCurrent,
+                    enabled = canSend && !isRecording && !isTranscribing,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (canSend && !isRecording && !isTranscribing) {
+                                LitterTheme.accent
+                            } else {
+                                LitterTheme.accent.copy(alpha = 0.45f)
+                            },
+                            CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send",
+                        tint = Color.Black,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+            }
         }
 
         if (showExpanded) {
             com.litter.android.ui.conversation.ComposerExpandedDialog(
                 text = text,
-                onTextChange = { text = it },
+                onTextChange = {
+                    textFieldValue = TextFieldValue(
+                        text = it,
+                        selection = TextRange(it.length),
+                    )
+                },
                 onSend = sendCurrent,
                 onDismiss = {
                     showExpanded = false
@@ -443,6 +465,33 @@ fun HomeComposerBar(
             )
         }
     }
+}
+
+private fun insertHomeComposerTranscript(current: TextFieldValue, transcript: String): TextFieldValue {
+    val insertion = transcript.trim()
+    if (insertion.isEmpty()) return current
+
+    val text = current.text
+    val start = current.selection.min.coerceIn(0, text.length)
+    val end = current.selection.max.coerceIn(0, text.length)
+    val replacement = homeComposerInsertionText(insertion, text, start, end)
+    val updated = text.replaceRange(start, end, replacement)
+    val cursor = start + replacement.length
+    return TextFieldValue(
+        text = updated,
+        selection = TextRange(cursor),
+    )
+}
+
+private fun homeComposerInsertionText(insertion: String, text: String, start: Int, end: Int): String {
+    var replacement = insertion
+    if (start > 0 && !text[start - 1].isWhitespace()) {
+        replacement = " $replacement"
+    }
+    if (end < text.length && !text[end].isWhitespace()) {
+        replacement += " "
+    }
+    return replacement
 }
 
 private fun readAttachmentFromUri(context: Context, uri: Uri): ComposerImageAttachment? {

@@ -5,6 +5,7 @@ struct ConversationComposerEntryRowView: View {
     @Binding var showAttachMenu: Bool
     @Binding var inputText: String
     @Binding var isComposerFocused: Bool
+    @Binding var composerSelectionRange: NSRange
     let voiceManager: VoiceTranscriptionManager
     let isTurnActive: Bool
     let hasAttachment: Bool
@@ -27,6 +28,7 @@ struct ConversationComposerEntryRowView: View {
         showAttachMenu: Binding<Bool>,
         inputText: Binding<String>,
         isComposerFocused: Binding<Bool>,
+        composerSelectionRange: Binding<NSRange> = .constant(NSRange(location: 0, length: 0)),
         voiceManager: VoiceTranscriptionManager,
         isTurnActive: Bool,
         hasAttachment: Bool,
@@ -40,6 +42,7 @@ struct ConversationComposerEntryRowView: View {
         _showAttachMenu = showAttachMenu
         _inputText = inputText
         _isComposerFocused = isComposerFocused
+        _composerSelectionRange = composerSelectionRange
         self.voiceManager = voiceManager
         self.isTurnActive = isTurnActive
         self.hasAttachment = hasAttachment
@@ -92,6 +95,7 @@ struct ConversationComposerEntryRowView: View {
                     ConversationComposerTextView(
                         text: $inputText,
                         isFocused: $isComposerFocused,
+                        selectedRange: $composerSelectionRange,
                         onPasteImage: onPasteImage,
                         onHardwareSubmit: {
                             if canSend { onSendText() }
@@ -109,18 +113,7 @@ struct ConversationComposerEntryRowView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                if canSend {
-                    Button(action: onSendText) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(LitterFont.styled(size: 28))
-                            .foregroundColor(LitterTheme.accent)
-                            .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .hoverEffect(.highlight)
-                    .accessibilityLabel("Send")
-                } else if voiceManager.isRecording {
+                if voiceManager.isRecording {
                     AudioWaveformView(level: voiceManager.audioLevel)
                         .frame(width: 48, height: 20)
 
@@ -173,6 +166,22 @@ struct ConversationComposerEntryRowView: View {
             }
             .animation(.easeInOut(duration: 0.15), value: shouldShowExpand)
 
+            if canSend && !isTurnActive {
+                Button(action: onSendText) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(LitterFont.styled(size: 30))
+                        .foregroundColor(LitterTheme.accent)
+                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .disabled(voiceManager.isRecording || voiceManager.isTranscribing)
+                .opacity(voiceManager.isRecording || voiceManager.isTranscribing ? 0.45 : 1)
+                .accessibilityLabel("Send")
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
             if isTurnActive {
                 Button(action: onInterrupt) {
                     Text("Cancel")
@@ -188,6 +197,7 @@ struct ConversationComposerEntryRowView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isTurnActive)
+        .animation(.spring(response: 0.3, dampingFraction: 0.86), value: canSend)
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.top, Metrics.verticalPadding)
         .padding(.bottom, Metrics.verticalPadding)

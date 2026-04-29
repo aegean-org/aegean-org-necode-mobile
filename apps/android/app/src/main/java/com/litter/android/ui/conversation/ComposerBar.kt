@@ -63,9 +63,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -143,7 +145,8 @@ fun ComposerBar(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val composerPrefillRequest by appModel.composerPrefillRequest.collectAsState()
-    var text by remember { mutableStateOf("") }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    val text = textFieldValue.text
     var attachedImage by remember { mutableStateOf<ComposerImageAttachment?>(null) }
     var showAttachMenu by remember { mutableStateOf(false) }
     var showExpanded by remember { mutableStateOf(false) }
@@ -215,7 +218,10 @@ fun ComposerBar(
     LaunchedEffect(composerPrefillRequest?.requestId, threadKey) {
         val prefill = composerPrefillRequest ?: return@LaunchedEffect
         if (prefill.threadKey != threadKey) return@LaunchedEffect
-        text = prefill.text
+        textFieldValue = TextFieldValue(
+            text = prefill.text,
+            selection = TextRange(prefill.text.length),
+        )
         attachedImage = null
         appModel.clearComposerPrefill(prefill.requestId)
     }
@@ -273,7 +279,7 @@ fun ComposerBar(
     val sendCurrent: () -> Unit = {
         val handledAsSlash = parseSlashCommandInvocation(text)?.let { invocation ->
             if (dispatchSlashCommand(invocation.command.name, invocation.args)) {
-                text = ""
+                textFieldValue = TextFieldValue("")
                 attachedImage = null
                 true
             } else false
@@ -294,18 +300,22 @@ fun ComposerBar(
                 reasoningEffort = effort,
                 serviceTier = tier,
             )
-            text = ""
+            textFieldValue = TextFieldValue("")
             attachedImage = null
             scope.launch {
                 try {
                     appModel.startTurn(threadKey, payload)
                 } catch (e: Exception) {
-                    text = payload.text
+                    textFieldValue = TextFieldValue(
+                        text = payload.text,
+                        selection = TextRange(payload.text.length),
+                    )
                     attachedImage = attachmentToSend
                 }
             }
         }
     }
+    val canSend = text.isNotBlank() || attachedImage != null
 
     Column(
         modifier = Modifier
@@ -541,8 +551,8 @@ fun ComposerBar(
                         )
                     }
                     BasicTextField(
-                        value = text,
-                        onValueChange = { text = it },
+                        value = textFieldValue,
+                        onValueChange = { textFieldValue = it },
                         textStyle = TextStyle(
                             color = LitterTheme.textPrimary,
                             fontSize = LitterTextStyle.body.scaled,
@@ -594,7 +604,7 @@ fun ComposerBar(
                                 onClick = {
                                     showSlashMenu = false
                                     if (dispatchSlashCommand(cmd.name, args = null)) {
-                                        text = ""
+                                        textFieldValue = TextFieldValue("")
                                         attachedImage = null
                                     }
                                 },
@@ -614,7 +624,11 @@ fun ComposerBar(
                                     showFileMenu = false
                                     val atIdx = text.lastIndexOf('@')
                                     if (atIdx >= 0) {
-                                        text = text.substring(0, atIdx) + "@$path "
+                                        val updated = text.substring(0, atIdx) + "@$path "
+                                        textFieldValue = TextFieldValue(
+                                            text = updated,
+                                            selection = TextRange(updated.length),
+                                        )
                                     }
                                 },
                             )
@@ -622,26 +636,7 @@ fun ComposerBar(
                     }
                 }
 
-                val canSend = text.isNotBlank() || attachedImage != null
                 when {
-                    canSend -> {
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(
-                            onClick = sendCurrent,
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(LitterTheme.accent, CircleShape),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                tint = Color.Black,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-
                     isRecording -> {
                         Spacer(Modifier.width(8.dp))
                         IconButton(
@@ -660,7 +655,9 @@ fun ComposerBar(
                                         authMethod = auth?.authMethod,
                                         authToken = auth?.authToken,
                                     )
-                                    transcript?.let { text = if (text.isBlank()) it else "$text $it" }
+                                    transcript?.let {
+                                        textFieldValue = insertComposerTranscript(textFieldValue, it)
+                                    }
                                 }
                             },
                             modifier = Modifier.size(32.dp),
@@ -694,7 +691,7 @@ fun ComposerBar(
                         val voicePhase = voiceSnapshot?.voiceSession?.phase
                         val voiceInputLevel = voiceSession?.inputLevel ?: 0f
 
-                        if (realtimeAvailable && text.isEmpty()) {
+                        if (realtimeAvailable && text.isEmpty() && attachedImage == null) {
                             Spacer(Modifier.width(8.dp))
                             com.litter.android.ui.voice.InlineVoiceButton(
                                 phase = voicePhase,
@@ -737,6 +734,32 @@ fun ComposerBar(
 
             Spacer(Modifier.width(4.dp))
 
+            if (canSend && !isThinking) {
+                IconButton(
+                    onClick = sendCurrent,
+                    enabled = !isRecording && !isTranscribing,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (!isRecording && !isTranscribing) {
+                                LitterTheme.accent
+                            } else {
+                                LitterTheme.accent.copy(alpha = 0.45f)
+                            },
+                            CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send",
+                        tint = Color.Black,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+
             if (isThinking) {
                 Text(
                     text = "Cancel",
@@ -765,7 +788,12 @@ fun ComposerBar(
         if (showExpanded) {
             ComposerExpandedDialog(
                 text = text,
-                onTextChange = { text = it },
+                onTextChange = {
+                    textFieldValue = TextFieldValue(
+                        text = it,
+                        selection = TextRange(it.length),
+                    )
+                },
                 onSend = sendCurrent,
                 onDismiss = {
                     showExpanded = false
@@ -1214,6 +1242,33 @@ private fun AttachmentActionRow(
     ) {
         Text(title, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.body.scaled, fontWeight = FontWeight.Medium)
     }
+}
+
+private fun insertComposerTranscript(current: TextFieldValue, transcript: String): TextFieldValue {
+    val insertion = transcript.trim()
+    if (insertion.isEmpty()) return current
+
+    val text = current.text
+    val start = current.selection.min.coerceIn(0, text.length)
+    val end = current.selection.max.coerceIn(0, text.length)
+    val replacement = composerInsertionText(insertion, text, start, end)
+    val updated = text.replaceRange(start, end, replacement)
+    val cursor = start + replacement.length
+    return TextFieldValue(
+        text = updated,
+        selection = TextRange(cursor),
+    )
+}
+
+private fun composerInsertionText(insertion: String, text: String, start: Int, end: Int): String {
+    var replacement = insertion
+    if (start > 0 && !text[start - 1].isWhitespace()) {
+        replacement = " $replacement"
+    }
+    if (end < text.length && !text[end].isWhitespace()) {
+        replacement += " "
+    }
+    return replacement
 }
 
 private fun readAttachmentFromUri(context: android.content.Context, uri: Uri): ComposerImageAttachment? {

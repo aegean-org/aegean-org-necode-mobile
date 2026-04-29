@@ -33,6 +33,7 @@ struct ConversationComposerContentView: View {
     let onInterrupt: () -> Void
     @Binding var inputText: String
     @Binding var isComposerFocused: Bool
+    @Binding var composerSelectionRange: NSRange
 
     init(
         attachedImage: UIImage?,
@@ -64,7 +65,8 @@ struct ConversationComposerContentView: View {
         onStartRecording: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         inputText: Binding<String>,
-        isComposerFocused: Binding<Bool>
+        isComposerFocused: Binding<Bool>,
+        composerSelectionRange: Binding<NSRange> = .constant(NSRange(location: 0, length: 0))
     ) {
         self.attachedImage = attachedImage
         self.collaborationMode = collaborationMode
@@ -96,6 +98,7 @@ struct ConversationComposerContentView: View {
         self.onInterrupt = onInterrupt
         _inputText = inputText
         _isComposerFocused = isComposerFocused
+        _composerSelectionRange = composerSelectionRange
     }
 
     var body: some View {
@@ -176,6 +179,7 @@ struct ConversationComposerContentView: View {
                     showAttachMenu: $showAttachMenu,
                     inputText: $inputText,
                     isComposerFocused: $isComposerFocused,
+                    composerSelectionRange: $composerSelectionRange,
                     voiceManager: voiceManager,
                     isTurnActive: isTurnActive,
                     hasAttachment: attachedImage != nil,

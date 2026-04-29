@@ -4,6 +4,7 @@ import UIKit
 struct ConversationComposerTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    @Binding var selectedRange: NSRange
     let onPasteImage: (UIImage) -> Void
     /// Invoked when the user presses hardware Return with no modifiers. Shift+Return
     /// still inserts a newline via the standard text-view behavior.
@@ -12,6 +13,22 @@ struct ConversationComposerTextView: UIViewRepresentable {
     /// SwiftUI fill the parent frame. Scrolling kicks in against the actual
     /// bounds instead of the 5-line clamp.
     var unboundedHeight: Bool = false
+
+    init(
+        text: Binding<String>,
+        isFocused: Binding<Bool>,
+        selectedRange: Binding<NSRange> = .constant(NSRange(location: 0, length: 0)),
+        onPasteImage: @escaping (UIImage) -> Void,
+        onHardwareSubmit: (() -> Void)? = nil,
+        unboundedHeight: Bool = false
+    ) {
+        _text = text
+        _isFocused = isFocused
+        _selectedRange = selectedRange
+        self.onPasteImage = onPasteImage
+        self.onHardwareSubmit = onHardwareSubmit
+        self.unboundedHeight = unboundedHeight
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -51,9 +68,11 @@ struct ConversationComposerTextView: UIViewRepresentable {
         if uiView.text != text, uiView.markedTextRange == nil {
             context.coordinator.isSynchronizingText = true
             uiView.text = text
+            context.coordinator.applySelectedRange(to: uiView)
             context.coordinator.isSynchronizingText = false
         }
 
+        context.coordinator.applySelectedRange(to: uiView)
         context.coordinator.updateScrollState(for: uiView)
         context.coordinator.syncFocus(for: uiView)
     }
@@ -97,7 +116,13 @@ struct ConversationComposerTextView: UIViewRepresentable {
             if parent.text != updatedText {
                 parent.text = updatedText
             }
+            updateSelectedRange(from: textView)
             updateScrollState(for: textView)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isSynchronizingText else { return }
+            updateSelectedRange(from: textView)
         }
 
         func syncFocus(for textView: UITextView) {
@@ -146,6 +171,18 @@ struct ConversationComposerTextView: UIViewRepresentable {
             }
         }
 
+        func applySelectedRange(to textView: UITextView) {
+            let textLength = (textView.text as NSString?)?.length ?? 0
+            let clampedLocation = min(max(parent.selectedRange.location, 0), textLength)
+            let clampedLength = min(max(parent.selectedRange.length, 0), textLength - clampedLocation)
+            let clamped = NSRange(location: clampedLocation, length: clampedLength)
+            guard textView.selectedRange.location != clamped.location
+                    || textView.selectedRange.length != clamped.length else {
+                return
+            }
+            textView.selectedRange = clamped
+        }
+
         func minimumHeight(for textView: UITextView) -> CGFloat {
             let lineHeight = textView.font?.lineHeight ?? UIFont.preferredFont(forTextStyle: .body).lineHeight
             return ceil(lineHeight + textView.textContainerInset.top + textView.textContainerInset.bottom)
@@ -169,6 +206,18 @@ struct ConversationComposerTextView: UIViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.parent.isFocused != isFocused else { return }
                 self.parent.isFocused = isFocused
+            }
+        }
+
+        private func updateSelectedRange(from textView: UITextView) {
+            let range = textView.selectedRange
+            guard parent.selectedRange.location != range.location
+                    || parent.selectedRange.length != range.length else {
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.parent.selectedRange = range
             }
         }
     }
@@ -205,4 +254,27 @@ final class PasteAwareComposerUITextView: UITextView {
     @objc private func handleHardwareSubmit(_ sender: UIKeyCommand) {
         onHardwareSubmit?()
     }
+}
+
+func composerInsertionText(_ insertion: String, in text: NSString, replacing range: NSRange) -> String {
+    var replacement = insertion
+    let beforeIndex = range.location - 1
+    let afterIndex = range.location + range.length
+
+    if beforeIndex >= 0,
+       !isComposerWhitespace(text.character(at: beforeIndex)) {
+        replacement = " " + replacement
+    }
+
+    if afterIndex < text.length,
+       !isComposerWhitespace(text.character(at: afterIndex)) {
+        replacement += " "
+    }
+
+    return replacement
+}
+
+private func isComposerWhitespace(_ value: unichar) -> Bool {
+    guard let scalar = UnicodeScalar(UInt32(value)) else { return false }
+    return CharacterSet.whitespacesAndNewlines.contains(scalar)
 }

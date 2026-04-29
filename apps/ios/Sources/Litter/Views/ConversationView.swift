@@ -1397,6 +1397,7 @@ private struct ConversationInputBar: View {
     @State private var hasLoggedFirstFocus = false
     @State private var hasLoggedKeyboardShown = false
     @State private var isComposerFocused = false
+    @State private var composerSelectionRange = NSRange(location: 0, length: 0)
 
     private var pendingUserInputRequest: PendingUserInputRequest? {
         snapshot.pendingUserInputRequest
@@ -1488,6 +1489,7 @@ private struct ConversationInputBar: View {
         .onChange(of: snapshot.composerPrefillRequest?.id) { _, _ in
             guard let prefill = snapshot.composerPrefillRequest else { return }
             inputText = prefill.text
+            composerSelectionRange = NSRange(location: (prefill.text as NSString).length, length: 0)
             attachedImage = nil
             hideComposerPopups()
             appModel.clearComposerPrefill(id: prefill.id)
@@ -1549,7 +1551,8 @@ private struct ConversationInputBar: View {
                 onStartRecording: startVoiceRecording,
                 onInterrupt: interruptActiveTurn,
                 inputText: $inputText,
-                isComposerFocused: $isComposerFocused
+                isComposerFocused: $isComposerFocused,
+                composerSelectionRange: $composerSelectionRange
             )
             .overlay(alignment: .bottom) {
                 ConversationComposerPopupOverlayView(
@@ -1695,12 +1698,28 @@ private struct ConversationInputBar: View {
                 authMethod: auth?.authMethod,
                 authToken: auth?.authToken
             ), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                inputText = text
+                insertTranscriptAtCursor(text)
                 DispatchQueue.main.async {
                     isComposerFocused = true
                 }
             }
         }
+    }
+
+    private func insertTranscriptAtCursor(_ transcript: String) {
+        let insertion = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !insertion.isEmpty else { return }
+
+        let nsText = inputText as NSString
+        let textLength = nsText.length
+        let location = min(max(composerSelectionRange.location, 0), textLength)
+        let length = min(max(composerSelectionRange.length, 0), textLength - location)
+        let range = NSRange(location: location, length: length)
+        let replacement = composerInsertionText(insertion, in: nsText, replacing: range)
+        let updated = nsText.replacingCharacters(in: range, with: replacement)
+        inputText = updated
+        let cursor = (updated as NSString).length - ((nsText.length - range.location - range.length))
+        composerSelectionRange = NSRange(location: cursor, length: 0)
     }
 
     private func interruptActiveTurn() {

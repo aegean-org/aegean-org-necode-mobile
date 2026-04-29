@@ -47,6 +47,7 @@ struct HomeComposerView: View {
     /// programmatic `true` back to `false`, which made the keyboard close
     /// the moment it opened.
     @State private var isComposerFocused: Bool = false
+    @State private var composerSelectionRange = NSRange(location: 0, length: 0)
 
     private var isDisabled: Bool { project == nil }
     private var resolvedTranscriptionServerId: String? {
@@ -122,7 +123,8 @@ struct HomeComposerView: View {
                 isComposerFocused: Binding(
                     get: { isComposerFocused },
                     set: { isComposerFocused = $0 }
-                )
+                ),
+                composerSelectionRange: $composerSelectionRange
             )
             .overlay(alignment: .bottom) {
                 if showPluginPopup, project != nil {
@@ -228,6 +230,7 @@ struct HomeComposerView: View {
                 }
                 inputText = ""
                 attachedImage = nil
+                composerSelectionRange = NSRange(location: 0, length: 0)
                 isComposerFocused = false
 
                 let pendingModel = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -313,12 +316,28 @@ struct HomeComposerView: View {
                 authMethod: auth?.authMethod,
                 authToken: auth?.authToken
             ), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                inputText = text
+                insertTranscriptAtCursor(text)
                 DispatchQueue.main.async {
                     isComposerFocused = true
                 }
             }
         }
+    }
+
+    private func insertTranscriptAtCursor(_ transcript: String) {
+        let insertion = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !insertion.isEmpty else { return }
+
+        let nsText = inputText as NSString
+        let textLength = nsText.length
+        let location = min(max(composerSelectionRange.location, 0), textLength)
+        let length = min(max(composerSelectionRange.length, 0), textLength - location)
+        let range = NSRange(location: location, length: length)
+        let replacement = composerInsertionText(insertion, in: nsText, replacing: range)
+        let updated = nsText.replacingCharacters(in: range, with: replacement)
+        inputText = updated
+        let cursor = (updated as NSString).length - ((nsText.length - range.location - range.length))
+        composerSelectionRange = NSRange(location: cursor, length: 0)
     }
 
     // MARK: - Plugin autocomplete
