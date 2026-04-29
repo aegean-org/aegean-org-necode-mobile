@@ -1,6 +1,8 @@
 use codex_shell_command::parse_command::extract_shell_command;
 use codex_shell_command::parse_command::shlex_join;
 
+use crate::shell_quoting::posix_quote;
+
 /// Build the single command string that gets handed to the iOS iSH shell
 /// (or the Android equivalent). The shared Rust preflight has already
 /// rewritten login-shell wrappers like `bash -lc …` into
@@ -11,15 +13,9 @@ use codex_shell_command::parse_command::shlex_join;
 /// Plain argv (no shell wrapper) stays as a space-joined command string.
 pub(crate) fn mobile_system_command(argv: &[String]) -> String {
     if let Some((_, script)) = extract_shell_command(argv) {
-        return format!("sh -c {}", single_quote(script));
+        return format!("sh -c {}", posix_quote(script));
     }
     shlex_join(argv)
-}
-
-/// POSIX single-quote: wrap in `'…'` and escape embedded `'` as `'\''`.
-fn single_quote(script: &str) -> String {
-    let escaped = script.replace('\'', "'\\''");
-    format!("'{escaped}'")
 }
 
 #[cfg(test)]

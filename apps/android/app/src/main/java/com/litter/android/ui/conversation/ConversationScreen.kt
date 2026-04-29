@@ -124,9 +124,6 @@ fun ConversationScreen(
 
     val thread = remember(snapshot, threadKey) {
         appModel.threadSnapshot(threadKey)
-            ?: snapshot?.activeThread
-                ?.takeIf { it.serverId == threadKey.serverId }
-                ?.let(appModel::threadSnapshot)
     }
     val server = remember(snapshot, threadKey) {
         snapshot?.servers?.find { it.serverId == threadKey.serverId }
@@ -166,6 +163,7 @@ fun ConversationScreen(
     val isInitialTurnsLoading = thread != null &&
         !thread.initialTurnsLoaded &&
         supportsTurnPagination &&
+        hasMoreTurnsAbove &&
         displayedTurns.isNotEmpty()
     var isLoadingOlderTurns by remember(threadKey) { mutableStateOf(false) }
     var expandedTurnIds by remember(threadKey, collapseTurns) { mutableStateOf(setOf<String>()) }

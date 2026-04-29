@@ -72,7 +72,7 @@ pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
         } else {
             Some(cwd.as_str())
         };
-        let (exit_code, output) = ish_runtime::run(&cmd, cwd_opt);
+        let (exit_code, output) = ish_runtime::run(&cmd, cwd_opt, None);
         return IshRunResult { exit_code, output };
     }
     #[cfg(not(all(target_os = "ios", not(target_abi = "macabi"))))]
@@ -87,6 +87,8 @@ pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
 
 #[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
 mod mobile_exec_command;
+mod shell_quoting;
+pub(crate) mod ssh_scripts;
 
 #[cfg(target_os = "android")]
 pub mod android_exec;

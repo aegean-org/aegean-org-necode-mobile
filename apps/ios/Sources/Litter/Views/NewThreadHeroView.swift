@@ -36,6 +36,10 @@ struct NewThreadHeroView: View {
     /// their message goes out.
     private static let morphSettleSeconds: UInt64 = 360_000_000
 
+    private var launchableServers: [HomeDashboardServer] {
+        connectedServers.filter(\.canLaunchSessions)
+    }
+
     var body: some View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
@@ -104,12 +108,12 @@ struct NewThreadHeroView: View {
             serverChip
             ProjectChip(
                 project: project,
-                disabled: connectedServers.isEmpty,
+                disabled: launchableServers.isEmpty,
                 onTap: onOpenProjectPicker
             )
             HomeModelChip(
                 serverId: project?.serverId ?? selectedServerId,
-                disabled: (project?.serverId ?? selectedServerId) == nil
+                disabled: selectedLaunchableServer == nil
             )
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -119,12 +123,12 @@ struct NewThreadHeroView: View {
     @ViewBuilder
     private var serverChip: some View {
         let activeServerId = project?.serverId ?? selectedServerId
-        let server = connectedServers.first { $0.id == activeServerId }
+        let server = launchableServers.first { $0.id == activeServerId }
         Menu {
-            if connectedServers.isEmpty {
+            if launchableServers.isEmpty {
                 Text("No servers connected")
             } else {
-                ForEach(connectedServers, id: \.id) { s in
+                ForEach(launchableServers, id: \.id) { s in
                     Button(s.displayName) {
                         onSelectServer(s.id)
                     }
@@ -151,7 +155,13 @@ struct NewThreadHeroView: View {
                     .stroke(LitterTheme.textMuted.opacity(0.2), lineWidth: 0.6)
             )
         }
-        .disabled(connectedServers.isEmpty)
+        .disabled(launchableServers.isEmpty)
+    }
+
+    private var selectedLaunchableServer: HomeDashboardServer? {
+        let activeServerId = project?.serverId ?? selectedServerId
+        guard let activeServerId else { return nil }
+        return launchableServers.first { $0.id == activeServerId }
     }
 
     // MARK: - Suggestions

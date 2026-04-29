@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
 
+extension Notification.Name {
+    static let litterSavedServersDidChange = Notification.Name("litterSavedServersDidChange")
+}
+
 @MainActor
 enum SavedServerStore {
     private static let savedServersKey = "codex_saved_servers"
@@ -8,6 +12,7 @@ enum SavedServerStore {
     static func save(_ servers: [SavedServer]) {
         guard let data = try? JSONEncoder().encode(servers) else { return }
         UserDefaults.standard.set(data, forKey: savedServersKey)
+        NotificationCenter.default.post(name: .litterSavedServersDidChange, object: nil)
     }
 
     static func load() -> [SavedServer] {

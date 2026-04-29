@@ -22,6 +22,16 @@ use crate::ssh_detached_launcher::SshDetachedLauncher;
 use crate::ssh_launcher::SshLauncher;
 use crate::types::{AgentRuntimeInfo, AgentRuntimeKind};
 
+// Bridge timings — every magic number in this file should live here.
+/// How long we'll poll a freshly-spawned local opencode for `/global/health`.
+const OPENCODE_LOCAL_HEALTH_BUDGET: Duration = Duration::from_secs(10);
+const OPENCODE_LOCAL_HEALTH_INTERVAL: Duration = Duration::from_millis(50);
+/// How many candidate ports we'll check when picking a free remote port.
+const REMOTE_PORT_PROBE_CANDIDATES: u16 = 50;
+/// Probe range for ephemeral remote ports (matches Linux's local port range).
+const REMOTE_PORT_PROBE_BASE: u16 = 17600;
+const REMOTE_PORT_PROBE_SPAN: u16 = 2000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum SshBridgeTransport {
     Ephemeral,
@@ -549,71 +559,7 @@ fn default_first_message(value: &str) -> String {
     }
 }
 
-const REMOTE_CLAUDE_SESSION_SCAN: &str = r#"clean_field() {
-  printf '%s' "$1" | tr '\t\r\n' '   '
-}
-mtime_ms() {
-  if seconds=$(stat -c %Y "$1" 2>/dev/null); then
-    :
-  elif seconds=$(stat -f %m "$1" 2>/dev/null); then
-    :
-  else
-    seconds=0
-  fi
-  case "$seconds" in
-    ''|*[!0-9]*) seconds=0 ;;
-  esac
-  printf '%s000' "$seconds"
-}
-root="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
-case "$root" in "~") root="$HOME" ;; "~/"*) root="$HOME/${root#~/}" ;; esac
-[ -d "$root" ] || exit 0
-find "$root" -type f -name '*.jsonl' 2>/dev/null | while IFS= read -r path; do
-  [ -f "$path" ] || continue
-  base=${path##*/}
-  session_id=${base%.jsonl}
-  modified_ms=$(mtime_ms "$path")
-  meta=$(
-    awk '
-      function clean(s) {
-        gsub(/\\n/, " ", s)
-        gsub(/\\r/, " ", s)
-        gsub(/\\t/, " ", s)
-        gsub(/\t/, " ", s)
-        gsub(/\r/, " ", s)
-        gsub(/\n/, " ", s)
-        gsub(/\\"/, "\"", s)
-        return s
-      }
-      function field(line, key, pat, rest) {
-        pat = "\"" key "\"[[:space:]]*:[[:space:]]*\""
-        if (!match(line, pat)) return ""
-        rest = substr(line, RSTART + RLENGTH)
-        if (match(rest, /([^"\\]|\\.)*/)) return clean(substr(rest, RSTART, RLENGTH))
-        return ""
-      }
-      {
-        if (cwd == "") cwd = field($0, "cwd")
-        if (first == "" && $0 ~ /"type"[[:space:]]*:[[:space:]]*"user"/) {
-          text = field($0, "text")
-          if (text == "") text = field($0, "content")
-          if (text != "") first = text
-        }
-        if (cwd != "" && first != "") exit
-      }
-      END { printf "%s\t%s", cwd, first }
-    ' "$path" 2>/dev/null
-  ) || meta="$(printf '\t')"
-  cwd=${meta%%	*}
-  first=${meta#*	}
-  printf 'C\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(clean_field "$path")" \
-    "$(clean_field "$session_id")" \
-    "$(clean_field "$cwd")" \
-    "$modified_ms" \
-    "$modified_ms" \
-    "$(clean_field "$first")"
-done"#;
+const REMOTE_CLAUDE_SESSION_SCAN: &str = crate::ssh_scripts::posix::CLAUDE_SESSION_SCAN;
 
 async fn spawn_remote_opencode(
     ssh: &SshClient,
@@ -622,33 +568,16 @@ async fn spawn_remote_opencode(
     port: u16,
     session_id: &str,
 ) -> Result<(), SshBridgeError> {
-    let script = format!(
-        r#"{profile_init}
-session_dir="$HOME/.litter/sessions/{session_id}"
-mkdir -p "$session_dir"
-: >"$session_dir/out.log"
-: >"$session_dir/err.log"
-if command -v setsid >/dev/null 2>&1; then
-  nohup setsid {bin} serve --port={port} </dev/null >"$session_dir/out.log" 2>"$session_dir/err.log" &
-else
-  nohup {bin} serve --port={port} </dev/null >"$session_dir/out.log" 2>"$session_dir/err.log" &
-fi
-pid=$!
-echo "$pid" >"$session_dir/agent.pid"
-sleep 0.05
-if ! kill -0 "$pid" 2>/dev/null; then
-  echo "opencode exited immediately after launch" >&2
-  echo "--- out.log ---" >&2
-  (tail -n 120 "$session_dir/out.log" 2>/dev/null || true) >&2
-  echo "--- err.log ---" >&2
-  (tail -n 120 "$session_dir/err.log" 2>/dev/null || true) >&2
-  exit 1
-fi
-printf '%s\n' "$session_dir""#,
-        profile_init = PROFILE_INIT,
-        session_id = session_id,
-        bin = shell_quote(bin),
-        port = port,
+    let port_str = port.to_string();
+    let bin_quoted = shell_quote(bin);
+    let script = crate::ssh_scripts::render(
+        crate::ssh_scripts::posix::OPENCODE_SPAWN,
+        &[
+            ("PROFILE_INIT", PROFILE_INIT),
+            ("SESSION_ID", session_id),
+            ("BIN", &bin_quoted),
+            ("PORT", &port_str),
+        ],
     );
     let result = ssh.exec_shell(&script, shell).await?;
     if result.exit_code == 0 {
@@ -666,51 +595,14 @@ async fn wait_until_remote_opencode_healthy(
     port: u16,
     session_id: &str,
 ) -> Result<(), SshBridgeError> {
-    let body = r#"port=__PORT__
-session_dir="$HOME/.litter/sessions/__SESSION_ID__"
-url="http://127.0.0.1:${port}/global/health"
-has_curl=0
-if command -v curl >/dev/null 2>&1; then
-  has_curl=1
-fi
-
-i=0
-while [ "$i" -lt 100 ]; do
-  i=$((i + 1))
-  if [ "$has_curl" -eq 1 ]; then
-    body=$(curl -fsS --max-time 1 "$url" 2>/dev/null || true)
-    case "$body" in
-      *'"healthy":true'*|*'"healthy": true'*)
-        exit 0
-        ;;
-    esac
-  fi
-
-  pid=$(cat "$session_dir/agent.pid" 2>/dev/null || true)
-  if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-    echo "opencode exited before reporting healthy at $url" >&2
-    echo "--- out.log ---" >&2
-    (tail -n 120 "$session_dir/out.log" 2>/dev/null || true) >&2
-    echo "--- err.log ---" >&2
-    (tail -n 120 "$session_dir/err.log" 2>/dev/null || true) >&2
-    exit 1
-  fi
-  if [ "$has_curl" -ne 1 ] && [ "$i" -ge 10 ]; then
-    exit 0
-  fi
-  sleep 0.1
-done
-
-echo "opencode did not become healthy at $url" >&2
-echo "--- out.log ---" >&2
-(tail -n 120 "$session_dir/out.log" 2>/dev/null || true) >&2
-echo "--- err.log ---" >&2
-(tail -n 120 "$session_dir/err.log" 2>/dev/null || true) >&2
-exit 1"#;
-    let script = format!(
-        "{PROFILE_INIT}\n{}",
-        body.replace("__PORT__", &port.to_string())
-            .replace("__SESSION_ID__", session_id)
+    let port_str = port.to_string();
+    let script = crate::ssh_scripts::render(
+        crate::ssh_scripts::posix::OPENCODE_HEALTH_WAIT,
+        &[
+            ("PROFILE_INIT", PROFILE_INIT),
+            ("SESSION_ID", session_id),
+            ("PORT", &port_str),
+        ],
     );
     let result = ssh.exec_shell(&script, shell).await?;
     if result.exit_code == 0 {
@@ -725,7 +617,7 @@ exit 1"#;
 async fn wait_until_opencode_healthy(base_url: &str) -> Result<(), SshBridgeError> {
     let client = reqwest::Client::new();
     let url = format!("{}/global/health", base_url.trim_end_matches('/'));
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + OPENCODE_LOCAL_HEALTH_BUDGET;
     loop {
         if let Ok(resp) = client.get(&url).send().await
             && resp.status().is_success()
@@ -739,7 +631,7 @@ async fn wait_until_opencode_healthy(base_url: &str) -> Result<(), SshBridgeErro
                 "opencode did not become healthy at {url}"
             )));
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(OPENCODE_LOCAL_HEALTH_INTERVAL).await;
     }
 }
 
@@ -748,14 +640,9 @@ async fn fetch_remote_opencode_logs(
     shell: RemoteShell,
     session_id: &str,
 ) -> Result<String, SshBridgeError> {
-    let body = r#"session_dir="$HOME/.litter/sessions/__SESSION_ID__"
-echo "--- out.log ---"
-tail -n 120 "$session_dir/out.log" 2>/dev/null || true
-echo "--- err.log ---"
-tail -n 120 "$session_dir/err.log" 2>/dev/null || true"#;
-    let script = format!(
-        "{PROFILE_INIT}\n{}",
-        body.replace("__SESSION_ID__", session_id)
+    let script = crate::ssh_scripts::render(
+        crate::ssh_scripts::posix::OPENCODE_LOGS,
+        &[("PROFILE_INIT", PROFILE_INIT), ("SESSION_ID", session_id)],
     );
     let result = ssh.exec_shell(&script, shell).await?;
     Ok(nonempty_stdout_or_stderr(result))
@@ -785,8 +672,9 @@ fn parse_agent_probe(stdout: &str) -> Vec<RemoteAgentAvailability> {
 
 async fn pick_remote_port(ssh: &SshClient, shell: RemoteShell) -> Result<u16, SshBridgeError> {
     let start = fallback_remote_port();
-    for offset in 0..50 {
-        let port = 17600 + ((start - 17600 + offset) % 2000);
+    for offset in 0..REMOTE_PORT_PROBE_CANDIDATES {
+        let port = REMOTE_PORT_PROBE_BASE
+            + ((start - REMOTE_PORT_PROBE_BASE + offset) % REMOTE_PORT_PROBE_SPAN);
         if remote_port_looks_free(ssh, shell, port).await? {
             return Ok(port);
         }
@@ -803,29 +691,12 @@ async fn remote_port_looks_free(
     shell: RemoteShell,
     port: u16,
 ) -> Result<bool, SshBridgeError> {
+    let port_str = port.to_string();
     let script = format!(
         "{PROFILE_INIT}\n{}",
-        format!(
-            r#"port={port}
-if command -v lsof >/dev/null 2>&1; then
-  if lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | grep . >/dev/null 2>&1; then
-    exit 1
-  fi
-  exit 0
-fi
-if command -v ss >/dev/null 2>&1; then
-  if ss -ltn "sport = :$port" 2>/dev/null | awk 'NR > 1 {{ found = 1 }} END {{ exit found ? 0 : 1 }}'; then
-    exit 1
-  fi
-  exit 0
-fi
-if command -v netstat >/dev/null 2>&1; then
-  if netstat -ltn 2>/dev/null | awk -v p="$port" '$4 ~ ("[:.]" p "$") {{ found = 1 }} END {{ exit found ? 0 : 1 }}'; then
-    exit 1
-  fi
-  exit 0
-fi
-exit 0"#
+        crate::ssh_scripts::render(
+            crate::ssh_scripts::posix::REMOTE_PORT_FREE_PROBE,
+            &[("PORT", &port_str)],
         )
     );
     let result = ssh.exec_shell(&script, shell).await?;

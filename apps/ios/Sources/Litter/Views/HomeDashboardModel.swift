@@ -58,6 +58,7 @@ final class HomeDashboardModel {
     /// so the snapshot reconciler doesn't re-select a default server.
     private var userClearedSelection = false
     @ObservationIgnored private var preferencesObserver: NSObjectProtocol?
+    @ObservationIgnored private var savedServersObserver: NSObjectProtocol?
 
     init() {
         selectedServerId = SavedProjectStore.selectedServerId
@@ -74,11 +75,23 @@ final class HomeDashboardModel {
                 self.refreshState()
             }
         }
+        savedServersObserver = NotificationCenter.default.addObserver(
+            forName: .litterSavedServersDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshState()
+            }
+        }
     }
 
     deinit {
         if let preferencesObserver {
             NotificationCenter.default.removeObserver(preferencesObserver)
+        }
+        if let savedServersObserver {
+            NotificationCenter.default.removeObserver(savedServersObserver)
         }
     }
 
@@ -178,11 +191,14 @@ final class HomeDashboardModel {
             let appSnapshot = appModel.snapshot
             let nextConnectedServers = HomeDashboardSupport.sortedConnectedServers(
                 from: appSnapshot?.servers ?? [],
+                savedServers: SavedServerStore.rememberedServers(),
                 activeServerId: appSnapshot?.activeThread?.serverId
             )
             let nextAllSessions = HomeDashboardSupport.recentConnectedSessions(
                 from: appSnapshot?.sessionSummaries ?? [],
-                serversById: Dictionary(uniqueKeysWithValues: nextConnectedServers.map { ($0.id, $0) }),
+                serversById: Dictionary(uniqueKeysWithValues: nextConnectedServers
+                    .filter(\.canLaunchSessions)
+                    .map { ($0.id, $0) }),
                 limit: nil
             )
             return Snapshot(
@@ -210,9 +226,10 @@ final class HomeDashboardModel {
         projects = deriveProjects(sessions: snapshot.sessionSummaries)
 
         // Keep selectedServerId valid: if the server it points at isn't in
-        // the connected list, clear the scope. Default is no filter — we do
-        // not auto-select the first connected server.
-        if let current = selectedServerId, !connectedServers.contains(where: { $0.id == current }) {
+        // the live/launchable list, clear the scope. Default is no filter —
+        // we do not auto-select the first connected server.
+        if let current = selectedServerId,
+           !connectedServers.contains(where: { $0.id == current && $0.canLaunchSessions }) {
             selectedServerId = nil
         }
 

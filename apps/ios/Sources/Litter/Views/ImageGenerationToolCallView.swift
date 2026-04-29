@@ -131,7 +131,7 @@ struct ImageGenerationToolCallView: View {
                     ShareSheet(items: [image])
                 }
         } else if data.isInProgress {
-            placeholderTile(icon: "photo.artframe", message: "Generating…", tone: LitterTheme.textSecondary)
+            ImageGenerationLoadingTile()
         } else if data.status == .failed {
             placeholderTile(icon: "exclamationmark.triangle.fill", message: "Image unavailable", tone: LitterTheme.danger)
         } else {
@@ -199,6 +199,58 @@ struct ImageGenerationToolCallView: View {
         if text.count <= limit { return text }
         let head = String(text.prefix(limit)).trimmingCharacters(in: .whitespaces)
         return head + "…"
+    }
+}
+
+private struct ImageGenerationLoadingTile: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(LitterTheme.accent.opacity(pulse ? 0.18 : 0.08))
+                    .frame(width: 48, height: 48)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(LitterTheme.accent.opacity(0.32), lineWidth: 0.5)
+                    )
+
+                Image(systemName: "sparkles")
+                    .litterFont(size: 19, weight: .semibold)
+                    .foregroundColor(LitterTheme.accent)
+                    .scaleEffect(pulse ? 1.06 : 0.96)
+            }
+
+            VStack(spacing: 5) {
+                Text("Generating image")
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.textSystem)
+
+                HStack(spacing: 5) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Capsule()
+                            .fill(LitterTheme.accent.opacity(0.42))
+                            .frame(width: index == 1 ? 42 : 28, height: 4)
+                            .opacity(pulse ? 1.0 - Double(index) * 0.18 : 0.38 + Double(index) * 0.16)
+                    }
+                }
+                .frame(height: 8)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(LitterTheme.codeBackground.opacity(0.82))
+        )
+        .task {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 

@@ -75,6 +75,10 @@ struct HomeDashboardServer: Identifiable, Equatable {
         return normalized.isEmpty ? id : normalized
     }
 
+    var canLaunchSessions: Bool {
+        health != .disconnected
+    }
+
     static func == (lhs: HomeDashboardServer, rhs: HomeDashboardServer) -> Bool {
         lhs.id == rhs.id &&
             lhs.displayName == rhs.displayName &&
@@ -140,11 +144,10 @@ enum HomeDashboardSupport {
 
     static func sortedConnectedServers(
         from servers: [AppServerSnapshot],
+        savedServers: [SavedServer] = [],
         activeServerId: String?
     ) -> [HomeDashboardServer] {
-        var seenServerKeys: Set<String> = []
-
-        return servers
+        let liveServers = servers
             .filter { $0.health != .disconnected || $0.connectionProgress != nil }
             .map { server in
                 HomeDashboardServer(
@@ -162,6 +165,21 @@ enum HomeDashboardSupport {
                     agentRuntimes: server.agentRuntimes
                 )
             }
+
+        var seenServerIds = Set(liveServers.map(\.id))
+        var seenServerKeys = Set(liveServers.map(\.deduplicationKey))
+        var merged = liveServers
+
+        for saved in savedServers where saved.rememberedByUser {
+            let offline = offlineServer(from: saved)
+            guard seenServerIds.insert(offline.id).inserted,
+                  seenServerKeys.insert(offline.deduplicationKey).inserted else {
+                continue
+            }
+            merged.append(offline)
+        }
+
+        return merged
             .sorted { lhs, rhs in
                 let lhsIsActive = lhs.id == activeServerId
                 let rhsIsActive = rhs.id == activeServerId
@@ -176,9 +194,81 @@ enum HomeDashboardSupport {
 
                 return lhs.id < rhs.id
             }
-            .filter { server in
-                seenServerKeys.insert(server.deduplicationKey).inserted
+    }
+
+    private static func offlineServer(from saved: SavedServer) -> HomeDashboardServer {
+        HomeDashboardServer(
+            id: saved.id,
+            displayName: saved.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? saved.hostname
+                : saved.name,
+            host: saved.hostname,
+            port: saved.preferredCodexPort ?? saved.port ?? saved.sshPort ?? 0,
+            isLocal: saved.source == .local,
+            hasIpc: false,
+            health: .disconnected,
+            sourceLabel: sourceLabel(for: saved),
+            statusLabel: AppServerHealth.disconnected.displayLabel,
+            statusColor: AppServerHealth.disconnected.accentColor,
+            statusDotState: .idle,
+            agentRuntimes: savedAgentRuntimes(for: saved)
+        )
+    }
+
+    private static func sourceLabel(for saved: SavedServer) -> String {
+        if saved.alleycatAgentWire == "ssh-bridge" { return "ssh" }
+        if saved.alleycatNodeId != nil { return "alleycat" }
+        if saved.websocketURL != nil { return "remote" }
+        if saved.preferredConnectionMode == .ssh { return "ssh" }
+        switch saved.source {
+        case .local:
+            return "local"
+        case .bonjour:
+            return "bonjour"
+        case .ssh:
+            return "ssh"
+        case .tailscale:
+            return "tailscale"
+        case .manual:
+            return "manual"
+        }
+    }
+
+    private static func savedAgentRuntimes(for saved: SavedServer) -> [AgentRuntimeInfo] {
+        let kinds: [AgentRuntimeKind]
+        if saved.alleycatAgentWire == "ssh-bridge" {
+            kinds = parseRuntimeKinds(saved.alleycatAgentName)
+        } else {
+            kinds = [.codex]
+        }
+        return kinds.map { kind in
+            AgentRuntimeInfo(
+                kind: kind,
+                name: kind.displayLabel.lowercased(),
+                displayName: kind.displayLabel,
+                available: true
+            )
+        }
+    }
+
+    private static func parseRuntimeKinds(_ raw: String?) -> [AgentRuntimeKind] {
+        let parsed = (raw ?? "")
+            .split(separator: ",")
+            .compactMap { token -> AgentRuntimeKind? in
+                switch token.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "codex":
+                    return .codex
+                case "claude":
+                    return .claude
+                case "pi":
+                    return .pi
+                case "opencode":
+                    return .opencode
+                default:
+                    return nil
+                }
             }
+        return parsed.isEmpty ? [.codex] : parsed
     }
 
     static func serverSubtitle(for server: HomeDashboardServer) -> String {

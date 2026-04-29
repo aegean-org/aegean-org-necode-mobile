@@ -185,31 +185,17 @@ async fn spawn_detached_agent(
             "detached SSH bridge launch is not implemented for PowerShell remotes",
         ));
     }
-    let script = format!(
-        r#"set -eu
-session_dir={root}
-mkdir -p "$session_dir"
-rm -f {input}
-mkfifo {input}
-: > {out_log}
-: > {err_log}
-nohup sh -c 'exec 0<>"$1"; while :; do sleep 3600; done' sh {input} </dev/null >/dev/null 2>&1 &
-echo $! > {keeper_pid}
-if command -v setsid >/dev/null 2>&1; then
-  nohup setsid /bin/sh -c {command} < {input} > {out_log} 2> {err_log} &
-else
-  nohup /bin/sh -c {command} < {input} > {out_log} 2> {err_log} &
-fi
-agent_pid=$!
-echo "$agent_pid" > {agent_pid}
-printf '%s\n' "$agent_pid""#,
-        root = quote_remote_path(&dirs.root),
-        input = quote_remote_path(&dirs.input),
-        out_log = quote_remote_path(&dirs.out_log),
-        err_log = quote_remote_path(&dirs.err_log),
-        keeper_pid = quote_remote_path(&dirs.keeper_pid),
-        agent_pid = quote_remote_path(&dirs.agent_pid),
-        command = shell_quote(command),
+    let script = crate::ssh_scripts::render(
+        crate::ssh_scripts::posix::DETACHED_SPAWN,
+        &[
+            ("ROOT", &quote_remote_path(&dirs.root)),
+            ("INPUT", &quote_remote_path(&dirs.input)),
+            ("OUT_LOG", &quote_remote_path(&dirs.out_log)),
+            ("ERR_LOG", &quote_remote_path(&dirs.err_log)),
+            ("KEEPER_PID", &quote_remote_path(&dirs.keeper_pid)),
+            ("AGENT_PID", &quote_remote_path(&dirs.agent_pid)),
+            ("COMMAND", &shell_quote(command)),
+        ],
     );
     let result = ssh.exec_shell(&script, shell).await.map_err(io_from_ssh)?;
     if result.exit_code != 0 {
@@ -238,15 +224,13 @@ async fn kill_detached_agent(
     shell: RemoteShell,
     dirs: &RemoteDetachedDirs,
 ) -> io::Result<()> {
-    let script = format!(
-        r#"agent_pid="$(cat {agent_pid} 2>/dev/null || true)"
-keeper_pid="$(cat {keeper_pid} 2>/dev/null || true)"
-[ -n "$agent_pid" ] && kill -TERM "$agent_pid" 2>/dev/null || true
-[ -n "$keeper_pid" ] && kill -TERM "$keeper_pid" 2>/dev/null || true
-rm -rf {root}"#,
-        agent_pid = quote_remote_path(&dirs.agent_pid),
-        keeper_pid = quote_remote_path(&dirs.keeper_pid),
-        root = quote_remote_path(&dirs.root),
+    let script = crate::ssh_scripts::render(
+        crate::ssh_scripts::posix::DETACHED_KILL,
+        &[
+            ("AGENT_PID", &quote_remote_path(&dirs.agent_pid)),
+            ("KEEPER_PID", &quote_remote_path(&dirs.keeper_pid)),
+            ("ROOT", &quote_remote_path(&dirs.root)),
+        ],
     );
     ssh.exec_shell(&script, shell)
         .await
@@ -273,6 +257,10 @@ fn next_session_id() -> String {
     format!("agent-{now}-{seq}")
 }
 
+/// Quote a remote path for use in a POSIX shell. Paths that start with
+/// `$HOME/` (everything emitted by `RemoteDetachedDirs::new`) are wrapped
+/// in double quotes so `$HOME` expands at runtime; other paths are passed
+/// through `shell_quote` and stay literal.
 fn quote_remote_path(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("$HOME/") {
         format!("\"$HOME/{}\"", rest.replace('"', "\\\""))

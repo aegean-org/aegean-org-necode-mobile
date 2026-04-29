@@ -89,6 +89,23 @@ fn shape_plugin_list(response: upstream::PluginListResponse) -> Vec<types::Plugi
     summaries
 }
 
+fn is_mobile_hidden_skill(skill: &types::SkillMetadata) -> bool {
+    if skill.name.trim().eq_ignore_ascii_case("imagegen") {
+        return true;
+    }
+
+    // Temporary mobile filter: avoid steering image requests into the system
+    // imagegen skill while native upstream image_generation is available.
+    let mut previous = None;
+    for component in skill.path.value.trim_end_matches('/').split('/') {
+        if previous == Some(".system") && component.eq_ignore_ascii_case("imagegen") {
+            return true;
+        }
+        previous = Some(component);
+    }
+    false
+}
+
 #[derive(uniffi::Object)]
 pub struct AppClient {
     pub(crate) inner: Arc<MobileClient>,
@@ -650,6 +667,7 @@ impl AppClient {
                 .data
                 .into_iter()
                 .flat_map(|entry| entry.skills.into_iter().map(Into::into))
+                .filter(|skill| !is_mobile_hidden_skill(skill))
                 .collect())
         })
     }
@@ -2288,11 +2306,11 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 mod tests {
     use super::{
         ImageViewSource, choose_saved_app_update_server_id, image_read_command,
-        normalized_image_path, splice_generative_ui_preamble,
+        is_mobile_hidden_skill, normalized_image_path, splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
-    use crate::types::models::AppDynamicToolSpec;
+    use crate::types::models::{AbsolutePath, AppDynamicToolSpec, SkillMetadata, SkillScope};
     use crate::widget_guidelines::GENERATIVE_UI_PREAMBLE;
     use std::collections::HashMap;
 
@@ -2302,6 +2320,21 @@ mod tests {
             description: "test".to_string(),
             input_schema_json: "{}".to_string(),
             defer_loading: false,
+        }
+    }
+
+    fn skill_metadata(name: &str, path: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            description: String::new(),
+            short_description: None,
+            interface: None,
+            dependencies: None,
+            path: AbsolutePath {
+                value: path.to_string(),
+            },
+            scope: SkillScope::System,
+            enabled: true,
         }
     }
 
@@ -2379,6 +2412,34 @@ mod tests {
             splice_generative_ui_preamble(&None, Some("keep".to_string())).as_deref(),
             Some("keep")
         );
+    }
+
+    #[test]
+    fn mobile_hides_imagegen_skill_by_name() {
+        assert!(is_mobile_hidden_skill(&skill_metadata(
+            "imagegen",
+            "/Users/me/.codex/skills/.system/imagegen"
+        )));
+        assert!(is_mobile_hidden_skill(&skill_metadata(
+            "ImageGen",
+            "/Users/me/.codex/skills/user/imagegen"
+        )));
+    }
+
+    #[test]
+    fn mobile_hides_system_imagegen_skill_by_path() {
+        assert!(is_mobile_hidden_skill(&skill_metadata(
+            "AI Images",
+            "/Users/me/.codex/skills/.system/imagegen/"
+        )));
+    }
+
+    #[test]
+    fn mobile_keeps_other_skills() {
+        assert!(!is_mobile_hidden_skill(&skill_metadata(
+            "browser",
+            "/Users/me/.codex/skills/.system/browser"
+        )));
     }
 
     #[test]

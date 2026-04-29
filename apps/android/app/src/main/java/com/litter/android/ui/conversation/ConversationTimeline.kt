@@ -11,6 +11,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,9 +62,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -1160,11 +1168,7 @@ private fun GeneratedImageSection(
                 }
                 data.status == AppOperationStatus.IN_PROGRESS ||
                     data.status == AppOperationStatus.PENDING -> {
-                    CircularProgressIndicator(
-                        color = LitterTheme.accent,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.padding(vertical = 24.dp),
-                    )
+                    GeneratedImageLoadingTile()
                 }
                 else -> {
                     Text(
@@ -1174,6 +1178,81 @@ private fun GeneratedImageSection(
                         modifier = Modifier.padding(vertical = 20.dp),
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GeneratedImageLoadingTile() {
+    val transition = rememberInfiniteTransition(label = "image-generation-loading")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "image-generation-pulse",
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 20.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(48.dp)
+                .scale(0.98f + pulse * 0.05f)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            LitterTheme.accent.copy(alpha = 0.16f + pulse * 0.08f),
+                            LitterTheme.warning.copy(alpha = 0.10f),
+                        ),
+                    ),
+                    RoundedCornerShape(12.dp),
+                )
+                .border(
+                    0.5.dp,
+                    LitterTheme.accent.copy(alpha = 0.28f + pulse * 0.12f),
+                    RoundedCornerShape(12.dp),
+                ),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.HourglassEmpty,
+                contentDescription = null,
+                tint = LitterTheme.accent,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+
+        Text(
+            text = "Generating image",
+            color = LitterTheme.textPrimary,
+            fontSize = LitterTextStyle.caption.scaled,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(28.dp, 42.dp, 28.dp).forEachIndexed { index, width ->
+                Box(
+                    modifier = Modifier
+                        .width(width)
+                        .height(4.dp)
+                        .alpha((0.38f + pulse * 0.62f - index * 0.14f).coerceIn(0.24f, 1f))
+                        .background(
+                            LitterTheme.accent.copy(alpha = 0.42f),
+                            RoundedCornerShape(999.dp),
+                        ),
+                )
             }
         }
     }

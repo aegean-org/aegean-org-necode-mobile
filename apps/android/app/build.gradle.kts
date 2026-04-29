@@ -30,7 +30,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 11
-        versionName = "0.1.0"
+        versionName = "1.5.0"
         buildConfigField("boolean", "ENABLE_ON_DEVICE_BRIDGE", "true")
         buildConfigField("String", "RUNTIME_STARTUP_MODE", "\"hybrid\"")
         buildConfigField("String", "APP_RUNTIME_TRANSPORT", "\"app_bridge_rpc_transport\"")
@@ -151,9 +151,6 @@ dependencies {
     implementation("io.noties:prism4j:2.0.0") {
         exclude(group = "org.jetbrains", module = "annotations-java5")
     }
-    // MIGRATION: JSch can be removed once RustSshBridge replaces SshSessionManager.
-    // See: core/bridge/.../RustSshBridge.kt and state/SshSessionManager.kt
-    implementation("com.github.mwiede:jsch:0.2.22")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.android.billingclient:billing-ktx:7.0.0")
 

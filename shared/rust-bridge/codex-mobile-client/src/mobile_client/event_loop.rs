@@ -43,6 +43,18 @@ impl Default for IpcStreamProcessorState {
     }
 }
 
+fn session_is_current(
+    sessions: &Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
+    server_id: &str,
+    session: &Arc<ServerSession>,
+) -> bool {
+    sessions
+        .read()
+        .ok()
+        .and_then(|guard| guard.get(server_id).cloned())
+        .is_some_and(|current| Arc::ptr_eq(&current, session))
+}
+
 impl MobileClient {
     pub(super) fn spawn_event_reader(&self, server_id: String, session: Arc<ServerSession>) {
         let mut events = session.events();
@@ -56,7 +68,12 @@ impl MobileClient {
         let saved_apps_directory = Arc::clone(&self.saved_apps_directory);
         Self::spawn_detached(async move {
             loop {
-                match events.recv().await {
+                let event = events.recv().await;
+                if !session_is_current(&sessions, &server_id, &oauth_session) {
+                    info!("event reader exiting for stale server session {server_id}");
+                    break;
+                }
+                match event {
                     Ok(ServerEvent::Notification {
                         runtime_kind,
                         notification,
@@ -169,15 +186,16 @@ impl MobileClient {
         });
     }
 
-    pub(super) fn spawn_health_reader(
-        &self,
-        server_id: String,
-        mut health_rx: tokio::sync::watch::Receiver<crate::session::connection::ConnectionHealth>,
-    ) {
+    pub(super) fn spawn_health_reader(&self, server_id: String, session: Arc<ServerSession>) {
+        let mut health_rx = session.health();
         let processor = Arc::clone(&self.event_processor);
         let sessions = Arc::clone(&self.sessions);
         let app_store = Arc::clone(&self.app_store);
         Self::spawn_detached(async move {
+            if !session_is_current(&sessions, &server_id, &session) {
+                info!("health reader exiting for stale server session {server_id}");
+                return;
+            }
             processor.emit_connection_state(&server_id, "connecting");
             // Initialize as if previously Connected so the first observation —
             // which after a successful connect_* call is normally Connected —
@@ -185,6 +203,10 @@ impl MobileClient {
             // disconnect/reconnect cycle still triggers the transition below.
             let mut prev_connected: bool = true;
             loop {
+                if !session_is_current(&sessions, &server_id, &session) {
+                    info!("health reader exiting for stale server session {server_id}");
+                    break;
+                }
                 let health = health_rx.borrow().clone();
                 let is_connected = matches!(
                     health,

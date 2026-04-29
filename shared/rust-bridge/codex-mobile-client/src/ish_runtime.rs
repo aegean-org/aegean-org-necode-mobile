@@ -38,8 +38,7 @@ pub const ISH_E_IO: i32 = -7;
 pub const ISH_E_TIMEOUT: i32 = -8;
 pub const ISH_E_NOMEM: i32 = -9;
 pub const ISH_E_ARGS: i32 = -10;
-
-const RUN_TIMEOUT_MS: u64 = 60_000;
+const BOOTSTRAP_COMMAND_TIMEOUT_MS: u64 = 10_000;
 
 impl From<ish_embed_host::IshError> for IshBootstrapError {
     fn from(err: ish_embed_host::IshError) -> Self {
@@ -116,7 +115,7 @@ pub fn default_cwd() -> &'static str {
 /// has not been booted or the FFI call fails, returns a negative ISH_E_* code
 /// and an empty byte vector — matching the IshBridge.m error semantics so the
 /// exec-hook path can surface the failure without a nil pointer panic.
-pub fn run(cmd: &str, cwd: Option<&str>) -> (i32, Vec<u8>) {
+pub fn run(cmd: &str, cwd: Option<&str>, timeout_ms: Option<u64>) -> (i32, Vec<u8>) {
     let Some(instance) = INSTANCE.get() else {
         eprintln!("[ish] run() called before bootstrap succeeded");
         return (ISH_E_NOT_RUNNING, Vec::new());
@@ -134,7 +133,7 @@ pub fn run(cmd: &str, cwd: Option<&str>) -> (i32, Vec<u8>) {
     let argv = ["/bin/sh".to_string(), "-c".to_string(), wrapped];
     let env = runtime_env();
     let cwd_path = PathBuf::from("/");
-    instance.run_oneshot(&argv, &cwd_path, &env, Some(RUN_TIMEOUT_MS))
+    instance.run_oneshot(&argv, &cwd_path, &env, timeout_ms)
 }
 
 // ── post-init setup helpers ──────────────────────────────────────────────
@@ -172,7 +171,11 @@ fn runtime_env() -> HashMap<String, String> {
 }
 
 fn runtime_setup() {
-    let (rc, _) = run(RUNTIME_SETUP_SCRIPT, None);
+    let (rc, _) = run(
+        RUNTIME_SETUP_SCRIPT,
+        None,
+        Some(BOOTSTRAP_COMMAND_TIMEOUT_MS),
+    );
     if rc != 0 {
         eprintln!("[ish] runtime setup failed rc={rc}");
     }
@@ -181,7 +184,7 @@ fn runtime_setup() {
 fn write_resolv_conf() {
     let body = resolv_conf_body();
     let cmd = format!("printf %s {} > /etc/resolv.conf", shell_quote(&body));
-    let (rc, _) = run(&cmd, None);
+    let (rc, _) = run(&cmd, None, Some(BOOTSTRAP_COMMAND_TIMEOUT_MS));
     if rc != 0 {
         eprintln!("[ish] failed to write /etc/resolv.conf rc={rc}");
     } else {
@@ -203,7 +206,7 @@ fn mount_apps_dir(documents_dir: &Path) {
         "mkdir -p /mnt/apps && mount -t real {} /mnt/apps",
         shell_quote(apps_str)
     );
-    let (rc, _) = run(&cmd, None);
+    let (rc, _) = run(&cmd, None, Some(BOOTSTRAP_COMMAND_TIMEOUT_MS));
     if rc != 0 {
         eprintln!("[ish] mount /mnt/apps failed rc={rc}");
     } else {
@@ -251,14 +254,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
-// ── shell quoting ────────────────────────────────────────────────────────
-
-/// POSIX single-quote escape: wrap in `'…'` and replace embedded `'` with
-/// `'\''`. Port of `codex_ish_shell_quote` from IshBridge.m.
-fn shell_quote(s: &str) -> String {
-    let escaped = s.replace('\'', "'\\''");
-    format!("'{escaped}'")
-}
+use crate::shell_quoting::posix_quote as shell_quote;
 
 // ── resolv.conf snapshot (libresolv FFI) ─────────────────────────────────
 //

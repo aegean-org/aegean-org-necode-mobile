@@ -17,6 +17,7 @@ pub(crate) fn run_command(
     argv: &[String],
     cwd: &Path,
     _env: &HashMap<String, String>,
+    timeout_ms: Option<u64>,
 ) -> (i32, Vec<u8>) {
     // Run apply_patch in-process since iSH cannot exec the app binary.
     if argv
@@ -84,7 +85,7 @@ pub(crate) fn run_command(
     eprintln!("[ish-exec] run: {cmd} (cwd={})", cwd.display());
 
     let cwd_str = cwd.to_string_lossy();
-    let (code, output) = crate::ish_runtime::run(&cmd, Some(cwd_str.as_ref()));
+    let (code, output) = crate::ish_runtime::run(&cmd, Some(cwd_str.as_ref()), timeout_ms);
 
     let preview = String::from_utf8_lossy(&output);
     let preview = if preview.len() > 200 {

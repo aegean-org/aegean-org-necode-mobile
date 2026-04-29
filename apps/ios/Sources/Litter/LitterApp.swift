@@ -512,6 +512,7 @@ private struct HomeNavigationView: View {
     @State private var actionErrorMessage: String?
     @State private var homeInputMode: HomeInputMode = .collapsed
     @State private var hydratingPinnedHomeThreadIds: Set<String> = []
+    @State private var pinnedThreadListingRepairTasks: [String: Task<Bool, Never>] = [:]
     @State private var hasSeededInitialConversationRoute = false
     @State private var pendingWallpaperConfig: WallpaperConfig?
     @State private var pendingWallpaperImage: UIImage?
@@ -542,7 +543,7 @@ private struct HomeNavigationView: View {
     }
 
     private var connectedServerOptions: [DirectoryPickerServerOption] {
-        homeDashboardModel.connectedServers.map { server in
+        homeDashboardModel.connectedServers.filter(\.canLaunchSessions).map { server in
             DirectoryPickerServerOption(
                 id: server.id,
                 name: server.displayName,
@@ -1327,6 +1328,10 @@ private struct HomeNavigationView: View {
     }
 
     private func handleSelectServer(_ server: HomeDashboardServer) {
+        guard server.canLaunchSessions else {
+            reconnectServer(server)
+            return
+        }
         if homeDashboardModel.selectedServerId == server.id {
             homeDashboardModel.clearScope()
         } else {
@@ -1400,10 +1405,15 @@ private struct HomeNavigationView: View {
                     "hydrating pinned thread",
                     fields: ["serverId": key.serverId, "threadId": key.threadId]
                 )
-                var resumed = await hydrateThread(key, loadInitialTurns: true)
-                if !resumed {
-                    await refreshThreadListing(serverId: key.serverId)
-                    resumed = await hydrateThread(key, loadInitialTurns: true)
+                if !(await hydrateThread(key, loadInitialTurns: true)) {
+                    let refreshed = await refreshPinnedThreadListing(serverId: key.serverId)
+                    guard refreshed else {
+                        await MainActor.run {
+                            _ = hydratingPinnedHomeThreadIds.remove(id)
+                        }
+                        return
+                    }
+                    _ = await hydrateThread(key, loadInitialTurns: true)
                 }
                 await MainActor.run {
                     _ = hydratingPinnedHomeThreadIds.remove(id)
@@ -1434,17 +1444,54 @@ private struct HomeNavigationView: View {
         return resumed
     }
 
-    private func refreshThreadListing(serverId: String) async {
-        _ = try? await appModel.client.listThreads(
-            serverId: serverId,
-            params: AppListThreadsRequest(
-                cursor: nil,
-                limit: nil,
-                archived: nil,
-                cwd: nil,
-                searchTerm: nil
-            )
-        )
+    private func refreshPinnedThreadListing(serverId: String) async -> Bool {
+        let task = await MainActor.run {
+            if let existing = pinnedThreadListingRepairTasks[serverId] {
+                return existing
+            }
+
+            let task = Task { () -> Bool in
+                LLog.info(
+                    "home",
+                    "repairing pinned thread listing",
+                    fields: ["serverId": serverId, "limit": 80]
+                )
+                do {
+                    try await appModel.client.listThreads(
+                        serverId: serverId,
+                        params: AppListThreadsRequest(
+                            cursor: nil,
+                            limit: 80,
+                            sortKey: .updatedAt,
+                            sortDirection: .desc,
+                            modelProviders: nil,
+                            sourceKinds: [.cli, .vsCode, .appServer],
+                            archived: false,
+                            cwd: nil,
+                            searchTerm: nil,
+                            useStateDbOnly: false,
+                            runtimeKinds: nil
+                        )
+                    )
+                    return true
+                } catch {
+                    LLog.warn(
+                        "home",
+                        "pinned thread listing repair failed",
+                        fields: ["serverId": serverId, "error": String(describing: error)]
+                    )
+                    return false
+                }
+            }
+            pinnedThreadListingRepairTasks[serverId] = task
+            return task
+        }
+
+        let refreshed = await task.value
+        await MainActor.run {
+            pinnedThreadListingRepairTasks[serverId] = nil
+        }
+        return refreshed
     }
 
     private func deleteThread(_ key: ThreadKey) async {

@@ -83,6 +83,16 @@ struct HomeDashboardView: View {
     @State private var isLoadingThreadListing = false
     @State private var suppressComposerCollapse = false
 
+    private var launchableServers: [HomeDashboardServer] {
+        connectedServers.filter(\.canLaunchSessions)
+    }
+
+    private var selectedLaunchableServer: HomeDashboardServer? {
+        let serverId = selectedProject?.serverId ?? selectedServerId
+        guard let serverId else { return nil }
+        return launchableServers.first { $0.id == serverId }
+    }
+
     var onSearchThreads: (@Sendable (_ query: String, _ runtimeKind: AgentRuntimeKind?, _ forceRepair: Bool) async -> Void)? = nil
 
     private var isSearchExpanded: Bool { inputMode == .search }
@@ -454,14 +464,14 @@ struct HomeDashboardView: View {
                     Spacer()
                     HomeModelChip(
                         serverId: selectedProject?.serverId ?? selectedServerId,
-                        disabled: (selectedProject?.serverId ?? selectedServerId) == nil,
+                        disabled: selectedLaunchableServer == nil,
                         onSheetStateChange: { isPresented in
                             suppressComposerCollapse = isPresented
                         }
                     )
                     ProjectChip(
                         project: selectedProject,
-                        disabled: connectedServers.isEmpty,
+                        disabled: launchableServers.isEmpty,
                         onTap: onOpenProjectPicker
                     )
                 }

@@ -413,9 +413,31 @@ rust-check:
 	@echo "==> cargo check (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo check --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client
 
-rust-test:
+rust-test: rust-shellcheck
 	@echo "==> cargo test (host, shared crates)..."
 	@cd $(ROOT) && $(DEV_CARGO_ENV) cargo test --manifest-path $(RUST_DIR)/Cargo.toml -p codex-mobile-client --lib
+
+# Lint the embedded SSH bootstrap shell scripts. shellcheck and pwsh are
+# best-effort: missing tools warn but don't fail the build (matches the
+# fresh-checkout reality where contributors may not have either installed).
+SSH_SCRIPT_DIR := $(RUST_DIR)/codex-mobile-client/src/ssh_scripts
+rust-shellcheck:
+	@if command -v shellcheck >/dev/null 2>&1; then \
+	  echo "==> shellcheck $(SSH_SCRIPT_DIR)/posix/*.sh"; \
+	  shellcheck --shell=sh --severity=warning $(SSH_SCRIPT_DIR)/posix/*.sh || exit 1; \
+	else \
+	  echo "==> shellcheck not installed, skipping (brew install shellcheck)"; \
+	fi
+	@echo "==> bash -n on $(SSH_SCRIPT_DIR)/posix/*.sh"
+	@for f in $(SSH_SCRIPT_DIR)/posix/*.sh; do bash -n "$$f" || exit 1; done
+	@if command -v pwsh >/dev/null 2>&1; then \
+	  echo "==> pwsh syntax check on $(SSH_SCRIPT_DIR)/powershell/*.ps1"; \
+	  for f in $(SSH_SCRIPT_DIR)/powershell/*.ps1; do \
+	    pwsh -NoProfile -Command "[void][scriptblock]::Create((Get-Content -Raw '$$f'))" || exit 1; \
+	  done; \
+	else \
+	  echo "==> pwsh not installed, skipping ps1 check"; \
+	fi
 
 rust-host-dev: rust-check rust-test
 

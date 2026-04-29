@@ -903,10 +903,10 @@ impl MobileClient {
             self.spawn_ipc_reader(server_id.to_string(), Arc::clone(&session));
             self.spawn_ipc_connection_state_reader(server_id.to_string(), Arc::clone(&session));
         }
-        self.spawn_event_reader(server_id.to_string(), Arc::clone(&session));
-        self.spawn_health_reader(server_id.to_string(), session.health());
         self.sessions_write()
             .insert(server_id.to_string(), Arc::clone(&session));
+        self.spawn_event_reader(server_id.to_string(), Arc::clone(&session));
+        self.spawn_health_reader(server_id.to_string(), Arc::clone(&session));
         self.spawn_post_connect_warmup(server_id.to_string(), session);
     }
 
@@ -933,11 +933,10 @@ impl MobileClient {
             server_supports_ipc(&session),
         );
 
-        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
-        self.spawn_health_reader(server_id.clone(), session.health());
-
         self.sessions_write()
             .insert(server_id.clone(), Arc::clone(&session));
+        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
+        self.spawn_health_reader(server_id.clone(), Arc::clone(&session));
         self.spawn_post_connect_warmup(server_id.clone(), session);
 
         info!("MobileClient: connected local server {server_id}");
@@ -961,11 +960,10 @@ impl MobileClient {
             server_supports_ipc(&session),
         );
 
-        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
-        self.spawn_health_reader(server_id.clone(), session.health());
-
         self.sessions_write()
             .insert(server_id.clone(), Arc::clone(&session));
+        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
+        self.spawn_health_reader(server_id.clone(), Arc::clone(&session));
         self.spawn_post_connect_warmup(server_id.clone(), session);
 
         info!("MobileClient: connected remote server {server_id}");

@@ -638,7 +638,7 @@ private struct ConversationMessageList: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         LazyVStack(alignment: .leading, spacing: 10) {
-                            if !initialTurnsLoaded && !turns.isEmpty {
+                            if !initialTurnsLoaded && hasOlderTurns && !turns.isEmpty {
                                 ConversationLoadingIndicator(label: "Loading earlier messages...")
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
