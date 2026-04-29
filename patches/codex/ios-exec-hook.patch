@@ -2,7 +2,7 @@ diff --git a/codex-rs/core/src/exec.rs b/codex-rs/core/src/exec.rs
 index 396b7701be..a40731cbe3 100644
 --- a/codex-rs/core/src/exec.rs
 +++ b/codex-rs/core/src/exec.rs
-@@ -47,6 +47,57 @@ use codex_utils_absolute_path::AbsolutePathBuf;
+@@ -47,6 +47,59 @@ use codex_utils_absolute_path::AbsolutePathBuf;
  use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;
  use codex_utils_pty::process_group::kill_child_process_group;
  
@@ -12,12 +12,14 @@ index 396b7701be..a40731cbe3 100644
 +/// Pluggable executor for platforms that cannot fork/exec (e.g. iOS).
 +#[cfg(target_os = "ios")]
 +pub(crate) static IOS_EXEC_HOOK: OnceLock<
-+    fn(&[String], &Path, &HashMap<String, String>) -> (i32, Vec<u8>),
++    fn(&[String], &Path, &HashMap<String, String>, Option<u64>) -> (i32, Vec<u8>),
 +> = OnceLock::new();
 +
 +/// Register the iOS exec hook before starting the server.
 +#[cfg(target_os = "ios")]
-+pub fn set_ios_exec_hook(f: fn(&[String], &Path, &HashMap<String, String>) -> (i32, Vec<u8>)) {
++pub fn set_ios_exec_hook(
++    f: fn(&[String], &Path, &HashMap<String, String>, Option<u64>) -> (i32, Vec<u8>),
++) {
 +    let _ = IOS_EXEC_HOOK.set(f);
 +}
 +
@@ -60,29 +62,34 @@ index 396b7701be..a40731cbe3 100644
  pub const DEFAULT_EXEC_COMMAND_TIMEOUT_MS: u64 = 10_000;
  
  // Hardcode these since it does not seem worth including the libc crate just
-@@ -841,7 +892,8 @@ async fn exec(
-     after_spawn: Option<Box<dyn FnOnce() + Send>>,
- ) -> Result<RawExecToolCallOutput> {
-     let ExecParams {
--        command,
-+        #[cfg_attr(not(target_os = "android"), allow(unused_mut))]
-+        mut command,
-         cwd,
-         mut env,
-         network,
-@@ -860,6 +912,48 @@ async fn exec(
+@@ -837,6 +890,7 @@ async fn exec(
+ /// Note this command does not apply any sandboxing logic. The caller is
+ /// responsible for constructing [ExecParams::command] to include any sandboxing
+ /// wrapper args, as appropriate.
++#[cfg_attr(target_os = "ios", allow(unused_variables, unreachable_code))]
+ async fn exec(
+     params: ExecParams,
+     network_sandbox_policy: NetworkSandboxPolicy,
+@@ -860,6 +914,55 @@ async fn exec(
      if let Some(network) = network.as_ref() {
          network.apply_to_env(&mut env);
      }
++    #[cfg(any(target_os = "ios", target_os = "android"))]
++    let mut command = command;
 +    #[cfg(any(target_os = "ios", target_os = "android"))]
 +    if let Some(preflight) = MOBILE_EXEC_PREFLIGHT.get() {
 +        preflight(&mut command);
 +    }
 +    #[cfg(target_os = "ios")]
 +    {
++        let timeout_ms = if capture_policy.uses_expiration() {
++            expiration.timeout_ms()
++        } else {
++            None
++        };
 +        let (code, data) = IOS_EXEC_HOOK
 +            .get()
-+            .map(|f| f(&command, &cwd, &env))
++            .map(|f| f(&command, &cwd, &env, timeout_ms))
 +            .unwrap_or_else(|| {
 +                (
 +                    -1,
@@ -136,7 +143,7 @@ index 5181359698..28b48c9919 100644
          let process = self
              .open_session_with_sandbox(&request, cwd.clone(), context)
              .await;
-@@ -404,6 +410,84 @@ impl UnifiedExecProcessManager {
+@@ -404,6 +410,86 @@ impl UnifiedExecProcessManager {
          Ok(response)
      }
  
@@ -178,7 +185,7 @@ index 5181359698..28b48c9919 100644
 +                }
 +                IOS_EXEC_HOOK
 +                    .get()
-+                    .map(|f| f(&command, &cwd, &env))
++                    .map(|f| f(&command, &cwd, &env, None))
 +                    .unwrap_or((-1, b"no iOS exec hook registered\n".to_vec()))
 +            }
 +        })
@@ -214,7 +221,9 @@ index 5181359698..28b48c9919 100644
 +            process_id: None,
 +            exit_code: Some(exit_code),
 +            original_token_count: Some(original_token_count),
-+            hook_command: Some(codex_shell_command::parse_command::shlex_join(&request.command)),
++            hook_command: Some(codex_shell_command::parse_command::shlex_join(
++                &request.command,
++            )),
 +        })
 +    }
 +
