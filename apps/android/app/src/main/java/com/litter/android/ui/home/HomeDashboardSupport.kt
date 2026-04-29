@@ -8,12 +8,14 @@ import androidx.compose.ui.text.font.FontWeight
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LitterThemeManager
+import com.litter.android.ui.common.runtimeLabel
 import com.litter.android.ui.scaled
+import uniffi.codex_mobile_client.Account
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
-import uniffi.codex_mobile_client.Account
 
 /**
  * TextStyle matching the conversation body size at the current text scale,
@@ -43,6 +45,7 @@ fun markdownMatchedTitleStyle(): TextStyle {
  * No business logic duplication — just UI-specific sorting/filtering.
  */
 object HomeDashboardSupport {
+    fun runtimeLabel(kind: AgentRuntimeKind): String = kind.runtimeLabel
 
     /**
      * Connected servers sorted by: active server first, then alphabetical.

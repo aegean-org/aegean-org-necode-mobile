@@ -33,6 +33,7 @@ import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.common.ModelSelectorPanel
+import com.litter.android.ui.common.matchesModelSelection
 import com.litter.android.ui.conversation.HeaderOverrides
 import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.ModelInfo
@@ -64,9 +65,11 @@ fun HomeModelChip(
         ?: availableModels.firstOrNull { it.isDefault }?.id
         ?: availableModels.firstOrNull()?.id
         ?: ""
+    val selectedRuntime = launchState.selectedAgentRuntimeKind
+        ?: availableModels.firstOrNull { it.id == selectedId || it.model == selectedId }?.agentRuntimeKind
 
-    val selectedLabel = remember(selectedId, availableModels) {
-        availableModels.firstOrNull { it.id == selectedId }?.displayName?.ifBlank { selectedId }
+    val selectedLabel = remember(selectedId, selectedRuntime, availableModels) {
+        availableModels.firstOrNull { it.matchesModelSelection(selectedId, selectedRuntime) }?.displayName?.ifBlank { selectedId }
             ?: selectedId.ifBlank { "model" }
     }
 

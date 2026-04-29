@@ -37,7 +37,10 @@ class AppLifecycleController {
      * Reconnects all saved servers on app launch or resume.
      */
     suspend fun reconnectSavedServers(context: Context, appModel: AppModel) {
-        val servers = SavedServerStore.remembered(context).map { it.toRecord() }
+        val servers = SavedServerStore.remembered(context).map { it.toRecord(context) }
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(
+            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
+        )
         appModel.reconnectController.syncSavedServers(servers)
         val results = appModel.reconnectController.reconnectSavedServers()
         restoreLocalStateAfterReconnect(appModel, results)
@@ -48,7 +51,10 @@ class AppLifecycleController {
      * Reconnects a single server by ID.
      */
     suspend fun reconnectServer(context: Context, appModel: AppModel, serverId: String) {
-        val servers = SavedServerStore.load(context).map { it.toRecord() }
+        val servers = SavedServerStore.load(context).map { it.toRecord(context) }
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(
+            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
+        )
         appModel.reconnectController.syncSavedServers(servers)
         val result = appModel.reconnectController.reconnectServer(serverId)
         restoreLocalStateAfterReconnect(appModel, listOf(result))
@@ -67,7 +73,10 @@ class AppLifecycleController {
             addAll(backgroundedTurnKeys)
             appModel.snapshot.value?.activeThread?.let(::add)
         }
-        val servers = SavedServerStore.remembered(context).map { it.toRecord() }
+        val servers = SavedServerStore.remembered(context).map { it.toRecord(context) }
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(
+            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
+        )
         appModel.reconnectController.syncSavedServers(servers)
         val results = appModel.reconnectController.onAppBecameActive()
         restoreLocalStateAfterReconnect(appModel, results)

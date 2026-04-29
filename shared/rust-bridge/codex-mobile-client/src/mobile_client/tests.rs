@@ -75,6 +75,32 @@ mod mobile_client_tests {
         }
     }
 
+    fn make_model_info(
+        id: &str,
+        model: &str,
+        runtime_kind: AgentRuntimeKind,
+    ) -> crate::types::ModelInfo {
+        crate::types::ModelInfo {
+            id: id.to_string(),
+            model: model.to_string(),
+            upgrade: None,
+            upgrade_model: None,
+            upgrade_copy: None,
+            model_link: None,
+            migration_markdown: None,
+            availability_nux_message: None,
+            display_name: id.to_string(),
+            description: String::new(),
+            hidden: false,
+            supported_reasoning_efforts: Vec::new(),
+            default_reasoning_effort: crate::types::ReasoningEffort::Medium,
+            input_modalities: Vec::new(),
+            supports_personality: false,
+            is_default: false,
+            agent_runtime_kind: runtime_kind,
+        }
+    }
+
     async fn connect_test_ipc_client(label: &str) -> IpcClient {
         let (client_stream, mut server_stream) = tokio::io::duplex(4096);
         let label = label.to_string();
@@ -362,6 +388,7 @@ mod mobile_client_tests {
                 info.status = ThreadSummaryStatus::Active;
                 info
             },
+            agent_runtime_kind: AgentRuntimeKind::Codex,
             collaboration_mode: AppModeKind::Plan,
             model: Some("gpt-5".to_string()),
             reasoning_effort: Some("high".to_string()),
@@ -433,6 +460,7 @@ mod mobile_client_tests {
                 thread_id: "thread-1".to_string(),
             },
             info: make_thread_info("thread-1"),
+            agent_runtime_kind: AgentRuntimeKind::Codex,
             collaboration_mode: AppModeKind::Default,
             model: None,
             reasoning_effort: None,
@@ -459,6 +487,194 @@ mod mobile_client_tests {
 
         assert_eq!(target.effective_approval_policy, None);
         assert_eq!(target.effective_sandbox_policy, None);
+    }
+
+    #[test]
+    fn thread_start_runtime_uses_selected_model_runtime() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &make_server_config("srv"),
+            ServerHealthSnapshot::Connected,
+            false,
+        );
+        client.app_store.update_server_models(
+            "srv",
+            Some(vec![make_model_info(
+                "claude-sonnet-4.5",
+                "claude-sonnet-4.5",
+                AgentRuntimeKind::Claude,
+            )]),
+        );
+
+        assert_eq!(
+            client.runtime_for_thread_start("srv", None, Some("claude-sonnet-4.5")),
+            AgentRuntimeKind::Claude
+        );
+    }
+
+    #[test]
+    fn thread_start_runtime_explicit_agent_wins_over_duplicate_model() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &make_server_config("srv"),
+            ServerHealthSnapshot::Connected,
+            false,
+        );
+        client.app_store.update_server_models(
+            "srv",
+            Some(vec![
+                make_model_info(
+                    "claude-sonnet-4.6",
+                    "claude-sonnet-4.6",
+                    AgentRuntimeKind::Pi,
+                ),
+                make_model_info(
+                    "claude-sonnet-4.6",
+                    "claude-sonnet-4.6",
+                    AgentRuntimeKind::Claude,
+                ),
+            ]),
+        );
+
+        assert_eq!(
+            client.runtime_for_thread_start(
+                "srv",
+                Some(AgentRuntimeKind::Pi),
+                Some("claude-sonnet-4.6"),
+            ),
+            AgentRuntimeKind::Pi
+        );
+    }
+
+    #[test]
+    fn normalizes_selected_model_to_runtime_advertised_id() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &make_server_config("srv"),
+            ServerHealthSnapshot::Connected,
+            false,
+        );
+        client.app_store.update_server_models(
+            "srv",
+            Some(vec![make_model_info(
+                "anthropic/claude-sonnet-4.6",
+                "claude-sonnet-4.6",
+                AgentRuntimeKind::Pi,
+            )]),
+        );
+
+        let mut model = Some("claude-sonnet-4.6".to_string());
+        client.normalize_thread_model_for_runtime("srv", AgentRuntimeKind::Pi, &mut model);
+
+        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-4.6"));
+    }
+
+    #[test]
+    fn thread_start_runtime_explicit_override_wins_over_selected_model() {
+        let client = MobileClient::new();
+        client.app_store.upsert_server(
+            &make_server_config("srv"),
+            ServerHealthSnapshot::Connected,
+            false,
+        );
+        client.app_store.update_server_models(
+            "srv",
+            Some(vec![make_model_info(
+                "claude-sonnet-4.5",
+                "claude-sonnet-4.5",
+                AgentRuntimeKind::Claude,
+            )]),
+        );
+
+        assert_eq!(
+            client.runtime_for_thread_start(
+                "srv",
+                Some(AgentRuntimeKind::Opencode),
+                Some("claude-sonnet-4.5"),
+            ),
+            AgentRuntimeKind::Opencode
+        );
+    }
+
+    #[test]
+    fn thread_runtime_infers_claude_from_existing_thread_model() {
+        let client = MobileClient::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-claude".to_string(),
+        };
+        let mut info = make_thread_info(&key.thread_id);
+        info.model = Some("anthropic/claude-opus-4-7".to_string());
+        info.model_provider = Some("openai".to_string());
+        client
+            .app_store
+            .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
+        client.note_thread_runtime(key.clone(), AgentRuntimeKind::Codex);
+
+        assert_eq!(client.runtime_for_thread(&key), AgentRuntimeKind::Claude);
+    }
+
+    #[test]
+    fn thread_runtime_infers_claude_from_existing_thread_model_provider() {
+        let client = MobileClient::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-anthropic".to_string(),
+        };
+        let mut info = make_thread_info(&key.thread_id);
+        info.model_provider = Some("anthropic".to_string());
+        client
+            .app_store
+            .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
+
+        assert_eq!(client.runtime_for_thread(&key), AgentRuntimeKind::Claude);
+    }
+
+    #[test]
+    fn thread_runtime_infers_non_codex_from_existing_thread_model_provider() {
+        for (provider, expected_runtime) in [
+            ("opencode", AgentRuntimeKind::Opencode),
+            ("open code", AgentRuntimeKind::Opencode),
+            ("pi", AgentRuntimeKind::Pi),
+            ("pi.dev", AgentRuntimeKind::Pi),
+        ] {
+            let client = MobileClient::new();
+            let key = ThreadKey {
+                server_id: "srv".to_string(),
+                thread_id: format!("thread-{provider}"),
+            };
+            let mut info = make_thread_info(&key.thread_id);
+            info.model_provider = Some(provider.to_string());
+            client
+                .app_store
+                .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
+            client.note_thread_runtime(key.clone(), AgentRuntimeKind::Codex);
+
+            assert_eq!(client.runtime_for_thread(&key), expected_runtime);
+        }
+    }
+
+    #[test]
+    fn thread_runtime_infers_non_codex_from_existing_thread_model_prefix() {
+        for (model, expected_runtime) in [
+            ("opencode/qwen3-coder", AgentRuntimeKind::Opencode),
+            ("pi.dev/default", AgentRuntimeKind::Pi),
+        ] {
+            let client = MobileClient::new();
+            let key = ThreadKey {
+                server_id: "srv".to_string(),
+                thread_id: format!("thread-{model}"),
+            };
+            let mut info = make_thread_info(&key.thread_id);
+            info.model = Some(model.to_string());
+            info.model_provider = Some("openai".to_string());
+            client
+                .app_store
+                .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
+            client.note_thread_runtime(key.clone(), AgentRuntimeKind::Codex);
+
+            assert_eq!(client.runtime_for_thread(&key), expected_runtime);
+        }
     }
 
     #[test]
@@ -685,6 +901,120 @@ mod mobile_client_tests {
     }
 
     #[tokio::test]
+    async fn external_resume_thread_tries_registered_runtimes_for_unknown_pinned_thread() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected, true);
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let codex_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| {
+                requests
+                    .lock()
+                    .expect("request log lock should not be poisoned")
+                    .push(format!("codex:{}", request.method()));
+                Err(RpcError::Deserialization(
+                    "no rollout found for thread id thread-1".to_string(),
+                ))
+            })
+        };
+        let claude_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| {
+                requests
+                    .lock()
+                    .expect("request log lock should not be poisoned")
+                    .push(format!("claude:{}", request.method()));
+                match request {
+                    upstream::ClientRequest::ThreadResume { .. } => {
+                        serde_json::to_value(serde_json::json!({
+                            "thread": {
+                                "id": thread_id,
+                                "preview": "hi",
+                                "ephemeral": false,
+                                "modelProvider": "anthropic",
+                                "createdAt": 1,
+                                "updatedAt": 2,
+                                "status": { "type": "idle" },
+                                "path": "/tmp/thread",
+                                "cwd": "/tmp/thread",
+                                "cliVersion": "1.0.0",
+                                "source": "cli",
+                                "agentNickname": null,
+                                "agentRole": null,
+                                "gitInfo": null,
+                                "name": "thread",
+                                "turns": []
+                            },
+                            "model": "claude-sonnet-4.5",
+                            "modelProvider": "anthropic",
+                            "cwd": "/tmp/thread",
+                            "approvalPolicy": "never",
+                            "approvalsReviewer": "user",
+                            "sandbox": {
+                                "type": "dangerFullAccess"
+                            },
+                            "reasoningEffort": "medium"
+                        }))
+                        .map_err(|error| RpcError::Deserialization(error.to_string()))
+                    }
+                    other => Err(RpcError::Deserialization(format!(
+                        "unexpected request in test: {}",
+                        other.method()
+                    ))),
+                }
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config,
+            vec![
+                (AgentRuntimeKind::Codex, codex_handler),
+                (AgentRuntimeKind::Claude, claude_handler),
+            ],
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client
+            .external_resume_thread(server_id, thread_id, None)
+            .await
+            .expect("resume should try the registered non-Codex runtime");
+
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned");
+        assert_eq!(
+            requests.as_slice(),
+            ["codex:thread/resume", "claude:thread/resume"],
+            "resume should try the default route, then the registered runtime"
+        );
+        drop(requests);
+
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("thread snapshot should exist after runtime fallback");
+        assert!(snapshot.is_resumed);
+        assert_eq!(snapshot.agent_runtime_kind, AgentRuntimeKind::Claude);
+        assert_eq!(client.runtime_for_thread(&key), AgentRuntimeKind::Claude);
+    }
+
+    #[tokio::test]
     async fn external_resume_thread_skips_duplicate_direct_resume_for_current_session() {
         let client = MobileClient::new();
         let server_id = "srv";
@@ -772,6 +1102,402 @@ mod mobile_client_tests {
             ["thread/resume"],
             "duplicate direct resume should not call app-server again"
         );
+    }
+
+    #[tokio::test]
+    async fn load_thread_turns_page_falls_back_to_embedded_resume_when_method_missing() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected, true);
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let request_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| {
+                match &request {
+                    upstream::ClientRequest::ThreadResume { params, .. } => {
+                        requests
+                            .lock()
+                            .expect("request log lock should not be poisoned")
+                            .push(format!("thread/resume:{}", params.exclude_turns));
+                    }
+                    other => {
+                        requests
+                            .lock()
+                            .expect("request log lock should not be poisoned")
+                            .push(other.method().to_string());
+                    }
+                }
+                match request {
+                    upstream::ClientRequest::ThreadResume { params, .. } => {
+                        let turns = if params.exclude_turns {
+                            json!([])
+                        } else {
+                            json!([{
+                                "id": "turn-1",
+                                "items": [{
+                                    "id": "item-1",
+                                    "type": "userMessage",
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "hello",
+                                        "textElements": []
+                                    }]
+                                }],
+                                "status": "completed",
+                                "error": null,
+                                "startedAt": null,
+                                "completedAt": 2,
+                                "durationMs": 1
+                            }])
+                        };
+                        serde_json::to_value(json!({
+                            "thread": {
+                                "id": thread_id,
+                                "preview": "hello",
+                                "ephemeral": false,
+                                "modelProvider": "openai",
+                                "createdAt": 1,
+                                "updatedAt": 2,
+                                "status": { "type": "idle" },
+                                "path": "/tmp/thread",
+                                "cwd": "/tmp/thread",
+                                "cliVersion": "1.0.0",
+                                "source": "cli",
+                                "agentNickname": null,
+                                "agentRole": null,
+                                "gitInfo": null,
+                                "name": "thread",
+                                "turns": turns
+                            },
+                            "model": "gpt-5",
+                            "modelProvider": "openai",
+                            "cwd": "/tmp/thread",
+                            "approvalPolicy": "never",
+                            "approvalsReviewer": "user",
+                            "sandbox": { "type": "dangerFullAccess" },
+                            "reasoningEffort": "medium"
+                        }))
+                        .map_err(|error| RpcError::Deserialization(error.to_string()))
+                    }
+                    upstream::ClientRequest::ThreadTurnsList { .. } => {
+                        Err(RpcError::Deserialization(
+                            "server error -32601: method `thread/turns/list` is not implemented"
+                                .to_string(),
+                        ))
+                    }
+                    other => Err(RpcError::Deserialization(format!(
+                        "unexpected request in test: {}",
+                        other.method()
+                    ))),
+                }
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            None,
+            Some(request_handler),
+            None,
+            None,
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client
+            .external_resume_thread(server_id, thread_id, None)
+            .await
+            .expect("initial resume should succeed");
+
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let initial_snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("snapshot after initial resume");
+        assert!(initial_snapshot.items.is_empty());
+        assert!(!initial_snapshot.initial_turns_loaded);
+
+        let outcome = client
+            .load_thread_turns_page(server_id, thread_id, None, Some(5))
+            .await
+            .expect("turn load should fall back to embedded resume");
+        assert!(outcome.loaded);
+        assert!(!outcome.has_more);
+
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned");
+        assert_eq!(
+            requests.as_slice(),
+            [
+                "thread/resume:true",
+                "thread/turns/list",
+                "thread/resume:false"
+            ]
+        );
+        drop(requests);
+
+        let snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("snapshot after fallback resume");
+        assert_eq!(snapshot.items.len(), 1);
+        assert!(snapshot.initial_turns_loaded);
+        assert!(!client.app_store.server_supports_turn_pagination(server_id));
+    }
+
+    #[tokio::test]
+    async fn external_resume_refreshes_direct_marker_when_thread_is_empty_and_unloaded() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected, true);
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let request_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| match request {
+                upstream::ClientRequest::ThreadResume { params, .. } => {
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push(format!("thread/resume:{}", params.exclude_turns));
+                    let turns = if params.exclude_turns {
+                        json!([])
+                    } else {
+                        json!([{
+                            "id": "turn-1",
+                            "items": [{
+                                "id": "item-1",
+                                "type": "userMessage",
+                                "content": [{
+                                    "type": "text",
+                                    "text": "hello",
+                                    "textElements": []
+                                }]
+                            }],
+                            "status": "completed",
+                            "error": null,
+                            "startedAt": null,
+                            "completedAt": 2,
+                            "durationMs": 1
+                        }])
+                    };
+                    serde_json::to_value(json!({
+                        "thread": {
+                            "id": thread_id,
+                            "preview": "hello",
+                            "ephemeral": false,
+                            "modelProvider": "openai",
+                            "createdAt": 1,
+                            "updatedAt": 2,
+                            "status": { "type": "idle" },
+                            "path": "/tmp/thread",
+                            "cwd": "/tmp/thread",
+                            "cliVersion": "1.0.0",
+                            "source": "cli",
+                            "agentNickname": null,
+                            "agentRole": null,
+                            "gitInfo": null,
+                            "name": "thread",
+                            "turns": turns
+                        },
+                        "model": "gpt-5",
+                        "modelProvider": "openai",
+                        "cwd": "/tmp/thread",
+                        "approvalPolicy": "never",
+                        "approvalsReviewer": "user",
+                        "sandbox": { "type": "dangerFullAccess" },
+                        "reasoningEffort": "medium"
+                    }))
+                    .map_err(|error| RpcError::Deserialization(error.to_string()))
+                }
+                other => Err(RpcError::Deserialization(format!(
+                    "unexpected request in test: {}",
+                    other.method()
+                ))),
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            None,
+            Some(request_handler),
+            None,
+            None,
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client
+            .external_resume_thread(server_id, thread_id, None)
+            .await
+            .expect("initial resume should succeed");
+        client
+            .app_store
+            .set_server_supports_turn_pagination(server_id, false);
+        client
+            .external_resume_thread(server_id, thread_id, None)
+            .await
+            .expect("second resume should refresh embedded turns");
+
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned");
+        assert_eq!(
+            requests.as_slice(),
+            ["thread/resume:true", "thread/resume:false"]
+        );
+        drop(requests);
+
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("snapshot after fallback resume");
+        assert_eq!(snapshot.items.len(), 1);
+        assert!(snapshot.initial_turns_loaded);
+    }
+
+    #[tokio::test]
+    async fn load_thread_turns_page_uses_embedded_resume_when_pagination_is_disabled() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected, true);
+        client
+            .app_store
+            .set_server_supports_turn_pagination(server_id, false);
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let request_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| match request {
+                upstream::ClientRequest::ThreadResume { params, .. } => {
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push(format!("thread/resume:{}", params.exclude_turns));
+                    assert!(!params.exclude_turns);
+                    serde_json::to_value(json!({
+                        "thread": {
+                            "id": thread_id,
+                            "preview": "hello",
+                            "ephemeral": false,
+                            "modelProvider": "openai",
+                            "createdAt": 1,
+                            "updatedAt": 2,
+                            "status": { "type": "idle" },
+                            "path": "/tmp/thread",
+                            "cwd": "/tmp/thread",
+                            "cliVersion": "1.0.0",
+                            "source": "cli",
+                            "agentNickname": null,
+                            "agentRole": null,
+                            "gitInfo": null,
+                            "name": "thread",
+                            "turns": [{
+                                "id": "turn-1",
+                                "items": [{
+                                    "id": "item-1",
+                                    "type": "userMessage",
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "hello",
+                                        "textElements": []
+                                    }]
+                                }],
+                                "status": "completed",
+                                "error": null,
+                                "startedAt": null,
+                                "completedAt": 2,
+                                "durationMs": 1
+                            }]
+                        },
+                        "model": "gpt-5",
+                        "modelProvider": "openai",
+                        "cwd": "/tmp/thread",
+                        "approvalPolicy": "never",
+                        "approvalsReviewer": "user",
+                        "sandbox": { "type": "dangerFullAccess" },
+                        "reasoningEffort": "medium"
+                    }))
+                    .map_err(|error| RpcError::Deserialization(error.to_string()))
+                }
+                other => Err(RpcError::Deserialization(format!(
+                    "unexpected request in test: {}",
+                    other.method()
+                ))),
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            None,
+            Some(request_handler),
+            None,
+            None,
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        let outcome = client
+            .load_thread_turns_page(server_id, thread_id, None, Some(5))
+            .await
+            .expect("turn load should use embedded resume");
+
+        assert!(outcome.loaded);
+        assert!(!outcome.has_more);
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned");
+        assert_eq!(requests.as_slice(), ["thread/resume:false"]);
+        drop(requests);
+
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("snapshot after embedded resume");
+        assert_eq!(snapshot.items.len(), 1);
+        assert!(snapshot.initial_turns_loaded);
     }
 
     #[test]

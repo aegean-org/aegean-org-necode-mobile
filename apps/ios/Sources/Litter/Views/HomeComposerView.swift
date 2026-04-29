@@ -33,6 +33,13 @@ struct HomeComposerView: View {
     @State private var voiceManager = VoiceTranscriptionManager()
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var pluginCacheByCwd: [String: [PluginSummary]] = [:]
+    @State private var pluginUnsupportedCwds: Set<String> = []
+    @State private var pluginLoadingCwds: Set<String> = []
+    @State private var pluginMentionSelections: [PluginMentionSelection] = []
+    @State private var activeAtToken: ComposerTokenContext?
+    @State private var showPluginPopup = false
+    @State private var popupRefreshTask: Task<Void, Never>?
     /// Plain `@State`, not `@FocusState`: the composer's text view is a
     /// UIKit `UITextView` wrapped in a UIViewRepresentable, not a SwiftUI
     /// focusable view. Using `@FocusState` without a matching `.focused()`
@@ -92,6 +99,7 @@ struct HomeComposerView: View {
                 hasPendingPlanImplementation: false,
                 activeTaskSummary: nil,
                 queuedFollowUps: [],
+                pluginMentions: pluginMentionSelections,
                 rateLimits: nil,
                 contextPercent: nil,
                 isTurnActive: isSubmitting,
@@ -103,6 +111,7 @@ struct HomeComposerView: View {
                 onRespondToPendingUserInput: { _ in },
                 onSteerQueuedFollowUp: { _ in },
                 onDeleteQueuedFollowUp: { _ in },
+                onRemovePluginMention: removePluginMention,
                 onPasteImage: { image in attachedImage = image },
                 onOpenModePicker: {},
                 onSendText: handleSend,
@@ -115,6 +124,17 @@ struct HomeComposerView: View {
                     set: { isComposerFocused = $0 }
                 )
             )
+            .overlay(alignment: .bottom) {
+                if showPluginPopup, project != nil {
+                    HomePluginAutocompletePopup(
+                        plugins: filteredPluginSuggestions,
+                        onSelect: applyPluginSuggestion
+                    )
+                }
+            }
+        }
+        .onChange(of: inputText) { _, newValue in
+            scheduleHomePopupRefresh(for: newValue)
         }
         .onChange(of: isActive) { _, active in
             onActiveChange?(active)
@@ -212,9 +232,11 @@ struct HomeComposerView: View {
 
                 let pendingModel = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let modelOverride = pendingModel.isEmpty ? nil : pendingModel
+                let agentRuntimeOverride = modelOverride == nil ? nil : appState.preferredAgentRuntimeKind
                 let pendingEffort = appState.preferredReasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
                 let effortOverride = ReasoningEffort(wireValue: pendingEffort.isEmpty ? nil : pendingEffort)
                 let launchConfig = AppThreadLaunchConfig(
+                    agentRuntimeKind: agentRuntimeOverride,
                     model: modelOverride,
                     approvalPolicy: appState.launchApprovalPolicy(for: nil),
                     sandbox: appState.launchSandboxMode(for: nil),
@@ -231,6 +253,15 @@ struct HomeComposerView: View {
                 RecentDirectoryStore.shared.record(path: project.cwd, for: project.serverId)
                 let preparedAttachment = image.flatMap(ConversationAttachmentSupport.prepareImage)
                 var additionalInputs: [AppUserInput] = []
+                let mentionsToSend = collectPluginMentionsForSubmission(text)
+                pluginMentionSelections = []
+                showPluginPopup = false
+                activeAtToken = nil
+                for mention in mentionsToSend {
+                    additionalInputs.append(
+                        AppUserInput.mention(name: mention.name, path: mention.path)
+                    )
+                }
                 if let preparedAttachment {
                     additionalInputs.append(preparedAttachment.userInput)
                 }
@@ -288,5 +319,190 @@ struct HomeComposerView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Plugin autocomplete
+
+    private var filteredPluginSuggestions: [PluginSummary] {
+        guard let project else { return [] }
+        let plugins = pluginCacheByCwd[project.cwd] ?? []
+        guard !plugins.isEmpty else { return [] }
+        let query = (activeAtToken?.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !query.isEmpty else { return plugins }
+        return plugins.filter { plugin in
+            if plugin.name.lowercased().contains(query) { return true }
+            if plugin.displayTitle.lowercased().contains(query) { return true }
+            if let desc = plugin.interface?.shortDescription?.lowercased(), desc.contains(query) {
+                return true
+            }
+            return plugin.marketplaceName.lowercased().contains(query)
+        }
+    }
+
+    private func scheduleHomePopupRefresh(for nextText: String) {
+        popupRefreshTask?.cancel()
+        popupRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 70_000_000)
+            guard !Task.isCancelled else { return }
+            refreshHomePopup(for: nextText)
+        }
+    }
+
+    private func refreshHomePopup(for nextText: String) {
+        guard project != nil else {
+            showPluginPopup = false
+            activeAtToken = nil
+            return
+        }
+        let cursor = nextText.count
+        if let atToken = currentPrefixedToken(
+            text: nextText,
+            cursor: cursor,
+            prefix: "@",
+            allowEmpty: true
+        ) {
+            if activeAtToken != atToken {
+                activeAtToken = atToken
+                loadPluginsIfNeeded()
+            }
+            showPluginPopup = true
+        } else if showPluginPopup || activeAtToken != nil {
+            showPluginPopup = false
+            activeAtToken = nil
+        }
+    }
+
+    private func loadPluginsIfNeeded() {
+        guard let project else { return }
+        let cwd = project.cwd
+        guard !pluginUnsupportedCwds.contains(cwd),
+              pluginCacheByCwd[cwd] == nil,
+              !pluginLoadingCwds.contains(cwd) else {
+            return
+        }
+        pluginLoadingCwds.insert(cwd)
+        Task {
+            defer { pluginLoadingCwds.remove(cwd) }
+            do {
+                let plugins = try await appModel.client.listPlugins(
+                    serverId: project.serverId,
+                    params: AppListPluginsRequest(cwds: [cwd])
+                )
+                pluginCacheByCwd[cwd] = plugins
+            } catch {
+                pluginUnsupportedCwds.insert(cwd)
+            }
+        }
+    }
+
+    private func applyPluginSuggestion(_ plugin: PluginSummary) {
+        guard let token = activeAtToken else { return }
+        let replacement = "@\(plugin.name) "
+        if let updated = replacingRange(
+            in: inputText,
+            with: token.range,
+            replacement: replacement
+        ) {
+            inputText = updated
+        }
+        let selection = PluginMentionSelection(
+            name: plugin.name,
+            marketplace: plugin.marketplaceName,
+            displayName: plugin.interface?.displayName ?? plugin.displayTitle
+        )
+        if !pluginMentionSelections.contains(selection) {
+            pluginMentionSelections.append(selection)
+        }
+        showPluginPopup = false
+        activeAtToken = nil
+    }
+
+    private func removePluginMention(_ selection: PluginMentionSelection) {
+        pluginMentionSelections.removeAll { $0 == selection }
+        let needle = "@\(selection.name)"
+        if let range = inputText.range(of: needle) {
+            var replaced = inputText
+            replaced.removeSubrange(range)
+            inputText = replaced.replacingOccurrences(of: "  ", with: " ")
+        }
+    }
+
+    private func collectPluginMentionsForSubmission(_ text: String) -> [PluginMentionSelection] {
+        guard !pluginMentionSelections.isEmpty else { return [] }
+        let lowered = text.lowercased()
+        var seen = Set<String>()
+        var resolved: [PluginMentionSelection] = []
+        for selection in pluginMentionSelections {
+            guard lowered.contains("@\(selection.name.lowercased())") else { continue }
+            guard seen.insert(selection.path).inserted else { continue }
+            resolved.append(selection)
+        }
+        return resolved
+    }
+}
+
+private struct HomePluginAutocompletePopup: View {
+    let plugins: [PluginSummary]
+    let onSelect: (PluginSummary) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if plugins.isEmpty {
+                Text("No plugins")
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+            } else {
+                let visible = Array(plugins.prefix(8))
+                ForEach(Array(visible.enumerated()), id: \.element.id) { item in
+                    let plugin = item.element
+                    VStack(spacing: 0) {
+                        Button {
+                            onSelect(plugin)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "puzzlepiece.extension.fill")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.accent)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(plugin.displayTitle)
+                                        .litterFont(.footnote, weight: .semibold)
+                                        .foregroundColor(LitterTheme.textPrimary)
+                                        .lineLimit(1)
+                                    if let subtitle = plugin.interface?.shortDescription, !subtitle.isEmpty {
+                                        Text(subtitle)
+                                            .litterFont(.caption)
+                                            .foregroundColor(LitterTheme.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider()
+                            .background(LitterTheme.border)
+                            .opacity(item.offset < visible.count - 1 ? 1 : 0)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(LitterTheme.surface.opacity(0.95))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(LitterTheme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 56)
     }
 }

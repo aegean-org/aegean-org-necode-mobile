@@ -18,6 +18,7 @@ struct SessionsScreen: View {
     @State private var directoryPickerSheet: SessionLaunchSupport.DirectoryPickerSheetModel?
     @State private var sessionSearchQuery = ""
     @State private var debouncedSessionSearchQuery = ""
+    @State private var selectedRuntimeKindFilter: AgentRuntimeKind?
     @State private var isForkingActiveThread = false
     @State private var sessionActionErrorMessage: String?
     @State private var renamingThreadKey: ThreadKey?
@@ -151,6 +152,9 @@ struct SessionsScreen: View {
             .onChange(of: debouncedSessionSearchQuery) { _, next in
                 sessionsModel.updateSearchQuery(next)
             }
+            .onChange(of: selectedRuntimeKindFilter) { _, next in
+                sessionsModel.updateRuntimeKindFilter(next)
+            }
             .onChange(of: derived.workspaceGroupIDs) { _, ids in
                 let idSet: Set<String> = Set(ids)
                 collapsedWorkspaceGroupIDs = collapsedWorkspaceGroupIDs.intersection(idSet)
@@ -246,6 +250,7 @@ struct SessionsScreen: View {
                     .padding(.vertical, 8)
                     Divider().background(LitterTheme.separator)
                 }
+                runtimeKindPillRow
                 sessionSearchBar
                 sessionFilterRow
                 Divider().background(LitterTheme.separator)
@@ -476,6 +481,68 @@ struct SessionsScreen: View {
                 }
             }
         }
+    }
+
+    private var runtimeKindPillRow: some View {
+        // Only show pills when the current sessions list actually contains
+        // multiple runtimes — a single-runtime user (Codex-only) doesn't
+        // need to filter, and the row would just be visual noise.
+        let runtimeKinds = Set(sessionsModel.derivedData.allThreads.map(\.agentRuntimeKind))
+        return Group {
+            if runtimeKinds.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        runtimeKindPill(label: "All", icon: "square.grid.2x2", kind: nil)
+                        ForEach(orderedRuntimeKinds(present: runtimeKinds), id: \.self) { kind in
+                            runtimeKindPill(
+                                label: runtimeKindLabel(kind),
+                                icon: runtimeKindIcon(kind),
+                                kind: kind
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func runtimeKindPill(label: String, icon: String, kind: AgentRuntimeKind?) -> some View {
+        let isActive = selectedRuntimeKindFilter == kind
+        return Button {
+            selectedRuntimeKindFilter = kind
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .litterFont(size: 10, weight: .semibold)
+                Text(label)
+                    .lineLimit(1)
+            }
+            .litterFont(.caption)
+            .foregroundColor(isActive ? LitterTheme.textOnAccent : LitterTheme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isActive ? LitterTheme.accent : LitterTheme.surface.opacity(0.65))
+            .overlay(
+                Capsule()
+                    .stroke(isActive ? LitterTheme.accent : LitterTheme.border.opacity(0.7), lineWidth: 1)
+            )
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func orderedRuntimeKinds(present: Set<AgentRuntimeKind>) -> [AgentRuntimeKind] {
+        AgentRuntimeKind.presentationOrder.filter { present.contains($0) }
+    }
+
+    private func runtimeKindLabel(_ kind: AgentRuntimeKind) -> String {
+        kind.titleDisplayLabel
+    }
+
+    private func runtimeKindIcon(_ kind: AgentRuntimeKind) -> String {
+        kind.systemImageName
     }
 
     private var sessionSearchBar: some View {
@@ -1199,8 +1266,10 @@ struct SessionsScreen: View {
 
     private func launchConfig(for threadKey: ThreadKey? = nil) -> AppThreadLaunchConfig {
         let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSelectedModel = !selectedModel.isEmpty
         return AppThreadLaunchConfig(
-            model: selectedModel.isEmpty ? nil : selectedModel,
+            agentRuntimeKind: hasSelectedModel ? appState.selectedAgentRuntimeKind : nil,
+            model: hasSelectedModel ? selectedModel : nil,
             approvalPolicy: appState.launchApprovalPolicy(for: threadKey),
             sandbox: appState.launchSandboxMode(for: threadKey),
             developerInstructions: nil,

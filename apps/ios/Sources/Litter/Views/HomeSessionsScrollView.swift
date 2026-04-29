@@ -893,7 +893,8 @@ final class HomeRowContainer: UIView {
     /// gives a crossfade rather than a progressive blur — scrubbing
     /// an animator's fractionComplete is the canonical way to
     /// interpolate blur radius on iOS.
-    private lazy var pinchBlurAnimator: UIViewPropertyAnimator = {
+    private var pinchBlurAnimator: UIViewPropertyAnimator?
+    private func makePinchBlurAnimator() -> UIViewPropertyAnimator {
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
         animator.addAnimations { [weak self] in
             self?.pinchBlur.effect = UIBlurEffect(style: .systemThinMaterialDark)
@@ -908,7 +909,7 @@ final class HomeRowContainer: UIView {
         animator.pauseAnimation()
         animator.fractionComplete = 0
         return animator
-    }()
+    }
     private let leadingIconView = UIImageView()
     private let trailingIconView = UIImageView()
 
@@ -997,11 +998,21 @@ final class HomeRowContainer: UIView {
         // material instead of nothing, so the blur sits over every
         // row obscuring all content. No pinch gesture on Catalyst
         // anyway, so the whole pipeline is unused there.
+        //
+        // iOS Reduce Transparency has the same practical failure mode:
+        // system material can collapse to an opaque fallback over the
+        // hosted SwiftUI row. In that accessibility mode, the contrast-
+        // safe behavior is no blur overlay at all.
         pinchBlur.isUserInteractionEnabled = false
         pinchBlur.alpha = 1
         #if !targetEnvironment(macCatalyst)
-        addSubview(pinchBlur)
-        _ = pinchBlurAnimator  // lazy-init so fractionComplete = 0 is applied early
+        updatePinchBlurAvailability()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reduceTransparencyDidChange),
+            name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+            object: nil
+        )
         #endif
 
         // Pinch highlight — subtle accent tint over the anchor row
@@ -1026,10 +1037,49 @@ final class HomeRowContainer: UIView {
         // `fractionComplete` scrubbing, so terminate it explicitly here.
         fadeLink?.invalidate()
         #if !targetEnvironment(macCatalyst)
-        pinchBlurAnimator.stopAnimation(false)
-        pinchBlurAnimator.finishAnimation(at: .current)
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+            object: nil
+        )
+        tearDownPinchBlurAnimator()
         #endif
     }
+
+    #if !targetEnvironment(macCatalyst)
+    @objc private func reduceTransparencyDidChange() {
+        updatePinchBlurAvailability()
+        setNeedsLayout()
+    }
+
+    private func updatePinchBlurAvailability() {
+        if UIAccessibility.isReduceTransparencyEnabled {
+            pinchBlur.removeFromSuperview()
+            pinchBlur.effect = nil
+            tearDownPinchBlurAnimator()
+            return
+        }
+
+        if pinchBlur.superview == nil {
+            if pinchHighlight.superview === self {
+                insertSubview(pinchBlur, belowSubview: pinchHighlight)
+            } else {
+                insertSubview(pinchBlur, aboveSubview: hostingController.view)
+            }
+        }
+
+        if pinchBlurAnimator == nil {
+            pinchBlurAnimator = makePinchBlurAnimator()
+        }
+    }
+
+    private func tearDownPinchBlurAnimator() {
+        guard let animator = pinchBlurAnimator else { return }
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .current)
+        pinchBlurAnimator = nil
+    }
+    #endif
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -1148,6 +1198,14 @@ final class HomeRowContainer: UIView {
         // Catalyst doesn't install the pinch-blur view (see init).
         return
         #else
+        guard !UIAccessibility.isReduceTransparencyEnabled else {
+            pinchBlur.removeFromSuperview()
+            pinchBlur.effect = nil
+            tearDownPinchBlurAnimator()
+            return
+        }
+        updatePinchBlurAvailability()
+        guard let pinchBlurAnimator else { return }
         let p = max(0, min(1, progress))
         // Symmetric ease-out curve: blur tracks zoom progress both
         // directions so a pinch-in that had slowly-building blur will
@@ -1170,6 +1228,14 @@ final class HomeRowContainer: UIView {
         #if targetEnvironment(macCatalyst)
         return
         #else
+        guard !UIAccessibility.isReduceTransparencyEnabled,
+              let pinchBlurAnimator else {
+            fadeLink?.invalidate()
+            fadeLink = nil
+            pinchBlur.removeFromSuperview()
+            pinchBlur.effect = nil
+            return
+        }
         fadeLink?.invalidate()
         let start = CFAbsoluteTimeGetCurrent()
         let from = pinchBlurAnimator.fractionComplete
@@ -1178,7 +1244,7 @@ final class HomeRowContainer: UIView {
             let t = min(1, (CFAbsoluteTimeGetCurrent() - start) / duration)
             let eased = 1 - (1 - t) * (1 - t)  // ease-out quad
             let value = from * (1 - CGFloat(eased))
-            self.pinchBlurAnimator.fractionComplete = max(0, value)
+            self.pinchBlurAnimator?.fractionComplete = max(0, value)
             if t >= 1 {
                 self.fadeLink?.invalidate()
                 self.fadeLink = nil
@@ -1486,10 +1552,15 @@ private struct SessionContextMenuPreview: View {
                 .foregroundStyle(LitterTheme.textPrimary)
                 .lineLimit(2)
             if !session.serverDisplayName.isEmpty {
-                Text(session.serverDisplayName)
-                    .litterMonoFont(size: 10)
-                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.75))
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(session.agentRuntimeKind.displayLabel)
+                        .litterMonoFont(size: 9, weight: .semibold)
+                        .foregroundStyle(LitterTheme.accent.opacity(0.8))
+                    Text(session.serverDisplayName)
+                        .litterMonoFont(size: 10)
+                        .foregroundStyle(LitterTheme.textSecondary.opacity(0.75))
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.horizontal, 16)

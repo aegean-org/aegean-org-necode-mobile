@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -39,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,12 +55,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import com.litter.android.state.AlleycatCredentialStore
-import com.litter.android.state.SavedAlleycatParams
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.sigkitten.litter.android.BuildConfig
@@ -69,19 +68,18 @@ import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.codex_mobile_client.AppAlleycatAgentInfo
+import uniffi.codex_mobile_client.AppAlleycatAgentWire
+import uniffi.codex_mobile_client.AppAlleycatPairPayload
 import uniffi.codex_mobile_client.AlleycatBridge
-import uniffi.codex_mobile_client.AppAlleycatParams
 
-/**
- * Result handed back to the discovery flow once `connectRemoteOverAlleycat`
- * has brought up both the QUIC tunnel AND the loopback Codex WebSocket — the
- * server is fully connected and just needs to be persisted + navigated to.
- */
 data class AlleycatConnectedTarget(
     val serverId: String,
-    val connectedHost: String,
+    val nodeId: String,
     val displayName: String,
-    val params: AppAlleycatParams,
+    val params: AppAlleycatPairPayload,
+    val agentName: String,
+    val agentWire: AppAlleycatAgentWire,
 )
 
 private const val LOG_TAG = "AlleycatSheet"
@@ -99,17 +97,44 @@ fun AlleycatAddServerSheet(
     }
     val alleycatBridge = remember { AlleycatBridge() }
 
-    var hostOverride by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
-    var parsedParams by remember { mutableStateOf<AppAlleycatParams?>(null) }
+    var parsedParams by remember { mutableStateOf<AppAlleycatPairPayload?>(null) }
+    var agents by remember { mutableStateOf<List<AppAlleycatAgentInfo>>(emptyList()) }
+    var selectedAgentNames by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isLoadingAgents by remember { mutableStateOf(false) }
     var parseError by remember { mutableStateOf<String?>(null) }
+    var agentError by remember { mutableStateOf<String?>(null) }
     var connectError by remember { mutableStateOf<String?>(null) }
     var isConnecting by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
-    var showHostOverride by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
     var pasteJson by remember { mutableStateOf("") }
     var cameraDenied by remember { mutableStateOf(false) }
+
+    fun loadAgents(params: AppAlleycatPairPayload) {
+        isLoadingAgents = true
+        agentError = null
+        scope.launch {
+            try {
+                val loaded = withContext(Dispatchers.IO) {
+                    appModel.serverBridge.listAlleycatAgents(params)
+                }
+                if (parsedParams?.nodeId == params.nodeId) {
+                    agents = loaded
+                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
+                    isLoadingAgents = false
+                }
+            } catch (e: Exception) {
+                Log.w(LOG_TAG, "listAlleycatAgents failed", e)
+                if (parsedParams?.nodeId == params.nodeId) {
+                    agents = emptyList()
+                    selectedAgentNames = emptySet()
+                    isLoadingAgents = false
+                    agentError = e.message ?: "Unable to list agents"
+                }
+            }
+        }
+    }
 
     fun handleScannedPayload(raw: String) {
         val trimmed = raw.trim()
@@ -117,12 +142,17 @@ fun AlleycatAddServerSheet(
         try {
             val params = alleycatBridge.parsePairPayload(trimmed)
             parsedParams = params
+            displayName = suggestedDisplayName(params)
+            agents = emptyList()
+            selectedAgentNames = emptySet()
             parseError = null
+            agentError = null
             connectError = null
-            // Auto-expand override row only when the QR didn't carry candidates.
-            showHostOverride = params.hostCandidates.isEmpty()
+            loadAgents(params)
         } catch (e: Exception) {
             parsedParams = null
+            agents = emptyList()
+            selectedAgentNames = emptySet()
             parseError = e.message ?: "Invalid pairing payload"
         }
     }
@@ -151,18 +181,11 @@ fun AlleycatAddServerSheet(
 
     fun connect() {
         val params = parsedParams ?: return
-        val override = hostOverride.trim()
-        val hosts = buildList {
-            if (override.isNotEmpty()) add(override)
-            for (candidate in params.hostCandidates) {
-                if (candidate !in this) add(candidate)
-            }
-        }
-        if (hosts.isEmpty()) return
-
+        val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
+        val fallbackAgent = selectedAgents.firstOrNull() ?: return
         val trimmedDisplay = displayName.trim()
-        val provisionalName = trimmedDisplay.ifEmpty { "alleycat" }
-        val serverId = "alleycat:${hosts[0].lowercase()}:${params.udpPort.toInt()}"
+        val resolvedName = trimmedDisplay.ifEmpty { suggestedDisplayName(params) }
+        val serverId = "alleycat:${params.nodeId}"
 
         isConnecting = true
         connectError = null
@@ -172,29 +195,27 @@ fun AlleycatAddServerSheet(
                 val result = withContext(Dispatchers.IO) {
                     appModel.serverBridge.connectRemoteOverAlleycat(
                         serverId = serverId,
-                        displayName = provisionalName,
-                        hosts = hosts,
+                        displayName = resolvedName,
                         params = params,
+                        agentName = fallbackAgent.name,
+                        selectedAgentNames = selectedAgents.map { it.name },
+                        wire = fallbackAgent.wire,
                     )
-                }
-                val resolvedName = trimmedDisplay.ifEmpty {
-                    "${result.connectedHost} (alleycat)"
                 }
                 runCatching {
-                    credentialStore.save(
-                        result.connectedHost,
-                        SavedAlleycatParams.fromParams(params),
-                    )
+                    credentialStore.saveToken(params.nodeId, params.token)
                 }.onFailure {
-                    Log.w(LOG_TAG, "alleycat credential save failed", it)
+                    Log.w(LOG_TAG, "Alleycat token save failed", it)
                 }
                 isConnecting = false
                 onConnected(
                     AlleycatConnectedTarget(
                         serverId = result.serverId,
-                        connectedHost = result.connectedHost,
+                        nodeId = result.nodeId,
                         displayName = resolvedName,
                         params = params,
+                        agentName = result.agentName,
+                        agentWire = fallbackAgent.wire,
                     )
                 )
             } catch (e: Exception) {
@@ -205,9 +226,9 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    val canConnect = !isConnecting && parsedParams != null && (
-        hostOverride.trim().isNotEmpty() || (parsedParams?.hostCandidates?.isNotEmpty() == true)
-    )
+    val availableAgents = agents.filter { it.available }
+    val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
+    val canConnect = !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
 
     if (showScanner) {
         QrScannerScreen(
@@ -230,7 +251,7 @@ fun AlleycatAddServerSheet(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Add via Alleycat",
+                text = "Add Remote Host",
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -241,7 +262,6 @@ fun AlleycatAddServerSheet(
             }
         }
 
-        // --- Pairing section ----------------------------------------------------
         SectionHeader(label = "Pairing")
         OutlinedButton(
             onClick = ::requestCameraAndScan,
@@ -261,8 +281,7 @@ fun AlleycatAddServerSheet(
         }
         if (cameraDenied) {
             Text(
-                text = "Camera permission is required to scan a pairing QR. " +
-                    "Grant access in system Settings, or paste the JSON below in debug builds.",
+                text = "Camera permission is required to scan a pairing QR. Grant access in system Settings, or paste the JSON below in debug builds.",
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
             )
@@ -280,7 +299,7 @@ fun AlleycatAddServerSheet(
                     onValueChange = { pasteJson = it },
                     placeholder = {
                         Text(
-                            text = "{\"protocolVersion\":1,\"udpPort\":...,\"certFingerprint\":\"...\",\"token\":\"...\"}",
+                            text = "{\"v\":1,\"node_id\":\"...\",\"token\":\"...\",\"relay\":\"https://...\"}",
                             color = LitterTheme.textMuted,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
@@ -305,8 +324,7 @@ fun AlleycatAddServerSheet(
 
         val params = parsedParams
         if (params != null) {
-            // --- Preview card ---------------------------------------------------
-            SectionHeader(label = "Scanned Params")
+            SectionHeader(label = "Scanned Host")
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -314,11 +332,13 @@ fun AlleycatAddServerSheet(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PreviewRow("udp port", params.udpPort.toInt().toString())
-                PreviewRow("protocol", "v${params.protocolVersion.toInt()}")
-                PreviewRow("fingerprint", shortFingerprint(params.certFingerprint))
-                if (params.hostCandidates.isNotEmpty()) {
-                    PreviewRow("hosts", params.hostCandidates.joinToString(", "))
+                PreviewRow("node", shortNodeId(params.nodeId))
+                PreviewRow("protocol", "v${params.v.toInt()}")
+                params.relay?.takeIf { it.isNotBlank() }?.let {
+                    PreviewRow("relay", it)
+                }
+                params.hostName?.takeIf { it.isNotBlank() }?.let {
+                    PreviewRow("host", it)
                 }
             }
 
@@ -330,57 +350,93 @@ fun AlleycatAddServerSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // --- Override host --------------------------------------------------
-            val hasCandidates = params.hostCandidates.isNotEmpty()
-            SectionHeader(label = if (hasCandidates) "Connect" else "Relay Host")
-            if (hasCandidates) {
-                DisclosureRow(
-                    expanded = showHostOverride,
-                    label = "Override host (optional)",
-                    onToggle = { showHostOverride = !showHostOverride },
-                )
-            }
-            if (!hasCandidates || showHostOverride) {
-                OutlinedTextField(
-                    value = hostOverride,
-                    onValueChange = { hostOverride = it },
-                    label = { Text(if (hasCandidates) "hostname or IP this device can reach" else "relay.example.com or 100.64.0.5") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Text(
-                text = if (hasCandidates) {
-                    "The phone races the candidates above and uses the first that connects. " +
-                        "Override only if none of them are reachable from here."
-                } else {
-                    "This QR doesn't carry host candidates — enter a hostname or IP " +
-                        "that this device can reach."
-                },
-                color = LitterTheme.textMuted,
-                fontSize = 11.sp,
-            )
-
-            // --- Connect button ------------------------------------------------
-            Button(
-                onClick = ::connect,
-                enabled = canConnect,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = LitterTheme.accent.copy(alpha = 0.18f),
-                    contentColor = LitterTheme.accent,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (isConnecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = LitterTheme.accent,
-                    )
-                    Spacer(Modifier.width(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionHeader(label = "Agents", modifier = Modifier.weight(1f))
+                if (availableAgents.isNotEmpty()) {
+                    TextButton(
+                        onClick = {
+                            selectedAgentNames = if (selectedAgents.size == availableAgents.size) {
+                                emptySet()
+                            } else {
+                                availableAgents.map { it.name }.toSet()
+                            }
+                        },
+                    ) {
+                        Text(
+                            text = if (selectedAgents.size == availableAgents.size) "None" else "All",
+                            color = LitterTheme.accent,
+                            fontSize = 12.sp,
+                        )
+                    }
                 }
-                Text("Connect")
             }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(LitterTheme.surface, RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                when {
+                    isLoadingAgents -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(8.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = LitterTheme.accent,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Loading agents", color = LitterTheme.textSecondary, fontSize = 12.sp)
+                    }
+                    agents.isEmpty() -> Text(
+                        text = "No agents are available on this host.",
+                        color = LitterTheme.textMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                    else -> agents.forEach { agent ->
+                        AgentRow(
+                            agent = agent,
+                            selected = agent.name in selectedAgentNames,
+                            onCheckedChange = { checked ->
+                                if (agent.available) {
+                                    selectedAgentNames = if (checked) {
+                                        selectedAgentNames + agent.name
+                                    } else {
+                                        selectedAgentNames - agent.name
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        agentError?.let { message ->
+            Text(message, color = LitterTheme.warning, fontSize = 12.sp)
+        }
+
+        Button(
+            onClick = ::connect,
+            enabled = canConnect,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = LitterTheme.accent.copy(alpha = 0.18f),
+                contentColor = LitterTheme.accent,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (isConnecting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = LitterTheme.accent,
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text("Connect")
         }
 
         connectError?.let { message ->
@@ -390,13 +446,51 @@ fun AlleycatAddServerSheet(
 }
 
 @Composable
-private fun SectionHeader(label: String) {
+private fun AgentRow(
+    agent: AppAlleycatAgentInfo,
+    selected: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    TextButton(
+        onClick = { onCheckedChange(!selected) },
+        enabled = agent.available,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = agent.displayName,
+                    color = if (agent.available) LitterTheme.textPrimary else LitterTheme.textMuted,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = wireLabel(agent.wire),
+                    color = LitterTheme.textSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+            if (!agent.available) {
+                Text("Unavailable", color = LitterTheme.textMuted, fontSize = 11.sp)
+            } else {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = onCheckedChange,
+                    enabled = true,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(label: String, modifier: Modifier = Modifier) {
     Text(
         text = label.uppercase(),
         color = LitterTheme.textSecondary,
         fontSize = 10.sp,
         fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 4.dp),
+        modifier = modifier.padding(top = 4.dp),
     )
 }
 
@@ -434,12 +528,22 @@ private fun DisclosureRow(
     }
 }
 
-private fun shortFingerprint(raw: String): String {
-    val stripped = raw.replace(":", "")
-    return if (stripped.length <= 12) stripped else stripped.substring(0, 12) + "..."
+private fun shortNodeId(raw: String): String =
+    if (raw.length <= 16) raw else raw.take(8) + "..." + raw.takeLast(8)
+
+private fun suggestedDisplayName(params: AppAlleycatPairPayload): String =
+    params.hostName?.trim()?.takeIf { it.isNotEmpty() }
+        ?: "Alleycat ${shortNodeId(params.nodeId)}"
+
+private fun wireLabel(wire: AppAlleycatAgentWire): String = when (wire) {
+    AppAlleycatAgentWire.WEBSOCKET -> "websocket"
+    AppAlleycatAgentWire.JSONL -> "jsonl"
 }
 
-// MARK: -- QR scanner ---------------------------------------------------------
+fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
+    AppAlleycatAgentWire.WEBSOCKET -> "websocket"
+    AppAlleycatAgentWire.JSONL -> "jsonl"
+}
 
 @Composable
 private fun QrScannerScreen(
@@ -504,7 +608,7 @@ private fun QrScannerScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Point the camera at the alleycat QR code",
+                text = "Point the camera at the Alleycat QR code",
                 color = LitterTheme.textPrimary,
                 fontSize = 12.sp,
             )

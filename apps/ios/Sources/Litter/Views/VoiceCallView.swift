@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct VoiceCallView: View {
     @Environment(AppModel.self) private var appModel
@@ -381,22 +382,31 @@ private enum VoiceTranscriptEntryKind: Equatable {
     case system
 }
 
+private enum VoiceTranscriptMedia: Equatable {
+    case userImages([ChatImage])
+    case computerUse(ConversationMcpToolCallData, ComputerUseView)
+    case imageGeneration(ConversationImageGenerationData)
+}
+
 private struct VoiceTranscriptEntry: Identifiable, Equatable {
     let id: String
     let kind: VoiceTranscriptEntryKind
     let title: String
     let body: String
+    let media: VoiceTranscriptMedia?
 
     init(
         id: String,
         kind: VoiceTranscriptEntryKind,
         title: String,
-        body: String
+        body: String,
+        media: VoiceTranscriptMedia? = nil
     ) {
         self.id = id
         self.kind = kind
         self.title = title
         self.body = body
+        self.media = media
     }
 
     init?(_ item: ConversationItem) {
@@ -408,10 +418,17 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
                     id: item.id,
                     kind: .user,
                     title: "YOU",
-                    body: "_Image omitted in voice transcript_"
+                    body: "",
+                    media: .userImages(data.images)
                 )
             } else if !body.isEmpty {
-                self = VoiceTranscriptEntry(id: item.id, kind: .user, title: "YOU", body: body)
+                self = VoiceTranscriptEntry(
+                    id: item.id,
+                    kind: .user,
+                    title: "YOU",
+                    body: body,
+                    media: data.images.isEmpty ? nil : .userImages(data.images)
+                )
             } else {
                 return nil
             }
@@ -513,7 +530,8 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
                 id: item.id,
                 kind: .tool,
                 title: "MCP TOOL",
-                body: chunks.joined(separator: "\n\n")
+                body: chunks.joined(separator: "\n\n"),
+                media: data.computerUse.map { .computerUse(data, $0) }
             )
 
         case .dynamicToolCall(let data):
@@ -581,7 +599,8 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
                 id: item.id,
                 kind: .tool,
                 title: "IMAGE GENERATION",
-                body: body.isEmpty ? statusWord : body
+                body: body.isEmpty ? statusWord : body,
+                media: .imageGeneration(data)
             )
 
         case .widget(let data):
@@ -710,28 +729,113 @@ private struct VoiceCreditsEntryRow: View {
         }
     }
 
+    private var maxContentWidth: CGFloat {
+        entry.media == nil ? 520 : 760
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(entry.title)
                 .font(LitterFont.monospaced(.caption, weight: .bold, scale: textScale))
                 .foregroundColor(titleColor)
 
-            Group {
-                if entry.kind == .reasoning {
-                    Text(verbatim: entry.body)
-                        .italic()
-                } else {
-                    Text(verbatim: entry.body)
+            if !entry.body.isEmpty {
+                Group {
+                    if entry.kind == .reasoning {
+                        Text(verbatim: entry.body)
+                            .italic()
+                    } else {
+                        Text(verbatim: entry.body)
+                    }
                 }
+                .font(LitterFont.styled(.body, scale: textScale))
+                .foregroundColor(bodyColor)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(LitterFont.styled(.body, scale: textScale))
-            .foregroundColor(bodyColor)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let media = entry.media {
+                VoiceTranscriptMediaView(media: media)
+            }
         }
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: maxContentWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
         .opacity(entry.kind == .liveAssistant || entry.kind == .liveUser ? 0.94 : 1)
+    }
+}
+
+private struct VoiceTranscriptMediaView: View {
+    let media: VoiceTranscriptMedia
+
+    @ViewBuilder
+    var body: some View {
+        switch media {
+        case .userImages(let images):
+            VoiceTranscriptUserImagesView(images: images)
+        case .computerUse(let data, let view):
+            ComputerUseToolCallView(data: data, view: view, externalExpanded: true)
+        case .imageGeneration(let data):
+            ImageGenerationToolCallView(data: data, externalExpanded: true)
+        }
+    }
+}
+
+private struct VoiceTranscriptUserImagesView: View {
+    let images: [ChatImage]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(images) { image in
+                if let uiImage = decodeImage(image) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(LitterTheme.border.opacity(0.4), lineWidth: 0.5)
+                        )
+                        .draggable(Image(uiImage: uiImage)) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 120)
+                        }
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(LitterTheme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(LitterTheme.border, lineWidth: 0.5)
+        )
+    }
+
+    private func decodeImage(_ image: ChatImage) -> UIImage? {
+        guard let data = imageData(for: image) else { return nil }
+        return UIImage(data: data)
+    }
+
+    private func imageData(for image: ChatImage) -> Data? {
+        let source = image.source
+        guard source.hasPrefix("data:") || source.hasPrefix("file://") else {
+            return nil
+        }
+
+        if source.hasPrefix("file://") {
+            let path = String(source.dropFirst("file://".count))
+            return FileManager.default.contents(atPath: path)
+        }
+
+        guard let commaIndex = source.firstIndex(of: ",") else { return nil }
+        let base64 = String(source[source.index(after: commaIndex)...])
+        return Data(base64Encoded: base64, options: .ignoreUnknownCharacters)
     }
 }
 

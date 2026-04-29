@@ -59,7 +59,8 @@ enum LitterPreviewData {
             defaultReasoningEffort: .high,
             inputModalities: [.text, .image],
             supportsPersonality: true,
-            isDefault: true
+            isDefault: true,
+            agentRuntimeKind: .codex
         ),
         ModelInfo(
             id: "gpt-5.4-mini",
@@ -75,7 +76,8 @@ enum LitterPreviewData {
             defaultReasoningEffort: .medium,
             inputModalities: [.text],
             supportsPersonality: true,
-            isDefault: false
+            isDefault: false,
+            agentRuntimeKind: .codex
         )
     ]
 
@@ -320,6 +322,7 @@ enum LitterPreviewData {
                 createdAt: nil,
                 updatedAt: Int64(updatedAt.timeIntervalSince1970)
             ),
+            agentRuntimeKind: .codex,
             collaborationMode: .`default`,
             model: model,
             reasoningEffort: reasoningEffort,
@@ -371,6 +374,7 @@ enum LitterPreviewData {
             requiresOpenaiAuth: false,
             rateLimits: nil,
             availableModels: sampleModels,
+            agentRuntimes: [AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)],
             connectionProgress: nil,
             usageStats: nil,
             codexVersion: "0.125.0"
@@ -379,6 +383,7 @@ enum LitterPreviewData {
         let sessionSummaries = threads.map { thread in
             AppSessionSummary(
                 key: thread.key,
+                agentRuntimeKind: thread.agentRuntimeKind,
                 serverDisplayName: server.displayName,
                 serverHost: server.host,
                 title: thread.info.title ?? "",

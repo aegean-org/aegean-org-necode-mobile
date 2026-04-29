@@ -72,6 +72,10 @@ struct ConversationView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private var pendingAgentRuntimeKindOverride: AgentRuntimeKind? {
+        pendingModelOverride == nil ? nil : appState.selectedAgentRuntimeKind
+    }
+
     private var pendingReasoningOverride: String? {
         let trimmed = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -186,11 +190,16 @@ struct ConversationView: View {
     }
 
     private func loadInitialTurnsIfNeeded() async {
-        guard supportsTurnPagination, !thread.initialTurnsLoaded else { return }
+        guard !thread.initialTurnsLoaded else { return }
         await appModel.loadInitialTurnsIfNeeded(threadId: activeThreadKey)
     }
 
-    private func sendMessage(_ text: String, attachmentImage: UIImage?, skillMentions: [SkillMentionSelection]) {
+    private func sendMessage(
+        _ text: String,
+        attachmentImage: UIImage?,
+        skillMentions: [SkillMentionSelection],
+        pluginMentions: [PluginMentionSelection]
+    ) {
         localSendScrollToken &+= 1
         Task {
             do {
@@ -203,7 +212,8 @@ struct ConversationView: View {
                 let payload = try makeComposerPayload(
                     text: text,
                     attachmentImage: attachmentImage,
-                    skillMentions: skillMentions
+                    skillMentions: skillMentions,
+                    pluginMentions: pluginMentions
                 )
                 try await appModel.startTurn(key: activeThreadKey, payload: payload)
                 NSLog(
@@ -231,7 +241,8 @@ struct ConversationView: View {
                 let payload = try makeComposerPayload(
                     text: text,
                     attachmentImage: nil,
-                    skillMentions: []
+                    skillMentions: [],
+                    pluginMentions: []
                 )
                 try await appModel.startTurn(key: activeThreadKey, payload: payload)
             } catch {
@@ -310,11 +321,17 @@ struct ConversationView: View {
     private func makeComposerPayload(
         text: String,
         attachmentImage: UIImage?,
-        skillMentions: [SkillMentionSelection]
+        skillMentions: [SkillMentionSelection],
+        pluginMentions: [PluginMentionSelection]
     ) throws -> AppComposerPayload {
         let preparedAttachment = attachmentImage.flatMap(ConversationAttachmentSupport.prepareImage)
         var additionalInputs = skillMentions.map { mention in
             AppUserInput.skill(name: mention.name, path: AbsolutePath(value: mention.path))
+        }
+        for mention in pluginMentions {
+            additionalInputs.append(
+                AppUserInput.mention(name: mention.name, path: mention.path)
+            )
         }
         if let preparedAttachment {
             additionalInputs.append(preparedAttachment.userInput)
@@ -332,6 +349,7 @@ struct ConversationView: View {
 
     private func launchConfig() -> AppThreadLaunchConfig {
         AppThreadLaunchConfig(
+            agentRuntimeKind: pendingAgentRuntimeKindOverride,
             model: pendingModelOverride,
             approvalPolicy: appState.launchApprovalPolicy(for: activeThreadKey),
             sandbox: appState.launchSandboxMode(for: activeThreadKey),
@@ -362,7 +380,7 @@ private struct ConversationBottomChrome: View {
     @Environment(AppModel.self) private var appModel
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
-    let onSend: (String, UIImage?, [SkillMentionSelection]) -> Void
+    let onSend: (String, UIImage?, [SkillMentionSelection], [PluginMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FileSearchResult]
     var bottomInset: CGFloat = 0
     let onOpenConversation: ((ThreadKey) -> Void)?
@@ -1328,7 +1346,7 @@ private struct ConversationInputBar: View {
     @AppStorage("workDir") private var workDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
     @AppStorage("fastMode") private var fastMode = false
 
-    let onSend: (String, UIImage?, [SkillMentionSelection]) -> Void
+    let onSend: (String, UIImage?, [SkillMentionSelection], [PluginMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FileSearchResult]
     var bottomInset: CGFloat = 0
     let showModeChip: Bool
@@ -1370,6 +1388,10 @@ private struct ConversationInputBar: View {
     @State private var skillsLoading = false
     @State private var mentionSkillPathsByName: [String: String] = [:]
     @State private var hasAttemptedSkillMentionLoad = false
+    @State private var pluginCacheByCwd: [String: [PluginSummary]] = [:]
+    @State private var pluginUnsupportedCwds: Set<String> = []
+    @State private var pluginLoadingCwds: Set<String> = []
+    @State private var pluginMentionSelections: [PluginMentionSelection] = []
     @State private var voiceManager = VoiceTranscriptionManager()
     @State private var showMicPermissionAlert = false
     @State private var hasLoggedFirstFocus = false
@@ -1383,6 +1405,10 @@ private struct ConversationInputBar: View {
     private var pendingModelOverride: String? {
         let trimmed = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var pendingAgentRuntimeKindOverride: AgentRuntimeKind? {
+        pendingModelOverride == nil ? nil : appState.selectedAgentRuntimeKind
     }
 
     private var isTurnActive: Bool {
@@ -1405,7 +1431,8 @@ private struct ConversationInputBar: View {
             return .file(
                 loading: fileSearchLoading,
                 error: fileSearchError,
-                suggestions: fileSuggestions
+                suggestions: fileSuggestions,
+                plugins: pluginSuggestions
             )
         }
         if showSkillPopup {
@@ -1501,6 +1528,7 @@ private struct ConversationInputBar: View {
                 hasPendingPlanImplementation: snapshot.pendingPlanImplementationPrompt != nil,
                 activeTaskSummary: snapshot.activeTaskSummary,
                 queuedFollowUps: snapshot.queuedFollowUps,
+                pluginMentions: pluginMentionSelections,
                 rateLimits: snapshot.rateLimits,
                 contextPercent: contextPercent(),
                 isTurnActive: isTurnActive,
@@ -1513,6 +1541,7 @@ private struct ConversationInputBar: View {
                 onDismissPlanImplementation: dismissPlanImplementationPrompt,
                 onSteerQueuedFollowUp: steerQueuedFollowUp,
                 onDeleteQueuedFollowUp: deleteQueuedFollowUp,
+                onRemovePluginMention: removePluginMention,
                 onPasteImage: { image in attachedImage = image },
                 onOpenModePicker: onOpenModePicker,
                 onSendText: handleSend,
@@ -1527,7 +1556,8 @@ private struct ConversationInputBar: View {
                     state: popupState,
                     onApplySlashSuggestion: applySlashSuggestion,
                     onApplyFileSuggestion: applyFileSuggestion,
-                    onApplySkillSuggestion: applySkillSuggestion
+                    onApplySkillSuggestion: applySkillSuggestion,
+                    onApplyPluginSuggestion: applyPluginSuggestion
                 )
             }
         }
@@ -1625,7 +1655,23 @@ private struct ConversationInputBar: View {
         hideComposerPopups()
         isComposerFocused = false
         let skillMentions = collectSkillMentionsForSubmission(text)
-        onSend(text, image, skillMentions)
+        let pluginMentions = collectPluginMentionsForSubmission(text)
+        pluginMentionSelections = []
+        onSend(text, image, skillMentions, pluginMentions)
+    }
+
+    private func collectPluginMentionsForSubmission(_ text: String) -> [PluginMentionSelection] {
+        guard !pluginMentionSelections.isEmpty else { return [] }
+        let lowered = text.lowercased()
+        var seen = Set<String>()
+        var resolved: [PluginMentionSelection] = []
+        for selection in pluginMentionSelections {
+            // Drop selections the user has since deleted from the input text.
+            guard lowered.contains("@\(selection.name.lowercased())") else { continue }
+            guard seen.insert(selection.path).inserted else { continue }
+            resolved.append(selection)
+        }
+        return resolved
     }
 
     private func startVoiceRecording() {
@@ -1847,6 +1893,7 @@ private struct ConversationInputBar: View {
             if activeAtToken != atToken {
                 activeAtToken = atToken
                 startFileSearch(atToken.value)
+                loadPluginsIfNeeded()
             }
             return
         }
@@ -2011,6 +2058,7 @@ private struct ConversationInputBar: View {
             let nextKey = try await appModel.client.forkThread(
                 serverId: snapshot.threadKey.serverId,
                 params: AppThreadLaunchConfig(
+                    agentRuntimeKind: pendingAgentRuntimeKindOverride,
                     model: pendingModelOverride,
                     approvalPolicy: appState.launchApprovalPolicy(for: snapshot.threadKey),
                     sandbox: appState.launchSandboxMode(for: snapshot.threadKey),
@@ -2152,6 +2200,80 @@ private struct ConversationInputBar: View {
         showFilePopup = false
         activeAtToken = nil
         clearFileSearchState()
+    }
+
+    private var pluginSuggestions: [PluginSummary] {
+        guard let token = activeAtToken else { return [] }
+        let plugins = pluginCacheByCwd[workDir] ?? []
+        guard !plugins.isEmpty else { return [] }
+        let query = token.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if query.isEmpty {
+            return plugins
+        }
+        return plugins.filter { plugin in
+            if plugin.name.lowercased().contains(query) { return true }
+            if plugin.displayTitle.lowercased().contains(query) { return true }
+            if let desc = plugin.interface?.shortDescription?.lowercased(), desc.contains(query) {
+                return true
+            }
+            return plugin.marketplaceName.lowercased().contains(query)
+        }
+    }
+
+    private func loadPluginsIfNeeded() {
+        let cwd = workDir
+        guard !pluginUnsupportedCwds.contains(cwd),
+              pluginCacheByCwd[cwd] == nil,
+              !pluginLoadingCwds.contains(cwd) else {
+            return
+        }
+        pluginLoadingCwds.insert(cwd)
+        Task {
+            defer { pluginLoadingCwds.remove(cwd) }
+            do {
+                let plugins = try await appModel.client.listPlugins(
+                    serverId: snapshot.threadKey.serverId,
+                    params: AppListPluginsRequest(cwds: [cwd])
+                )
+                pluginCacheByCwd[cwd] = plugins
+            } catch {
+                pluginUnsupportedCwds.insert(cwd)
+            }
+        }
+    }
+
+    private func applyPluginSuggestion(_ plugin: PluginSummary) {
+        guard let token = activeAtToken else { return }
+        let replacement = "@\(plugin.name) "
+        guard let updated = replacingRange(
+            in: inputText,
+            with: token.range,
+            replacement: replacement
+        ) else { return }
+        inputText = updated
+        let selection = PluginMentionSelection(
+            name: plugin.name,
+            marketplace: plugin.marketplaceName,
+            displayName: plugin.interface?.displayName ?? plugin.displayTitle
+        )
+        if !pluginMentionSelections.contains(selection) {
+            pluginMentionSelections.append(selection)
+        }
+        showFilePopup = false
+        activeAtToken = nil
+        clearFileSearchState()
+    }
+
+    private func removePluginMention(_ selection: PluginMentionSelection) {
+        pluginMentionSelections.removeAll { $0 == selection }
+        // Best-effort strip of the inline `@name` token from the input.
+        let needle = "@\(selection.name)"
+        if let range = inputText.range(of: needle) {
+            var replaced = inputText
+            replaced.removeSubrange(range)
+            // Collapse any double-space artifact left behind.
+            inputText = replaced.replacingOccurrences(of: "  ", with: " ")
+        }
     }
 
     private var skillSuggestions: [SkillMetadata] {
@@ -2427,12 +2549,12 @@ enum ComposerSandboxOption: CaseIterable, Identifiable {
     }
 }
 
-private struct ComposerTokenRange: Equatable {
+struct ComposerTokenRange: Equatable {
     let start: Int
     let end: Int
 }
 
-private struct ComposerTokenContext: Equatable {
+struct ComposerTokenContext: Equatable {
     let value: String
     let range: ComposerTokenRange
 }
@@ -2546,7 +2668,7 @@ private func extractMentionNames(_ text: String) -> [String] {
     return mentions
 }
 
-private func currentPrefixedToken(
+func currentPrefixedToken(
     text: String,
     cursor: Int,
     prefix: Character,
@@ -2636,7 +2758,7 @@ private func tokenRangeAroundCursor(
     return ComposerTokenRange(start: start, end: end)
 }
 
-private func replacingRange(
+func replacingRange(
     in text: String,
     with range: ComposerTokenRange,
     replacement: String

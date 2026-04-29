@@ -31,8 +31,8 @@ enum class LitterFeature(
     ),
     ALLEYCAT(
         id = "alleycat",
-        displayName = "Alleycat",
-        description = "Pair with a remote Codex server through an alleycat QUIC tunnel. Adds a QR-scan button to the discovery toolbar.",
+        displayName = "multi-clanker and quic",
+        description = "Enable multi-agent remote hosts and Alleycat QUIC pairing.",
         defaultEnabled = false,
     ),
 }
@@ -82,6 +82,10 @@ object ExperimentalFeatures {
         } else {
             ""
         }
+    }
+
+    fun multiClankerAndQuicEnabled(): Boolean {
+        return isEnabled(LitterFeature.ALLEYCAT)
     }
 
     private fun persist(context: Context) {

@@ -1,6 +1,7 @@
 package com.litter.android.ui.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,12 +10,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -34,16 +33,19 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.litter.android.state.connectionModeLabel
+import androidx.compose.ui.zIndex
 import com.litter.android.state.statusDotState
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.common.StatusDot
+import com.litter.android.ui.common.runtimeDrawable
+import com.litter.android.ui.common.runtimeSortIndex
 import com.litter.android.ui.scaled
+import uniffi.codex_mobile_client.AgentRuntimeInfo
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppServerSnapshot
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -121,14 +123,20 @@ private fun ServerPill(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             StatusDot(state = server.statusDotState, size = 8.dp)
-            Text(
-                text = server.displayName,
-                color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.footnote.scaled,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = LitterTheme.monoFont,
-                maxLines = 1,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = server.displayName,
+                    color = LitterTheme.textPrimary,
+                    fontSize = LitterTextStyle.footnote.scaled,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = LitterTheme.monoFont,
+                    maxLines = 1,
+                )
+                AgentRuntimeBadgeStack(runtimes = server.agentRuntimes)
+            }
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
@@ -150,6 +158,58 @@ private fun ServerPill(
                 onClick = { showMenu = false; onRemove() },
             )
         }
+    }
+}
+
+@Composable
+private fun AgentRuntimeBadgeStack(runtimes: List<AgentRuntimeInfo>) {
+    val visible = runtimes
+        .filter { it.available }
+        .sortedBy { it.kind.runtimeSortIndex }
+        .distinctBy { it.kind }
+    if (visible.isEmpty()) return
+    val badgeSize = 18
+    val badgeOffset = 11
+
+    Box(
+        modifier = Modifier
+            .size(
+                width = (badgeSize + ((visible.size - 1).coerceAtLeast(0) * badgeOffset)).dp,
+                height = badgeSize.dp,
+            ),
+    ) {
+        visible.forEachIndexed { index, runtime ->
+            AgentRuntimeBadge(
+                runtime = runtime,
+                modifier = Modifier
+                    .offset(x = (index * badgeOffset).dp)
+                    .zIndex(index.toFloat()),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentRuntimeBadge(
+    runtime: AgentRuntimeInfo,
+    modifier: Modifier = Modifier,
+) {
+    val isCodex = runtime.kind == AgentRuntimeKind.CODEX
+    Box(
+        modifier = modifier
+            .size(18.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(Color.Black.copy(alpha = 0.82f))
+            .border(0.55.dp, LitterTheme.textPrimary.copy(alpha = 0.28f), RoundedCornerShape(5.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(id = runtime.kind.runtimeDrawable),
+            contentDescription = runtime.displayName,
+            modifier = Modifier
+                .size(16.dp)
+                .padding(if (isCodex) 2.dp else 1.dp),
+        )
     }
 }
 

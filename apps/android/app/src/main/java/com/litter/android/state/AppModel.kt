@@ -17,11 +17,15 @@ import java.util.concurrent.atomic.AtomicLong
 import uniffi.codex_mobile_client.AppClient
 import uniffi.codex_mobile_client.AppMinigameRequest
 import uniffi.codex_mobile_client.AppMinigameResult
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
+import uniffi.codex_mobile_client.AppSortDirection
 import uniffi.codex_mobile_client.AppStore
 import uniffi.codex_mobile_client.AppStoreSubscription
 import uniffi.codex_mobile_client.AppThreadSnapshot
+import uniffi.codex_mobile_client.AppThreadSortKey
+import uniffi.codex_mobile_client.AppThreadSourceKind
 import uniffi.codex_mobile_client.ThreadStreamingDeltaKind
 import uniffi.codex_mobile_client.AppStoreUpdateRecord
 import uniffi.codex_mobile_client.DiscoveryBridge
@@ -109,11 +113,11 @@ class AppModel private constructor(context: android.content.Context) {
         reconnectController.setCredentialProvider(
             KotlinSshCredentialProvider(SshCredentialStore(context))
         )
-        reconnectController.setAlleycatCredentialProvider(
-            KotlinAlleycatCredentialProvider(AlleycatCredentialStore(context))
-        )
         reconnectController.setIpcSocketPathOverride(
             com.litter.android.ui.ExperimentalFeatures.ipcSocketPathOverride()
+        )
+        reconnectController.setMultiClankerAndQuicEnabled(
+            com.litter.android.ui.ExperimentalFeatures.multiClankerAndQuicEnabled()
         )
         launchState = AppLaunchState(context)
     }
@@ -378,6 +382,60 @@ class AppModel private constructor(context: android.content.Context) {
                             archived = null,
                             cwd = null,
                             searchTerm = null,
+                        ),
+                    )
+                }
+                _lastError.value = null
+            } catch (e: Exception) {
+                _lastError.value = e.message
+                throw e
+            }
+        }
+    }
+
+    suspend fun refreshThreadSearchSessions(
+        query: String,
+        runtimeKind: AgentRuntimeKind?,
+        forceRepair: Boolean,
+    ) {
+        val trimmedQuery = query.trim()
+        val servers = snapshot.value?.servers
+            ?.filter { it.isConnected }
+            .orEmpty()
+        val targetServerIds = servers
+            .filter { server ->
+                runtimeKind == null || server.agentRuntimes.any {
+                    it.available && it.kind == runtimeKind
+                }
+            }
+            .map { it.serverId }
+            .distinct()
+
+        if (targetServerIds.isEmpty()) {
+            return
+        }
+
+        sessionListMutex.withLock {
+            try {
+                for (serverId in targetServerIds) {
+                    client.listThreads(
+                        serverId,
+                        AppListThreadsRequest(
+                            cursor = null,
+                            limit = 80u,
+                            sortKey = AppThreadSortKey.UPDATED_AT,
+                            sortDirection = AppSortDirection.DESC,
+                            modelProviders = null,
+                            sourceKinds = listOf(
+                                AppThreadSourceKind.CLI,
+                                AppThreadSourceKind.VS_CODE,
+                                AppThreadSourceKind.APP_SERVER,
+                            ),
+                            archived = false,
+                            cwd = null,
+                            searchTerm = trimmedQuery.ifEmpty { null },
+                            useStateDbOnly = !forceRepair,
+                            runtimeKinds = runtimeKind?.let { listOf(it) },
                         ),
                     )
                 }
@@ -661,10 +719,9 @@ class AppModel private constructor(context: android.content.Context) {
     /**
      * Load the first page of turns for a thread. Intended to be called when
      * the conversation view appears for a thread whose
-     * `initialTurnsLoaded == false` on a server that advertises
-     * `supportsTurnPagination`. Rust reconciles the page into the store;
-     * on legacy servers the call short-circuits (no-op) and resume/read
-     * populates the full turn list instead.
+     * `initialTurnsLoaded == false`. Rust reconciles the page into the
+     * store, and owns the fallback for servers that do not support paginated
+     * turn loading.
      */
     private val initialTurnsLoadingKeys = mutableSetOf<ThreadKey>()
     private val olderTurnsLoadingKeys = mutableSetOf<ThreadKey>()
@@ -708,12 +765,7 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     fun loadInitialTurnsIfNeeded(key: ThreadKey, limit: UInt = INITIAL_TURN_PAGE_LIMIT) {
-        val current = _snapshot.value ?: return
-        val supportsTurnPagination = current.servers
-            .firstOrNull { it.serverId == key.serverId }
-            ?.capabilities
-            ?.supportsTurnPagination == true
-        if (!supportsTurnPagination) return
+        _snapshot.value ?: return
         if (threadSnapshot(key)?.initialTurnsLoaded == true) return
         loadInitialTurns(key, limit)
     }

@@ -27,6 +27,7 @@ final class SessionsModel {
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private weak var appState: AppState?
     @ObservationIgnored private var searchQuery = ""
+    @ObservationIgnored private var selectedRuntimeKind: AgentRuntimeKind?
     @ObservationIgnored private var hasInitializedState = false
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var frozenMostRecentThreadOrder: [ThreadKey]?
@@ -50,6 +51,12 @@ final class SessionsModel {
         refreshState()
     }
 
+    func updateRuntimeKindFilter(_ kind: AgentRuntimeKind?) {
+        guard kind != selectedRuntimeKind else { return }
+        selectedRuntimeKind = kind
+        refreshState()
+    }
+
     private func refreshState() {
         guard let appModel, let appState else {
             derivedData = .empty
@@ -64,6 +71,7 @@ final class SessionsModel {
 
         let previousDisplayedOrder = derivedData.allThreadKeys
         let currentSearchQuery = searchQuery
+        let currentRuntimeKindFilter = selectedRuntimeKind
 
         observationGeneration &+= 1
         let generation = observationGeneration
@@ -103,6 +111,7 @@ final class SessionsModel {
                 sessions: appSnapshot?.sessionSummaries ?? [],
                 selectedServerFilterId: selectedServerFilterId,
                 showOnlyForks: showOnlyForks,
+                selectedRuntimeKind: currentRuntimeKindFilter,
                 workspaceSortMode: workspaceSortMode,
                 searchQuery: currentSearchQuery,
                 frozenMostRecentOrder: nextFrozenMostRecentThreadOrder

@@ -6,7 +6,7 @@ use crate::conversation_uniffi::HydratedConversationItem;
 use crate::store::ThreadSnapshot;
 use crate::transport::RpcError;
 use crate::types::server_requests::{AppListThreadTurnsResponse, AppTurnsSortDirection};
-use crate::types::{ThreadInfo, ThreadKey};
+use crate::types::{AgentRuntimeKind, ThreadInfo, ThreadKey};
 use codex_app_server_protocol as upstream;
 
 impl MobileClient {
@@ -171,12 +171,22 @@ impl MobileClient {
         server_id: &str,
         threads: &[upstream::Thread],
     ) -> Vec<ThreadInfo> {
+        self.upsert_thread_list_page_for_runtime(server_id, AgentRuntimeKind::Codex, threads)
+    }
+
+    pub fn upsert_thread_list_page_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        threads: &[upstream::Thread],
+    ) -> Vec<ThreadInfo> {
         let threads = threads
             .iter()
             .cloned()
             .filter_map(crate::thread_info_from_upstream_thread)
             .collect::<Vec<_>>();
-        self.app_store.upsert_thread_list_page(server_id, &threads);
+        self.app_store
+            .upsert_thread_list_page_for_runtime(server_id, runtime_kind, &threads);
         threads
     }
 

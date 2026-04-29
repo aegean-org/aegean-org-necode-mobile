@@ -16,6 +16,7 @@ pub(super) async fn handle_dynamic_tool_call_request(
     saved_apps_directory: Arc<StdMutex<Option<String>>>,
     request_id: upstream::RequestId,
     params: upstream::DynamicToolCallParams,
+    runtime_kind: AgentRuntimeKind,
 ) -> Result<(), RpcError> {
     // `show_widget` routing: if a `widget_waiter` is registered for the
     // thread (the Update-overlay path), fulfill it and skip auto-save —
@@ -48,7 +49,9 @@ pub(super) async fn handle_dynamic_tool_call_request(
     let result = serde_json::to_value(response).map_err(|error| {
         RpcError::Deserialization(format!("serialize dynamic tool response: {error}"))
     })?;
-    session.respond(request_id, result).await
+    session
+        .respond_for_runtime(runtime_kind, request_id, result)
+        .await
 }
 
 pub(super) async fn execute_dynamic_tool_call(

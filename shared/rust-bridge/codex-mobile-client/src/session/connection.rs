@@ -23,12 +23,11 @@ use serde_json::Value as JsonValue;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
-use alleycat_client::{ForwardSpec, Target as AlleycatTarget};
-
-use crate::alleycat::AlleycatSession;
 use crate::logging::{LogLevelName, log_rust, summarize_json_for_log};
+use crate::session::remote_transport::{Reconnected, RemoteTransport};
 use crate::ssh::{SshBootstrapResult, SshClient};
 use crate::transport::{RpcError, TransportError};
+use crate::types::AgentRuntimeKind;
 
 const REMOTE_RECONNECT_MAX_ATTEMPTS: u32 = 5;
 const REMOTE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
@@ -41,14 +40,6 @@ pub(crate) struct SshReconnectTransport {
     pub(crate) prefer_ipv6: bool,
     pub(crate) working_dir: Option<String>,
     pub(crate) ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
-}
-
-/// Holds the alleycat session and the targets it forwards so the WebSocket
-/// reconnect path can re-`ensure_forward` if the loopback listener has died.
-#[derive(Clone)]
-pub(crate) struct AlleycatReconnectTransport {
-    pub(crate) session: Arc<AlleycatSession>,
-    pub(crate) targets: Vec<AlleycatTarget>,
 }
 
 fn append_android_debug_log(line: &str) {
@@ -335,19 +326,26 @@ pub struct ServerConfig {
     pub tls: bool,
 }
 
+/// Session-wide bookkeeping passed to `connect_remote_multiplexed`.
+///
+/// These fields back side-channels (IPC streams, SSH client retained for log
+/// commands and disconnect cleanup) that live on `ServerSession` for the
+/// lifetime of the session. They are independent of any single runtime's RPC
+/// transport — that's described per-runtime by `RuntimeRemoteSessionResource`.
 #[derive(Default)]
-pub struct RemoteSessionResources {
+pub struct RemoteSessionExtras {
     pub ssh_client: Option<Arc<SshClient>>,
     pub ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
     pub ipc_stream_client: Option<Arc<ReconnectingIpcClient>>,
     pub ipc_ssh_client: Option<Arc<SshClient>>,
     pub ipc_stream_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
-    pub(crate) ssh_reconnect_transport: Option<SshReconnectTransport>,
-    /// Alleycat QUIC session retained alongside the WebSocket so the tunnel
-    /// is dropped when the server session disconnects, and can be re-bound
-    /// during WebSocket reconnects without rescanning the QR.
-    pub alleycat_session: Option<Arc<AlleycatSession>>,
-    pub(crate) alleycat_reconnect_transport: Option<AlleycatReconnectTransport>,
+}
+
+pub struct RuntimeRemoteSessionResource {
+    pub runtime_kind: AgentRuntimeKind,
+    pub client: AppServerClient,
+    pub(crate) transport: Option<Arc<dyn RemoteTransport>>,
+    pub(crate) keepalive: Option<Arc<dyn Send + Sync>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -418,9 +416,19 @@ enum SessionCommand {
 /// or a typed server request.
 #[derive(Debug, Clone)]
 pub enum ServerEvent {
-    Notification(ServerNotification),
-    LegacyNotification { method: String, params: JsonValue },
-    Request(ServerRequest),
+    Notification {
+        runtime_kind: AgentRuntimeKind,
+        notification: ServerNotification,
+    },
+    LegacyNotification {
+        runtime_kind: AgentRuntimeKind,
+        method: String,
+        params: JsonValue,
+    },
+    Request {
+        runtime_kind: AgentRuntimeKind,
+        request: ServerRequest,
+    },
 }
 
 /// Manages the full connection lifecycle to a single Codex server.
@@ -433,14 +441,13 @@ pub struct ServerSession {
     health_tx: watch::Sender<ConnectionHealth>,
     health_rx: watch::Receiver<ConnectionHealth>,
     command_tx: mpsc::Sender<SessionCommand>,
+    runtime_command_txs: std::collections::HashMap<AgentRuntimeKind, mpsc::Sender<SessionCommand>>,
     event_tx: broadcast::Sender<ServerEvent>,
     ipc_stream_client: Option<Arc<ReconnectingIpcClient>>,
     ssh_client: Option<Arc<SshClient>>,
     ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
     ipc_ssh_client: Option<Arc<SshClient>>,
     ipc_stream_bridge_pid: Option<Arc<StdMutex<Option<u32>>>>,
-    #[allow(dead_code)] // Retained so the QUIC tunnel outlives the WebSocket.
-    alleycat_session: Option<Arc<AlleycatSession>>,
     worker_handle: tokio::task::JoinHandle<()>,
 }
 
@@ -453,6 +460,58 @@ pub(crate) type TestResolveHandler =
 #[cfg(test)]
 pub(crate) type TestRejectHandler =
     Arc<dyn Fn(RequestId, JSONRPCErrorError) -> Result<(), RpcError> + Send + Sync>;
+
+#[cfg(test)]
+fn spawn_test_command_worker(
+    request_handler: Option<TestRequestHandler>,
+    resolve_handler: Option<TestResolveHandler>,
+    reject_handler: Option<TestRejectHandler>,
+) -> (mpsc::Sender<SessionCommand>, tokio::task::JoinHandle<()>) {
+    let (command_tx, mut command_rx) = mpsc::channel(16);
+    let worker_handle = tokio::spawn(async move {
+        while let Some(command) = command_rx.recv().await {
+            match command {
+                SessionCommand::Request {
+                    request,
+                    response_tx,
+                } => {
+                    let result = request_handler
+                        .as_ref()
+                        .map(|handler| handler(request))
+                        .unwrap_or_else(|| Err(RpcError::Transport(TransportError::Disconnected)));
+                    let _ = response_tx.send(result);
+                }
+                SessionCommand::Notify { response_tx, .. } => {
+                    let _ = response_tx.send(Ok(()));
+                }
+                SessionCommand::Resolve {
+                    request_id,
+                    result,
+                    response_tx,
+                } => {
+                    let outcome = resolve_handler
+                        .as_ref()
+                        .map(|handler| handler(request_id, result))
+                        .unwrap_or(Ok(()));
+                    let _ = response_tx.send(outcome);
+                }
+                SessionCommand::Reject {
+                    request_id,
+                    error,
+                    response_tx,
+                } => {
+                    let outcome = reject_handler
+                        .as_ref()
+                        .map(|handler| handler(request_id, error))
+                        .unwrap_or(Ok(()));
+                    let _ = response_tx.send(outcome);
+                }
+                SessionCommand::Shutdown => break,
+            }
+        }
+    });
+    (command_tx, worker_handle)
+}
 
 impl ServerSession {
     /// Connect to a local (in-process) Codex server.
@@ -668,223 +727,86 @@ impl ServerSession {
             health_tx,
             health_rx,
             command_tx,
+            runtime_command_txs: std::collections::HashMap::new(),
             event_tx,
             ipc_stream_client: None,
             ssh_client: None,
             ssh_pid: None,
             ipc_ssh_client: None,
             ipc_stream_bridge_pid: None,
-            alleycat_session: None,
             worker_handle,
         })
     }
 
-    /// Connect to a remote Codex server via WebSocket.
+    /// Connect to a remote Codex server via plain WebSocket.
     ///
     /// Uses the upstream `RemoteAppServerClient` which handles the
     /// initialize/initialized handshake, request routing, and event streaming.
     pub async fn connect_remote(config: ServerConfig) -> Result<Self, TransportError> {
-        Self::connect_remote_with_resources(config, RemoteSessionResources::default()).await
+        let (_, args) = remote_connect_args(&config);
+        let client = connect_remote_client(&args).await?;
+        let resource = RuntimeRemoteSessionResource {
+            runtime_kind: AgentRuntimeKind::Codex,
+            client,
+            transport: None,
+            keepalive: None,
+        };
+        Self::connect_remote_multiplexed(config, vec![resource], RemoteSessionExtras::default())
+            .await
     }
 
-    pub async fn connect_remote_with_resources(
+    pub async fn connect_remote_multiplexed(
         config: ServerConfig,
-        resources: RemoteSessionResources,
+        resources: Vec<RuntimeRemoteSessionResource>,
+        extras: RemoteSessionExtras,
     ) -> Result<Self, TransportError> {
+        let first_runtime_kind = resources
+            .first()
+            .map(|resource| resource.runtime_kind)
+            .ok_or_else(|| {
+                TransportError::ConnectionFailed("no runtime streams available".to_string())
+            })?;
         let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connecting {
             attempt: 1,
             max_attempts: REMOTE_RECONNECT_MAX_ATTEMPTS,
         });
-
         let (url, args) = remote_connect_args(&config);
-        let ssh_reconnect_transport = resources.ssh_reconnect_transport.clone();
-        let alleycat_reconnect_transport = resources.alleycat_reconnect_transport.clone();
-        let mut client = connect_remote_client(&args).await?;
-
         let (event_tx, _) = broadcast::channel::<ServerEvent>(256);
-        let (command_tx, mut command_rx) = mpsc::channel::<SessionCommand>(256);
+        let mut runtime_command_txs = std::collections::HashMap::new();
+        let mut worker_handles = Vec::new();
+        let mut primary_tx = None;
 
-        let evt_tx = event_tx.clone();
-        let health_tx_clone = health_tx.clone();
-        let reconnect_args = args.clone();
-        let reconnect_url = url.clone();
-        let reconnect_transport = ssh_reconnect_transport.clone();
-        let reconnect_alleycat = alleycat_reconnect_transport.clone();
-
-        let worker_handle = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                                    command = command_rx.recv() => {
-                                        let Some(command) = command else { break; };
-                                        match command {
-                                            SessionCommand::Request { request, response_tx } => {
-                                                let request_debug = format!("{request:?}");
-                                                info!(
-                                                    "remote request start url={} request={}",
-                                                    reconnect_url,
-                                                    request_debug
-                                                );
-                let request_retry = request.clone();
-                                                let mut result = match client.request(request).await {
-                                                    Ok(Ok(value)) => Ok(value),
-                                                    Ok(Err(error)) => Err(RpcError::Server {
-                                                        code: error.code,
-                                                        message: error.message,
-                                                    }),
-                                                    Err(e) => Err(RpcError::Transport(
-                                                        TransportError::SendFailed(e.to_string()),
-                                                    )),
-                                                };
-                                                match &result {
-                                                    Ok(value) => {
-                                                        let response_preview =
-                                                            summarize_json_for_log(&value.to_string());
-                                                        info!(
-                                                            "remote request success url={} response={}",
-                                                            reconnect_url,
-                                                            response_preview
-                                                        );
-                }
-                                                    Err(error) => {
-                                                        warn!(
-                                                            "remote request error url={} error={} request={}",
-                                                            reconnect_url,
-                                                            error,
-                                                            request_debug
-                                                        );
-                }
-                                                }
-                                                if matches!(result, Err(RpcError::Transport(_)))
-                                                    && reconnect_remote_client(
-                                                        &mut client,
-                                                        &reconnect_args,
-                                                        &reconnect_url,
-                                                        &health_tx_clone,
-                                                        reconnect_transport.as_ref(),
-                                                        reconnect_alleycat.as_ref(),
-                                                    )
-                                                    .await
-                                                {
-                                                    result = match client.request(request_retry).await {
-                                                        Ok(Ok(value)) => Ok(value),
-                                                        Ok(Err(error)) => Err(RpcError::Server {
-                                                            code: error.code,
-                                                            message: error.message,
-                                                        }),
-                                                        Err(e) => Err(RpcError::Transport(
-                                                            TransportError::SendFailed(e.to_string()),
-                                                        )),
-                                                    };
-                                                    match &result {
-                                                        Ok(value) => {
-                                                            let response_preview =
-                                                                summarize_json_for_log(&value.to_string());
-                                                            info!(
-                                                                "remote request retry success url={} response={}",
-                                                                reconnect_url,
-                                                                response_preview
-                                                            );
-                }
-                                                        Err(error) => {
-                                                            warn!(
-                                                                "remote request retry error url={} error={} request={}",
-                                                                reconnect_url,
-                                                                error,
-                                                                request_debug
-                                                            );
-                }
-                                                    }
-                                                }
-                                                let _ = response_tx.send(result);
-                                            }
-                                            SessionCommand::Notify { notification, response_tx } => {
-                                                let result = client
-                                                    .notify(notification)
-                                                    .await
-                                                    .map_err(|e| {
-                                                        RpcError::Transport(TransportError::SendFailed(
-                                                            e.to_string(),
-                                                        ))
-                                                    });
-                                                let _ = response_tx.send(result);
-                                            }
-                                            SessionCommand::Resolve { request_id, result, response_tx } => {
-                                                let res = client
-                                                    .resolve_server_request(request_id, result)
-                                                    .await
-                                                    .map_err(|e| {
-                                                        RpcError::Transport(TransportError::SendFailed(
-                                                            e.to_string(),
-                                                        ))
-                                                    });
-                                                let _ = response_tx.send(res);
-                                            }
-                                            SessionCommand::Reject { request_id, error, response_tx } => {
-                                                let res = client
-                                                    .reject_server_request(request_id, error)
-                                                    .await
-                                                    .map_err(|e| {
-                                                        RpcError::Transport(TransportError::SendFailed(
-                                                            e.to_string(),
-                                                        ))
-                                                    });
-                                                let _ = response_tx.send(res);
-                                            }
-                                            SessionCommand::Shutdown => {
-                                                let _ = client.shutdown().await;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    event = client.next_event() => {
-                                        let Some(event) = event else {
-                                            warn!("remote event stream ended for {}", reconnect_url);
-                append_android_debug_log(&format!(
-                                                "event_stream_ended url={}",
-                                                reconnect_url
-                                            ));
-                                            if reconnect_remote_client(
-                                                &mut client,
-                                                &reconnect_args,
-                                                &reconnect_url,
-                                                &health_tx_clone,
-                                                reconnect_transport.as_ref(),
-                                                reconnect_alleycat.as_ref(),
-                                            )
-                                            .await {
-                                                continue;
-                                            }
-                                            break;
-                                        };
-                                        if let AppServerEvent::Disconnected { message } = &event {
-                                            warn!("remote session disconnected for {}: {}", reconnect_url, message);
-                append_android_debug_log(&format!(
-                                                "event_disconnected url={} message={}",
-                                                reconnect_url, message
-                                            ));
-                                            if reconnect_remote_client(
-                                                &mut client,
-                                                &reconnect_args,
-                                                &reconnect_url,
-                                                &health_tx_clone,
-                                                reconnect_transport.as_ref(),
-                                                reconnect_alleycat.as_ref(),
-                                            )
-                                            .await {
-                                                continue;
-                                            }
-                                            break;
-                                        }
-                                        route_app_server_event(&evt_tx, &health_tx_clone, &event);
-                                    }
-                                }
+        for resource in resources {
+            let (command_tx, command_rx) = mpsc::channel::<SessionCommand>(256);
+            if primary_tx.is_none() || resource.runtime_kind == first_runtime_kind {
+                primary_tx = Some(command_tx.clone());
             }
-            debug!("remote session worker exited");
+            runtime_command_txs.insert(resource.runtime_kind, command_tx);
+            worker_handles.push(spawn_remote_runtime_worker(
+                resource.runtime_kind,
+                resource.client,
+                resource.keepalive,
+                command_rx,
+                event_tx.clone(),
+                health_tx.clone(),
+                args.clone(),
+                url.clone(),
+                resource.transport,
+            ));
+        }
+
+        let command_tx = primary_tx.ok_or_else(|| {
+            TransportError::ConnectionFailed("no runtime command channel available".to_string())
+        })?;
+        let worker_handle = tokio::spawn(async move {
+            for handle in worker_handles {
+                let _ = handle.await;
+            }
         });
 
         let _ = health_tx.send(ConnectionHealth::Connected);
         info!(
-            "remote server session connected: {} ({})",
+            "multiplexed remote server session connected: {} ({})",
             config.display_name, url
         );
 
@@ -893,13 +815,13 @@ impl ServerSession {
             health_tx,
             health_rx,
             command_tx,
+            runtime_command_txs,
             event_tx,
-            ipc_stream_client: resources.ipc_stream_client,
-            ssh_client: resources.ssh_client,
-            ssh_pid: resources.ssh_pid,
-            ipc_ssh_client: resources.ipc_ssh_client,
-            ipc_stream_bridge_pid: resources.ipc_stream_bridge_pid,
-            alleycat_session: resources.alleycat_session,
+            ipc_stream_client: extras.ipc_stream_client,
+            ssh_client: extras.ssh_client,
+            ssh_pid: extras.ssh_pid,
+            ipc_ssh_client: extras.ipc_ssh_client,
+            ipc_stream_bridge_pid: extras.ipc_stream_bridge_pid,
             worker_handle,
         })
     }
@@ -918,10 +840,30 @@ impl ServerSession {
         self.health_rx.clone()
     }
 
+    pub fn runtime_kinds(&self) -> Vec<AgentRuntimeKind> {
+        if self.runtime_command_txs.is_empty() {
+            return vec![AgentRuntimeKind::Codex];
+        }
+        self.runtime_command_txs.keys().copied().collect()
+    }
+
     /// Send a typed `ClientRequest` and await the raw JSON response.
     pub async fn request_client(&self, request: ClientRequest) -> Result<JsonValue, RpcError> {
+        self.request_client_for_runtime(AgentRuntimeKind::Codex, request)
+            .await
+    }
+
+    pub async fn request_client_for_runtime(
+        &self,
+        runtime_kind: AgentRuntimeKind,
+        request: ClientRequest,
+    ) -> Result<JsonValue, RpcError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.command_tx
+        let command_tx = self
+            .runtime_command_txs
+            .get(&runtime_kind)
+            .unwrap_or(&self.command_tx);
+        command_tx
             .send(SessionCommand::Request {
                 request,
                 response_tx,
@@ -945,6 +887,27 @@ impl ServerSession {
         let request: ClientRequest = serde_json::from_value(request_value)
             .map_err(|e| RpcError::Deserialization(format!("failed to build request: {e}")))?;
         self.request_client(request).await
+    }
+
+    /// Send a method/params request to a specific runtime. Used by callers
+    /// that need to reach a non-Codex runtime (e.g. an Alleycat-hosted Pi or
+    /// Opencode tunnel). Falls back to the default channel when the
+    /// `runtime_kind` is not registered for this session.
+    pub async fn request_for_runtime(
+        &self,
+        runtime_kind: AgentRuntimeKind,
+        method: &str,
+        params: JsonValue,
+    ) -> Result<JsonValue, RpcError> {
+        let request_id = RequestId::Integer(next_request_id());
+        let request_value = serde_json::json!({
+            "id": request_id,
+            "method": method,
+            "params": params,
+        });
+        let request: ClientRequest = serde_json::from_value(request_value)
+            .map_err(|e| RpcError::Deserialization(format!("failed to build request: {e}")))?;
+        self.request_client_for_runtime(runtime_kind, request).await
     }
 
     /// Send a JSON-RPC notification (fire-and-forget).
@@ -1007,9 +970,23 @@ impl ServerSession {
 
     /// Respond to a server-initiated request.
     pub async fn respond(&self, id: JsonValue, result: JsonValue) -> Result<(), RpcError> {
+        self.respond_for_runtime(AgentRuntimeKind::Codex, id, result)
+            .await
+    }
+
+    pub async fn respond_for_runtime(
+        &self,
+        runtime_kind: AgentRuntimeKind,
+        id: JsonValue,
+        result: JsonValue,
+    ) -> Result<(), RpcError> {
         let request_id = json_value_to_request_id(&id)?;
         let (response_tx, response_rx) = oneshot::channel();
-        self.command_tx
+        let command_tx = self
+            .runtime_command_txs
+            .get(&runtime_kind)
+            .unwrap_or(&self.command_tx);
+        command_tx
             .send(SessionCommand::Resolve {
                 request_id,
                 result,
@@ -1055,6 +1032,9 @@ impl ServerSession {
     async fn disconnect_inner(&self, kill_reused_app_server: bool) {
         let _ = self.health_tx.send(ConnectionHealth::Disconnected);
         let _ = self.command_tx.send(SessionCommand::Shutdown).await;
+        for tx in self.runtime_command_txs.values() {
+            let _ = tx.send(SessionCommand::Shutdown).await;
+        }
         if let Some(ipc_client) = self.ipc_stream_client.as_ref() {
             ipc_client.shutdown().await;
         }
@@ -1114,7 +1094,7 @@ impl ServerSession {
     }
 }
 
-fn remote_connect_args(config: &ServerConfig) -> (String, RemoteAppServerConnectArgs) {
+pub(crate) fn remote_connect_args(config: &ServerConfig) -> (String, RemoteAppServerConnectArgs) {
     let url = if let Some(url) = config.websocket_url.clone() {
         url
     } else {
@@ -1135,7 +1115,7 @@ fn remote_connect_args(config: &ServerConfig) -> (String, RemoteAppServerConnect
     (url, args)
 }
 
-async fn connect_remote_client(
+pub(crate) async fn connect_remote_client(
     args: &RemoteAppServerConnectArgs,
 ) -> Result<AppServerClient, TransportError> {
     #[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
@@ -1154,11 +1134,11 @@ async fn connect_remote_client(
 
 async fn reconnect_remote_client(
     client: &mut AppServerClient,
+    keepalive: &mut Option<Arc<dyn Send + Sync>>,
     args: &RemoteAppServerConnectArgs,
     websocket_url: &str,
     health_tx: &watch::Sender<ConnectionHealth>,
-    ssh_transport: Option<&SshReconnectTransport>,
-    alleycat_transport: Option<&AlleycatReconnectTransport>,
+    transport: Option<&Arc<dyn RemoteTransport>>,
 ) -> bool {
     for attempt in 1..=REMOTE_RECONNECT_MAX_ATTEMPTS {
         append_android_debug_log(&format!(
@@ -1173,47 +1153,21 @@ async fn reconnect_remote_client(
             attempt,
             max_attempts: REMOTE_RECONNECT_MAX_ATTEMPTS,
         });
-        if let Some(ssh_transport) = ssh_transport {
-            let remote_host = ssh_reconnect_remote_host(ssh_transport);
-            let remote_port = ssh_reconnect_remote_port(ssh_transport);
-            if let Err(error) = ssh_transport
-                .ssh_client
-                .ensure_forward_port_to(ssh_transport.local_port, remote_host, remote_port)
-                .await
-            {
-                warn!(
-                    "remote reconnect forward restore failed: {} local_port={} remote={}:{} error={}",
-                    websocket_url, ssh_transport.local_port, remote_host, remote_port, error
-                );
-            }
-        }
-        if let Some(alleycat) = alleycat_transport {
-            // Best-effort: re-`ensure_forward` for each tracked target. If the
-            // existing loopback listener is still bound, this fails with
-            // `address already in use` — that's fine, the WebSocket can keep
-            // using the already-bound port. We only care about the case where
-            // the forward task died (relay restart, transient network) and we
-            // need to rebind so the WebSocket reconnect has somewhere to dial.
-            for target in &alleycat.targets {
-                if let Err(error) = alleycat
-                    .session
-                    .session
-                    .ensure_forward(ForwardSpec {
-                        local_port: 0,
-                        target: target.clone(),
-                    })
-                    .await
-                {
-                    debug!(
-                        "remote reconnect alleycat ensure_forward failed (likely benign): {} target={:?} error={}",
-                        websocket_url, target, error
-                    );
+
+        let connect_result: Result<Reconnected, TransportError> = match transport {
+            Some(t) => t.reconnect(args, websocket_url).await,
+            None => connect_remote_client(args).await.map(|client| Reconnected {
+                client,
+                keepalive: None,
+            }),
+        };
+
+        match connect_result {
+            Ok(next) => {
+                *client = next.client;
+                if next.keepalive.is_some() {
+                    *keepalive = next.keepalive;
                 }
-            }
-        }
-        match connect_remote_client(args).await {
-            Ok(next_client) => {
-                *client = next_client;
                 let _ = health_tx.send(ConnectionHealth::Connected);
                 info!(
                     "remote server session reconnected: {} (attempt {attempt}/{})",
@@ -1226,31 +1180,6 @@ async fn reconnect_remote_client(
                 return true;
             }
             Err(error) => {
-                if let Some(ssh_transport) = ssh_transport {
-                    if rebootstrap_remote_client_over_ssh(ssh_transport, websocket_url).await {
-                        match connect_remote_client(args).await {
-                            Ok(next_client) => {
-                                *client = next_client;
-                                let _ = health_tx.send(ConnectionHealth::Connected);
-                                info!(
-                                    "remote server session reconnected after ssh rebootstrap: {} (attempt {attempt}/{})",
-                                    websocket_url, REMOTE_RECONNECT_MAX_ATTEMPTS
-                                );
-                                append_android_debug_log(&format!(
-                                    "reconnect_success url={} attempt={}/{} mode=ssh_rebootstrap",
-                                    websocket_url, attempt, REMOTE_RECONNECT_MAX_ATTEMPTS
-                                ));
-                                return true;
-                            }
-                            Err(retry_error) => {
-                                warn!(
-                                    "remote reconnect after ssh rebootstrap still failed: {} (attempt {attempt}/{}) - {}",
-                                    websocket_url, REMOTE_RECONNECT_MAX_ATTEMPTS, retry_error
-                                );
-                            }
-                        }
-                    }
-                }
                 warn!(
                     "remote server reconnect failed: {} (attempt {attempt}/{}) - {}",
                     websocket_url, REMOTE_RECONNECT_MAX_ATTEMPTS, error
@@ -1372,6 +1301,186 @@ async fn finalize_ssh_rebootstrap(
     true
 }
 
+#[async_trait::async_trait]
+impl RemoteTransport for SshReconnectTransport {
+    async fn reconnect(
+        &self,
+        args: &RemoteAppServerConnectArgs,
+        websocket_url: &str,
+    ) -> Result<Reconnected, TransportError> {
+        let remote_host = ssh_reconnect_remote_host(self);
+        let remote_port = ssh_reconnect_remote_port(self);
+        if let Err(error) = self
+            .ssh_client
+            .ensure_forward_port_to(self.local_port, remote_host, remote_port)
+            .await
+        {
+            warn!(
+                "remote reconnect forward restore failed: {} local_port={} remote={}:{} error={}",
+                websocket_url, self.local_port, remote_host, remote_port, error
+            );
+        }
+
+        match connect_remote_client(args).await {
+            Ok(client) => Ok(Reconnected {
+                client,
+                keepalive: None,
+            }),
+            Err(error) => {
+                if rebootstrap_remote_client_over_ssh(self, websocket_url).await {
+                    match connect_remote_client(args).await {
+                        Ok(client) => {
+                            info!(
+                                "remote reconnect succeeded after ssh rebootstrap: {}",
+                                websocket_url
+                            );
+                            Ok(Reconnected {
+                                client,
+                                keepalive: None,
+                            })
+                        }
+                        Err(retry_error) => {
+                            warn!(
+                                "remote reconnect after ssh rebootstrap still failed: {} - {}",
+                                websocket_url, retry_error
+                            );
+                            Err(retry_error)
+                        }
+                    }
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+}
+
+fn spawn_remote_runtime_worker(
+    runtime_kind: AgentRuntimeKind,
+    mut client: AppServerClient,
+    initial_keepalive: Option<Arc<dyn Send + Sync>>,
+    mut command_rx: mpsc::Receiver<SessionCommand>,
+    event_tx: broadcast::Sender<ServerEvent>,
+    health_tx: watch::Sender<ConnectionHealth>,
+    reconnect_args: RemoteAppServerConnectArgs,
+    reconnect_url: String,
+    reconnect_transport: Option<Arc<dyn RemoteTransport>>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut keepalive: Option<Arc<dyn Send + Sync>> = initial_keepalive;
+        loop {
+            tokio::select! {
+                command = command_rx.recv() => {
+                    let Some(command) = command else { break; };
+                    match command {
+                        SessionCommand::Request { request, response_tx } => {
+                            let request_retry = request.clone();
+                            let mut result = match client.request(request).await {
+                                Ok(Ok(value)) => Ok(value),
+                                Ok(Err(error)) => Err(RpcError::Server {
+                                    code: error.code,
+                                    message: error.message,
+                                }),
+                                Err(error) => Err(RpcError::Transport(
+                                    TransportError::SendFailed(error.to_string()),
+                                )),
+                            };
+                            if matches!(result, Err(RpcError::Transport(_)))
+                                && reconnect_remote_client(
+                                    &mut client,
+                                    &mut keepalive,
+                                    &reconnect_args,
+                                    &reconnect_url,
+                                    &health_tx,
+                                    reconnect_transport.as_ref(),
+                                )
+                                .await
+                            {
+                                result = match client.request(request_retry).await {
+                                    Ok(Ok(value)) => Ok(value),
+                                    Ok(Err(error)) => Err(RpcError::Server {
+                                        code: error.code,
+                                        message: error.message,
+                                    }),
+                                    Err(error) => Err(RpcError::Transport(
+                                        TransportError::SendFailed(error.to_string()),
+                                    )),
+                                };
+                            }
+                            let _ = response_tx.send(result);
+                        }
+                        SessionCommand::Notify { notification, response_tx } => {
+                            let result = client.notify(notification).await.map_err(|error| {
+                                RpcError::Transport(TransportError::SendFailed(error.to_string()))
+                            });
+                            let _ = response_tx.send(result);
+                        }
+                        SessionCommand::Resolve { request_id, result, response_tx } => {
+                            let result = client
+                                .resolve_server_request(request_id, result)
+                                .await
+                                .map_err(|error| {
+                                    RpcError::Transport(TransportError::SendFailed(
+                                        error.to_string(),
+                                    ))
+                                });
+                            let _ = response_tx.send(result);
+                        }
+                        SessionCommand::Reject { request_id, error, response_tx } => {
+                            let result = client
+                                .reject_server_request(request_id, error)
+                                .await
+                                .map_err(|error| {
+                                    RpcError::Transport(TransportError::SendFailed(
+                                        error.to_string(),
+                                    ))
+                                });
+                            let _ = response_tx.send(result);
+                        }
+                        SessionCommand::Shutdown => {
+                            let _ = client.shutdown().await;
+                            break;
+                        }
+                    }
+                }
+                event = client.next_event() => {
+                    let Some(event) = event else {
+                        if reconnect_remote_client(
+                            &mut client,
+                            &mut keepalive,
+                            &reconnect_args,
+                            &reconnect_url,
+                            &health_tx,
+                            reconnect_transport.as_ref(),
+                        )
+                        .await {
+                            continue;
+                        }
+                        break;
+                    };
+                    if let AppServerEvent::Disconnected { .. } = &event
+                        && reconnect_remote_client(
+                            &mut client,
+                            &mut keepalive,
+                            &reconnect_args,
+                            &reconnect_url,
+                            &health_tx,
+                            reconnect_transport.as_ref(),
+                        )
+                        .await
+                    {
+                        continue;
+                    }
+                    route_app_server_event(&event_tx, &health_tx, runtime_kind, &event);
+                }
+            }
+        }
+        // Hold the keepalive Arc for the entire worker lifetime so transport-scoped
+        // resources (e.g. an iroh Endpoint) are dropped only after the worker exits.
+        drop(keepalive);
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Event routing helpers
 // ---------------------------------------------------------------------------
@@ -1379,17 +1488,24 @@ async fn finalize_ssh_rebootstrap(
 fn route_app_server_event(
     event_tx: &broadcast::Sender<ServerEvent>,
     health_tx: &watch::Sender<ConnectionHealth>,
+    runtime_kind: AgentRuntimeKind,
     event: &AppServerEvent,
 ) {
     match event {
         AppServerEvent::ServerNotification(notification) => {
             info!("remote event notification {:?}", notification);
-            let _ = event_tx.send(ServerEvent::Notification(notification.clone()));
+            let _ = event_tx.send(ServerEvent::Notification {
+                runtime_kind,
+                notification: notification.clone(),
+            });
         }
         AppServerEvent::ServerRequest(request) => {
             info!("remote event server request {:?}", request);
             append_android_debug_log(&format!("server_request={request:?}"));
-            let _ = event_tx.send(ServerEvent::Request(request.clone()));
+            let _ = event_tx.send(ServerEvent::Request {
+                runtime_kind,
+                request: request.clone(),
+            });
         }
         AppServerEvent::Lagged { skipped } => {
             warn!("event: lagged, skipped {skipped} events");
@@ -1410,10 +1526,16 @@ fn route_in_process_event(
 
     match event {
         InProcessServerEvent::ServerNotification(notification) => {
-            let _ = event_tx.send(ServerEvent::Notification(notification));
+            let _ = event_tx.send(ServerEvent::Notification {
+                runtime_kind: AgentRuntimeKind::Codex,
+                notification,
+            });
         }
         InProcessServerEvent::ServerRequest(request) => {
-            let _ = event_tx.send(ServerEvent::Request(request));
+            let _ = event_tx.send(ServerEvent::Request {
+                runtime_kind: AgentRuntimeKind::Codex,
+                request,
+            });
         }
         InProcessServerEvent::Lagged { skipped } => {
             warn!("in-process event: lagged, skipped {skipped} events");
@@ -1491,13 +1613,51 @@ impl ServerSession {
             health_tx,
             health_rx,
             command_tx,
+            runtime_command_txs: std::collections::HashMap::new(),
             event_tx,
             ipc_stream_client: shared_ipc_client,
             ssh_client: None,
             ssh_pid: None,
             ipc_ssh_client: None,
             ipc_stream_bridge_pid: None,
-            alleycat_session: None,
+            worker_handle,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_stub_with_runtime_handlers(
+        config: ServerConfig,
+        runtime_handlers: Vec<(AgentRuntimeKind, TestRequestHandler)>,
+    ) -> Self {
+        let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connected);
+        let (command_tx, default_worker_handle) = spawn_test_command_worker(None, None, None);
+        let (event_tx, _) = broadcast::channel(16);
+        let mut runtime_command_txs = std::collections::HashMap::new();
+        let mut worker_handles = vec![default_worker_handle];
+        for (runtime_kind, handler) in runtime_handlers {
+            let (runtime_tx, runtime_worker_handle) =
+                spawn_test_command_worker(Some(handler), None, None);
+            runtime_command_txs.insert(runtime_kind, runtime_tx);
+            worker_handles.push(runtime_worker_handle);
+        }
+        let worker_handle = tokio::spawn(async move {
+            for handle in worker_handles {
+                let _ = handle.await;
+            }
+        });
+
+        Self {
+            config,
+            health_tx,
+            health_rx,
+            command_tx,
+            runtime_command_txs,
+            event_tx,
+            ipc_stream_client: None,
+            ssh_client: None,
+            ssh_pid: None,
+            ipc_ssh_client: None,
+            ipc_stream_bridge_pid: None,
             worker_handle,
         }
     }

@@ -58,12 +58,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.accentColor
+import com.litter.android.state.displayModelLabel
 import com.litter.android.state.isIpcConnected
 import com.litter.android.state.resolvedModel
 import com.litter.android.state.statusColor
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.common.matchesModelSelection
 import com.litter.android.ui.scaled
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.AppModeKind
@@ -94,16 +96,18 @@ fun HeaderBar(
         thread?.let { t -> snapshot?.servers?.find { it.serverId == t.key.serverId } }
     }
     val pendingModelId = launchState.selectedModel.trim()
+    val pendingRuntime = launchState.selectedAgentRuntimeKind
     val pendingModelLabel = server?.availableModels
-        ?.firstOrNull { it.id == pendingModelId }
+        ?.firstOrNull { it.matchesModelSelection(pendingModelId, pendingRuntime) }
         ?.displayName
         ?.ifBlank { pendingModelId }
         ?: pendingModelId.ifBlank { null }
     val currentModelId = pendingModelId.ifBlank {
         (thread?.model ?: thread?.info?.model ?: "").trim()
     }
-    val selectedModelDefinition = remember(server?.availableModels, currentModelId) {
-        server?.availableModels?.firstOrNull { it.id == currentModelId }
+    val currentRuntime = pendingRuntime ?: thread?.agentRuntimeKind
+    val selectedModelDefinition = remember(server?.availableModels, currentModelId, currentRuntime) {
+        server?.availableModels?.firstOrNull { it.matchesModelSelection(currentModelId, currentRuntime) }
             ?: server?.availableModels?.firstOrNull { it.isDefault }
             ?: server?.availableModels?.firstOrNull()
     }
@@ -120,8 +124,8 @@ fun HeaderBar(
             }
         }
     }
-    val modelLabel = remember(pendingModelLabel, thread?.resolvedModel) {
-        (pendingModelLabel ?: thread?.resolvedModel).orEmpty().ifBlank { "litter" }
+    val modelLabel = remember(pendingModelLabel, thread?.displayModelLabel) {
+        (pendingModelLabel ?: thread?.displayModelLabel).orEmpty().ifBlank { "litter" }
     }
 
     Column(

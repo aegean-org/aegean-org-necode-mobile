@@ -2,4 +2,5 @@
 
 pub mod connection;
 pub mod events;
+pub(crate) mod remote_transport;
 pub mod voice_handoff;

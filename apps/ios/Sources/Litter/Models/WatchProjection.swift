@@ -147,7 +147,7 @@ enum WatchProjection {
 
     private static func relativeTime(from updatedAt: Int64?) -> String {
         guard let updatedAt else { return "" }
-        let updatedDate = Date(timeIntervalSince1970: TimeInterval(updatedAt) / 1000)
+        let updatedDate = Date(timeIntervalSince1970: TimeInterval(updatedAt))
         let delta = Date().timeIntervalSince(updatedDate)
         if delta < 60 { return "now" }
         if delta < 3600 { return "\(Int(delta) / 60)m" }

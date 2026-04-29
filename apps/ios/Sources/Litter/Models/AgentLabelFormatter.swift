@@ -5,6 +5,21 @@ struct SkillMentionSelection: Equatable {
     let path: String
 }
 
+struct PluginMentionSelection: Equatable, Hashable {
+    let name: String
+    let marketplace: String
+    let displayName: String?
+
+    var path: String { "plugin://\(name)@\(marketplace)" }
+
+    var displayTitle: String {
+        if let displayName, !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return displayName
+        }
+        return name
+    }
+}
+
 enum AgentLabelFormatter {
     static func format(
         nickname: String?,

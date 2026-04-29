@@ -2,16 +2,13 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// Handed back to the discovery flow once `connectRemoteOverAlleycat` has
-/// brought up both the QUIC tunnel AND the loopback Codex WebSocket — i.e.
-/// the server is fully connected and just needs to be persisted +
-/// navigated to. The Rust ServerSession owns the alleycat session lifetime
-/// from this point on.
 struct AlleycatConnectedTarget: Equatable {
     let serverId: String
-    let connectedHost: String
+    let nodeId: String
     let displayName: String
-    let params: AppAlleycatParams
+    let params: AppAlleycatPairPayload
+    let agentName: String
+    let agentWire: AppAlleycatAgentWire
 }
 
 struct AlleycatAddServerSheet: View {
@@ -20,12 +17,13 @@ struct AlleycatAddServerSheet: View {
     let onConnected: (AlleycatConnectedTarget) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var hostOverride: String = ""
-    @State private var showHostOverride = false
     @State private var displayName: String = ""
-    @State private var parsedParams: AppAlleycatParams?
-    @State private var parsedFromRaw: String?
+    @State private var parsedParams: AppAlleycatPairPayload?
+    @State private var agents: [AppAlleycatAgentInfo] = []
+    @State private var selectedAgentNames: Set<String> = []
+    @State private var isLoadingAgents = false
     @State private var parseError: String?
+    @State private var agentError: String?
     @State private var isConnecting = false
     @State private var connectError: String?
     @State private var showScanner = false
@@ -56,10 +54,13 @@ struct AlleycatAddServerSheet: View {
                     pairingSection
                     if let params = parsedParams {
                         previewSection(params: params)
-                        hostOverrideSection(params: params)
+                        agentSection
                     }
                     if let parseError {
                         errorSection(parseError, color: LitterTheme.warning)
+                    }
+                    if let agentError {
+                        errorSection(agentError, color: LitterTheme.warning)
                     }
                     connectSection
                     if let connectError {
@@ -68,7 +69,7 @@ struct AlleycatAddServerSheet: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Add via Alleycat")
+            .navigationTitle("Add Remote Host")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -107,7 +108,7 @@ struct AlleycatAddServerSheet: View {
                 Button("Cancel", role: .cancel) {}
             },
             message: {
-                Text("Allow camera access in Settings to scan an alleycat pairing QR code.")
+                Text("Allow camera access in Settings to scan an Alleycat pairing QR code.")
             }
         )
     }
@@ -146,7 +147,7 @@ struct AlleycatAddServerSheet: View {
                         .frame(minHeight: 90)
                         .overlay(alignment: .topLeading) {
                             if pasteJSON.isEmpty {
-                                Text(#"{"protocolVersion":1,"udpPort":...,"certFingerprint":"...","token":"..."}"#)
+                                Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textMuted)
                                     .padding(.top, 8)
@@ -175,16 +176,15 @@ struct AlleycatAddServerSheet: View {
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
-    private func previewSection(params: AppAlleycatParams) -> some View {
+    private func previewSection(params: AppAlleycatPairPayload) -> some View {
         Section {
-            previewRow(label: "udp port", value: String(params.udpPort))
-            previewRow(label: "protocol", value: "v\(params.protocolVersion)")
-            previewRow(label: "fingerprint", value: shortFingerprint(params.certFingerprint))
-            if !params.hostCandidates.isEmpty {
-                previewRow(
-                    label: "hosts",
-                    value: params.hostCandidates.joined(separator: ", ")
-                )
+            previewRow(label: "node", value: shortNodeId(params.nodeId))
+            previewRow(label: "protocol", value: "v\(params.v)")
+            if let relay = params.relay, !relay.isEmpty {
+                previewRow(label: "relay", value: relay)
+            }
+            if let hostName = params.hostName, !hostName.isEmpty {
+                previewRow(label: "host", value: hostName)
             }
             TextField("display name (optional)", text: $displayName)
                 .litterFont(.caption)
@@ -192,50 +192,74 @@ struct AlleycatAddServerSheet: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
         } header: {
-            Text("Scanned Params")
+            Text("Scanned Host")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
-    @ViewBuilder
-    private func hostOverrideSection(params: AppAlleycatParams) -> some View {
-        let hasCandidates = !params.hostCandidates.isEmpty
+    private var agentSection: some View {
         Section {
-            if hasCandidates {
-                DisclosureGroup(isExpanded: $showHostOverride) {
-                    TextField("hostname or IP that this device can reach", text: $hostOverride)
+            if isLoadingAgents {
+                HStack {
+                    ProgressView().tint(LitterTheme.accent)
+                    Text("Loading agents")
                         .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textPrimary)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .keyboardType(.URL)
-                } label: {
-                    Text("Override host (optional)")
-                        .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
+            } else if agents.isEmpty {
+                Text("No agents are available on this host.")
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textMuted)
             } else {
-                TextField("relay.example.com or 100.64.0.5", text: $hostOverride)
-                    .litterFont(.footnote)
-                    .foregroundColor(LitterTheme.textPrimary)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .keyboardType(.URL)
+                ForEach(agents, id: \.name) { agent in
+                    Button {
+                        guard agent.available else { return }
+                        toggleAgentSelection(agent)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(agent.displayName)
+                                    .litterFont(.subheadline)
+                                    .foregroundColor(agent.available ? LitterTheme.textPrimary : LitterTheme.textMuted)
+                                Text(wireLabel(agent.wire))
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textSecondary)
+                            }
+                            Spacer()
+                            if selectedAgentNames.contains(agent.name) {
+                                Image(systemName: "checkmark.square.fill")
+                                    .foregroundColor(LitterTheme.accent)
+                            } else if !agent.available {
+                                Text("Unavailable")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textMuted)
+                            } else {
+                                Image(systemName: "square")
+                                    .foregroundColor(LitterTheme.textMuted)
+                            }
+                        }
+                    }
+                    .disabled(!agent.available)
+                }
             }
         } header: {
-            Text(hasCandidates ? "Connect" : "Relay Host")
-                .foregroundColor(LitterTheme.textSecondary)
-        } footer: {
-            if hasCandidates {
-                Text("The phone races the candidates above and uses the first that connects. Override only if none work (e.g., the relay's auto-detected hostname isn't reachable from here).")
-                    .litterFont(.caption)
-                    .foregroundColor(LitterTheme.textMuted)
-            } else {
-                Text("This QR doesn't carry host candidates — enter a hostname or IP that this device can reach.")
-                    .litterFont(.caption)
-                    .foregroundColor(LitterTheme.textMuted)
+            HStack {
+                Text("Agents")
+                Spacer()
+                if !availableAgents.isEmpty {
+                    Button(selectedAgents.count == availableAgents.count ? "None" : "All") {
+                        if selectedAgents.count == availableAgents.count {
+                            selectedAgentNames = []
+                        } else {
+                            selectedAgentNames = Set(availableAgents.map(\.name))
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundColor(LitterTheme.accent)
+                }
             }
+                .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
@@ -249,6 +273,8 @@ struct AlleycatAddServerSheet: View {
             Text(value)
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 
@@ -280,10 +306,24 @@ struct AlleycatAddServerSheet: View {
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
+    private var availableAgents: [AppAlleycatAgentInfo] {
+        agents.filter(\.available)
+    }
+
+    private var selectedAgents: [AppAlleycatAgentInfo] {
+        agents.filter { $0.available && selectedAgentNames.contains($0.name) }
+    }
+
     private var canConnect: Bool {
-        guard !isConnecting, let params = parsedParams else { return false }
-        let hasOverride = !hostOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return hasOverride || !params.hostCandidates.isEmpty
+        !isConnecting && !isLoadingAgents && parsedParams != nil && !selectedAgents.isEmpty
+    }
+
+    private func toggleAgentSelection(_ agent: AppAlleycatAgentInfo) {
+        if selectedAgentNames.contains(agent.name) {
+            selectedAgentNames.remove(agent.name)
+        } else {
+            selectedAgentNames.insert(agent.name)
+        }
     }
 
     private func handleScannedPayload(_ raw: String) {
@@ -292,33 +332,51 @@ struct AlleycatAddServerSheet: View {
         do {
             let params = try alleycat.parsePairPayload(json: trimmed)
             parsedParams = params
-            parsedFromRaw = trimmed
+            displayName = suggestedDisplayName(for: params)
             parseError = nil
             connectError = nil
-            // Auto-expand the override row only when the QR didn't carry
-            // candidates — otherwise keep the disclosure collapsed since the
-            // common case is "just tap Connect."
-            showHostOverride = params.hostCandidates.isEmpty
+            agentError = nil
+            agents = []
+            selectedAgentNames = []
+            loadAgents(params: params)
         } catch {
             parsedParams = nil
-            parsedFromRaw = nil
+            agents = []
+            selectedAgentNames = []
             parseError = error.localizedDescription
         }
     }
 
-    private func connect() {
-        guard let params = parsedParams else { return }
-        let override = hostOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-        var hosts: [String] = []
-        if !override.isEmpty { hosts.append(override) }
-        for candidate in params.hostCandidates where !hosts.contains(candidate) {
-            hosts.append(candidate)
+    private func loadAgents(params: AppAlleycatPairPayload) {
+        isLoadingAgents = true
+        Task {
+            do {
+                let loaded = try await appModel.serverBridge.listAlleycatAgents(params: params)
+                await MainActor.run {
+                    guard parsedParams?.nodeId == params.nodeId else { return }
+                    agents = loaded
+                    selectedAgentNames = Set(loaded.filter(\.available).map(\.name))
+                    isLoadingAgents = false
+                    agentError = nil
+                }
+            } catch {
+                await MainActor.run {
+                    guard parsedParams?.nodeId == params.nodeId else { return }
+                    agents = []
+                    selectedAgentNames = []
+                    isLoadingAgents = false
+                    agentError = error.localizedDescription
+                }
+            }
         }
-        guard !hosts.isEmpty else { return }
+    }
 
+    private func connect() {
+        guard let params = parsedParams, let fallbackAgent = selectedAgents.first else { return }
         let trimmedDisplay = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let provisionalName = trimmedDisplay.isEmpty ? "alleycat" : trimmedDisplay
-        let serverId = "alleycat:\(hosts[0].lowercased()):\(params.udpPort)"
+        let resolvedName = trimmedDisplay.isEmpty ? suggestedDisplayName(for: params) : trimmedDisplay
+        let selectedNames = selectedAgents.map(\.name)
+        let serverId = "alleycat:\(params.nodeId)"
 
         isConnecting = true
         connectError = nil
@@ -327,37 +385,36 @@ struct AlleycatAddServerSheet: View {
             do {
                 let result = try await appModel.serverBridge.connectRemoteOverAlleycat(
                     serverId: serverId,
-                    displayName: provisionalName,
-                    hosts: hosts,
-                    params: params
+                    displayName: resolvedName,
+                    params: params,
+                    agentName: fallbackAgent.name,
+                    selectedAgentNames: selectedNames,
+                    wire: fallbackAgent.wire
                 )
-                let connectedHost = result.connectedHost
-                let connectedServerId = result.serverId
-                let resolvedName = trimmedDisplay.isEmpty
-                    ? "\(connectedHost) (alleycat)"
-                    : trimmedDisplay
-
                 do {
-                    try AlleycatCredentialStore.shared.save(
-                        SavedAlleycatParams(params),
-                        host: connectedHost
-                    )
+                    try AlleycatCredentialStore.shared.saveToken(params.token, nodeId: params.nodeId)
                 } catch {
                     NSLog("[ALLEYCAT_CREDENTIALS] keychain save failed: %@", error.localizedDescription)
                 }
 
-                isConnecting = false
-                onConnected(
-                    AlleycatConnectedTarget(
-                        serverId: connectedServerId,
-                        connectedHost: connectedHost,
-                        displayName: resolvedName,
-                        params: params
+                await MainActor.run {
+                    isConnecting = false
+                    onConnected(
+                        AlleycatConnectedTarget(
+                            serverId: result.serverId,
+                            nodeId: result.nodeId,
+                            displayName: resolvedName,
+                            params: params,
+                            agentName: result.agentName,
+                            agentWire: fallbackAgent.wire
+                        )
                     )
-                )
+                }
             } catch {
-                isConnecting = false
-                connectError = error.localizedDescription
+                await MainActor.run {
+                    isConnecting = false
+                    connectError = error.localizedDescription
+                }
             }
         }
     }
@@ -389,11 +446,26 @@ struct AlleycatAddServerSheet: View {
         UIApplication.shared.open(url)
     }
 
-    private func shortFingerprint(_ raw: String) -> String {
-        let stripped = raw.replacingOccurrences(of: ":", with: "")
-        if stripped.count <= 12 { return stripped }
-        let prefix = stripped.prefix(12)
-        return "\(prefix)..."
+    private func suggestedDisplayName(for params: AppAlleycatPairPayload) -> String {
+        let hostName = params.hostName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !hostName.isEmpty {
+            return hostName
+        }
+        return "Alleycat \(shortNodeId(params.nodeId))"
+    }
+
+    private func shortNodeId(_ raw: String) -> String {
+        if raw.count <= 16 { return raw }
+        return "\(raw.prefix(8))...\(raw.suffix(8))"
+    }
+
+    private func wireLabel(_ wire: AppAlleycatAgentWire) -> String {
+        switch wire {
+        case .websocket:
+            return "websocket"
+        case .jsonl:
+            return "jsonl"
+        }
     }
 }
 
@@ -422,7 +494,7 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
 
     private let captureSession = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private let metadataQueue = DispatchQueue(label: "com.litter.alleycat.qrscanner")
+    private let metadataQueue = DispatchQueue(label: "com.alleycat.qrscanner")
     private var didReportScan = false
 
     override func viewDidLoad() {
@@ -495,7 +567,7 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
         let hint = UILabel()
-        hint.text = "Point the camera at the alleycat QR code"
+        hint.text = "Point the camera at the Alleycat QR code"
         hint.textColor = .white.withAlphaComponent(0.85)
         hint.font = .systemFont(ofSize: 13, weight: .medium)
         hint.numberOfLines = 0

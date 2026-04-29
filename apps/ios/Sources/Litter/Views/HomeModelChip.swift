@@ -15,6 +15,7 @@ struct HomeModelChip: View {
     /// the chip is disabled.
     let serverId: String?
     let disabled: Bool
+    var onSheetStateChange: (Bool) -> Void = { _ in }
 
     @State private var showSheet = false
     @State private var selectedDetent: PresentationDetent = .large
@@ -42,7 +43,13 @@ struct HomeModelChip: View {
     private var selectedModelLabel: String {
         let trimmed = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            if let match = availableModels.first(where: { $0.id == trimmed }) {
+            if let match = availableModels.first(where: {
+                modelMatchesSelection(
+                    $0,
+                    trimmed,
+                    runtime: appState.preferredAgentRuntimeKind
+                )
+            }) {
                 return match.displayName
             }
             return trimmed
@@ -63,6 +70,13 @@ struct HomeModelChip: View {
         Binding(
             get: { appState.preferredModel },
             set: { appState.preferredModel = $0 }
+        )
+    }
+
+    private var selectedAgentRuntimeKindBinding: Binding<AgentRuntimeKind?> {
+        Binding(
+            get: { appState.preferredAgentRuntimeKind },
+            set: { appState.preferredAgentRuntimeKind = $0 }
         )
     }
 
@@ -131,6 +145,7 @@ struct HomeModelChip: View {
             ConversationOptionsSheet(
                 models: availableModels,
                 selectedModel: selectedModelBinding,
+                selectedAgentRuntimeKind: selectedAgentRuntimeKindBinding,
                 reasoningEffort: reasoningEffortBinding,
                 threadKey: nil
             )
@@ -140,6 +155,9 @@ struct HomeModelChip: View {
             .presentationDragIndicator(.visible)
             .presentationContentInteraction(.scrolls)
             .presentationBackground(LitterTheme.surface)
+        }
+        .onChange(of: showSheet) { _, isPresented in
+            onSheetStateChange(isPresented)
         }
         .task(id: serverId) {
             guard let serverId else { return }

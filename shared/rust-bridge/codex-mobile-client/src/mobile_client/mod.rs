@@ -7,15 +7,18 @@ use tokio::sync::{Mutex, broadcast, mpsc};
 use tracing::{debug, info, trace, warn};
 use url::Url;
 
+use crate::alleycat::{
+    AgentInfo as AlleycatAgentInfo, AgentWire as AlleycatAgentWire, AlleycatReconnectTransport,
+    ParsedPairPayload as ParsedAlleycatPairPayload,
+};
 use crate::discovery::{DiscoveredServer, DiscoveryConfig, DiscoveryService, MdnsSeed};
 use crate::session::connection::InProcessConfig;
 use crate::session::connection::{
-    RemoteSessionResources, ServerConfig, ServerEvent, ServerSession, SshReconnectTransport,
+    RemoteSessionExtras, RuntimeRemoteSessionResource, ServerConfig, ServerEvent, ServerSession,
+    SshReconnectTransport,
 };
 use crate::session::events::{EventProcessor, UiEvent};
-use crate::alleycat::ParsedPairPayload;
 use crate::ssh::{SshBootstrapResult, SshClient, SshCredentials};
-use alleycat_client::Target as AlleycatTarget;
 use crate::store::snapshot::{
     IpcFailureClassification, ServerMutatingCommandKind, ServerMutatingCommandRoute,
     ServerTransportAuthority,
@@ -26,9 +29,9 @@ use crate::store::{
 };
 use crate::transport::{RpcError, TransportError};
 use crate::types::{
-    AppCollaborationModePreset, AppModeKind, ApprovalDecisionValue, PendingApproval,
-    PendingApprovalSeed, PendingApprovalWithSeed, PendingUserInputAnswer, PendingUserInputRequest,
-    ThreadInfo, ThreadKey, ThreadSummaryStatus,
+    AgentRuntimeInfo, AgentRuntimeKind, AppCollaborationModePreset, AppModeKind,
+    ApprovalDecisionValue, PendingApproval, PendingApprovalSeed, PendingApprovalWithSeed,
+    PendingUserInputAnswer, PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
 };
 use codex_app_server_protocol as upstream;
 use codex_ipc::{
@@ -83,6 +86,20 @@ pub struct MobileClient {
     /// `None`, the hook is skipped (pre-R2 callers / tests).
     pub(crate) saved_apps_directory: Arc<StdMutex<Option<String>>>,
     direct_resumed_threads: Arc<StdMutex<HashSet<ThreadKey>>>,
+    thread_runtime_routes: Arc<StdMutex<HashMap<ThreadKey, AgentRuntimeKind>>>,
+    /// In-flight guided-SSH-connect flows, keyed by server_id. Hosts the
+    /// `install_decision` oneshot that the FFI install-prompt response feeds
+    /// into. Held on `MobileClient` (not `SshBridge`) so the connect entry
+    /// point and the install-prompt response can live on different bridges.
+    pub(crate) ssh_bootstrap_flows:
+        Arc<tokio::sync::Mutex<HashMap<String, ManagedSshBootstrapFlow>>>,
+}
+
+/// State for a single in-flight guided SSH connect. The connect task installs a
+/// `oneshot::Sender<bool>` once it discovers Codex is missing on the remote and
+/// awaits the FFI install-prompt response to fire it.
+pub struct ManagedSshBootstrapFlow {
+    pub install_decision: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
 /// A waiter registered by `update_saved_app` to receive the next
@@ -106,13 +123,11 @@ struct OAuthCallbackTunnel {
     local_port: u16,
 }
 
-/// Returned by `MobileClient::connect_remote_over_alleycat` so the caller
-/// (FFI surface or shared reconnect path) can persist `connected_host` —
-/// the host that won the candidate race — onto the saved-server record.
 #[derive(Debug, Clone)]
 pub struct AlleycatConnectOutcome {
     pub server_id: String,
-    pub connected_host: String,
+    pub node_id: String,
+    pub agent_name: String,
 }
 
 const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
@@ -183,6 +198,15 @@ fn should_fallback_to_thread_metadata_after_resume_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
     lower.contains("no rollout found for thread id")
         || lower.contains("remote app-server worker channel is closed")
+}
+
+fn should_try_next_runtime_after_thread_lookup_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("no rollout found for thread id")
+        || lower.contains("thread cannot be found")
+        || lower.contains("thread not found")
+        || lower.contains("no thread found")
+        || lower.contains("unknown thread")
 }
 
 fn normalize_pending_user_input_answers(
@@ -292,7 +316,9 @@ where
 /// Returns true when an RPC error string looks like a JSON-RPC -32601
 /// "method not found" error.
 fn is_method_not_found(error: &str) -> bool {
-    error.contains("-32601") || error.to_ascii_lowercase().contains("method not found")
+    error.contains("-32601")
+        || error.to_ascii_lowercase().contains("method not found")
+        || error.to_ascii_lowercase().contains("not implemented")
 }
 
 fn ipc_pending_user_input_submission_id(request: &PendingUserInputRequest) -> &str {
@@ -356,6 +382,46 @@ fn normalize_pending_user_input_answer_entries(
     normalized
 }
 
+fn non_empty_trimmed(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
+        "opencode" | "open-code" | "open_code" | "open code" => Some(AgentRuntimeKind::Opencode),
+        "pi" | "pi.dev" | "pidev" | "pi dev" => Some(AgentRuntimeKind::Pi),
+        "codex" => Some(AgentRuntimeKind::Codex),
+        _ if normalized.starts_with("claude") => Some(AgentRuntimeKind::Claude),
+        _ if normalized.contains("opencode")
+            || normalized.contains("open-code")
+            || normalized.contains("open_code")
+            || normalized.contains("open code") =>
+        {
+            Some(AgentRuntimeKind::Opencode)
+        }
+        _ if normalized.starts_with("pi.dev")
+            || normalized.starts_with("pidev")
+            || normalized.starts_with("pi/") =>
+        {
+            Some(AgentRuntimeKind::Pi)
+        }
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedModelSelection {
+    pub model: String,
+    pub runtime_kind: AgentRuntimeKind,
+}
+
 impl MobileClient {
     /// Create a new `MobileClient`.
     pub fn new() -> Self {
@@ -379,6 +445,8 @@ impl MobileClient {
             widget_waiters: Arc::new(StdMutex::new(HashMap::new())),
             saved_apps_directory: Arc::new(StdMutex::new(None)),
             direct_resumed_threads: Arc::new(StdMutex::new(HashSet::new())),
+            thread_runtime_routes: Arc::new(StdMutex::new(HashMap::new())),
+            ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -414,6 +482,198 @@ impl MobileClient {
         }
     }
 
+    fn thread_runtime_routes(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<ThreadKey, AgentRuntimeKind>> {
+        match self.thread_runtime_routes.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                warn!("MobileClient: recovering poisoned thread runtime route lock");
+                error.into_inner()
+            }
+        }
+    }
+
+    pub(crate) fn note_thread_runtime(&self, key: ThreadKey, runtime_kind: AgentRuntimeKind) {
+        self.thread_runtime_routes()
+            .insert(key.clone(), runtime_kind);
+        self.app_store.set_thread_agent_runtime(&key, runtime_kind);
+    }
+
+    pub(crate) fn runtime_for_thread(&self, key: &ThreadKey) -> AgentRuntimeKind {
+        let routed_runtime = self.thread_runtime_routes().get(key).copied();
+        if let Some(runtime_kind) = routed_runtime
+            && runtime_kind != AgentRuntimeKind::Codex
+        {
+            return runtime_kind;
+        }
+
+        if let Some(thread) = self.app_store.thread_snapshot(key) {
+            if thread.agent_runtime_kind != AgentRuntimeKind::Codex {
+                return thread.agent_runtime_kind;
+            }
+            if let Some(runtime_kind) = self.non_codex_runtime_for_thread_metadata(key, &thread) {
+                return runtime_kind;
+            }
+        }
+
+        routed_runtime.unwrap_or(AgentRuntimeKind::Codex)
+    }
+
+    pub(crate) fn runtime_for_thread_start(
+        &self,
+        server_id: &str,
+        explicit_runtime_kind: Option<AgentRuntimeKind>,
+        model: Option<&str>,
+    ) -> AgentRuntimeKind {
+        if let Some(runtime_kind) = explicit_runtime_kind {
+            return runtime_kind;
+        }
+
+        if let Some(model) = model.and_then(non_empty_trimmed) {
+            if let Some(selection) = self.resolve_model_selection(server_id, model) {
+                return selection.runtime_kind;
+            }
+            if let Some(runtime_kind) = runtime_for_model_hint(model) {
+                return runtime_kind;
+            }
+        }
+
+        AgentRuntimeKind::Codex
+    }
+
+    pub(crate) fn resolve_model_selection(
+        &self,
+        server_id: &str,
+        model: &str,
+    ) -> Option<ResolvedModelSelection> {
+        let selected_model = non_empty_trimmed(model)?;
+        let snapshot = self.app_store.snapshot();
+        let models = snapshot.servers.get(server_id)?.available_models.as_ref()?;
+
+        let exact = models
+            .iter()
+            .find(|candidate| candidate.id == selected_model);
+        if let Some(candidate) = exact {
+            return Some(ResolvedModelSelection {
+                model: candidate.id.clone(),
+                runtime_kind: candidate.agent_runtime_kind,
+            });
+        }
+
+        if let Some(candidate) = models
+            .iter()
+            .find(|candidate| candidate.model == selected_model)
+        {
+            return Some(ResolvedModelSelection {
+                model: candidate.id.clone(),
+                runtime_kind: candidate.agent_runtime_kind,
+            });
+        }
+
+        None
+    }
+
+    fn runtime_for_selected_model(&self, server_id: &str, model: &str) -> Option<AgentRuntimeKind> {
+        self.resolve_model_selection(server_id, model)
+            .map(|selection| selection.runtime_kind)
+    }
+
+    fn resolve_model_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        model: &str,
+    ) -> Option<String> {
+        let selected_model = non_empty_trimmed(model)?;
+        let snapshot = self.app_store.snapshot();
+        let models = snapshot.servers.get(server_id)?.available_models.as_ref()?;
+        models
+            .iter()
+            .find(|candidate| {
+                candidate.agent_runtime_kind == runtime_kind
+                    && (candidate.id == selected_model || candidate.model == selected_model)
+            })
+            .map(|candidate| candidate.id.clone())
+    }
+
+    pub(crate) fn normalize_thread_model_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        model: &mut Option<String>,
+    ) {
+        let Some(selected_model) = model.as_deref().and_then(non_empty_trimmed) else {
+            return;
+        };
+        if let Some(resolved) =
+            self.resolve_model_for_runtime(server_id, runtime_kind, selected_model)
+        {
+            *model = Some(resolved);
+        }
+    }
+
+    pub(crate) fn normalize_model_selection_for_request(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        request: &mut upstream::ClientRequest,
+    ) {
+        match request {
+            upstream::ClientRequest::ThreadStart { params, .. } => {
+                self.normalize_thread_model_for_runtime(server_id, runtime_kind, &mut params.model);
+            }
+            upstream::ClientRequest::ThreadResume { params, .. } => {
+                self.normalize_thread_model_for_runtime(server_id, runtime_kind, &mut params.model);
+            }
+            upstream::ClientRequest::ThreadFork { params, .. } => {
+                self.normalize_thread_model_for_runtime(server_id, runtime_kind, &mut params.model);
+            }
+            upstream::ClientRequest::TurnStart { params, .. } => {
+                if let Some(selected_model) = params.model.as_deref().and_then(non_empty_trimmed)
+                    && let Some(resolved) =
+                        self.resolve_model_for_runtime(server_id, runtime_kind, selected_model)
+                {
+                    params.model = Some(resolved);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn non_codex_runtime_for_thread_metadata(
+        &self,
+        key: &ThreadKey,
+        thread: &ThreadSnapshot,
+    ) -> Option<AgentRuntimeKind> {
+        for model in [thread.model.as_deref(), thread.info.model.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter_map(non_empty_trimmed)
+        {
+            let runtime_kind = self
+                .runtime_for_selected_model(&key.server_id, model)
+                .or_else(|| runtime_for_model_hint(model));
+            if let Some(runtime_kind) = runtime_kind
+                && runtime_kind != AgentRuntimeKind::Codex
+            {
+                return Some(runtime_kind);
+            }
+        }
+
+        if let Some(runtime_kind) = thread
+            .info
+            .model_provider
+            .as_deref()
+            .and_then(runtime_for_model_hint)
+            .filter(|runtime_kind| *runtime_kind != AgentRuntimeKind::Codex)
+        {
+            return Some(runtime_kind);
+        }
+
+        None
+    }
+
     fn has_direct_resume_marker(&self, key: &ThreadKey) -> bool {
         self.direct_resumed_threads().contains(key)
     }
@@ -425,6 +685,8 @@ impl MobileClient {
     pub(super) fn clear_direct_resume_markers_for_server(&self, server_id: &str) {
         self.direct_resumed_threads()
             .retain(|key| key.server_id != server_id);
+        self.thread_runtime_routes()
+            .retain(|key, _| key.server_id != server_id);
     }
 
     // ── Internal RPC helpers ──────────────────────────────────────────────
@@ -487,15 +749,38 @@ impl MobileClient {
         params: upstream::ThreadListParams,
     ) -> Result<upstream::ThreadListResponse, crate::RpcClientError> {
         use crate::{RpcClientError, next_request_id};
-        self.request_typed_for_server(
-            server_id,
-            upstream::ClientRequest::ThreadList {
-                request_id: upstream::RequestId::Integer(next_request_id()),
-                params,
-            },
-        )
-        .await
-        .map_err(RpcClientError::Rpc)
+        let runtime_kinds = self
+            .get_session(server_id)
+            .map_err(|error| RpcClientError::Rpc(error.to_string()))?
+            .runtime_kinds();
+        let mut merged = upstream::ThreadListResponse {
+            data: Vec::new(),
+            next_cursor: None,
+            backwards_cursor: None,
+        };
+
+        for runtime_kind in runtime_kinds {
+            let response: upstream::ThreadListResponse = self
+                .request_typed_for_server_runtime(
+                    server_id,
+                    runtime_kind,
+                    upstream::ClientRequest::ThreadList {
+                        request_id: upstream::RequestId::Integer(next_request_id()),
+                        params: params.clone(),
+                    },
+                )
+                .await
+                .map_err(RpcClientError::Rpc)?;
+            merged.data.extend(response.data);
+            if merged.next_cursor.is_none() {
+                merged.next_cursor = response.next_cursor;
+            }
+            if merged.backwards_cursor.is_none() {
+                merged.backwards_cursor = response.backwards_cursor;
+            }
+        }
+
+        Ok(merged)
     }
 
     pub(crate) async fn server_collaboration_mode_list(
@@ -591,6 +876,40 @@ impl MobileClient {
         }
     }
 
+    /// Common post-`connect_remote_multiplexed` attach work shared by every
+    /// remote-connect orchestrator (Alleycat, SSH-direct, SSH-bridges).
+    ///
+    /// Runs the steps that are identical across transports: marking the server
+    /// `Connected`, registering runtime info, spawning event/health readers,
+    /// inserting into the session map, and queuing post-connect warmup. IPC
+    /// readers are wired conditionally on `session.has_ipc()` so the SSH-direct
+    /// IPC stream attaches without polluting the other paths.
+    fn attach_remote_session(
+        &self,
+        server_id: &str,
+        session: Arc<ServerSession>,
+        runtime_infos: Vec<AgentRuntimeInfo>,
+    ) {
+        self.app_store.upsert_server(
+            session.config(),
+            ServerHealthSnapshot::Connected,
+            server_supports_ipc(&session),
+        );
+        self.app_store
+            .update_server_agent_runtimes(server_id, runtime_infos);
+        if session.has_ipc() {
+            self.app_store.update_server_ipc_state(server_id, true);
+            self.app_store.mark_server_ipc_primary(server_id);
+            self.spawn_ipc_reader(server_id.to_string(), Arc::clone(&session));
+            self.spawn_ipc_connection_state_reader(server_id.to_string(), Arc::clone(&session));
+        }
+        self.spawn_event_reader(server_id.to_string(), Arc::clone(&session));
+        self.spawn_health_reader(server_id.to_string(), session.health());
+        self.sessions_write()
+            .insert(server_id.to_string(), Arc::clone(&session));
+        self.spawn_post_connect_warmup(server_id.to_string(), session);
+    }
+
     // ── Server Management ─────────────────────────────────────────────
 
     /// Connect to a local (in-process) Codex server.
@@ -653,140 +972,262 @@ impl MobileClient {
         Ok(server_id)
     }
 
-    /// Connect to a remote Codex server through an alleycat QUIC tunnel.
-    ///
-    /// Races `hosts` (typically the user's preferred host first, then the
-    /// host candidates the relay advertised in the QR), opens a QUIC session
-    /// to whichever wins, ensures a loopback forward to the Codex app-server
-    /// port, then opens the standard JSON-RPC WebSocket against that local
-    /// port. The `AlleycatSession` is retained on the resulting
-    /// `ServerSession` so it dies with the WebSocket on disconnect.
-    ///
-    /// Mirrors the layering of `connect_remote_over_ssh` — both are
-    /// "transport bootstrap, then loopback WebSocket."
+    pub async fn list_alleycat_agents(
+        &self,
+        params: ParsedAlleycatPairPayload,
+    ) -> Result<Vec<AlleycatAgentInfo>, TransportError> {
+        crate::alleycat::list_agents(params)
+            .await
+            .map_err(|error| TransportError::ConnectionFailed(error.to_string()))
+    }
+
     pub async fn connect_remote_over_alleycat(
         &self,
         server_id: String,
         display_name: String,
-        hosts: Vec<String>,
-        params: ParsedPairPayload,
-        codex_loopback_port: u16,
+        params: ParsedAlleycatPairPayload,
+        agent_name: String,
+        selected_agent_names: Vec<String>,
+        wire: AlleycatAgentWire,
     ) -> Result<AlleycatConnectOutcome, TransportError> {
         info!(
-            "MobileClient: connect_remote_over_alleycat start server_id={} host_count={} udp_port={} codex_port={}",
-            server_id,
-            hosts.len(),
-            params.udp_port,
-            codex_loopback_port
+            "MobileClient: connect_remote_over_alleycat start server_id={} node_id={} agent={} selected_agents={:?} wire={:?}",
+            server_id, params.node_id, agent_name, selected_agent_names, wire
         );
+        let selected_agent_names = selected_agent_names
+            .into_iter()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .collect::<std::collections::HashSet<_>>();
+        let mut seen_runtime_kinds = std::collections::HashSet::new();
+        let requested_agents = self
+            .list_alleycat_agents(params.clone())
+            .await?
+            .into_iter()
+            .filter_map(|agent| {
+                if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent.name) {
+                    return None;
+                }
+                let runtime_kind =
+                    crate::alleycat::agent_runtime_kind(&agent.name, &agent.display_name)?;
+                if !seen_runtime_kinds.insert(runtime_kind) {
+                    return None;
+                }
+                (agent.available).then_some((runtime_kind, agent))
+            })
+            .collect::<Vec<_>>();
+        let runtime_agents = if requested_agents.is_empty() {
+            if !selected_agent_names.is_empty() && !selected_agent_names.contains(&agent_name) {
+                self.app_store
+                    .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+                return Err(TransportError::ConnectionFailed(
+                    "no selected Alleycat runtime streams are available".to_string(),
+                ));
+            }
+            vec![(
+                crate::alleycat::agent_runtime_kind(&agent_name, &agent_name)
+                    .unwrap_or(AgentRuntimeKind::Codex),
+                AlleycatAgentInfo {
+                    name: agent_name.clone(),
+                    display_name: display_name.clone(),
+                    wire,
+                    available: true,
+                },
+            )]
+        } else {
+            requested_agents
+        };
+        let visible_server_id = format!("alleycat:{}", params.node_id);
+        let server_id = if server_id.starts_with(&visible_server_id) {
+            visible_server_id
+        } else {
+            server_id
+        };
 
-        // Show "connecting" eagerly so the UI updates while QUIC handshakes.
-        let placeholder_config = ServerConfig {
+        let config = ServerConfig {
             server_id: server_id.clone(),
-            display_name: display_name.clone(),
-            host: hosts.first().cloned().unwrap_or_else(|| "127.0.0.1".into()),
+            display_name,
+            host: params.node_id.clone(),
             port: 0,
-            websocket_url: None,
+            websocket_url: Some(format!("ws://alleycat/{}", params.node_id)),
             is_local: false,
             tls: false,
         };
         self.app_store
-            .upsert_server(&placeholder_config, ServerHealthSnapshot::Connecting, true);
+            .upsert_server(&config, ServerHealthSnapshot::Connecting, true);
         self.replace_existing_session(server_id.as_str()).await;
 
-        let alleycat_session = match crate::alleycat::connect_and_forward(
-            hosts,
-            params,
-            vec![AlleycatTarget::Tcp {
-                host: "127.0.0.1".to_string(),
-                port: codex_loopback_port,
-            }],
-        )
-        .await
-        {
-            Ok(session) => session,
-            Err(error) => {
-                warn!(
-                    "MobileClient: alleycat tunnel bring-up failed server_id={} error={}",
-                    server_id, error
-                );
-                self.app_store
-                    .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
-                return Err(TransportError::ConnectionFailed(error.to_string()));
-            }
-        };
+        let mut runtime_resources = Vec::new();
+        let mut runtime_infos = Vec::new();
+        for (runtime_kind, agent) in runtime_agents {
+            let reconnect_transport = AlleycatReconnectTransport {
+                params: params.clone(),
+                agent: agent.name.clone(),
+                wire: agent.wire,
+            };
+            let (remote_client, alleycat_session) =
+                match crate::alleycat::connect_app_server_client(
+                    params.clone(),
+                    agent.name.clone(),
+                    agent.wire,
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => {
+                        warn!(
+                            "MobileClient: alleycat connect failed server_id={} agent={} error={}",
+                            server_id, agent.name, error
+                        );
+                        continue;
+                    }
+                };
+            runtime_infos.push(AgentRuntimeInfo {
+                kind: runtime_kind,
+                name: agent.name.clone(),
+                display_name: agent.display_name.clone(),
+                available: true,
+            });
+            let trait_transport: Arc<dyn crate::session::remote_transport::RemoteTransport> =
+                Arc::new(reconnect_transport);
+            let keepalive: Arc<dyn Send + Sync> = alleycat_session as Arc<dyn Send + Sync>;
+            runtime_resources.push(RuntimeRemoteSessionResource {
+                runtime_kind,
+                client: remote_client,
+                transport: Some(trait_transport),
+                keepalive: Some(keepalive),
+            });
+        }
+        if runtime_resources.is_empty() {
+            self.app_store
+                .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+            return Err(TransportError::ConnectionFailed(
+                "no available Alleycat runtime streams connected".to_string(),
+            ));
+        }
 
-        let forward = alleycat_session.forwards.first().ok_or_else(|| {
-            TransportError::ConnectionFailed("alleycat returned no forwards".into())
-        })?;
-        let local_port = forward.local_port;
-        let connected_host = alleycat_session.connected_host.clone();
         info!(
-            "MobileClient: alleycat tunnel up server_id={} connected_host={} local_port={}",
-            server_id, connected_host, local_port
+            "MobileClient: alleycat building multiplexed session server_id={} runtime_kinds={:?}",
+            server_id,
+            runtime_resources
+                .iter()
+                .map(|r| r.runtime_kind)
+                .collect::<Vec<_>>()
         );
-
-        let websocket_url = format!("ws://127.0.0.1:{local_port}");
-        let config = ServerConfig {
-            server_id: server_id.clone(),
-            display_name,
-            host: "127.0.0.1".to_string(),
-            port: local_port,
-            websocket_url: Some(websocket_url.clone()),
-            is_local: false,
-            tls: false,
-        };
-        let alleycat_session = Arc::new(alleycat_session);
-
-        let session = match ServerSession::connect_remote_with_resources(
+        let session = match ServerSession::connect_remote_multiplexed(
             config,
-            RemoteSessionResources {
-                ssh_client: None,
-                ssh_pid: None,
-                ipc_stream_client: None,
-                ipc_ssh_client: None,
-                ipc_stream_bridge_pid: None,
-                ssh_reconnect_transport: None,
-                alleycat_session: Some(Arc::clone(&alleycat_session)),
-                alleycat_reconnect_transport: None,
-            },
+            runtime_resources,
+            RemoteSessionExtras::default(),
         )
         .await
         {
             Ok(session) => Arc::new(session),
             Err(error) => {
                 warn!(
-                    "MobileClient: alleycat loopback websocket failed server_id={} error={}",
+                    "MobileClient: alleycat app-server session failed server_id={} error={}",
                     server_id, error
                 );
-                // Drop the QUIC session explicitly so we don't leak a relay
-                // peer connection while the user retries.
-                drop(alleycat_session);
                 self.app_store
                     .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
                 return Err(error);
             }
         };
-
-        self.app_store.upsert_server(
-            session.config(),
-            ServerHealthSnapshot::Connected,
-            server_supports_ipc(&session),
-        );
-
-        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
-        self.spawn_health_reader(server_id.clone(), session.health());
-
-        self.sessions_write()
-            .insert(server_id.clone(), Arc::clone(&session));
-        self.spawn_post_connect_warmup(server_id.clone(), session);
-
         info!(
-            "MobileClient: connected remote alleycat server {server_id} via {connected_host}"
+            "MobileClient: alleycat session ready server_id={} runtime_kinds={:?}",
+            server_id,
+            session.runtime_kinds()
         );
+
+        self.attach_remote_session(&server_id, session, runtime_infos.clone());
+
         Ok(AlleycatConnectOutcome {
             server_id,
-            connected_host,
+            node_id: params.node_id,
+            agent_name: runtime_infos
+                .iter()
+                .map(|runtime| runtime.name.clone())
+                .collect::<Vec<_>>()
+                .join(","),
+        })
+    }
+
+    pub async fn connect_remote_over_ssh_bridges(
+        &self,
+        ssh_client: Arc<SshClient>,
+        server_id: String,
+        display_name: String,
+        host: String,
+        state_root: String,
+        runtime_kinds: Vec<AgentRuntimeKind>,
+        transport: crate::ssh_bridge::SshBridgeTransport,
+    ) -> Result<AlleycatConnectOutcome, TransportError> {
+        if runtime_kinds.is_empty() {
+            return Err(TransportError::ConnectionFailed(
+                "no SSH runtime kinds selected".to_string(),
+            ));
+        }
+
+        let visible_server_id = format!("ssh-bridge:{host}");
+        let server_id = if server_id.starts_with(&visible_server_id) {
+            visible_server_id
+        } else {
+            server_id
+        };
+        let config = ServerConfig {
+            server_id: server_id.clone(),
+            display_name,
+            host: host.clone(),
+            port: 0,
+            websocket_url: Some(format!("ssh-bridge://{host}")),
+            is_local: false,
+            tls: false,
+        };
+        self.app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connecting, true);
+        self.replace_existing_session(server_id.as_str()).await;
+
+        let (runtime_resources, runtime_infos) =
+            crate::ssh_bridge::connect_runtime_resources_via_ssh(
+                ssh_client,
+                state_root,
+                runtime_kinds,
+                transport,
+                host.contains(':'),
+            )
+            .await
+            .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        if runtime_resources.is_empty() {
+            self.app_store
+                .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+            return Err(TransportError::ConnectionFailed(
+                "no available SSH bridge runtime streams connected".to_string(),
+            ));
+        }
+
+        let session = match ServerSession::connect_remote_multiplexed(
+            config,
+            runtime_resources,
+            RemoteSessionExtras::default(),
+        )
+        .await
+        {
+            Ok(session) => Arc::new(session),
+            Err(error) => {
+                self.app_store
+                    .update_server_health(server_id.as_str(), ServerHealthSnapshot::Disconnected);
+                return Err(error);
+            }
+        };
+        self.attach_remote_session(&server_id, session, runtime_infos.clone());
+
+        Ok(AlleycatConnectOutcome {
+            server_id,
+            node_id: host,
+            agent_name: runtime_infos
+                .iter()
+                .map(|runtime| runtime.name.clone())
+                .collect::<Vec<_>>()
+                .join(","),
         })
     }
 
@@ -952,18 +1393,46 @@ impl MobileClient {
                 .is_some_and(|client| client.is_connected())
         );
 
-        let session = match ServerSession::connect_remote_with_resources(
+        // Eagerly establish the WebSocket-over-SSH-tunnel client now that the
+        // forward is up. Surfacing connect errors here matches the eager-connect
+        // semantics used by `connect_remote_over_alleycat` and the multi-runtime
+        // SSH-bridges path, so `connect_remote_multiplexed` only sees populated
+        // clients.
+        let (_, connect_args) = crate::session::connection::remote_connect_args(&config);
+        let initial_client = match crate::session::connection::connect_remote_client(&connect_args)
+            .await
+        {
+            Ok(client) => client,
+            Err(error) => {
+                warn!(
+                    "MobileClient: remote ssh websocket connect failed server_id={} host={} error={}",
+                    server_id,
+                    ssh_credentials.host.as_str(),
+                    error
+                );
+                ssh_client.disconnect().await;
+                return Err(error);
+            }
+        };
+        let trait_transport: Arc<dyn crate::session::remote_transport::RemoteTransport> =
+            Arc::new(ssh_reconnect_transport);
+        let resource = RuntimeRemoteSessionResource {
+            runtime_kind: crate::types::AgentRuntimeKind::Codex,
+            client: initial_client,
+            transport: Some(trait_transport),
+            keepalive: None,
+        };
+        let extras = RemoteSessionExtras {
+            ssh_client: Some(Arc::clone(&ssh_client)),
+            ssh_pid: Some(Arc::clone(&ssh_pid)),
+            ipc_stream_client,
+            ipc_ssh_client: None,
+            ipc_stream_bridge_pid,
+        };
+        let session = match ServerSession::connect_remote_multiplexed(
             config,
-            RemoteSessionResources {
-                ssh_client: Some(Arc::clone(&ssh_client)),
-                ssh_pid: Some(Arc::clone(&ssh_pid)),
-                ipc_stream_client,
-                ipc_ssh_client: None,
-                ipc_stream_bridge_pid,
-                ssh_reconnect_transport: Some(ssh_reconnect_transport),
-                alleycat_session: None,
-                alleycat_reconnect_transport: None,
-            },
+            vec![resource],
+            extras,
         )
         .await
         {
@@ -984,11 +1453,6 @@ impl MobileClient {
             }
         };
 
-        self.app_store.upsert_server(
-            session.config(),
-            ServerHealthSnapshot::Connected,
-            server_supports_ipc(&session),
-        );
         trace!(
             "MobileClient: finish_connect_remote_over_ssh session connected server_id={} websocket_url={}",
             server_id,
@@ -998,20 +1462,13 @@ impl MobileClient {
                 .as_deref()
                 .unwrap_or("<none>")
         );
-        if session.has_ipc() {
-            self.app_store
-                .update_server_ipc_state(server_id.as_str(), true);
-            self.app_store.mark_server_ipc_primary(server_id.as_str());
-        }
-
-        self.spawn_event_reader(server_id.clone(), Arc::clone(&session));
-        self.spawn_health_reader(server_id.clone(), session.health());
-        self.spawn_ipc_reader(server_id.clone(), Arc::clone(&session));
-        self.spawn_ipc_connection_state_reader(server_id.clone(), Arc::clone(&session));
-
-        self.sessions_write()
-            .insert(server_id.clone(), Arc::clone(&session));
-        self.spawn_post_connect_warmup(server_id.clone(), session);
+        let codex_runtime_info = AgentRuntimeInfo {
+            kind: crate::types::AgentRuntimeKind::Codex,
+            name: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            available: true,
+        };
+        self.attach_remote_session(&server_id, session, vec![codex_runtime_info]);
 
         info!("MobileClient: connected remote SSH server {server_id}");
         Ok(server_id)
@@ -1245,15 +1702,112 @@ impl MobileClient {
             );
         }
         if self.has_direct_resume_marker(&key) {
+            let thread_has_loaded_turns = self
+                .app_store
+                .thread_snapshot(&key)
+                .is_some_and(|thread| !thread.items.is_empty() || thread.initial_turns_loaded);
+            if thread_has_loaded_turns {
+                debug!(
+                    "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session",
+                    server_id, thread_id
+                );
+                self.app_store.mark_thread_resumed(&key, true);
+                return Ok(());
+            }
             debug!(
-                "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session",
+                "external_resume_thread: direct listener exists but thread has no loaded turns, refreshing server={} thread={}",
                 server_id, thread_id
             );
-            self.app_store.mark_thread_resumed(&key, true);
-            return Ok(());
         }
+        let mut runtime_candidates = vec![self.runtime_for_thread(&key)];
+        for runtime_kind in session.runtime_kinds() {
+            if !runtime_candidates.contains(&runtime_kind) {
+                runtime_candidates.push(runtime_kind);
+            }
+        }
+        if !runtime_candidates.contains(&AgentRuntimeKind::Codex) {
+            runtime_candidates.push(AgentRuntimeKind::Codex);
+        }
+
+        let mut lookup_errors = Vec::new();
+        for runtime_kind in runtime_candidates.iter().copied() {
+            let exclude_turns = self.app_store.server_supports_turn_pagination(server_id);
+            match self
+                .resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, exclude_turns)
+                .await
+            {
+                Ok(()) => {
+                    self.note_thread_runtime(key.clone(), runtime_kind);
+                    return Ok(());
+                }
+                Err(error) if should_try_next_runtime_after_thread_lookup_error(&error) => {
+                    info!(
+                        "external_resume_thread: thread lookup missed runtime {:?} server={} thread={}: {}",
+                        runtime_kind, server_id, thread_id, error
+                    );
+                    lookup_errors.push((runtime_kind, error));
+                }
+                Err(error) if should_fallback_to_thread_metadata_after_resume_error(&error) => {
+                    warn!(
+                        "external_resume_thread: resume failed, falling back to metadata-only thread/read runtime={:?} server={} thread={} error={}",
+                        runtime_kind, server_id, thread_id, error
+                    );
+                    self.read_thread_metadata_only_for_runtime(server_id, thread_id, runtime_kind)
+                        .await
+                        .map_err(|fallback_error| {
+                            RpcError::Deserialization(format!(
+                                "{error}; metadata fallback failed: {fallback_error}"
+                            ))
+                        })?;
+                    self.note_thread_runtime(key.clone(), runtime_kind);
+                    return Ok(());
+                }
+                Err(error) => return Err(RpcError::Deserialization(error)),
+            }
+        }
+
+        for (runtime_kind, resume_error) in lookup_errors {
+            match self
+                .read_thread_metadata_only_for_runtime(server_id, thread_id, runtime_kind)
+                .await
+            {
+                Ok(()) => {
+                    self.note_thread_runtime(key.clone(), runtime_kind);
+                    return Ok(());
+                }
+                Err(fallback_error)
+                    if should_try_next_runtime_after_thread_lookup_error(
+                        &fallback_error.to_string(),
+                    ) =>
+                {
+                    info!(
+                        "external_resume_thread: metadata lookup missed runtime {:?} server={} thread={}: {}",
+                        runtime_kind, server_id, thread_id, fallback_error
+                    );
+                }
+                Err(fallback_error) => {
+                    return Err(RpcError::Deserialization(format!(
+                        "{resume_error}; metadata fallback failed: {fallback_error}"
+                    )));
+                }
+            }
+        }
+
+        Err(RpcError::Deserialization(format!(
+            "thread {thread_id} was not found in any registered runtime for server {server_id}"
+        )))
+    }
+
+    async fn resume_thread_for_runtime(
+        &self,
+        server_id: &str,
+        thread_id: &str,
+        key: &ThreadKey,
+        runtime_kind: AgentRuntimeKind,
+        exclude_turns: bool,
+    ) -> Result<(), String> {
         // Use thread/resume (not thread/read) so the server attaches a
-        // conversation listener for this connection.  Without the listener
+        // conversation listener for this connection. Without the listener
         // the WebSocket client only receives ThreadStatusChanged — no
         // TurnStarted, ItemStarted, MessageDelta, or TurnCompleted events.
         let resume_request = upstream::ClientRequest::ThreadResume {
@@ -1264,110 +1818,89 @@ impl MobileClient {
                     crate::local_runtime_instructions::splice_local_runtime_developer_instructions(
                         self, server_id, None,
                     ),
-                exclude_turns: true,
+                exclude_turns,
                 ..Default::default()
             },
         };
-        match self
-            .request_typed_for_server::<upstream::ThreadResumeResponse>(server_id, resume_request)
-            .await
-        {
-            Ok(response) => {
-                let existing = self.app_store.thread_snapshot(&key);
-                // Diagnostic for the pagination-cursor-lost bug (task #13):
-                // capture what we read as `existing` BEFORE overwriting, so
-                // logcat shows whether the cursor was present at the moment
-                // resume reconciles.
-                tracing::info!(
-                    target: "store",
-                    server_id,
-                    thread_id,
-                    existing_present = existing.is_some(),
-                    existing_items = existing.as_ref().map(|e| e.items.len()).unwrap_or(0),
-                    existing_older_turns_cursor = existing
-                        .as_ref()
-                        .and_then(|e| e.older_turns_cursor.clone())
-                        .unwrap_or_default(),
-                    existing_initial_turns_loaded = existing
-                        .as_ref()
-                        .map(|e| e.initial_turns_loaded)
-                        .unwrap_or(false),
-                    "external_resume_thread existing snapshot"
-                );
-                let turns = response.thread.turns.clone();
-                let server_honored_exclude_turns = turns.is_empty();
-                // Legacy v0.124 remotes ignore `exclude_turns` and return the
-                // full embedded turn history. Flip the capability flag so
-                // future code paths (load_thread_turns_page) short-circuit
-                // and the UI keeps relying on embedded turns.
-                if !server_honored_exclude_turns {
-                    self.app_store
-                        .set_server_supports_turn_pagination(server_id, false);
-                }
-                let mut snapshot = thread_snapshot_from_upstream_thread_with_overrides(
-                    server_id,
-                    response.thread,
-                    Some(response.model),
-                    response
-                        .reasoning_effort
-                        .map(Into::into)
-                        .map(reasoning_effort_string),
-                    Some(response.approval_policy.into()),
-                    Some(response.sandbox.into()),
-                )
-                .map_err(RpcError::Deserialization)?;
-                // Preserve existing store items when the server returned
-                // empty turns (paginated path); mark initial_turns_loaded so
-                // the UI spinner knows to wait for load_thread_turns_page.
-                if server_honored_exclude_turns {
-                    if let Some(current) = existing.as_ref() {
-                        snapshot.items = current.items.clone();
-                        snapshot.older_turns_cursor = current.older_turns_cursor.clone();
-                        snapshot.initial_turns_loaded = current.initial_turns_loaded;
-                    } else {
-                        snapshot.initial_turns_loaded = false;
-                    }
-                } else {
-                    snapshot.initial_turns_loaded = true;
-                    snapshot.older_turns_cursor = None;
-                }
-                reconcile_active_turn(existing.as_ref(), &mut snapshot, &turns);
-                snapshot.is_resumed = true;
-                self.app_store.upsert_thread_snapshot(snapshot);
-                self.mark_direct_resumed_thread(key);
-                Ok(())
-            }
-            Err(error) if should_fallback_to_thread_metadata_after_resume_error(&error) => {
-                if error.contains("no rollout found for thread id") {
-                    info!(
-                        "external_resume_thread: falling back to thread/read for pathless thread server={} thread={}",
-                        server_id, thread_id
-                    );
-                } else {
-                    warn!(
-                        "external_resume_thread: resume failed, falling back to metadata-only thread/read server={} thread={} error={}",
-                        server_id, thread_id, error
-                    );
-                }
-                self.read_thread_metadata_only(server_id, thread_id)
-                    .await
-                    .map_err(|fallback_error| {
-                        RpcError::Deserialization(format!(
-                            "{error}; metadata fallback failed: {fallback_error}"
-                        ))
-                    })
-            }
-            Err(error) => Err(RpcError::Deserialization(error)),
+        let response = self
+            .request_typed_for_server_runtime::<upstream::ThreadResumeResponse>(
+                server_id,
+                runtime_kind,
+                resume_request,
+            )
+            .await?;
+        let existing = self.app_store.thread_snapshot(key);
+        // Diagnostic for the pagination-cursor-lost bug (task #13):
+        // capture what we read as `existing` BEFORE overwriting, so
+        // logcat shows whether the cursor was present at the moment
+        // resume reconciles.
+        tracing::info!(
+            target: "store",
+            server_id,
+            thread_id,
+            existing_present = existing.is_some(),
+            existing_items = existing.as_ref().map(|e| e.items.len()).unwrap_or(0),
+            existing_older_turns_cursor = existing
+                .as_ref()
+                .and_then(|e| e.older_turns_cursor.clone())
+                .unwrap_or_default(),
+            existing_initial_turns_loaded = existing
+                .as_ref()
+                .map(|e| e.initial_turns_loaded)
+                .unwrap_or(false),
+            "external_resume_thread existing snapshot"
+        );
+        let turns = response.thread.turns.clone();
+        let server_honored_exclude_turns = exclude_turns && turns.is_empty();
+        // Legacy v0.124 remotes ignore `exclude_turns` and return the
+        // full embedded turn history. Flip the capability flag so
+        // future code paths (load_thread_turns_page) short-circuit
+        // and the UI keeps relying on embedded turns.
+        if !server_honored_exclude_turns {
+            self.app_store
+                .set_server_supports_turn_pagination(server_id, false);
         }
+        let mut snapshot = thread_snapshot_from_upstream_thread_with_overrides(
+            server_id,
+            response.thread,
+            Some(response.model),
+            response
+                .reasoning_effort
+                .map(Into::into)
+                .map(reasoning_effort_string),
+            Some(response.approval_policy.into()),
+            Some(response.sandbox.into()),
+        )?;
+        snapshot.agent_runtime_kind = runtime_kind;
+        // Preserve existing store items when the server returned empty turns
+        // (paginated path); mark initial_turns_loaded so the UI spinner knows
+        // to wait for load_thread_turns_page.
+        if server_honored_exclude_turns {
+            if let Some(current) = existing.as_ref() {
+                snapshot.items = current.items.clone();
+                snapshot.older_turns_cursor = current.older_turns_cursor.clone();
+                snapshot.initial_turns_loaded = current.initial_turns_loaded;
+            } else {
+                snapshot.initial_turns_loaded = false;
+            }
+        } else {
+            snapshot.initial_turns_loaded = true;
+            snapshot.older_turns_cursor = None;
+        }
+        reconcile_active_turn(existing.as_ref(), &mut snapshot, &turns);
+        snapshot.is_resumed = true;
+        self.app_store.upsert_thread_snapshot(snapshot);
+        self.mark_direct_resumed_thread(key.clone());
+        Ok(())
     }
 
     /// Composite action: page a thread's older turns via `thread/turns/list`
     /// and merge them into the canonical store.
     ///
     /// - When the server is known to not support pagination
-    ///   (`supports_turn_pagination == false`), short-circuits with
-    ///   `loaded: false, has_more: false` — callers should rely on the
-    ///   embedded turns populated by the resume/fork path.
+    ///   (`supports_turn_pagination == false`), refreshes an empty/unloaded
+    ///   thread with an embedded-turn resume. Already-loaded threads still
+    ///   short-circuit because their embedded turns are already in the store.
     /// - When the RPC comes back as JSON-RPC -32601 (method not found),
     ///   flips `supports_turn_pagination = false` on the server snapshot
     ///   and returns the same short-circuit result.
@@ -1380,6 +1913,24 @@ impl MobileClient {
         limit: Option<u32>,
     ) -> Result<crate::types::AppLoadThreadTurnsOutcome, RpcError> {
         if !self.app_store.server_supports_turn_pagination(server_id) {
+            let key = ThreadKey {
+                server_id: server_id.to_string(),
+                thread_id: thread_id.to_string(),
+            };
+            let needs_embedded_resume = self
+                .app_store
+                .thread_snapshot(&key)
+                .is_none_or(|thread| thread.items.is_empty() && !thread.initial_turns_loaded);
+            if needs_embedded_resume {
+                let runtime_kind = self.runtime_for_thread(&key);
+                self.resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, false)
+                    .await
+                    .map_err(RpcError::Deserialization)?;
+                return Ok(crate::types::AppLoadThreadTurnsOutcome {
+                    loaded: true,
+                    has_more: false,
+                });
+            }
             return Ok(crate::types::AppLoadThreadTurnsOutcome {
                 loaded: false,
                 has_more: false,
@@ -1417,8 +1968,16 @@ impl MobileClient {
             Err(error) if is_method_not_found(&error) => {
                 self.app_store
                     .set_server_supports_turn_pagination(server_id, false);
+                let key = ThreadKey {
+                    server_id: server_id.to_string(),
+                    thread_id: thread_id.to_string(),
+                };
+                let runtime_kind = self.runtime_for_thread(&key);
+                self.resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, false)
+                    .await
+                    .map_err(RpcError::Deserialization)?;
                 Ok(crate::types::AppLoadThreadTurnsOutcome {
-                    loaded: false,
+                    loaded: true,
                     has_more: false,
                 })
             }
@@ -1426,14 +1985,16 @@ impl MobileClient {
         }
     }
 
-    async fn read_thread_metadata_only(
+    async fn read_thread_metadata_only_for_runtime(
         &self,
         server_id: &str,
         thread_id: &str,
+        runtime_kind: AgentRuntimeKind,
     ) -> Result<(), RpcError> {
         let response: upstream::ThreadReadResponse = self
-            .request_typed_for_server(
+            .request_typed_for_server_runtime(
                 server_id,
+                runtime_kind,
                 upstream::ClientRequest::ThreadRead {
                     request_id: upstream::RequestId::Integer(crate::next_request_id()),
                     params: upstream::ThreadReadParams {

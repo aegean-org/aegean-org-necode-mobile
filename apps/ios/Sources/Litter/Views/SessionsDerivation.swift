@@ -13,6 +13,7 @@ enum SessionsDerivation {
         sessions: [AppSessionSummary],
         selectedServerFilterId: String?,
         showOnlyForks: Bool,
+        selectedRuntimeKind: AgentRuntimeKind?,
         workspaceSortMode: WorkspaceSortMode,
         searchQuery: String,
         frozenMostRecentOrder: [ThreadKey]?
@@ -63,6 +64,9 @@ enum SessionsDerivation {
                 return false
             }
             if showOnlyForks && !thread.isFork {
+                return false
+            }
+            if let selectedRuntimeKind, thread.agentRuntimeKind != selectedRuntimeKind {
                 return false
             }
             if searchQuery.isEmpty {

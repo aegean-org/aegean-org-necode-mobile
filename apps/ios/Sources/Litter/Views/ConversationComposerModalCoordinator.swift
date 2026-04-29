@@ -52,6 +52,19 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
         )
     }
 
+    private var selectedAgentRuntimeKindBinding: Binding<AgentRuntimeKind?> {
+        Binding(
+            get: {
+                let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !pending.isEmpty {
+                    return appState.selectedAgentRuntimeKind
+                }
+                return currentThread?.agentRuntimeKind
+            },
+            set: { appState.selectedAgentRuntimeKind = $0 }
+        )
+    }
+
     private var reasoningEffortBinding: Binding<String> {
         Binding(
             get: {
@@ -165,6 +178,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 ModelSelectorSheet(
                     models: snapshot.availableModels,
                     selectedModel: selectedModelBinding,
+                    selectedAgentRuntimeKind: selectedAgentRuntimeKindBinding,
                     reasoningEffort: reasoningEffortBinding
                 )
                 .presentationDetents([.medium, .large], selection: $modelSelectorDetent)

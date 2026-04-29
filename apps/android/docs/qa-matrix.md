@@ -38,7 +38,22 @@ Current automated checks:
 | Thread start/resume fallback sandbox | `workspace-write` with `danger-full-access` fallback when linux sandbox missing | Same |
 | Thread turn pagination (v0.125+ remote) | Conversation opens with last 5 turns; "Load earlier messages" button fetches older 5-turn pages via `thread/turns/list` | Same |
 | Thread turn pagination fallback (v0.124 remote) | Capability flips off via response inspection; embedded turns load fully; "Load earlier" button hidden | Same |
-| Alleycat tunnel | Discovery toolbar QR button opens `AlleycatAddServerSheet`; CameraX + ML Kit scan parses payload via `AlleycatBridge.parsePairPayload`; debug builds expose paste-JSON path; preview card shows udp port, protocol vN, fingerprint short hash, host candidates; host override field collapsed when QR carries candidates and visible otherwise; Connect calls `serverBridge.connectRemoteOverAlleycat(serverId = "alleycat:<host_lowercased>:<udpPort>", ...)` and persists params via `AlleycatCredentialStore`; `SavedServerStore.rememberAlleycat` writes the saved record; reconnect on app foreground hits the relay via the cached `AlleycatCredentialProvider`; alleycat server appears in home/discovery list after relaunch (sourced from saved server with `alleycatHost` set + `alleycatUdpPort` parsed back from the synth `serverId`); disconnect tears down the QUIC session via shared Rust `disconnectServer`. | Same |
+| Alleycat remote host | Discovery toolbar QR button opens `AlleycatAddServerSheet`; CameraX + ML Kit scan parses the Alleycat payload via `AlleycatBridge.parsePairPayload`; debug builds expose paste-JSON path; after token-authenticated pairing the sheet calls `serverBridge.listAlleycatAgents`, lets the user choose Codex/Pi/OpenCode, connects with `serverBridge.connectRemoteOverAlleycat`, and persists the token through `AlleycatCredentialStore`; `SavedServerStore.rememberAlleycat` writes `{node_id, relay?, agent}` records, reconnect attaches the encrypted-store token directly, and legacy Alleycat records require a new QR scan. | Same |
+
+## Plugin `@`-mention parity (follow-up)
+
+iOS ships `@plugin` mentions in the composer: typing `@` now lists installed
+Codex plugins above the file results, selecting one inserts an `@<name>`
+chip and emits an `AppUserInput.Mention { name, path }` item on
+`turn/start`. Path encoding lives in shared Rust (`PluginSummary` UniFFI
+record + `list_plugins` on `AppClient`).
+
+Android does not have an `@`-trigger composer popup yet (no inline
+`@<file>` autocomplete either), so plugin mentions are a follow-up. The
+shared Rust client and the `AppUserInput.Mention` variant are already
+wired through the Kotlin bindings, so the platform side just needs a
+composer popup, chip row, and send-time append. Track this alongside the
+broader composer autocomplete work.
 
 ## Suggested Smoke Steps
 

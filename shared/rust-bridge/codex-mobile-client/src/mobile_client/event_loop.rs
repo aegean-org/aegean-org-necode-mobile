@@ -57,7 +57,16 @@ impl MobileClient {
         Self::spawn_detached(async move {
             loop {
                 match events.recv().await {
-                    Ok(ServerEvent::Notification(notification)) => {
+                    Ok(ServerEvent::Notification {
+                        runtime_kind,
+                        notification,
+                    }) => {
+                        note_notification_runtime(
+                            &app_store,
+                            &server_id,
+                            runtime_kind,
+                            &notification,
+                        );
                         if let upstream::ServerNotification::AccountLoginCompleted(payload) =
                             &notification
                         {
@@ -87,15 +96,28 @@ impl MobileClient {
                         );
                         recorder.record_notification(&server_id, &notification);
                         processor.process_notification(&server_id, &notification);
+                        note_notification_runtime(
+                            &app_store,
+                            &server_id,
+                            runtime_kind,
+                            &notification,
+                        );
                     }
-                    Ok(ServerEvent::LegacyNotification { method, params }) => {
+                    Ok(ServerEvent::LegacyNotification {
+                        runtime_kind: _,
+                        method,
+                        params,
+                    }) => {
                         debug!(
                             "event reader server_id={} legacy_method={} params={}",
                             server_id, method, params
                         );
                         processor.process_legacy_notification(&server_id, &method, &params);
                     }
-                    Ok(ServerEvent::Request(request)) => {
+                    Ok(ServerEvent::Request {
+                        runtime_kind,
+                        request,
+                    }) => {
                         debug!("event reader server_id={} request={:?}", server_id, request);
                         let dynamic_tool_request = match &request {
                             upstream::ServerRequest::DynamicToolCall { request_id, params } => {
@@ -120,6 +142,7 @@ impl MobileClient {
                                     saved_apps_directory,
                                     request_id,
                                     params,
+                                    runtime_kind,
                                 )
                                 .await
                                 {
@@ -542,6 +565,22 @@ impl MobileClient {
     where
         R: serde::de::DeserializeOwned,
     {
+        let runtime_kind = self.runtime_for_request(server_id, &request);
+        self.request_typed_for_server_runtime(server_id, runtime_kind, request)
+            .await
+    }
+
+    pub async fn request_typed_for_server_runtime<R>(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        request: upstream::ClientRequest,
+    ) -> Result<R, String>
+    where
+        R: serde::de::DeserializeOwned,
+    {
+        let mut request = request;
+        self.normalize_model_selection_for_request(server_id, runtime_kind, &mut request);
         self.recorder.record_request(server_id, &request);
         let wire_method = client_request_wire_method(&request);
         let started_at = Instant::now();
@@ -550,17 +589,20 @@ impl MobileClient {
             "server request start server_id={} method={}",
             server_id, wire_method
         );
-        let value = session.request_client(request).await.map_err(|error| {
-            self.reconcile_transport_error(server_id, &error);
-            warn!(
-                "server request failed server_id={} method={} duration_ms={} error={}",
-                server_id,
-                wire_method,
-                started_at.elapsed().as_millis(),
-                error
-            );
-            error.to_string()
-        })?;
+        let value = session
+            .request_client_for_runtime(runtime_kind, request)
+            .await
+            .map_err(|error| {
+                self.reconcile_transport_error(server_id, &error);
+                warn!(
+                    "server request failed server_id={} method={} duration_ms={} error={}",
+                    server_id,
+                    wire_method,
+                    started_at.elapsed().as_millis(),
+                    error
+                );
+                error.to_string()
+            })?;
         info!(
             "server request ok server_id={} method={} duration_ms={}",
             server_id,
@@ -583,6 +625,48 @@ impl MobileClient {
             warn!("{error}\nraw payload: {value}");
             error
         })
+    }
+
+    fn runtime_for_request(
+        &self,
+        server_id: &str,
+        request: &upstream::ClientRequest,
+    ) -> AgentRuntimeKind {
+        if let upstream::ClientRequest::ThreadStart { params, .. } = request {
+            return self.runtime_for_thread_start(server_id, None, params.model.as_deref());
+        }
+
+        let thread_id = match request {
+            upstream::ClientRequest::ThreadRead { params, .. } => Some(params.thread_id.as_str()),
+            upstream::ClientRequest::ThreadResume { params, .. } => Some(params.thread_id.as_str()),
+            upstream::ClientRequest::ThreadFork { params, .. } => Some(params.thread_id.as_str()),
+            upstream::ClientRequest::ThreadRollback { params, .. } => {
+                Some(params.thread_id.as_str())
+            }
+            upstream::ClientRequest::ThreadUnsubscribe { params, .. } => {
+                Some(params.thread_id.as_str())
+            }
+            upstream::ClientRequest::ThreadArchive { params, .. } => {
+                Some(params.thread_id.as_str())
+            }
+            upstream::ClientRequest::ThreadSetName { params, .. } => {
+                Some(params.thread_id.as_str())
+            }
+            upstream::ClientRequest::ThreadTurnsList { params, .. } => {
+                Some(params.thread_id.as_str())
+            }
+            upstream::ClientRequest::TurnStart { params, .. } => Some(params.thread_id.as_str()),
+            upstream::ClientRequest::TurnSteer { params, .. } => Some(params.thread_id.as_str()),
+            _ => None,
+        };
+        thread_id
+            .map(|thread_id| {
+                self.runtime_for_thread(&ThreadKey {
+                    server_id: server_id.to_string(),
+                    thread_id: thread_id.to_string(),
+                })
+            })
+            .unwrap_or(AgentRuntimeKind::Codex)
     }
 
     pub(super) fn pending_approval(&self, request_id: &str) -> Result<PendingApproval, RpcError> {
@@ -645,6 +729,10 @@ where
 {
     let mut normalized = value.clone();
     let legacy_permission_profile = normalize_legacy_permission_profile_fields(&mut normalized);
+    normalize_empty_cwd_fields(&mut normalized, None);
+    normalize_default_service_tier(&mut normalized);
+    normalize_dynamic_tool_content_item_aliases(&mut normalized);
+    normalize_command_action_aliases(&mut normalized);
     normalize_relative_absolute_path_fields(&mut normalized, None);
     let parsed = if let Some(base_path) = response_deserialization_base(&normalized) {
         let _guard = AbsolutePathBufGuard::new(base_path.as_path());
@@ -653,6 +741,228 @@ where
         serde_json::from_value(normalized)
     };
     (parsed, legacy_permission_profile)
+}
+
+fn normalize_empty_cwd_fields(value: &mut serde_json::Value, inherited_base: Option<&Path>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(cwd)) = map.get_mut("cwd")
+                && cwd.is_empty()
+            {
+                *cwd = inherited_base
+                    .map(|base| base.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "/".to_string());
+            }
+            let local_base = absolute_path_from_value(map.get("cwd"))
+                .or_else(|| inherited_base.map(Path::to_path_buf));
+            let next_base = local_base.as_deref();
+            for child in map.values_mut() {
+                normalize_empty_cwd_fields(child, next_base);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_empty_cwd_fields(child, inherited_base);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_default_service_tier(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(service_tier) = map.get_mut("serviceTier")
+                && service_tier.as_str() == Some("default")
+            {
+                *service_tier = serde_json::Value::Null;
+            }
+            for child in map.values_mut() {
+                normalize_default_service_tier(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_default_service_tier(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_dynamic_tool_content_item_aliases(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Array(items)) = map.get_mut("contentItems") {
+                for item in items {
+                    if let Some(item_map) = item.as_object_mut() {
+                        let kind = item_map
+                            .get("type")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string);
+                        if kind.is_none() {
+                            let text = item_map
+                                .get("text")
+                                .and_then(|text| text.as_str())
+                                .map(str::to_string)
+                                .or_else(|| {
+                                    item_map
+                                        .get("file")
+                                        .and_then(|file| file.get("content"))
+                                        .and_then(|content| content.as_str())
+                                        .map(str::to_string)
+                                })
+                                .unwrap_or_else(|| {
+                                    serde_json::to_string(&serde_json::Value::Object(
+                                        item_map.clone(),
+                                    ))
+                                    .unwrap_or_default()
+                                });
+                            item_map.insert(
+                                "type".to_string(),
+                                serde_json::Value::String("inputText".to_string()),
+                            );
+                            item_map.insert("text".to_string(), serde_json::Value::String(text));
+                        }
+                        if matches!(kind.as_deref(), Some("text" | "inputText"))
+                            && !item_map.contains_key("text")
+                            && let Some(text) = item_map
+                                .get("file")
+                                .and_then(|file| file.get("content"))
+                                .and_then(|content| content.as_str())
+                                .map(str::to_string)
+                        {
+                            item_map.insert("text".to_string(), serde_json::Value::String(text));
+                        }
+                        if let Some(serde_json::Value::String(kind)) = item_map.get_mut("type") {
+                            match kind.as_str() {
+                                "text" => *kind = "inputText".to_string(),
+                                "image" => *kind = "inputImage".to_string(),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            for child in map.values_mut() {
+                normalize_dynamic_tool_content_item_aliases(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_dynamic_tool_content_item_aliases(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_command_action_aliases(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if object_type(map) == Some("commandExecution") {
+                let parent_command = map
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if let Some(serde_json::Value::Array(actions)) = map.get_mut("commandActions") {
+                    for action in actions {
+                        normalize_command_action(action, &parent_command);
+                    }
+                }
+            }
+
+            for child in map.values_mut() {
+                normalize_command_action_aliases(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_command_action_aliases(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_command_action(action: &mut serde_json::Value, parent_command: &str) {
+    let Some(map) = action.as_object_mut() else {
+        return;
+    };
+    if let Some(serde_json::Value::String(kind)) = map.get_mut("type")
+        && kind == "list_files"
+    {
+        *kind = "listFiles".to_string();
+    }
+
+    let command = map
+        .get("command")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| infer_command_action_command(map, parent_command));
+    if !matches!(
+        map.get("command"),
+        Some(serde_json::Value::String(value)) if !value.is_empty()
+    ) {
+        map.insert(
+            "command".to_string(),
+            serde_json::Value::String(command.clone()),
+        );
+    }
+
+    if object_type(map) == Some("read") && !map.contains_key("name") {
+        map.insert(
+            "name".to_string(),
+            serde_json::Value::String(infer_command_action_name(map)),
+        );
+    }
+}
+
+fn infer_command_action_command(
+    map: &serde_json::Map<String, serde_json::Value>,
+    parent_command: &str,
+) -> String {
+    if !parent_command.is_empty() {
+        return parent_command.to_string();
+    }
+    match object_type(map) {
+        Some("read") => map
+            .get("path")
+            .and_then(|value| value.as_str())
+            .map(|path| format!("read {path}"))
+            .unwrap_or_else(|| "read".to_string()),
+        Some("search") => map
+            .get("query")
+            .and_then(|value| value.as_str())
+            .map(|query| format!("grep {query}"))
+            .unwrap_or_else(|| "search".to_string()),
+        Some("listFiles") => map
+            .get("path")
+            .and_then(|value| value.as_str())
+            .map(|path| format!("ls {path}"))
+            .unwrap_or_else(|| "ls".to_string()),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn infer_command_action_name(map: &serde_json::Map<String, serde_json::Value>) -> String {
+    map.get("name")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            map.get("path")
+                .and_then(|value| value.as_str())
+                .and_then(|path| {
+                    path.rsplit(['/', '\\'])
+                        .find(|part| !part.is_empty())
+                        .map(str::to_string)
+                })
+        })
+        .unwrap_or_else(|| "file".to_string())
 }
 
 /// Walk the JSON tree and upgrade any legacy v0.124 `PermissionProfile`
@@ -1224,6 +1534,50 @@ fn apply_bridge_event(app_store: &AppStoreReducer, server_id: &str, event: Bridg
     app_store.apply_ui_event(&ui_event);
 }
 
+fn note_notification_runtime(
+    app_store: &AppStoreReducer,
+    server_id: &str,
+    runtime_kind: AgentRuntimeKind,
+    notification: &upstream::ServerNotification,
+) {
+    let Some(thread_id) = notification_thread_id(notification) else {
+        return;
+    };
+    let key = ThreadKey {
+        server_id: server_id.to_string(),
+        thread_id,
+    };
+    app_store.set_thread_agent_runtime(&key, runtime_kind);
+}
+
+fn notification_thread_id(notification: &upstream::ServerNotification) -> Option<String> {
+    let value = serde_json::to_value(notification).ok()?;
+    find_thread_id_value(&value)
+}
+
+fn find_thread_id_value(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["threadId", "thread_id"] {
+                if let Some(raw) = map.get(key).and_then(serde_json::Value::as_str)
+                    && !raw.trim().is_empty()
+                {
+                    return Some(raw.to_string());
+                }
+            }
+            if let Some(thread) = map.get("thread")
+                && let Some(id) = thread.get("id").and_then(serde_json::Value::as_str)
+                && !id.trim().is_empty()
+            {
+                return Some(id.to_string());
+            }
+            map.values().find_map(find_thread_id_value)
+        }
+        serde_json::Value::Array(values) => values.iter().find_map(find_thread_id_value),
+        _ => None,
+    }
+}
+
 fn sync_ipc_thread_requests_from_projection(
     app_store: &AppStoreReducer,
     server_id: &str,
@@ -1263,6 +1617,7 @@ fn client_request_wire_method(request: &upstream::ClientRequest) -> &'static str
         upstream::ClientRequest::ThreadResume { .. } => "thread/resume",
         upstream::ClientRequest::ThreadFork { .. } => "thread/fork",
         upstream::ClientRequest::ThreadRollback { .. } => "thread/rollback",
+        upstream::ClientRequest::ThreadTurnsList { .. } => "thread/turns/list",
         upstream::ClientRequest::TurnStart { .. } => "turn/start",
         upstream::ClientRequest::TurnSteer { .. } => "turn/steer",
         upstream::ClientRequest::CollaborationModeList { .. } => "collaboration_mode/list",
@@ -1352,6 +1707,223 @@ mod tests {
             parsed.instruction_sources[0].as_path(),
             Path::new("/private/var/mobile/home/codex/AGENTS.md")
         );
+    }
+
+    #[test]
+    fn deserialize_typed_response_accepts_empty_thread_list_cwd() {
+        let payload = json!({
+            "data": [{
+                "id": "thread-1",
+                "preview": "hello",
+                "ephemeral": false,
+                "modelProvider": "anthropic",
+                "createdAt": 1_777_345_792,
+                "updatedAt": 1_777_345_792,
+                "status": { "type": "notLoaded" },
+                "path": "/Users/sigkitten/.claude/projects/-tmp/thread-1.jsonl",
+                "cwd": "",
+                "cliVersion": "alleycat-claude-bridge/0.1.0",
+                "source": "appServer",
+                "turns": []
+            }],
+            "nextCursor": null,
+            "backwardsCursor": null
+        });
+
+        let parsed: upstream::ThreadListResponse =
+            deserialize_typed_response(&payload).expect("thread/list should deserialize");
+
+        assert_eq!(parsed.data[0].cwd.as_path(), Path::new("/"));
+    }
+
+    #[test]
+    fn deserialize_typed_response_accepts_default_service_tier_alias() {
+        let payload = json!({
+            "model": "",
+            "modelProvider": "anthropic",
+            "serviceTier": "default",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "sandbox": { "type": "workspaceWrite" },
+            "permissionProfile": { "type": "disabled" },
+            "cwd": "/tmp",
+            "instructionSources": [],
+            "reasoningEffort": "high",
+            "thread": {
+                "id": "thread-1",
+                "preview": "hello",
+                "ephemeral": false,
+                "modelProvider": "anthropic",
+                "createdAt": 1,
+                "updatedAt": 2,
+                "status": { "type": "notLoaded" },
+                "path": "/tmp/thread.jsonl",
+                "cwd": "/tmp",
+                "cliVersion": "alleycat-claude-bridge/0.1.0",
+                "source": "appServer",
+                "agentNickname": null,
+                "agentRole": null,
+                "gitInfo": null,
+                "name": null,
+                "turns": []
+            }
+        });
+
+        let parsed: upstream::ThreadResumeResponse =
+            deserialize_typed_response(&payload).expect("thread/resume should deserialize");
+
+        assert_eq!(parsed.service_tier, None);
+    }
+
+    #[test]
+    fn deserialize_typed_response_accepts_claude_dynamic_tool_text_alias() {
+        let payload = json!({
+            "data": [{
+                "id": "turn-1",
+                "items": [
+                    {
+                        "id": "user-1",
+                        "type": "userMessage",
+                        "content": [{
+                            "type": "text",
+                            "text": "hello",
+                            "textElements": []
+                        }]
+                    },
+                    {
+                        "id": "tool-1",
+                        "type": "dynamicToolCall",
+                        "namespace": "claude",
+                        "tool": "Read",
+                        "arguments": {},
+                        "status": "completed",
+                        "contentItems": [{
+                            "type": "text",
+                            "text": "tool output"
+                        }, {
+                            "type": "text",
+                            "file": {
+                                "content": "file output",
+                                "filePath": "/tmp/file.txt"
+                            }
+                        }, {
+                            "text": "untagged output"
+                        }, {
+                            "task": {
+                                "id": "1",
+                                "subject": "structured output"
+                            }
+                        }],
+                        "success": true,
+                        "durationMs": 1
+                    }
+                ],
+                "status": "completed",
+                "error": null,
+                "startedAt": null,
+                "completedAt": 1,
+                "durationMs": 1
+            }],
+            "nextCursor": null,
+            "backwardsCursor": null
+        });
+
+        let parsed: upstream::ThreadTurnsListResponse =
+            deserialize_typed_response(&payload).expect("thread turns should deserialize");
+
+        let upstream::ThreadItem::UserMessage { content, .. } = &parsed.data[0].items[0] else {
+            panic!("expected user message");
+        };
+        assert!(matches!(
+            &content[0],
+            upstream::UserInput::Text { text, .. } if text == "hello"
+        ));
+
+        let upstream::ThreadItem::DynamicToolCall { content_items, .. } = &parsed.data[0].items[1]
+        else {
+            panic!("expected dynamic tool call");
+        };
+        let content_items = content_items.as_ref().expect("content items");
+        assert!(matches!(
+            &content_items[0],
+            codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text }
+                if text == "tool output"
+        ));
+        assert!(matches!(
+            &content_items[1],
+            codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text }
+                if text == "file output"
+        ));
+        assert!(matches!(
+            &content_items[2],
+            codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text }
+                if text == "untagged output"
+        ));
+        assert!(matches!(
+            &content_items[3],
+            codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text }
+                if text.contains("structured output")
+        ));
+    }
+
+    #[test]
+    fn deserialize_typed_response_accepts_compact_bridge_command_actions() {
+        let payload = json!({
+            "data": [{
+                "id": "turn-1",
+                "items": [{
+                    "id": "tool-1",
+                    "type": "commandExecution",
+                    "command": "read .pi-tool-demo.txt",
+                    "cwd": "/tmp/project",
+                    "processId": null,
+                    "source": "agent",
+                    "status": "completed",
+                    "commandActions": [{
+                        "type": "read",
+                        "path": ".pi-tool-demo.txt"
+                    }, {
+                        "type": "list_files",
+                        "path": "src"
+                    }],
+                    "aggregatedOutput": "demo line\n",
+                    "exitCode": null,
+                    "durationMs": null
+                }],
+                "status": "completed",
+                "error": null,
+                "startedAt": null,
+                "completedAt": 1,
+                "durationMs": 1
+            }],
+            "nextCursor": null,
+            "backwardsCursor": null
+        });
+
+        let parsed: upstream::ThreadTurnsListResponse =
+            deserialize_typed_response(&payload).expect("thread turns should deserialize");
+        let upstream::ThreadItem::CommandExecution {
+            command_actions, ..
+        } = &parsed.data[0].items[0]
+        else {
+            panic!("expected command execution");
+        };
+
+        assert!(matches!(
+            &command_actions[0],
+            upstream::CommandAction::Read {
+                command,
+                name,
+                path
+            } if command == "read .pi-tool-demo.txt"
+                && name == ".pi-tool-demo.txt"
+                && path.as_path() == Path::new("/tmp/project/.pi-tool-demo.txt")
+        ));
+        assert!(matches!(
+            &command_actions[1],
+            upstream::CommandAction::ListFiles { command, path }
+                if command == "read .pi-tool-demo.txt" && path.as_deref() == Some("src")
+        ));
     }
 
     #[test]

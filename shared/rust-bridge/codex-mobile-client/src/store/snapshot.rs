@@ -5,9 +5,9 @@ use codex_app_server_protocol as upstream;
 
 use crate::conversation_uniffi::HydratedConversationItem;
 use crate::types::{
-    Account, AppModeKind, AppPlanProgressSnapshot, ModelInfo, PendingApproval, PendingApprovalKey,
-    PendingApprovalSeed, PendingUserInputRequest, RateLimitSnapshot, RateLimits, ThreadInfo,
-    ThreadKey,
+    Account, AgentRuntimeInfo, AgentRuntimeKind, AppModeKind, AppPlanProgressSnapshot, ModelInfo,
+    PendingApproval, PendingApprovalKey, PendingApprovalSeed, PendingUserInputRequest,
+    RateLimitSnapshot, RateLimits, ThreadInfo, ThreadKey,
 };
 use crate::types::{AppVoiceSessionPhase, AppVoiceTranscriptEntry};
 
@@ -222,6 +222,7 @@ pub struct ServerSnapshot {
     pub requires_openai_auth: bool,
     pub rate_limits: Option<RateLimitSnapshot>,
     pub available_models: Option<Vec<ModelInfo>>,
+    pub agent_runtimes: Vec<AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
     pub transport: ServerTransportDiagnostics,
     /// Semver string parsed from the server's `initialize.user_agent`
@@ -259,6 +260,7 @@ pub struct AppVoiceSessionSnapshot {
 pub struct ThreadSnapshot {
     pub key: ThreadKey,
     pub info: ThreadInfo,
+    pub agent_runtime_kind: AgentRuntimeKind,
     pub collaboration_mode: AppModeKind,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
@@ -319,6 +321,7 @@ impl ThreadSnapshot {
         };
         Self {
             key,
+            agent_runtime_kind: AgentRuntimeKind::Codex,
             collaboration_mode: AppModeKind::Default,
             model: info.model.clone(),
             info,

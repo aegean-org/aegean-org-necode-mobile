@@ -82,7 +82,7 @@ pub fn derive_projects(sessions: Vec<AppSessionSummary>) -> Vec<AppProject> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AppSubagentStatus, ThreadKey};
+    use crate::types::{AgentRuntimeKind, AppSubagentStatus, ThreadKey};
 
     fn session(
         server: &str,
@@ -95,6 +95,7 @@ mod tests {
                 server_id: server.to_string(),
                 thread_id: thread.to_string(),
             },
+            agent_runtime_kind: AgentRuntimeKind::Codex,
             server_display_name: server.to_string(),
             server_host: "".into(),
             title: "".into(),

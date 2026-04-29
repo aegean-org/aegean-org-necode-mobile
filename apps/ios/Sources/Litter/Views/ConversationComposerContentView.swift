@@ -10,6 +10,7 @@ struct ConversationComposerContentView: View {
     let hasPendingPlanImplementation: Bool
     let activeTaskSummary: ConversationActiveTaskSummary?
     let queuedFollowUps: [AppQueuedFollowUpPreview]
+    let pluginMentions: [PluginMentionSelection]
     let rateLimits: RateLimitSnapshot?
     let contextPercent: Int64?
     let isTurnActive: Bool
@@ -23,6 +24,7 @@ struct ConversationComposerContentView: View {
     let onDismissPlanImplementation: () -> Void
     let onSteerQueuedFollowUp: (AppQueuedFollowUpPreview) -> Void
     let onDeleteQueuedFollowUp: (AppQueuedFollowUpPreview) -> Void
+    let onRemovePluginMention: (PluginMentionSelection) -> Void
     let onPasteImage: (UIImage) -> Void
     let onOpenModePicker: () -> Void
     let onSendText: () -> Void
@@ -40,6 +42,7 @@ struct ConversationComposerContentView: View {
         hasPendingPlanImplementation: Bool = false,
         activeTaskSummary: ConversationActiveTaskSummary?,
         queuedFollowUps: [AppQueuedFollowUpPreview],
+        pluginMentions: [PluginMentionSelection] = [],
         rateLimits: RateLimitSnapshot?,
         contextPercent: Int64?,
         isTurnActive: Bool,
@@ -53,6 +56,7 @@ struct ConversationComposerContentView: View {
         onDismissPlanImplementation: @escaping () -> Void = {},
         onSteerQueuedFollowUp: @escaping (AppQueuedFollowUpPreview) -> Void,
         onDeleteQueuedFollowUp: @escaping (AppQueuedFollowUpPreview) -> Void,
+        onRemovePluginMention: @escaping (PluginMentionSelection) -> Void = { _ in },
         onPasteImage: @escaping (UIImage) -> Void,
         onOpenModePicker: @escaping () -> Void,
         onSendText: @escaping () -> Void,
@@ -69,6 +73,7 @@ struct ConversationComposerContentView: View {
         self.hasPendingPlanImplementation = hasPendingPlanImplementation
         self.activeTaskSummary = activeTaskSummary
         self.queuedFollowUps = queuedFollowUps
+        self.pluginMentions = pluginMentions
         self.rateLimits = rateLimits
         self.contextPercent = contextPercent
         self.isTurnActive = isTurnActive
@@ -82,6 +87,7 @@ struct ConversationComposerContentView: View {
         self.onDismissPlanImplementation = onDismissPlanImplementation
         self.onSteerQueuedFollowUp = onSteerQueuedFollowUp
         self.onDeleteQueuedFollowUp = onDeleteQueuedFollowUp
+        self.onRemovePluginMention = onRemovePluginMention
         self.onPasteImage = onPasteImage
         self.onOpenModePicker = onOpenModePicker
         self.onSendText = onSendText
@@ -157,6 +163,15 @@ struct ConversationComposerContentView: View {
                         .padding(.top, 8)
                 }
 
+                if !pluginMentions.isEmpty {
+                    ConversationComposerPluginChipStrip(
+                        plugins: pluginMentions,
+                        onRemove: onRemovePluginMention
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                }
+
                 ConversationComposerEntryRowView(
                     showAttachMenu: $showAttachMenu,
                     inputText: $inputText,
@@ -180,6 +195,46 @@ struct ConversationComposerContentView: View {
         }
         .frame(maxWidth: LitterPlatform.isRegularSurface(horizontalSizeClass: horizontalSizeClass) ? 760 : .infinity)
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+private struct ConversationComposerPluginChipStrip: View {
+    let plugins: [PluginMentionSelection]
+    let onRemove: (PluginMentionSelection) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(plugins, id: \.path) { plugin in
+                    HStack(spacing: 4) {
+                        Image(systemName: "puzzlepiece.extension.fill")
+                            .litterFont(size: 10, weight: .semibold)
+                            .foregroundStyle(LitterTheme.accent)
+                        Text(plugin.displayTitle)
+                            .litterFont(.caption, weight: .semibold)
+                            .foregroundStyle(LitterTheme.accent)
+                            .lineLimit(1)
+                        Button {
+                            onRemove(plugin)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .litterFont(size: 9, weight: .bold)
+                                .foregroundStyle(LitterTheme.accent)
+                                .padding(3)
+                                .background(Circle().fill(LitterTheme.accent.opacity(0.18)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove plugin \(plugin.displayTitle)")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(LitterTheme.accent.opacity(0.12))
+                    )
+                }
+            }
+        }
     }
 }
 

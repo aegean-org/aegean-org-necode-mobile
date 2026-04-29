@@ -1,6 +1,7 @@
 package com.litter.android.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,11 +13,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -25,10 +30,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
@@ -37,9 +47,11 @@ import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppModeKind
 import uniffi.codex_mobile_client.AppThreadPermissionPreset
 import uniffi.codex_mobile_client.AppThreadSnapshot
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.ModelInfo
 import uniffi.codex_mobile_client.ReasoningEffort
 import uniffi.codex_mobile_client.threadPermissionPreset
+import java.util.Locale
 
 /**
  * Reusable model/reasoning/plan/permissions/fast-mode panel shared by the
@@ -68,14 +80,24 @@ fun ModelSelectorPanel(
 ) {
     val appModel = LocalAppModel.current
     val launchState by appModel.launchState.snapshot.collectAsState()
+    var modelSearchQuery by rememberSaveable { mutableStateOf("") }
+    val modelSearchIndex = remember(availableModels) {
+        ModelSearchIndex(availableModels)
+    }
+    val filteredModels = remember(modelSearchIndex, modelSearchQuery) {
+        modelSearchIndex.results(modelSearchQuery)
+    }
     val selectedModel = launchState.selectedModel
         .takeIf { it.isNotBlank() }
         ?: thread?.model
         ?: availableModels.firstOrNull { it.isDefault }?.id
         ?: availableModels.firstOrNull()?.id
-    val selectedModelDefinition by remember(selectedModel, availableModels) {
+    val selectedRuntime = launchState.selectedAgentRuntimeKind
+        ?: thread?.agentRuntimeKind
+        ?: availableModels.firstOrNull { it.id == selectedModel || it.model == selectedModel }?.agentRuntimeKind
+    val selectedModelDefinition by remember(selectedModel, selectedRuntime, availableModels) {
         derivedStateOf {
-            availableModels.firstOrNull { it.id == selectedModel }
+            availableModels.firstOrNull { it.matchesModelSelection(selectedModel, selectedRuntime) }
                 ?: availableModels.firstOrNull { it.isDefault }
                 ?: availableModels.firstOrNull()
         }
@@ -123,19 +145,65 @@ fun ModelSelectorPanel(
             fontSize = LitterTextStyle.caption2.scaled,
         )
 
+        OutlinedTextField(
+            value = modelSearchQuery,
+            onValueChange = { modelSearchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 4.dp),
+            textStyle = TextStyle(
+                color = LitterTheme.textPrimary,
+                fontSize = LitterTextStyle.caption.scaled,
+            ),
+            singleLine = true,
+            label = {
+                Text(
+                    "Search models",
+                    color = LitterTheme.textSecondary,
+                    fontSize = LitterTextStyle.caption2.scaled,
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = LitterTheme.textSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            },
+            trailingIcon = {
+                if (modelSearchQuery.isNotEmpty()) {
+                    IconButton(onClick = { modelSearchQuery = "" }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear model search",
+                            tint = LitterTheme.textSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            },
+        )
+
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.padding(vertical = 4.dp),
         ) {
-            items(availableModels) { model ->
-                val isSelected = model.id == selectedModel
+            items(filteredModels, key = { it.id }) { model ->
+                val isSelected = model.matchesModelSelection(selectedModel, selectedRuntime)
                 FilterChip(
                     selected = isSelected,
                     onClick = {
-                        appModel.launchState.updateSelectedModel(model.id)
+                        appModel.launchState.updateSelectedModel(
+                            model.id,
+                            agentRuntimeKind = model.agentRuntimeKind,
+                        )
                         appModel.launchState.updateReasoningEffort(
                             effortLabel(model.defaultReasoningEffort),
                         )
+                    },
+                    leadingIcon = {
+                        ModelRuntimeIcon(model.agentRuntimeKind)
                     },
                     label = {
                         Text(
@@ -153,7 +221,14 @@ fun ModelSelectorPanel(
 
         if (availableModels.isEmpty()) {
             Text(
-                text = "Loading models…",
+                text = "Loading models...",
+                color = LitterTheme.textMuted,
+                fontSize = LitterTextStyle.caption2.scaled,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        } else if (filteredModels.isEmpty()) {
+            Text(
+                text = "No matching models",
                 color = LitterTheme.textMuted,
                 fontSize = LitterTextStyle.caption2.scaled,
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -284,4 +359,70 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
     ReasoningEffort.MEDIUM -> "medium"
     ReasoningEffort.HIGH -> "high"
     ReasoningEffort.X_HIGH -> "xhigh"
+}
+
+private const val MaxModelSearchResults = 80
+
+private class ModelSearchIndex(models: List<ModelInfo>) {
+    private data class Row(
+        val model: ModelInfo,
+        val searchableText: String,
+    )
+
+    private val rows = models.map { model ->
+        Row(
+            model = model,
+            searchableText = buildString {
+                append(model.id)
+                append('\n')
+                append(model.model)
+                append('\n')
+                append(model.agentRuntimeKind.name)
+                append('\n')
+                append(model.displayName)
+                append('\n')
+                append(model.description)
+            }.lowercase(Locale.ROOT),
+        )
+    }
+
+    fun results(query: String): List<ModelInfo> {
+        val normalizedQuery = query.trim().lowercase(Locale.ROOT)
+        if (normalizedQuery.isEmpty()) {
+            return rows.asSequence()
+                .take(MaxModelSearchResults)
+                .map { it.model }
+                .toList()
+        }
+
+        val matches = ArrayList<ModelInfo>(minOf(MaxModelSearchResults, rows.size))
+        for (row in rows) {
+            if (row.searchableText.contains(normalizedQuery)) {
+                matches += row.model
+                if (matches.size == MaxModelSearchResults) {
+                    break
+                }
+            }
+        }
+        return matches
+    }
+}
+
+internal fun ModelInfo.matchesModelSelection(
+    selection: String,
+    runtimeKind: AgentRuntimeKind? = null,
+): Boolean {
+    val trimmed = selection.trim()
+    if (trimmed.isEmpty()) return false
+    if (runtimeKind != null && agentRuntimeKind != runtimeKind) return false
+    return id == trimmed || model == trimmed
+}
+
+@Composable
+private fun ModelRuntimeIcon(kind: AgentRuntimeKind) {
+    Image(
+        painter = painterResource(kind.runtimeDrawable),
+        contentDescription = kind.runtimeLabel,
+        modifier = Modifier.size(16.dp),
+    )
 }

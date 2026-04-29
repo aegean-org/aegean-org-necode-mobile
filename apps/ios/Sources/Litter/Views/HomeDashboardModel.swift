@@ -292,6 +292,7 @@ final class HomeDashboardModel {
             key: key,
             serverId: key.serverId,
             serverDisplayName: server.displayName,
+            agentRuntimeKind: server.agentRuntimes.first(where: \.available)?.kind ?? .codex,
             isLocal: server.isLocal,
             sessionTitle: "Loading thread",
             preview: "",

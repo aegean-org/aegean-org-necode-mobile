@@ -16,7 +16,7 @@ enum LitterFeature: String, CaseIterable, Identifiable {
         case .ipc: return "IPC"
         case .appleWatch: return "Apple Watch"
         case .thinkingMinigame: return "Thinking minigame"
-        case .alleycat: return "Alleycat"
+        case .alleycat: return "multi-clanker and quic"
         }
     }
 
@@ -26,7 +26,7 @@ enum LitterFeature: String, CaseIterable, Identifiable {
         case .ipc: return "Attach to desktop IPC over SSH for faster sync, approvals, and resume. Requires reconnecting the server."
         case .appleWatch: return "Push server, task, and approval state to a paired Apple Watch. Requires the Litter watch app to be installed."
         case .thinkingMinigame: return "Tap the Thinking shimmer while the assistant generates to play a tiny generated minigame."
-        case .alleycat: return "Pair with a remote Codex server through an alleycat QUIC tunnel. Adds a QR-scan button to the discovery toolbar."
+        case .alleycat: return "Enable multi-agent remote hosts and Alleycat QUIC pairing."
         }
     }
 
@@ -82,5 +82,9 @@ final class ExperimentalFeatures {
 
     func ipcSocketPathOverride() -> String? {
         isEnabled(.ipc) ? nil : ""
+    }
+
+    func multiClankerAndQuicEnabled() -> Bool {
+        isEnabled(.alleycat)
     }
 }

@@ -4,6 +4,10 @@
 //! SSH libraries (Citadel on iOS, JSch on Android).
 
 use std::collections::HashMap;
+use std::io;
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,15 +15,17 @@ use async_trait::async_trait;
 use futures::future::BoxFuture;
 use russh::ChannelMsg;
 use russh::ChannelStream;
+use russh::ChannelWriteHalf;
+use russh::Sig;
 use russh::client::{self, Handle, Msg};
 use russh::keys::HashAlg;
 use russh::keys::PrivateKeyWithHashAlg;
 use russh::keys::PublicKey;
 use russh::keys::decode_secret_key;
 use serde::Deserialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tokio_tungstenite::connect_async;
 use tracing::{debug, error, info, trace, warn};
 
@@ -143,6 +149,78 @@ pub struct ExecResult {
     pub exit_code: u32,
     pub stdout: String,
     pub stderr: String,
+}
+
+pub type SshExecStdin = Box<dyn AsyncWrite + Send + Unpin>;
+pub type SshExecStdout = Box<dyn AsyncRead + Send + Unpin>;
+pub type SshExecStderr = Box<dyn AsyncRead + Send + Unpin>;
+
+/// Streaming SSH exec child.
+///
+/// stdout/stderr are demultiplexed from russh channel messages into normal
+/// async readers so bridge launchers can treat a remote process like a local
+/// `tokio::process::Child`.
+pub struct SshExecChild {
+    stdin: Option<SshExecStdin>,
+    stdout: Option<SshExecStdout>,
+    stderr: Option<SshExecStderr>,
+    exit_rx: watch::Receiver<Option<u32>>,
+    write_half: Arc<Mutex<Option<ChannelWriteHalf<Msg>>>>,
+}
+
+impl SshExecChild {
+    pub fn take_stdin(&mut self) -> Option<SshExecStdin> {
+        self.stdin.take()
+    }
+
+    pub fn take_stdout(&mut self) -> Option<SshExecStdout> {
+        self.stdout.take()
+    }
+
+    pub fn take_stderr(&mut self) -> Option<SshExecStderr> {
+        self.stderr.take()
+    }
+
+    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
+        loop {
+            if let Some(code) = *self.exit_rx.borrow() {
+                return exit_status_from_code(code);
+            }
+            if self.exit_rx.changed().await.is_err() {
+                if let Some(code) = *self.exit_rx.borrow() {
+                    return exit_status_from_code(code);
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "ssh exec channel closed without exit status",
+                ));
+            }
+        }
+    }
+
+    pub async fn kill(&mut self) -> io::Result<()> {
+        let Some(write_half) = self.write_half.lock().await.take() else {
+            return Ok(());
+        };
+        let _ = write_half.signal(Sig::TERM).await;
+        write_half
+            .close()
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error.to_string()))
+    }
+}
+
+#[cfg(unix)]
+fn exit_status_from_code(code: u32) -> io::Result<ExitStatus> {
+    Ok(ExitStatus::from_raw((code as i32) << 8))
+}
+
+#[cfg(not(unix))]
+fn exit_status_from_code(_code: u32) -> io::Result<ExitStatus> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "ssh exec exit status conversion is only implemented on unix targets",
+    ))
 }
 
 /// SSH-specific errors.
@@ -402,6 +480,94 @@ impl SshClient {
         tokio::time::timeout(EXEC_TIMEOUT, self.exec_inner(command))
             .await
             .map_err(|_| SshError::Timeout)?
+    }
+
+    /// Open a streaming SSH exec channel.
+    ///
+    /// Unlike [`Self::exec`], this returns immediately after the remote exec
+    /// request is accepted and leaves stdin/stdout/stderr open for the caller.
+    pub async fn open_exec_child(&self, command: &str) -> Result<SshExecChild, SshError> {
+        self.open_exec_child_with_stdio(command, true, true, true)
+            .await
+    }
+
+    pub(crate) async fn open_exec_child_with_stdio(
+        &self,
+        command: &str,
+        stdin_piped: bool,
+        stdout_piped: bool,
+        stderr_piped: bool,
+    ) -> Result<SshExecChild, SshError> {
+        let handle = self.handle.lock().await;
+        if handle.is_closed() {
+            return Err(SshError::Disconnected);
+        }
+        let channel = handle
+            .channel_open_session()
+            .await
+            .map_err(|e| SshError::ConnectionFailed(format!("open session: {e}")))?;
+        drop(handle);
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| SshError::ConnectionFailed(format!("exec: {e}")))?;
+
+        let (mut read_half, write_half) = channel.split();
+        let stdin = if stdin_piped {
+            Some(Box::new(write_half.make_writer()) as SshExecStdin)
+        } else {
+            None
+        };
+        let write_half = Arc::new(Mutex::new(Some(write_half)));
+
+        let (stdout, mut stdout_writer) = if stdout_piped {
+            let (reader, writer) = tokio::io::duplex(64 * 1024);
+            (Some(Box::new(reader) as SshExecStdout), Some(writer))
+        } else {
+            (None, None)
+        };
+        let (stderr, mut stderr_writer) = if stderr_piped {
+            let (reader, writer) = tokio::io::duplex(64 * 1024);
+            (Some(Box::new(reader) as SshExecStderr), Some(writer))
+        } else {
+            (None, None)
+        };
+        let (exit_tx, exit_rx) = watch::channel(None);
+
+        tokio::spawn(async move {
+            while let Some(message) = read_half.wait().await {
+                match message {
+                    ChannelMsg::Data { data } => {
+                        if let Some(writer) = stdout_writer.as_mut() {
+                            let _ = writer.write_all(&data).await;
+                        }
+                    }
+                    ChannelMsg::ExtendedData { data, ext: 1 } => {
+                        if let Some(writer) = stderr_writer.as_mut() {
+                            let _ = writer.write_all(&data).await;
+                        }
+                        let text = String::from_utf8_lossy(&data);
+                        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+                            warn!("ssh exec stderr: {line}");
+                        }
+                    }
+                    ChannelMsg::ExitStatus { exit_status } => {
+                        let _ = exit_tx.send(Some(exit_status));
+                    }
+                    ChannelMsg::Eof | ChannelMsg::Close => {}
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(SshExecChild {
+            stdin,
+            stdout,
+            stderr,
+            exit_rx,
+            write_half,
+        })
     }
 
     async fn exec_inner(&self, command: &str) -> Result<ExecResult, SshError> {
@@ -2124,7 +2290,7 @@ async fn proxy_connection(
 /// Runs each file in a subshell so shell-specific syntax cannot crash the
 /// parent `/bin/sh` process, then imports the resulting PATH into the current
 /// shell via a temp file.
-const PROFILE_INIT: &str = r#"_litter_pf="/tmp/.litter_path_$$"; for f in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zprofile" "$HOME/.zshrc"; do [ -f "$f" ] && (. "$f" 2>/dev/null; echo "$PATH") > "$_litter_pf" 2>/dev/null && PATH="$(cat "$_litter_pf")" ; done; rm -f "$_litter_pf" 2>/dev/null;"#;
+pub(crate) const PROFILE_INIT: &str = r#"_litter_pf="/tmp/.litter_path_$$"; for f in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zprofile" "$HOME/.zshrc"; do [ -f "$f" ] && (. "$f" 2>/dev/null; echo "$PATH") > "$_litter_pf" 2>/dev/null && PATH="$(cat "$_litter_pf")" ; done; rm -f "$_litter_pf" 2>/dev/null;"#;
 
 /// Shell snippet that probes npm/pnpm for their global binary directories.
 /// Sets `_litter_npm_prefix`, `_litter_npm_global_bin`,
@@ -2278,7 +2444,7 @@ fn normalize_host(host: &str) -> String {
     h
 }
 
-fn shell_quote(s: &str) -> String {
+pub(crate) fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\"'\"'"))
 }
 
@@ -2449,7 +2615,7 @@ fn resolve_release_from_listing(
     })
 }
 
-fn build_posix_exec_command(command: &str) -> String {
+pub(crate) fn build_posix_exec_command(command: &str) -> String {
     format!("/bin/sh -c {}", shell_quote(command))
 }
 

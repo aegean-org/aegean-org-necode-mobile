@@ -106,9 +106,12 @@ import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.common.runtimeSortIndex
 import com.litter.android.ui.scaled
 import com.sigkitten.litter.android.R
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppProject
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSessionSummary
@@ -200,7 +203,8 @@ fun HomeDashboardScreen(
     var suppressComposerCollapse by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var hasLoadedThreadListing by remember { mutableStateOf(false) }
+    var selectedSearchRuntimeKind by remember { mutableStateOf<AgentRuntimeKind?>(null) }
+    var isRefreshingThreadSearch by remember { mutableStateOf(false) }
     val resumingKeys = remember { mutableStateMapOf<String, Boolean>() }
     var coachmarkRootBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
     val coachmarkTargetBounds = remember { mutableStateMapOf<CoachmarkTarget, Rect>() }
@@ -244,27 +248,32 @@ fun HomeDashboardScreen(
             PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId)
         }
         val serversById = servers.associateBy { it.serverId }
-        for (session in pinnedKeys.mapNotNull { byPinnedKey[it] }) {
-            if (session.isResumed) continue
-            val id = "${session.key.serverId}/${session.key.threadId}"
+        for (pinnedKey in pinnedKeys) {
+            val session = byPinnedKey[pinnedKey]
+            if (session?.isResumed == true) continue
+            val key = session?.key ?: ThreadKey(
+                serverId = pinnedKey.serverId,
+                threadId = pinnedKey.threadId,
+            )
+            val id = "${key.serverId}/${key.threadId}"
             if (resumingKeys[id] == true) continue
-            if (serversById[session.key.serverId]?.isConnected != true) continue
+            if (serversById[key.serverId]?.isConnected != true) continue
             resumingKeys[id] = true
             scope.launch {
                 try {
                     var resumed = runCatching {
-                        appModel.externalResumeThread(session.key)
+                        appModel.externalResumeThread(key)
                     }.isSuccess
                     if (!resumed) {
-                        runCatching { appModel.refreshSessions(listOf(session.key.serverId)) }
+                        runCatching { appModel.refreshSessions(listOf(key.serverId)) }
                         resumed = runCatching {
-                            appModel.externalResumeThread(session.key)
+                            appModel.externalResumeThread(key)
                         }.isSuccess
                     }
                     if (resumed) {
-                        appModel.loadInitialTurnsIfNeeded(session.key)
+                        appModel.loadInitialTurnsIfNeeded(key)
                     }
-                    appModel.refreshThreadSnapshot(session.key)
+                    appModel.refreshThreadSnapshot(key)
                 } finally {
                     resumingKeys.remove(id)
                 }
@@ -272,14 +281,37 @@ fun HomeDashboardScreen(
         }
     }
 
-    // First time the user opens search, pull the full thread listing from
-    // every connected server so results aren't limited to the first page
-    // that seeded `allSessions`. Mirrors iOS
-    // `HomeDashboardView.swift:149-155` / `LitterApp.loadAllThreads`.
-    LaunchedEffect(isSearchExpanded) {
-        if (!isSearchExpanded || hasLoadedThreadListing) return@LaunchedEffect
-        runCatching { appModel.refreshSessions() }
-        hasLoadedThreadListing = true
+    val searchRuntimeKinds = remember(servers) {
+        servers
+            .flatMap { server ->
+                server.agentRuntimes
+                    .filter { it.available }
+                    .map { it.kind }
+            }
+            .distinct()
+            .sortedBy { it.runtimeSortIndex }
+    }
+
+    LaunchedEffect(searchRuntimeKinds) {
+        if (selectedSearchRuntimeKind != null && selectedSearchRuntimeKind !in searchRuntimeKinds) {
+            selectedSearchRuntimeKind = null
+        }
+    }
+
+    LaunchedEffect(isSearchExpanded, searchQuery, selectedSearchRuntimeKind) {
+        if (!isSearchExpanded) return@LaunchedEffect
+        if (searchQuery.isNotBlank()) {
+            delay(250)
+        }
+        isRefreshingThreadSearch = true
+        runCatching {
+            appModel.refreshThreadSearchSessions(
+                query = searchQuery,
+                runtimeKind = selectedSearchRuntimeKind,
+                forceRepair = false,
+            )
+        }
+        isRefreshingThreadSearch = false
     }
 
     val showOnboardingCoachmarks = recentSessions.isEmpty() && !isComposerActive && !isSearchExpanded
@@ -596,7 +628,10 @@ fun HomeDashboardScreen(
                             onQueryChange = { searchQuery = it },
                             onExpandChange = { expanded ->
                                 isSearchExpanded = expanded
-                                if (!expanded) searchQuery = ""
+                                if (!expanded) {
+                                    searchQuery = ""
+                                    selectedSearchRuntimeKind = null
+                                }
                             },
                         )
                     }
@@ -604,6 +639,7 @@ fun HomeDashboardScreen(
                         onClick = {
                             isSearchExpanded = false
                             searchQuery = ""
+                            selectedSearchRuntimeKind = null
                         },
                         modifier = Modifier.size(40.dp),
                     ) {
@@ -624,6 +660,23 @@ fun HomeDashboardScreen(
                         sessions = allSessions,
                         pinnedKeys = pinnedKeys.toSet(),
                         query = searchQuery,
+                        runtimeKinds = searchRuntimeKinds,
+                        selectedRuntimeKind = selectedSearchRuntimeKind,
+                        isRefreshing = isRefreshingThreadSearch,
+                        onRuntimeSelected = { selectedSearchRuntimeKind = it },
+                        onRefresh = {
+                            scope.launch {
+                                isRefreshingThreadSearch = true
+                                runCatching {
+                                    appModel.refreshThreadSearchSessions(
+                                        query = searchQuery,
+                                        runtimeKind = selectedSearchRuntimeKind,
+                                        forceRepair = true,
+                                    )
+                                }
+                                isRefreshingThreadSearch = false
+                            }
+                        },
                         onPin = { session ->
                             val displacedKeys = if (pinnedKeys.isEmpty()) {
                                 recentSessions
@@ -647,6 +700,7 @@ fun HomeDashboardScreen(
                                     }
                                 }
                             }
+                            selectedSearchRuntimeKind = null
                         },
                         onUnpin = { session ->
                             val key = PinnedThreadKey(
@@ -1058,6 +1112,7 @@ private fun placeholderPinnedSession(
         serverId = pinned.serverId,
         threadId = pinned.threadId,
     ),
+    agentRuntimeKind = uniffi.codex_mobile_client.AgentRuntimeKind.CODEX,
     serverDisplayName = server.displayName,
     serverHost = server.host,
     title = "Loading thread",

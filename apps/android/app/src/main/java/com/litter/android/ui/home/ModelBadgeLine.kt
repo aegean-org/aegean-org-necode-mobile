@@ -1,5 +1,6 @@
 package com.litter.android.ui.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,9 +15,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.common.runtimeDrawable
+import com.litter.android.ui.common.runtimeLabel
 import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppSessionSummary
 
@@ -54,6 +58,10 @@ fun ModelBadgeLine(
                 modifier = Modifier.size(10.dp),
             )
             BadgeText(
+                text = HomeDashboardSupport.runtimeLabel(session.agentRuntimeKind),
+                color = LitterTheme.accent.copy(alpha = 0.75f),
+            )
+            BadgeText(
                 text = session.serverDisplayName,
                 color = LitterTheme.accent.copy(alpha = 0.6f),
                 maxLines = 1,
@@ -61,6 +69,11 @@ fun ModelBadgeLine(
             )
             if (model.isNotEmpty()) {
                 SeparatorDot()
+                Image(
+                    painter = painterResource(session.agentRuntimeKind.runtimeDrawable),
+                    contentDescription = session.agentRuntimeKind.runtimeLabel,
+                    modifier = Modifier.size(12.dp),
+                )
                 BadgeText(
                     text = model,
                     color = LitterTheme.textSecondary.copy(alpha = 0.7f),

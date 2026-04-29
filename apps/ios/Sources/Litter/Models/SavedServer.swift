@@ -15,10 +15,13 @@ struct SavedServer: Codable, Identifiable, Equatable {
     let sshPortForwardingEnabled: Bool?
     let websocketURL: String?
     let rememberedByUser: Bool
-    /// Marks this saved server as alleycat-tunneled. The relay's hostname is
-    /// preserved so the UI can re-open the rescan sheet on launch — cert and
-    /// token are per-launch and not persisted.
+    /// Legacy Alleycat marker. Unsupported after the iroh-backed migration; kept so
+    /// old records decode and can be treated as requiring a new QR scan.
     let alleycatHost: String?
+    let alleycatNodeId: String?
+    let alleycatRelay: String?
+    let alleycatAgentName: String?
+    let alleycatAgentWire: String?
 
     init(
         id: String,
@@ -35,7 +38,11 @@ struct SavedServer: Codable, Identifiable, Equatable {
         sshPortForwardingEnabled: Bool?,
         websocketURL: String?,
         rememberedByUser: Bool = false,
-        alleycatHost: String? = nil
+        alleycatHost: String? = nil,
+        alleycatNodeId: String? = nil,
+        alleycatRelay: String? = nil,
+        alleycatAgentName: String? = nil,
+        alleycatAgentWire: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -52,6 +59,10 @@ struct SavedServer: Codable, Identifiable, Equatable {
         self.websocketURL = websocketURL
         self.rememberedByUser = rememberedByUser
         self.alleycatHost = alleycatHost
+        self.alleycatNodeId = alleycatNodeId
+        self.alleycatRelay = alleycatRelay
+        self.alleycatAgentName = alleycatAgentName
+        self.alleycatAgentWire = alleycatAgentWire
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -70,6 +81,10 @@ struct SavedServer: Codable, Identifiable, Equatable {
         case websocketURL
         case rememberedByUser
         case alleycatHost
+        case alleycatNodeId
+        case alleycatRelay
+        case alleycatAgentName
+        case alleycatAgentWire
     }
 
     init(from decoder: Decoder) throws {
@@ -99,6 +114,10 @@ struct SavedServer: Codable, Identifiable, Equatable {
         self.websocketURL = try container.decodeIfPresent(String.self, forKey: .websocketURL)
         self.rememberedByUser = try container.decodeIfPresent(Bool.self, forKey: .rememberedByUser) ?? true
         self.alleycatHost = try container.decodeIfPresent(String.self, forKey: .alleycatHost)
+        self.alleycatNodeId = try container.decodeIfPresent(String.self, forKey: .alleycatNodeId)
+        self.alleycatRelay = try container.decodeIfPresent(String.self, forKey: .alleycatRelay)
+        self.alleycatAgentName = try container.decodeIfPresent(String.self, forKey: .alleycatAgentName)
+        self.alleycatAgentWire = try container.decodeIfPresent(String.self, forKey: .alleycatAgentWire)
     }
 
     func toDiscoveredServer() -> DiscoveredServer {
@@ -137,7 +156,11 @@ struct SavedServer: Codable, Identifiable, Equatable {
             sshPortForwardingEnabled: nil,
             websocketURL: server.websocketURL,
             rememberedByUser: rememberedByUser,
-            alleycatHost: nil
+            alleycatHost: nil,
+            alleycatNodeId: nil,
+            alleycatRelay: nil,
+            alleycatAgentName: nil,
+            alleycatAgentWire: nil
         )
     }
 
@@ -157,7 +180,88 @@ struct SavedServer: Codable, Identifiable, Equatable {
             sshPortForwardingEnabled: sshPortForwardingEnabled,
             websocketURL: websocketURL,
             rememberedByUser: rememberedByUser,
-            alleycatHost: alleycatHost
+            alleycatHost: alleycatHost,
+            alleycatNodeId: alleycatNodeId,
+            alleycatRelay: alleycatRelay,
+            alleycatAgentName: alleycatAgentName,
+            alleycatAgentWire: alleycatAgentWire
+        )
+    }
+
+    func withAlleycat(
+        nodeId: String?,
+        relay: String?,
+        agentName: String?,
+        agentWire: String?
+    ) -> SavedServer {
+        SavedServer(
+            id: id,
+            name: name,
+            hostname: hostname,
+            port: port,
+            codexPorts: codexPorts,
+            sshPort: sshPort,
+            source: source,
+            hasCodexServer: hasCodexServer,
+            wakeMAC: wakeMAC,
+            preferredConnectionMode: preferredConnectionMode,
+            preferredCodexPort: preferredCodexPort,
+            sshPortForwardingEnabled: sshPortForwardingEnabled,
+            websocketURL: websocketURL,
+            rememberedByUser: rememberedByUser,
+            alleycatHost: alleycatHost,
+            alleycatNodeId: nodeId,
+            alleycatRelay: relay,
+            alleycatAgentName: agentName,
+            alleycatAgentWire: agentWire
+        )
+    }
+
+    func withSSHBridge(runtimeKinds: [AgentRuntimeKind]) -> SavedServer {
+        SavedServer(
+            id: id,
+            name: name,
+            hostname: hostname,
+            port: port,
+            codexPorts: codexPorts,
+            sshPort: sshPort,
+            source: source,
+            hasCodexServer: hasCodexServer,
+            wakeMAC: wakeMAC,
+            preferredConnectionMode: preferredConnectionMode,
+            preferredCodexPort: preferredCodexPort,
+            sshPortForwardingEnabled: sshPortForwardingEnabled,
+            websocketURL: websocketURL,
+            rememberedByUser: rememberedByUser,
+            alleycatHost: alleycatHost,
+            alleycatNodeId: alleycatNodeId,
+            alleycatRelay: alleycatRelay,
+            alleycatAgentName: runtimeKinds.map(Self.sshBridgeRuntimeLabel).joined(separator: ","),
+            alleycatAgentWire: "ssh-bridge"
+        )
+    }
+
+    func withName(_ name: String) -> SavedServer {
+        SavedServer(
+            id: id,
+            name: name,
+            hostname: hostname,
+            port: port,
+            codexPorts: codexPorts,
+            sshPort: sshPort,
+            source: source,
+            hasCodexServer: hasCodexServer,
+            wakeMAC: wakeMAC,
+            preferredConnectionMode: preferredConnectionMode,
+            preferredCodexPort: preferredCodexPort,
+            sshPortForwardingEnabled: sshPortForwardingEnabled,
+            websocketURL: websocketURL,
+            rememberedByUser: rememberedByUser,
+            alleycatHost: alleycatHost,
+            alleycatNodeId: alleycatNodeId,
+            alleycatRelay: alleycatRelay,
+            alleycatAgentName: alleycatAgentName,
+            alleycatAgentWire: alleycatAgentWire
         )
     }
 
@@ -192,13 +296,31 @@ struct SavedServer: Codable, Identifiable, Equatable {
             websocketUrl: websocketURL,
             rememberedByUser: rememberedByUser,
             alleycatHost: alleycatHost,
-            alleycatUdpPort: alleycatUdpPort
+            alleycatUdpPort: alleycatUdpPort,
+            alleycatNodeId: alleycatNodeId,
+            alleycatToken: alleycatNodeId.flatMap { try? AlleycatCredentialStore.shared.loadToken(nodeId: $0) },
+            alleycatRelay: alleycatRelay,
+            alleycatAgentName: alleycatAgentName,
+            alleycatAgentWire: alleycatAgentWire
         )
+    }
+
+    private static func sshBridgeRuntimeLabel(_ kind: AgentRuntimeKind) -> String {
+        switch kind {
+        case .codex:
+            return "codex"
+        case .claude:
+            return "claude"
+        case .pi:
+            return "pi"
+        case .opencode:
+            return "opencode"
+        }
     }
 
     /// UDP port the alleycat relay was bound on, parsed from the
     /// synth `serverId` of `alleycat:<host>:<udpPort>` minted in
-    /// `AlleycatAddServerSheet`. Nil for non-alleycat records.
+    /// the legacy Alleycat QR sheet. Nil for non-Alleycat records.
     var alleycatUdpPort: UInt16? {
         guard alleycatHost != nil else { return nil }
         guard id.hasPrefix("alleycat:") else { return nil }

@@ -68,8 +68,8 @@ final class AppModel {
 
         let rc = ReconnectController()
         rc.setCredentialProvider(provider: SwiftSshCredentialProvider())
-        rc.setAlleycatCredentialProvider(provider: IOSAlleycatCredentialProvider())
         rc.setIpcSocketPathOverride(path: ExperimentalFeatures.shared.ipcSocketPathOverride())
+        rc.setMultiClankerAndQuicEnabled(enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled())
         return RustBridges(
             store: AppStore(),
             client: AppClient(),
@@ -1953,12 +1953,6 @@ final class AppModel {
     }
 
     func loadInitialTurnsIfNeeded(threadId key: ThreadKey) async {
-        guard snapshot?
-            .serverSnapshot(for: key.serverId)?
-            .capabilities
-            .supportsTurnPagination == true else {
-            return
-        }
         guard threadSnapshot(for: key)?.initialTurnsLoaded != true else {
             return
         }

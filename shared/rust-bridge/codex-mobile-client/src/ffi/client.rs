@@ -20,6 +20,18 @@ async fn rpc<T: serde::de::DeserializeOwned>(
         .map_err(|error| ClientError::Rpc(error.to_string()))
 }
 
+async fn rpc_runtime<T: serde::de::DeserializeOwned>(
+    client: &MobileClient,
+    server_id: &str,
+    runtime_kind: types::AgentRuntimeKind,
+    request: upstream::ClientRequest,
+) -> Result<T, ClientError> {
+    client
+        .request_typed_for_server_runtime(server_id, runtime_kind, request)
+        .await
+        .map_err(|error| ClientError::Rpc(error.to_string()))
+}
+
 fn convert_params<M, U>(params: M) -> Result<U, ClientError>
 where
     M: TryInto<U, Error = crate::RpcClientError>,
@@ -36,6 +48,45 @@ macro_rules! req {
             params: $params,
         }
     };
+}
+
+/// Flatten upstream `plugin/list` marketplaces into a deduped, sorted list of
+/// `PluginSummary` rows suitable for `@`-autocomplete. Pure so it can be unit-
+/// tested without running an RPC client.
+fn shape_plugin_list(response: upstream::PluginListResponse) -> Vec<types::PluginSummary> {
+    let mut summaries: Vec<types::PluginSummary> = Vec::new();
+    for marketplace in response.marketplaces {
+        let marketplace_name = marketplace.name.trim().to_owned();
+        if marketplace_name.is_empty() {
+            continue;
+        }
+        let marketplace_path = marketplace.path.map(types::AbsolutePath::from);
+        for plugin in marketplace.plugins {
+            if plugin.name.trim().is_empty() {
+                continue;
+            }
+            let summary = types::PluginSummary::from_upstream(
+                marketplace_name.clone(),
+                marketplace_path.clone(),
+                plugin,
+            );
+            if summary.is_available_for_mention() {
+                summaries.push(summary);
+            }
+        }
+    }
+
+    // Dedupe by mention_path, keeping the first occurrence.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    summaries.retain(|s| seen.insert(s.mention_path.clone()));
+
+    summaries.sort_by(|a, b| {
+        a.display_title
+            .to_lowercase()
+            .cmp(&b.display_title.to_lowercase())
+    });
+
+    summaries
 }
 
 #[derive(uniffi::Object)]
@@ -67,6 +118,11 @@ impl AppClient {
             // for an unknown thread; `splice_saved_apps_context` is a
             // no-op in that case, preserving existing behavior.
             let mut params = params;
+            let runtime_kind = c.runtime_for_thread_start(
+                &server_id,
+                params.agent_runtime_kind,
+                params.model.as_deref(),
+            );
             params.developer_instructions =
                 splice_saved_apps_context(c.as_ref(), None, params.developer_instructions);
             params.developer_instructions =
@@ -77,10 +133,18 @@ impl AppClient {
                 params.developer_instructions,
             );
             let params = convert_params::<_, upstream::ThreadStartParams>(params)?;
-            let response: upstream::ThreadStartResponse =
-                rpc(c.as_ref(), &server_id, req!(server_id, ThreadStart, params)).await?;
-            c.apply_thread_start_response(&server_id, &response)
-                .map_err(ClientError::Serialization)
+            let response: upstream::ThreadStartResponse = rpc_runtime(
+                c.as_ref(),
+                &server_id,
+                runtime_kind,
+                req!(server_id, ThreadStart, params),
+            )
+            .await?;
+            let key = c
+                .apply_thread_start_response(&server_id, &response)
+                .map_err(ClientError::Serialization)?;
+            c.note_thread_runtime(key.clone(), runtime_kind);
+            Ok(key)
         })
     }
 
@@ -197,28 +261,138 @@ impl AppClient {
         params: types::AppListThreadsRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
+            let requested_runtime_kinds = params.runtime_kinds.clone();
+            let has_requested_runtime_kinds = requested_runtime_kinds.is_some();
+            let drain_all_pages = params.cursor.is_none()
+                && params.limit.is_none()
+                && params
+                    .search_term
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or_default()
+                    .is_empty()
+                && !params.use_state_db_only;
             let params: upstream::ThreadListParams = params.into();
-            let mut request_params = params.clone();
-            let mut all_thread_ids = Vec::new();
+            let session = c
+                .get_session(&server_id)
+                .map_err(|error| ClientError::Rpc(error.to_string()))?;
+            let available_runtime_kinds = session.runtime_kinds();
+            let mut runtime_kinds = match requested_runtime_kinds {
+                Some(requested) if !requested.is_empty() => requested
+                    .into_iter()
+                    .filter(|kind| {
+                        *kind == types::AgentRuntimeKind::Codex
+                            || available_runtime_kinds.contains(kind)
+                    })
+                    .collect::<Vec<_>>(),
+                _ => available_runtime_kinds,
+            };
+            if !has_requested_runtime_kinds
+                && !runtime_kinds.contains(&types::AgentRuntimeKind::Codex)
+            {
+                runtime_kinds.push(types::AgentRuntimeKind::Codex);
+            }
+            runtime_kinds.sort();
+            runtime_kinds.dedup();
 
-            loop {
-                let response: upstream::ThreadListResponse = rpc(
-                    c.as_ref(),
-                    &server_id,
-                    req!(server_id, ThreadList, request_params.clone()),
-                )
-                .await?;
+            // Fan out per-runtime concurrently. The previous sequential loop
+            // exhausted Codex's full cursor pagination before non-Codex runtimes
+            // ever got their first page, so a Codex inbox with many threads
+            // would starve the other providers — the user would see only
+            // Codex threads while other runtimes were silently waiting their
+            // turn. By spawning each runtime's pagination as its own future
+            // and joining them, every provider's first page lands in
+            // parallel and the UI gets representative threads from each
+            // immediately.
+            let mut codex_visited = false;
+            let mut tasks = Vec::new();
+            for runtime_kind in runtime_kinds {
+                if runtime_kind == types::AgentRuntimeKind::Codex {
+                    if codex_visited {
+                        continue;
+                    }
+                    codex_visited = true;
+                }
 
-                let page = c.upsert_thread_list_page(&server_id, &response.data);
-                all_thread_ids.extend(page.into_iter().map(|thread| thread.id));
-
-                let Some(next_cursor) = response.next_cursor else {
-                    break;
-                };
-                request_params.cursor = Some(next_cursor);
+                let client = std::sync::Arc::clone(&c);
+                let server_id = server_id.clone();
+                let initial_params = params.clone();
+                tasks.push(async move {
+                    let mut request_params = initial_params;
+                    let mut ids = Vec::new();
+                    let mut completed = true;
+                    loop {
+                        // 10s per-page timeout: a stalled agent (e.g.
+                        // opencode mid-restart) must not wedge the join.
+                        let response: upstream::ThreadListResponse =
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(10),
+                                rpc_runtime::<upstream::ThreadListResponse>(
+                                    client.as_ref(),
+                                    &server_id,
+                                    runtime_kind,
+                                    req!(server_id, ThreadList, request_params.clone()),
+                                ),
+                            )
+                            .await
+                            {
+                                Ok(Ok(response)) => response,
+                                Ok(Err(error)) => {
+                                    tracing::warn!(
+                                        "list_threads: thread/list failed for runtime {:?} on server {}: {}",
+                                        runtime_kind, server_id, error
+                                    );
+                                    completed = false;
+                                    break;
+                                }
+                                Err(_) => {
+                                    tracing::warn!(
+                                        "list_threads: thread/list timed out after 10s for runtime {:?} on server {}",
+                                        runtime_kind, server_id
+                                    );
+                                    completed = false;
+                                    break;
+                                }
+                            };
+                        let page = client.upsert_thread_list_page_for_runtime(
+                            &server_id,
+                            runtime_kind,
+                            &response.data,
+                        );
+                        ids.extend(page.into_iter().map(|thread| thread.id));
+                        let Some(next_cursor) = response.next_cursor else {
+                            break;
+                        };
+                        if !drain_all_pages {
+                            break;
+                        }
+                        request_params.cursor = Some(next_cursor);
+                    }
+                    (runtime_kind, ids, completed)
+                });
             }
 
-            c.finalize_thread_list_sync(&server_id, all_thread_ids);
+            let results = futures::future::join_all(tasks).await;
+            // Only prune if every runtime finished cleanly. A partial
+            // result (one runtime timed out / errored) means we don't
+            // know its true thread set yet, and `finalize_thread_list_sync`
+            // would delete unseen threads from healthy runtimes too —
+            // wiping pi/opencode threads from the store on a transient
+            // codex failure. Skip pruning in that case; the next refresh
+            // reconciles when the failing runtime recovers.
+            let all_completed = results.iter().all(|(_, _, ok)| *ok);
+            if all_completed && drain_all_pages {
+                let mut all_thread_ids = Vec::new();
+                for (_, ids, _) in results {
+                    all_thread_ids.extend(ids);
+                }
+                c.finalize_thread_list_sync(&server_id, all_thread_ids);
+            } else if !all_completed {
+                tracing::warn!(
+                    "list_threads: skipping finalize prune — partial fan-out result on server {}",
+                    server_id
+                );
+            }
             Ok(())
         })
     }
@@ -408,13 +582,38 @@ impl AppClient {
         params: types::AppRefreshModelsRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            let response: upstream::ModelListResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ModelList, params.into()),
-            )
-            .await?;
-            c.apply_model_list_response(&server_id, &response);
+            let runtime_kinds = c
+                .get_session(&server_id)
+                .map_err(|error| ClientError::Rpc(error.to_string()))?
+                .runtime_kinds();
+            let params: upstream::ModelListParams = params.into();
+            let mut models = Vec::new();
+            let mut seen_model_ids = std::collections::HashSet::new();
+            for runtime_kind in runtime_kinds {
+                let mut request_params = params.clone();
+                loop {
+                    let page: upstream::ModelListResponse = rpc_runtime(
+                        c.as_ref(),
+                        &server_id,
+                        runtime_kind,
+                        req!(server_id, ModelList, request_params.clone()),
+                    )
+                    .await?;
+                    for model in page.data {
+                        let mut model_info = types::ModelInfo::from(model);
+                        model_info.agent_runtime_kind = runtime_kind;
+                        let dedupe_key = (runtime_kind, model_info.id.clone());
+                        if seen_model_ids.insert(dedupe_key) {
+                            models.push(model_info);
+                        }
+                    }
+                    let Some(next_cursor) = page.next_cursor else {
+                        break;
+                    };
+                    request_params.cursor = Some(next_cursor);
+                }
+            }
+            c.app_store.update_server_models(&server_id, Some(models));
             Ok(())
         })
     }
@@ -452,6 +651,23 @@ impl AppClient {
                 .into_iter()
                 .flat_map(|entry| entry.skills.into_iter().map(Into::into))
                 .collect())
+        })
+    }
+
+    pub async fn list_plugins(
+        &self,
+        server_id: String,
+        params: types::AppListPluginsRequest,
+    ) -> Result<Vec<types::PluginSummary>, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let upstream_params = convert_params::<_, upstream::PluginListParams>(params)?;
+            let response: upstream::PluginListResponse = rpc(
+                c.as_ref(),
+                &server_id,
+                req!(server_id, PluginList, upstream_params),
+            )
+            .await?;
+            Ok(shape_plugin_list(response))
         })
     }
 
@@ -2108,6 +2324,7 @@ mod tests {
             requires_openai_auth: false,
             rate_limits: None,
             available_models: None,
+            agent_runtimes: Vec::new(),
             connection_progress: None,
             transport: ServerTransportDiagnostics::default(),
             codex_version: None,
@@ -2219,5 +2436,249 @@ mod tests {
         let command = image_read_command("~/image.png");
         assert_eq!(command[0], "/bin/sh");
         assert!(command[2].contains(r#"${path#~/}"#));
+    }
+
+    mod plugin_list {
+        use super::super::shape_plugin_list;
+        use codex_app_server_protocol as upstream;
+        use codex_utils_absolute_path::AbsolutePathBuf;
+
+        fn iface(display_name: &str, short_description: &str) -> upstream::PluginInterface {
+            upstream::PluginInterface {
+                display_name: Some(display_name.into()),
+                short_description: Some(short_description.into()),
+                long_description: None,
+                developer_name: None,
+                category: None,
+                capabilities: Vec::new(),
+                website_url: None,
+                privacy_policy_url: None,
+                terms_of_service_url: None,
+                default_prompt: None,
+                brand_color: None,
+                composer_icon: None,
+                composer_icon_url: None,
+                logo: None,
+                logo_url: None,
+                screenshots: Vec::new(),
+                screenshot_urls: Vec::new(),
+            }
+        }
+
+        fn summary(
+            id: &str,
+            name: &str,
+            installed: bool,
+            enabled: bool,
+            install_policy: upstream::PluginInstallPolicy,
+            display: Option<&str>,
+        ) -> upstream::PluginSummary {
+            upstream::PluginSummary {
+                id: id.into(),
+                name: name.into(),
+                source: upstream::PluginSource::Remote,
+                installed,
+                enabled,
+                install_policy,
+                auth_policy: upstream::PluginAuthPolicy::OnUse,
+                interface: display.map(|d| iface(d, "")),
+            }
+        }
+
+        fn marketplace(
+            name: &str,
+            plugins: Vec<upstream::PluginSummary>,
+        ) -> upstream::PluginMarketplaceEntry {
+            upstream::PluginMarketplaceEntry {
+                name: name.into(),
+                path: Some(AbsolutePathBuf::try_from("/tmp/marketplace.json").unwrap()),
+                interface: None,
+                plugins,
+            }
+        }
+
+        fn response(
+            marketplaces: Vec<upstream::PluginMarketplaceEntry>,
+        ) -> upstream::PluginListResponse {
+            upstream::PluginListResponse {
+                marketplaces,
+                marketplace_load_errors: Vec::new(),
+                featured_plugin_ids: Vec::new(),
+            }
+        }
+
+        #[test]
+        fn flattens_marketplaces_and_attaches_marketplace_name() {
+            let response = response(vec![
+                marketplace(
+                    "openai-curated",
+                    vec![summary(
+                        "p1",
+                        "computer-use",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("Computer Use"),
+                    )],
+                ),
+                marketplace(
+                    "community",
+                    vec![summary(
+                        "p2",
+                        "linear",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("Linear"),
+                    )],
+                ),
+            ]);
+
+            let shaped = shape_plugin_list(response);
+            assert_eq!(shaped.len(), 2);
+            assert_eq!(shaped[0].name, "computer-use");
+            assert_eq!(shaped[0].marketplace_name, "openai-curated");
+            assert_eq!(
+                shaped[0].mention_path,
+                "plugin://computer-use@openai-curated"
+            );
+            assert_eq!(shaped[1].name, "linear");
+            assert_eq!(shaped[1].marketplace_name, "community");
+        }
+
+        #[test]
+        fn filters_unavailable_plugins() {
+            let response = response(vec![marketplace(
+                "openai-curated",
+                vec![
+                    summary(
+                        "skip",
+                        "not-installed",
+                        false,
+                        false,
+                        upstream::PluginInstallPolicy::Available,
+                        None,
+                    ),
+                    summary(
+                        "keep-installed",
+                        "alpha",
+                        true,
+                        false,
+                        upstream::PluginInstallPolicy::Available,
+                        None,
+                    ),
+                    summary(
+                        "keep-default",
+                        "beta",
+                        false,
+                        false,
+                        upstream::PluginInstallPolicy::InstalledByDefault,
+                        None,
+                    ),
+                    summary(
+                        "keep-enabled",
+                        "gamma",
+                        false,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        None,
+                    ),
+                ],
+            )]);
+
+            let shaped = shape_plugin_list(response);
+            let names: Vec<&str> = shaped.iter().map(|s| s.name.as_str()).collect();
+            assert_eq!(names, vec!["alpha", "beta", "gamma"]);
+        }
+
+        #[test]
+        fn dedupes_by_mention_path() {
+            let response = response(vec![
+                marketplace(
+                    "openai-curated",
+                    vec![summary(
+                        "first",
+                        "computer-use",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("Computer Use (first)"),
+                    )],
+                ),
+                marketplace(
+                    "openai-curated",
+                    vec![summary(
+                        "second",
+                        "computer-use",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("Computer Use (second)"),
+                    )],
+                ),
+            ]);
+
+            let shaped = shape_plugin_list(response);
+            assert_eq!(shaped.len(), 1);
+            assert_eq!(shaped[0].id, "first");
+        }
+
+        #[test]
+        fn sorts_by_display_title_case_insensitive() {
+            let response = response(vec![marketplace(
+                "openai-curated",
+                vec![
+                    summary(
+                        "z",
+                        "zeta",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("zeta"),
+                    ),
+                    summary(
+                        "a",
+                        "alpha",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("Alpha"),
+                    ),
+                    summary(
+                        "m",
+                        "mike",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        Some("Mike"),
+                    ),
+                ],
+            )]);
+
+            let shaped = shape_plugin_list(response);
+            let titles: Vec<&str> = shaped.iter().map(|s| s.display_title.as_str()).collect();
+            assert_eq!(titles, vec!["Alpha", "Mike", "zeta"]);
+        }
+
+        #[test]
+        fn falls_back_to_name_when_display_name_blank() {
+            let response = response(vec![marketplace(
+                "openai-curated",
+                vec![upstream::PluginSummary {
+                    interface: Some(iface("   ", "")),
+                    ..summary(
+                        "p",
+                        "linear",
+                        true,
+                        true,
+                        upstream::PluginInstallPolicy::Available,
+                        None,
+                    )
+                }],
+            )]);
+
+            let shaped = shape_plugin_list(response);
+            assert_eq!(shaped[0].display_title, "linear");
+        }
     }
 }

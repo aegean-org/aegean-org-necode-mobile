@@ -15,6 +15,14 @@ struct ConversationComposerEntryRowView: View {
     let onStartRecording: () -> Void
     let onInterrupt: () -> Void
 
+    private enum Metrics {
+        static let controlSize: CGFloat = 44
+        static let inputCornerRadius: CGFloat = controlSize / 2
+        static let trailingControlSize: CGFloat = 44
+        static let horizontalPadding: CGFloat = 10
+        static let verticalPadding: CGFloat = 6
+    }
+
     init(
         showAttachMenu: Binding<Bool>,
         inputText: Binding<String>,
@@ -68,13 +76,15 @@ struct ConversationComposerEntryRowView: View {
                     showAttachMenu = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(LitterFont.styled(size: 17, weight: .semibold))
+                        .font(LitterFont.styled(size: 20, weight: .semibold))
                         .foregroundColor(LitterTheme.textPrimary)
-                        .frame(width: 36, height: 36)
+                        .frame(width: Metrics.controlSize, height: Metrics.controlSize)
                         .modifier(GlassCircleModifier())
                 }
+                .buttonStyle(.plain)
                 .hoverEffect(.highlight)
                 .transition(.scale.combined(with: .opacity))
+                .accessibilityLabel("Attach")
             }
 
             HStack(spacing: 0) {
@@ -93,7 +103,7 @@ struct ConversationComposerEntryRowView: View {
                             .font(LitterFont.styled(size: 17))
                             .foregroundColor(LitterTheme.textMuted)
                             .padding(.leading, 16)
-                            .padding(.top, 10)
+                            .padding(.top, 11)
                             .allowsHitTesting(false)
                     }
                 }
@@ -102,44 +112,47 @@ struct ConversationComposerEntryRowView: View {
                 if canSend {
                     Button(action: onSendText) {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(LitterFont.styled(size: 22))
+                            .font(LitterFont.styled(size: 28))
                             .foregroundColor(LitterTheme.accent)
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
+                            .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
                     .hoverEffect(.highlight)
-                    .padding(.trailing, 4)
+                    .accessibilityLabel("Send")
                 } else if voiceManager.isRecording {
                     AudioWaveformView(level: voiceManager.audioLevel)
                         .frame(width: 48, height: 20)
 
                     Button(action: onStopRecording) {
                         Image(systemName: "stop.circle.fill")
-                            .font(LitterFont.styled(size: 22))
+                            .font(LitterFont.styled(size: 28))
                             .foregroundColor(LitterTheme.accentStrong)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
+                            .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
                     .hoverEffect(.highlight)
-                    .padding(.trailing, 4)
+                    .accessibilityLabel("Stop recording")
                 } else if voiceManager.isTranscribing {
                     ProgressView()
                         .tint(LitterTheme.accent)
-                        .padding(.trailing, 8)
+                        .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
                 } else if allowsVoiceInput {
                     Button(action: onStartRecording) {
                         Image(systemName: "mic.fill")
-                            .font(LitterFont.styled(size: 15))
+                            .font(LitterFont.styled(size: 18))
                             .foregroundColor(LitterTheme.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
+                            .frame(width: Metrics.trailingControlSize, height: Metrics.trailingControlSize)
+                            .contentShape(Circle())
                     }
+                    .buttonStyle(.plain)
                     .hoverEffect(.highlight)
-                    .padding(.trailing, 4)
+                    .accessibilityLabel("Dictate")
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 36)
-            .modifier(GlassRoundedRectModifier(cornerRadius: 20))
+            .frame(maxWidth: .infinity, minHeight: Metrics.controlSize)
+            .modifier(GlassRoundedRectModifier(cornerRadius: Metrics.inputCornerRadius))
             .overlay(alignment: .topTrailing) {
                 if shouldShowExpand {
                     Button {
@@ -166,17 +179,18 @@ struct ConversationComposerEntryRowView: View {
                         .font(LitterFont.styled(size: 15, weight: .medium))
                         .foregroundColor(LitterTheme.textPrimary)
                         .padding(.horizontal, 14)
-                        .frame(height: 36)
+                        .frame(height: Metrics.controlSize)
                         .modifier(GlassCapsuleModifier())
                 }
+                .buttonStyle(.plain)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isTurnActive)
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 6)
+        .padding(.horizontal, Metrics.horizontalPadding)
+        .padding(.top, Metrics.verticalPadding)
+        .padding(.bottom, Metrics.verticalPadding)
         .fullScreenCover(isPresented: $showExpanded) {
             ConversationComposerExpandedView(
                 inputText: $inputText,

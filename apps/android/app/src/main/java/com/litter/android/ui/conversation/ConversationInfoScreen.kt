@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.sp
 import com.litter.android.state.connectionModeLabel
 import com.litter.android.state.contextPercent
 import com.litter.android.state.displayTitle
-import com.litter.android.state.resolvedModel
+import com.litter.android.state.displayModelLabel
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
 import com.litter.android.ui.LocalAppModel
@@ -342,7 +342,7 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
         if (thread != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = thread.resolvedModel,
+                    text = thread.displayModelLabel,
                     color = LitterTheme.accent,
                     fontSize = LitterTextStyle.code.scaled,
                     fontWeight = FontWeight.Medium,

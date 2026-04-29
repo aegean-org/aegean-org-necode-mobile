@@ -78,13 +78,33 @@ struct HomeDashboardView: View {
     @State private var renameServerText = ""
     @State private var inputMode: HomeInputMode = .collapsed
     @State private var searchQuery = ""
+    @State private var selectedSearchRuntimeKind: AgentRuntimeKind?
     @State private var hydratingKeys: Set<String> = []
-    @State private var hasLoadedThreadListing = false
     @State private var isLoadingThreadListing = false
+    @State private var suppressComposerCollapse = false
 
-    var onLoadAllThreads: (() async -> Void)? = nil
+    var onSearchThreads: (@Sendable (_ query: String, _ runtimeKind: AgentRuntimeKind?, _ forceRepair: Bool) async -> Void)? = nil
 
     private var isSearchExpanded: Bool { inputMode == .search }
+
+    private var availableSearchRuntimeKinds: [AgentRuntimeKind] {
+        let kinds = Set(
+            connectedServers.flatMap { server in
+                server.agentRuntimes
+                    .filter(\.available)
+                    .map(\.kind)
+            }
+        )
+        return AgentRuntimeKind.presentationOrder.filter { kinds.contains($0) }
+    }
+
+    private var searchLoadID: String {
+        [
+            isSearchExpanded ? "open" : "closed",
+            searchQuery,
+            selectedSearchRuntimeKind?.displayLabel ?? "all"
+        ].joined(separator: "|")
+    }
 
     private func hydrationId(_ key: ThreadKey) -> String {
         "\(key.serverId)/\(key.threadId)"
@@ -132,6 +152,9 @@ struct HomeDashboardView: View {
             .onAppear { onInputModeChange?(inputMode) }
             .onChange(of: inputMode) { _, nextMode in
                 onInputModeChange?(nextMode)
+                if nextMode != .search {
+                    selectedSearchRuntimeKind = nil
+                }
             }
             .task { await TipJarStore.shared.loadProducts() }
             .onAppear { autoHydrateIfNeeded() }
@@ -152,12 +175,23 @@ struct HomeDashboardView: View {
                 )
                 cancellingKeys.formIntersection(stillActive)
             }
-            .task(id: isSearchExpanded) {
-                guard isSearchExpanded, !hasLoadedThreadListing, let onLoadAllThreads else { return }
-                isLoadingThreadListing = true
-                await onLoadAllThreads()
-                hasLoadedThreadListing = true
-                isLoadingThreadListing = false
+            .task(id: searchLoadID) {
+                guard isSearchExpanded, let onSearchThreads else { return }
+                let query = searchQuery
+                let runtimeKind = selectedSearchRuntimeKind
+                if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    guard !Task.isCancelled else { return }
+                }
+                await MainActor.run { isLoadingThreadListing = true }
+                await onSearchThreads(query, runtimeKind, false)
+                guard !Task.isCancelled else { return }
+                await MainActor.run { isLoadingThreadListing = false }
+            }
+            .onChange(of: availableSearchRuntimeKinds) { _, kinds in
+                if let selectedSearchRuntimeKind, !kinds.contains(selectedSearchRuntimeKind) {
+                    self.selectedSearchRuntimeKind = nil
+                }
             }
             .background(dashboardBackground)
             .alert("Delete Session?", isPresented: Binding(
@@ -307,13 +341,17 @@ struct HomeDashboardView: View {
                         sessions: allSessions,
                         pinnedThreadKeys: Set(pinnedThreadKeys),
                         query: searchQuery,
+                        runtimeKinds: availableSearchRuntimeKinds,
+                        selectedRuntimeKind: $selectedSearchRuntimeKind,
                         isLoading: isLoadingThreadListing && allSessions.isEmpty,
+                        onRefresh: refreshSearchThreads,
                         onAdd: { session in
                             onPinThread(session.key)
                             withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
                                 inputMode = .collapsed
                             }
                             searchQuery = ""
+                            selectedSearchRuntimeKind = nil
                         },
                         onRemove: { session in
                             onUnpinThread(session.key)
@@ -342,6 +380,13 @@ struct HomeDashboardView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: showOnboardingCoachmarks)
+    }
+
+    private func refreshSearchThreads() async {
+        guard let onSearchThreads else { return }
+        await MainActor.run { isLoadingThreadListing = true }
+        await onSearchThreads(searchQuery, selectedSearchRuntimeKind, true)
+        await MainActor.run { isLoadingThreadListing = false }
     }
 
     /// True whenever the visible session list is empty AND the user is in
@@ -409,7 +454,10 @@ struct HomeDashboardView: View {
                     Spacer()
                     HomeModelChip(
                         serverId: selectedProject?.serverId ?? selectedServerId,
-                        disabled: (selectedProject?.serverId ?? selectedServerId) == nil
+                        disabled: (selectedProject?.serverId ?? selectedServerId) == nil,
+                        onSheetStateChange: { isPresented in
+                            suppressComposerCollapse = isPresented
+                        }
                     )
                     ProjectChip(
                         project: selectedProject,
@@ -424,6 +472,7 @@ struct HomeDashboardView: View {
             HomeBottomBar(
                 mode: $inputMode,
                 searchQuery: $searchQuery,
+                collapseSuppressed: suppressComposerCollapse,
                 project: selectedProject,
                 transcriptionServerId: selectedProject?.serverId ?? selectedServerId,
                 onThreadCreated: onThreadCreated
@@ -768,6 +817,7 @@ struct SessionCanvasLine: View {
                 let m = session.model.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !m.isEmpty {
                     Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
+                    HomeRuntimeIcon(kind: session.agentRuntimeKind)
                     Text(m)
                         .foregroundStyle(LitterTheme.textSecondary.opacity(0.7))
                 }
@@ -1083,6 +1133,28 @@ private struct SessionPulsingDots: View {
                 }
             }
         }
+    }
+}
+
+private struct HomeRuntimeIcon: View {
+    let kind: AgentRuntimeKind
+
+    var body: some View {
+        Image(kind.assetName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 12, height: 12)
+            .padding(kind == .codex ? 0 : 1.5)
+            .background(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(kind == .codex ? Color.clear : Color.black.opacity(0.82))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .stroke(kind == .codex ? Color.clear : LitterTheme.textPrimary.opacity(0.25), lineWidth: 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+            .accessibilityLabel(kind.displayLabel)
     }
 }
 

@@ -313,6 +313,9 @@ pub struct PendingUserInputAnswer {
 #[serde(rename_all = "camelCase")]
 #[derive(uniffi::Record)]
 pub struct AppStartThreadRequest {
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub agent_runtime_kind: Option<crate::types::AgentRuntimeKind>,
     pub model: Option<String>,
     pub cwd: Option<String>,
     pub approval_policy: Option<AppAskForApproval>,
@@ -589,11 +592,24 @@ pub struct AppListThreadsRequest {
     #[uniffi(default = None)]
     pub limit: Option<u32>,
     #[uniffi(default = None)]
+    pub sort_key: Option<crate::types::AppThreadSortKey>,
+    #[uniffi(default = None)]
+    pub sort_direction: Option<crate::types::AppSortDirection>,
+    #[uniffi(default = None)]
+    pub model_providers: Option<Vec<String>>,
+    #[uniffi(default = None)]
+    pub source_kinds: Option<Vec<crate::types::AppThreadSourceKind>>,
+    #[uniffi(default = None)]
     pub archived: Option<bool>,
     #[uniffi(default = None)]
     pub cwd: Option<String>,
     #[uniffi(default = None)]
     pub search_term: Option<String>,
+    #[serde(default)]
+    #[uniffi(default = false)]
+    pub use_state_db_only: bool,
+    #[uniffi(default = None)]
+    pub runtime_kinds: Option<Vec<crate::types::AgentRuntimeKind>>,
 }
 
 impl From<AppListThreadsRequest> for upstream::ThreadListParams {
@@ -601,14 +617,16 @@ impl From<AppListThreadsRequest> for upstream::ThreadListParams {
         Self {
             cursor: value.cursor,
             limit: value.limit,
-            sort_key: None,
-            sort_direction: None,
-            model_providers: None,
-            source_kinds: None,
+            sort_key: value.sort_key.map(Into::into),
+            sort_direction: value.sort_direction.map(Into::into),
+            model_providers: value.model_providers,
+            source_kinds: value
+                .source_kinds
+                .map(|kinds| kinds.into_iter().map(Into::into).collect()),
             archived: value.archived,
             cwd: value.cwd.map(upstream::ThreadListCwdFilter::One),
             search_term: value.search_term,
-            use_state_db_only: false,
+            use_state_db_only: value.use_state_db_only,
         }
     }
 }
@@ -661,6 +679,38 @@ impl From<AppListSkillsRequest> for upstream::SkillsListParams {
             force_reload: value.force_reload,
             per_cwd_extra_user_roots: None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[derive(uniffi::Record)]
+pub struct AppListPluginsRequest {
+    /// Working directories used to discover repo marketplaces. May be empty,
+    /// in which case only home-scoped marketplaces and the curated marketplace
+    /// are considered.
+    pub cwds: Vec<String>,
+}
+
+impl TryFrom<AppListPluginsRequest> for upstream::PluginListParams {
+    type Error = RpcClientError;
+
+    fn try_from(value: AppListPluginsRequest) -> Result<Self, Self::Error> {
+        let cwds = if value.cwds.is_empty() {
+            None
+        } else {
+            let mut converted = Vec::with_capacity(value.cwds.len());
+            for raw in value.cwds {
+                let path = AbsolutePathBuf::try_from(raw).map_err(|error| {
+                    RpcClientError::Serialization(format!(
+                        "list_plugins cwd is not absolute: {error}"
+                    ))
+                })?;
+                converted.push(path);
+            }
+            Some(converted)
+        };
+        Ok(Self { cwds })
     }
 }
 

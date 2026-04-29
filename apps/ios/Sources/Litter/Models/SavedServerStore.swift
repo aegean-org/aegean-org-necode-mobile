@@ -18,24 +18,17 @@ enum SavedServerStore {
             let restored = SavedServer
                 .from(server, rememberedByUser: saved.rememberedByUser)
                 .withAlleycatHost(saved.alleycatHost)
-            if shouldReplaceLegacyLocalPlaceholder(restored) {
-                return SavedServer(
-                    id: restored.id,
-                    name: LitterPlatform.localRuntimeDisplayName(),
-                    hostname: restored.hostname,
-                    port: restored.port,
-                    codexPorts: restored.codexPorts,
-                    sshPort: restored.sshPort,
-                    source: restored.source,
-                    hasCodexServer: restored.hasCodexServer,
-                    wakeMAC: restored.wakeMAC,
-                    preferredConnectionMode: restored.preferredConnectionMode,
-                    preferredCodexPort: restored.preferredCodexPort,
-                    sshPortForwardingEnabled: restored.sshPortForwardingEnabled,
-                    websocketURL: restored.websocketURL,
-                    rememberedByUser: restored.rememberedByUser,
-                    alleycatHost: restored.alleycatHost
+                .withAlleycat(
+                    nodeId: saved.alleycatNodeId,
+                    relay: saved.alleycatRelay,
+                    agentName: saved.alleycatAgentName,
+                    agentWire: saved.alleycatAgentWire
                 )
+            if shouldReplaceLegacyLocalPlaceholder(restored) {
+                return restored.withName(LitterPlatform.localRuntimeDisplayName())
+            }
+            if shouldReplaceLegacyAlleycatPlaceholder(restored) {
+                return restored.withName(alleycatFallbackDisplayName(restored))
             }
             return restored
         }
@@ -65,9 +58,8 @@ enum SavedServerStore {
         save(saved)
     }
 
-    /// Persists an alleycat-tunneled server. Stores the original relay
-    /// hostname so the rescan flow can find it on launch — cert and token
-    /// are per-launch and live only in `AlleycatCredentialStore`.
+    /// Legacy Alleycat persistence path. Kept so old app builds can still
+    /// decode records; current host pairings use `rememberAlleycat`.
     static func rememberAlleycat(_ server: DiscoveredServer, relayHost: String) {
         var saved = load()
         saved.removeAll { entry in matches(server, entry) }
@@ -75,6 +67,39 @@ enum SavedServerStore {
             SavedServer
                 .from(server, rememberedByUser: true)
                 .withAlleycatHost(relayHost)
+        )
+        save(saved)
+    }
+
+    static func rememberAlleycat(
+        _ server: DiscoveredServer,
+        nodeId: String,
+        relay: String?,
+        agentName: String,
+        agentWire: String
+    ) {
+        var saved = load()
+        saved.removeAll { entry in matches(server, entry) }
+        saved.append(
+            SavedServer
+                .from(server, rememberedByUser: true)
+                .withAlleycat(
+                    nodeId: nodeId,
+                    relay: relay,
+                    agentName: agentName,
+                    agentWire: agentWire
+                )
+        )
+        save(saved)
+    }
+
+    static func rememberSSHBridge(_ server: DiscoveredServer, runtimeKinds: [AgentRuntimeKind]) {
+        var saved = load()
+        saved.removeAll { entry in matches(server, entry) }
+        saved.append(
+            SavedServer
+                .from(server, rememberedByUser: true)
+                .withSSHBridge(runtimeKinds: runtimeKinds)
         )
         save(saved)
     }
@@ -108,7 +133,12 @@ enum SavedServerStore {
                     websocketUrl: nil,
                     rememberedByUser: true,
                     alleycatHost: nil,
-                    alleycatUdpPort: nil
+                    alleycatUdpPort: nil,
+                    alleycatNodeId: nil,
+                    alleycatToken: nil,
+                    alleycatRelay: nil,
+                    alleycatAgentName: nil,
+                    alleycatAgentWire: nil
                 )
             )
         }
@@ -140,7 +170,11 @@ enum SavedServerStore {
             sshPortForwardingEnabled: old.sshPortForwardingEnabled,
             websocketURL: old.websocketURL,
             rememberedByUser: old.rememberedByUser,
-            alleycatHost: old.alleycatHost
+            alleycatHost: old.alleycatHost,
+            alleycatNodeId: old.alleycatNodeId,
+            alleycatRelay: old.alleycatRelay,
+            alleycatAgentName: old.alleycatAgentName,
+            alleycatAgentWire: old.alleycatAgentWire
         )
         save(saved)
     }
@@ -173,7 +207,11 @@ enum SavedServerStore {
             sshPortForwardingEnabled: existing.sshPortForwardingEnabled,
             websocketURL: existing.websocketURL,
             rememberedByUser: existing.rememberedByUser,
-            alleycatHost: existing.alleycatHost
+            alleycatHost: existing.alleycatHost,
+            alleycatNodeId: existing.alleycatNodeId,
+            alleycatRelay: existing.alleycatRelay,
+            alleycatAgentName: existing.alleycatAgentName,
+            alleycatAgentWire: existing.alleycatAgentWire
         )
         save(saved)
     }
@@ -202,5 +240,22 @@ enum SavedServerStore {
     private static func shouldReplaceLegacyLocalPlaceholder(_ server: SavedServer) -> Bool {
         server.source == .local
             && server.name.trimmingCharacters(in: .whitespacesAndNewlines) == "This Device"
+    }
+
+    private static func shouldReplaceLegacyAlleycatPlaceholder(_ server: SavedServer) -> Bool {
+        guard server.alleycatNodeId != nil else { return false }
+        let name = server.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name.caseInsensitiveCompare("Alleycat Host") == .orderedSame
+    }
+
+    private static func alleycatFallbackDisplayName(_ server: SavedServer) -> String {
+        guard let nodeId = server.alleycatNodeId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !nodeId.isEmpty else {
+            return "Alleycat"
+        }
+        if nodeId.count <= 16 {
+            return "Alleycat \(nodeId)"
+        }
+        return "Alleycat \(nodeId.prefix(8))...\(nodeId.suffix(8))"
     }
 }

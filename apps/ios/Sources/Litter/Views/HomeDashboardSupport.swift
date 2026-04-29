@@ -5,6 +5,7 @@ struct HomeDashboardRecentSession: Identifiable, Hashable {
     let key: ThreadKey
     let serverId: String
     let serverDisplayName: String
+    let agentRuntimeKind: AgentRuntimeKind
     let isLocal: Bool
     let sessionTitle: String
     let preview: String
@@ -58,6 +59,7 @@ struct HomeDashboardServer: Identifiable, Equatable {
     let statusLabel: String
     let statusColor: Color
     let statusDotState: StatusDotState
+    let agentRuntimes: [AgentRuntimeInfo]
 
     var deduplicationKey: String {
         if isLocal {
@@ -82,8 +84,13 @@ struct HomeDashboardServer: Identifiable, Equatable {
             lhs.hasIpc == rhs.hasIpc &&
             lhs.health == rhs.health &&
             lhs.sourceLabel == rhs.sourceLabel &&
-            lhs.statusLabel == rhs.statusLabel
+            lhs.statusLabel == rhs.statusLabel &&
+            lhs.agentRuntimes.map(agentRuntimeEqualityKey) == rhs.agentRuntimes.map(agentRuntimeEqualityKey)
     }
+}
+
+private func agentRuntimeEqualityKey(_ runtime: AgentRuntimeInfo) -> String {
+    "\(runtime.kind)-\(runtime.name)-\(runtime.displayName)-\(runtime.available)"
 }
 
 @MainActor
@@ -102,6 +109,7 @@ enum HomeDashboardSupport {
                     key: session.key,
                     serverId: session.key.serverId,
                     serverDisplayName: server.displayName,
+                    agentRuntimeKind: session.agentRuntimeKind,
                     isLocal: server.isLocal,
                     sessionTitle: sessionTitle(for: session),
                     preview: session.preview,
@@ -150,7 +158,8 @@ enum HomeDashboardSupport {
                     sourceLabel: server.connectionModeLabel,
                     statusLabel: server.statusLabel,
                     statusColor: server.statusColor,
-                    statusDotState: server.statusDotState
+                    statusDotState: server.statusDotState,
+                    agentRuntimes: server.agentRuntimes
                 )
             }
             .sorted { lhs, rhs in

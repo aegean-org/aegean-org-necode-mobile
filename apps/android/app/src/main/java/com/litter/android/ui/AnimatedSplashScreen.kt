@@ -1,10 +1,16 @@
 package com.litter.android.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,10 +29,16 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sigkitten.litter.android.R
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -74,20 +86,109 @@ fun AnimatedSplashScreen() {
             drawPaws(scale, ox, oy)
         }
 
-        // Tagline
-        Text(
-            text = "codex on your phone",
-            color = LitterTheme.textMuted,
-            style = TextStyle(
-                fontFamily = LitterTheme.monoFont,
-                fontWeight = FontWeight.Normal,
-                fontSize = 14.sp,
-            ),
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 80.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SpinningProviderCarousel(elapsed = elapsed)
+            Text(
+                text = " on your phone",
+                color = LitterTheme.textMuted,
+                style = TextStyle(
+                    fontFamily = LitterTheme.monoFont,
+                    fontWeight = FontWeight.Normal,
+                    fontSize = 14.sp,
+                ),
+            )
+        }
     }
+}
+
+private data class SplashProvider(
+    val label: String,
+    val drawableId: Int,
+)
+
+private val SplashProviders = listOf(
+    SplashProvider("codex", R.drawable.agent_codex),
+    SplashProvider("opencode", R.drawable.agent_opencode),
+    SplashProvider("pi", R.drawable.agent_pi),
+    SplashProvider("claude", R.drawable.agent_claude),
+)
+
+@Composable
+private fun SpinningProviderCarousel(elapsed: Double) {
+    val itemHeight = 18f
+    val phase = providerCarouselPhase(elapsed)
+    val cycleHeight = itemHeight * SplashProviders.size
+
+    Box(
+        modifier = Modifier
+            .width(104.dp)
+            .height((itemHeight * 3).dp),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        SplashProviders.forEachIndexed { index, provider ->
+            val raw = (index - phase).toFloat() * itemHeight
+            val y = wrapCarouselOffset(raw, cycleHeight)
+            val dist = min(abs(y) / itemHeight, 1f)
+            val selected = dist < 0.35f
+            val alpha = if (selected) 1f else max(0.18f, 1f - dist * 0.7f)
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(y = y.dp)
+                    .graphicsLayer(alpha = alpha),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Image(
+                    painter = painterResource(provider.drawableId),
+                    contentDescription = provider.label,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = provider.label,
+                    color = if (selected) LitterTheme.textSecondary else LitterTheme.textMuted,
+                    style = TextStyle(
+                        fontFamily = LitterTheme.monoFont,
+                        fontWeight = FontWeight.Normal,
+                        fontSize = 14.sp,
+                    ),
+                    modifier = Modifier.padding(start = 5.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun providerCarouselPhase(elapsed: Double): Double {
+    val perWord = 0.9
+    val transitionFraction = 0.45
+    val totalCycle = perWord * SplashProviders.size
+    val cycleT = elapsed % totalCycle
+    val wordIndex = floor(cycleT / perWord)
+    val withinWord = cycleT - wordIndex * perWord
+    val dwell = perWord * (1.0 - transitionFraction)
+    if (withinWord < dwell) {
+        return wordIndex
+    }
+    val progress = (withinWord - dwell) / (perWord * transitionFraction)
+    val eased = 0.5 - 0.5 * cos(progress * Math.PI)
+    return wordIndex + eased
+}
+
+private fun wrapCarouselOffset(offset: Float, range: Float): Float {
+    var value = offset % range
+    if (value > range / 2f) {
+        value -= range
+    }
+    if (value < -range / 2f) {
+        value += range
+    }
+    return value
 }
 
 // ── Animation state from elapsed seconds ──

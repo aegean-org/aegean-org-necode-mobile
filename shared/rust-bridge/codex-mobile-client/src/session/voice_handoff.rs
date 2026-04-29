@@ -88,6 +88,10 @@ pub struct HandoffEntry {
     pub base_item_count: usize,
     /// Items that have been streamed to the realtime session.
     pub sent_texts: HashMap<String, String>,
+    /// Last observed item signature from platform polling.
+    pub last_stream_signature: Option<String>,
+    /// Number of consecutive inactive polls with a stable item signature.
+    pub stable_inactive_polls: u8,
     /// Error message if failed.
     pub error: Option<String>,
     /// When the streaming phase started.
@@ -289,6 +293,8 @@ impl HandoffManager {
             remote_thread_key: None,
             base_item_count: 0,
             sent_texts: HashMap::new(),
+            last_stream_signature: None,
+            stable_inactive_polls: 0,
             error: None,
             stream_start: None,
             stream_timeout_secs: 120,
@@ -483,6 +489,10 @@ impl HandoffManager {
             };
 
             let voice_key = entry.voice_thread_key.clone();
+            let stream_signature = stream_items_signature(current_items);
+            let stream_changed =
+                entry.last_stream_signature.as_deref() != Some(stream_signature.as_str());
+            entry.last_stream_signature = Some(stream_signature);
 
             // Check timeout.
             if let Some(start) = entry.stream_start {
@@ -504,15 +514,32 @@ impl HandoffManager {
                 }
             }
 
-            // Stream new items.
+            // V2 realtime treats progress updates as user conversation items.
+            // Do not feed live background-agent progress back into realtime while
+            // the turn is still active, or the voice agent will keep responding
+            // to those updates as if the user had spoken.
+            if turn_active {
+                entry.stable_inactive_polls = 0;
+                return;
+            }
+
+            if stream_changed {
+                entry.stable_inactive_polls = 0;
+                return;
+            }
+
+            entry.stable_inactive_polls = entry.stable_inactive_polls.saturating_add(1);
+            if entry.stable_inactive_polls < 2 {
+                return;
+            }
+
+            // Stream final items once the remote turn has been observed inactive
+            // with a stable item set across consecutive polls.
             for item in current_items {
                 if item.text.is_empty() {
                     continue;
                 }
                 if entry.sent_texts.get(&item.item_id).map(|s| s.as_str()) == Some(&item.text) {
-                    continue;
-                }
-                if turn_active && is_last_assistant_item(item, current_items) {
                     continue;
                 }
 
@@ -526,21 +553,18 @@ impl HandoffManager {
                 });
             }
 
-            // If turn is no longer active, finalize.
-            if !turn_active {
-                entry.phase = HandoffPhase::WaitingFinalize;
-                if entry.sent_texts.is_empty() {
-                    new_actions.push(HandoffAction::ResolveHandoff {
-                        handoff_id: handoff_id.to_string(),
-                        voice_thread_key: voice_key.clone(),
-                        text: "(No response)".to_string(),
-                    });
-                }
-                new_actions.push(HandoffAction::FinalizeHandoff {
+            entry.phase = HandoffPhase::WaitingFinalize;
+            if entry.sent_texts.is_empty() {
+                new_actions.push(HandoffAction::ResolveHandoff {
                     handoff_id: handoff_id.to_string(),
-                    voice_thread_key: voice_key,
+                    voice_thread_key: voice_key.clone(),
+                    text: "(No response)".to_string(),
                 });
             }
+            new_actions.push(HandoffAction::FinalizeHandoff {
+                handoff_id: handoff_id.to_string(),
+                voice_thread_key: voice_key,
+            });
         }
 
         inner.action_queue.extend(new_actions);
@@ -820,12 +844,15 @@ fn resolve_target_server(
     (None, hint.to_string(), false)
 }
 
-fn is_last_assistant_item(item: &StreamedItem, items: &[StreamedItem]) -> bool {
-    if let Some(last) = items.last() {
-        last.item_id == item.item_id
-    } else {
-        false
+fn stream_items_signature(items: &[StreamedItem]) -> String {
+    let mut signature = String::new();
+    for item in items {
+        signature.push_str(&item.item_id);
+        signature.push('\0');
+        signature.push_str(&item.text);
+        signature.push('\0');
     }
+    signature
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,11 +1176,20 @@ mod tests {
             Some(HandoffPhase::Streaming)
         );
 
-        // Poll with items.
+        // Poll with active items: no realtime action yet. Progress is visible
+        // from the remote thread itself; feeding it into realtime as a user
+        // message makes the voice agent respond repeatedly while work runs.
         let items = vec![StreamedItem {
             item_id: "item-1".into(),
             text: "Tests passed!".into(),
         }];
+        mgr.poll_stream_progress("handoff-1", &items, true);
+        assert!(mgr.drain_actions().is_empty());
+
+        // A single inactive sample may be a stale snapshot. Require a stable
+        // inactive sample before resolving/finalizing the handoff.
+        mgr.poll_stream_progress("handoff-1", &items, false);
+        assert!(mgr.drain_actions().is_empty());
         mgr.poll_stream_progress("handoff-1", &items, false);
 
         let actions = mgr.drain_actions();

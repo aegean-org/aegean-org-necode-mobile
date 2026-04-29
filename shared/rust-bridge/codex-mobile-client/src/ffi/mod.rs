@@ -4,7 +4,7 @@
 //! The scaffolding macro is invoked in lib.rs; this module holds additional
 //! FFI helper types and exported functions.
 
-mod alleycat;
+pub(crate) mod alleycat;
 mod android;
 mod app_store;
 mod client;
@@ -16,7 +16,11 @@ mod remote_path;
 pub(crate) mod shared;
 mod ssh;
 
-pub use alleycat::{AlleycatBridge, AppAlleycatConnectResult, AppAlleycatParams};
+pub use crate::ssh_bridge::{AgentAvailabilityStatus, RemoteAgentAvailability, SshBridgeTransport};
+pub use alleycat::{
+    AlleycatBridge, AppAlleycatAgentInfo, AppAlleycatAgentWire, AppAlleycatConnectResult,
+    AppAlleycatPairPayload,
+};
 pub use app_store::{AppStore, AppStoreSubscription};
 pub use client::AppClient;
 pub use discovery::{DiscoveryBridge, DiscoveryScanSubscription, ServerBridge};
@@ -24,10 +28,10 @@ pub use errors::ClientError;
 pub use parser::MessageParser;
 pub use reconnect::ReconnectController;
 pub use remote_path::RemotePath;
-pub use ssh::{AppSshConnectionResult, SshBridge};
+pub use ssh::{AppSshBridgeConnectResult, AppSshConnectionResult, AppSshSessionResult, SshBridge};
 
 // Re-export reconnect boundary types so UniFFI can discover them.
 pub use crate::reconnect::{
-    AlleycatCredentialProvider, AlleycatCredentialRecord, ReconnectResult, SavedServerRecord,
-    SshAuthMethodRecord, SshCredentialProvider, SshCredentialRecord,
+    ReconnectResult, SavedServerRecord, SshAuthMethodRecord, SshCredentialProvider,
+    SshCredentialRecord,
 };

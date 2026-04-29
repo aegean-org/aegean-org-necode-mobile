@@ -236,15 +236,13 @@ fun ConversationScreen(
         appModel.launchState.syncFromThread(thread)
     }
 
-    // Server-paginated initial turn load. Runs on the AppModel scope so it
+    // Initial turn load. Runs on the AppModel scope so it
     // survives recomposition — when Rust applies the page it flips
     // `initialTurnsLoaded` to true, which recomposes this view and would
-    // otherwise cancel a LaunchedEffect mid-RPC. Rust also handles the
-    // legacy-server case (short-circuits when
-    // `supports_turn_pagination == false`); we still gate here on the
-    // capability flag to avoid dispatching the RPC at all.
-    LaunchedEffect(threadKey, thread?.initialTurnsLoaded, supportsTurnPagination) {
-        if (thread != null && !thread.initialTurnsLoaded && supportsTurnPagination) {
+    // otherwise cancel a LaunchedEffect mid-RPC. Rust owns the pagination
+    // capability decision and falls back to embedded resume turns when needed.
+    LaunchedEffect(threadKey, thread?.initialTurnsLoaded) {
+        if (thread != null && !thread.initialTurnsLoaded) {
             appModel.loadInitialTurnsIfNeeded(threadKey)
         }
     }

@@ -451,6 +451,7 @@ struct ContentView: View {
         }
         .onChange(of: appModel.snapshot?.activeThread) { _, _ in
             appState.selectedModel = ""
+            appState.selectedAgentRuntimeKind = nil
             appState.reasoningEffort = ""
             appState.showModelSelector = false
         }
@@ -554,17 +555,22 @@ private struct HomeNavigationView: View {
         navigationPath.isEmpty
     }
 
-    private var pinnedHomeHydrationSignature: String {
+    private var pinnedThreadHydrationSignature: String {
         let pins = homeDashboardModel.pinnedKeys
             .map { "\($0.serverId)/\($0.threadId)" }
             .joined(separator: "|")
-        let servers = homeDashboardModel.connectedServers
-            .map { "\($0.id)=\(String(describing: $0.health))" }
+        let pinnedSet = Set(homeDashboardModel.pinnedKeys)
+        let servers = appModel.snapshot?.servers
+            .map { "\($0.serverId)=\(String(describing: $0.transportState)):\($0.port)" }
+            .joined(separator: "|") ?? ""
+        let sessions = appModel.snapshot?.sessionSummaries
+            .compactMap { summary -> String? in
+                guard pinnedSet.contains(PinnedThreadKey(threadKey: summary.key)) else { return nil }
+                return "\(homeHydrationId(summary.key)):\(summary.isResumed)"
+            }
             .joined(separator: "|")
-        let sessions = homeDashboardModel.recentSessions
-            .map { "\(homeHydrationId($0.key)):\($0.isResumed)" }
-            .joined(separator: "|")
-        return "\(isHomeRouteActive)|\(pins)|\(servers)|\(sessions)"
+            ?? ""
+        return "\(pins)|\(servers)|\(sessions)"
     }
 
     @ViewBuilder
@@ -764,7 +770,7 @@ private struct HomeNavigationView: View {
         .task {
             homeDashboardModel.bind(appModel: appModel)
             updateHomeDashboardActivity()
-            hydratePinnedHomeThreadsIfNeeded()
+            hydratePinnedThreadsIfNeeded()
             seedInitialConversationIfNeeded(activeKey: appModel.snapshot?.activeThread)
         }
         .onChange(of: appModel.snapshot?.activeThread) { _, newKey in
@@ -773,8 +779,8 @@ private struct HomeNavigationView: View {
         .onChange(of: navigationPath.count) { _, _ in
             updateHomeDashboardActivity()
         }
-        .onChange(of: pinnedHomeHydrationSignature) { _, _ in
-            hydratePinnedHomeThreadsIfNeeded()
+        .onChange(of: pinnedThreadHydrationSignature) { _, _ in
+            hydratePinnedThreadsIfNeeded()
         }
         .onChange(of: appState.pendingThreadNavigation) { _, newKey in
             if let newKey {
@@ -1105,8 +1111,10 @@ private struct HomeNavigationView: View {
 
     private func launchConfig(for threadKey: ThreadKey? = nil) -> AppThreadLaunchConfig {
         let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSelectedModel = !selectedModel.isEmpty
         return AppThreadLaunchConfig(
-            model: selectedModel.isEmpty ? nil : selectedModel,
+            agentRuntimeKind: hasSelectedModel ? appState.selectedAgentRuntimeKind : nil,
+            model: hasSelectedModel ? selectedModel : nil,
             approvalPolicy: appState.launchApprovalPolicy(for: threadKey),
             sandbox: appState.launchSandboxMode(for: threadKey),
             developerInstructions: nil,
@@ -1258,7 +1266,9 @@ private struct HomeNavigationView: View {
             onUnpinThread: unpinThread,
             onHideThread: hideThread,
             onNewThread: { openNewThread() },
-            onHydrateThread: hydrateThread,
+            onHydrateThread: { key, loadInitialTurns in
+                await hydrateThread(key, loadInitialTurns: loadInitialTurns)
+            },
             onDeleteThread: deleteThread,
             onReconnectServer: reconnectServer,
             onRestartAppServer: restartAppServer,
@@ -1272,7 +1282,7 @@ private struct HomeNavigationView: View {
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
-            onLoadAllThreads: loadAllThreads
+            onSearchThreads: loadSearchThreads
         )
     }
 
@@ -1296,7 +1306,9 @@ private struct HomeNavigationView: View {
             onPinThread: pinThread,
             onUnpinThread: unpinThread,
             onHideThread: hideThread,
-            onHydrateThread: hydrateThread,
+            onHydrateThread: { key, loadInitialTurns in
+                await hydrateThread(key, loadInitialTurns: loadInitialTurns)
+            },
             onDeleteThread: deleteThread,
             onReconnectServer: reconnectServer,
             onRestartAppServer: restartAppServer,
@@ -1310,7 +1322,7 @@ private struct HomeNavigationView: View {
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
-            onLoadAllThreads: loadAllThreads
+            onSearchThreads: loadSearchThreads
         )
     }
 
@@ -1366,33 +1378,33 @@ private struct HomeNavigationView: View {
         "\(key.serverId)/\(key.threadId)"
     }
 
-    private func hydratePinnedHomeThreadsIfNeeded() {
-        guard isHomeRouteActive else { return }
+    private func hydratePinnedThreadsIfNeeded() {
         let connectedServerIds = Set(
-            homeDashboardModel.connectedServers
-                .filter { $0.health == .connected }
-                .map(\.id)
+            (appModel.snapshot?.servers ?? [])
+                .filter(\.isConnected)
+                .map(\.serverId)
         )
         guard !connectedServerIds.isEmpty else { return }
-        let visibleById = Dictionary(uniqueKeysWithValues: homeDashboardModel.recentSessions.map {
-            (homeHydrationId($0.key), $0)
-        })
 
         for pin in homeDashboardModel.pinnedKeys {
             let key = pin.threadKey
             guard connectedServerIds.contains(key.serverId) else { continue }
             let id = homeHydrationId(key)
-            if visibleById[id]?.isResumed == true { continue }
+            if appModel.snapshot?.sessionSummary(for: key)?.isResumed == true { continue }
             guard !hydratingPinnedHomeThreadIds.contains(id) else { continue }
             hydratingPinnedHomeThreadIds.insert(id)
 
             Task {
                 LLog.info(
                     "home",
-                    "hydrating pinned home thread",
+                    "hydrating pinned thread",
                     fields: ["serverId": key.serverId, "threadId": key.threadId]
                 )
-                await hydrateThread(key, loadInitialTurns: true)
+                var resumed = await hydrateThread(key, loadInitialTurns: true)
+                if !resumed {
+                    await refreshThreadListing(serverId: key.serverId)
+                    resumed = await hydrateThread(key, loadInitialTurns: true)
+                }
                 await MainActor.run {
                     _ = hydratingPinnedHomeThreadIds.remove(id)
                 }
@@ -1400,14 +1412,13 @@ private struct HomeNavigationView: View {
         }
     }
 
-    private func hydrateThread(_ key: ThreadKey, loadInitialTurns: Bool) async {
-        // Resume rather than just read: `external_resume_thread` loads the
-        // thread's items AND attaches a server-side conversation listener
-        // for this connection, so we get live `TurnStarted` / `ItemStarted`
-        // / `MessageDelta` / `TurnCompleted` events. Without it the server
-        // would only push `ThreadStatusChanged` — the active-turn dot would
-        // flip but the streaming bubble, tool log, and session-summary
-        // updates would stay frozen until the user opened the thread.
+    @discardableResult
+    private func hydrateThread(_ key: ThreadKey, loadInitialTurns: Bool) async -> Bool {
+        // Resume rather than just read: `external_resume_thread` attaches a
+        // server-side conversation listener for this connection, so we get
+        // live `TurnStarted` / `ItemStarted` / `MessageDelta` /
+        // `TurnCompleted` events. Pinned home rows also load the latest turn
+        // window so their previews have recent message content.
         //
         // For pinned home rows, resuming preemptively avoids the "first
         // half-second of a stream is missed while we set up a subscription"
@@ -1415,11 +1426,25 @@ private struct HomeNavigationView: View {
         // have. `externalResume`
         // short-circuits to a no-op when IPC is live and the thread's
         // items are already populated, so warm/IPC paths are cheap.
-        if (try? await appModel.store.externalResumeThread(key: key, hostId: nil)) != nil,
-           loadInitialTurns {
+        let resumed = (try? await appModel.store.externalResumeThread(key: key, hostId: nil)) != nil
+        if resumed, loadInitialTurns {
             await appModel.loadInitialTurnsIfNeeded(threadId: key)
         }
         await appModel.refreshThreadSnapshot(key: key)
+        return resumed
+    }
+
+    private func refreshThreadListing(serverId: String) async {
+        _ = try? await appModel.client.listThreads(
+            serverId: serverId,
+            params: AppListThreadsRequest(
+                cursor: nil,
+                limit: nil,
+                archived: nil,
+                cwd: nil,
+                searchTerm: nil
+            )
+        )
     }
 
     private func deleteThread(_ key: ThreadKey) async {
@@ -1517,13 +1542,16 @@ private struct HomeNavigationView: View {
     private func disconnectServer(_ serverId: String) {
         SavedServerStore.remove(serverId: serverId)
         Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
-        // Alleycat sessions are owned by the Rust `ServerSession` and dropped
-        // automatically inside `serverBridge.disconnectServer`.
+        // Remote transport resources are owned by the Rust `ServerSession` and
+        // dropped automatically inside `serverBridge.disconnectServer`.
         appModel.serverBridge.disconnectServer(serverId: serverId)
     }
 
     private func renameServer(_ serverId: String, newName: String) {
         SavedServerStore.rename(serverId: serverId, newName: newName)
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(
+            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
+        )
         appModel.reconnectController.syncSavedServers(
             servers: SavedServerStore.reconnectRecords(
                 localDisplayName: appModel.resolvedLocalServerDisplayName()
@@ -1533,19 +1561,31 @@ private struct HomeNavigationView: View {
     }
 
     @Sendable
-    private func loadAllThreads() async {
+    private func loadSearchThreads(query: String, runtimeKind: AgentRuntimeKind?, forceRepair: Bool) async {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceKinds: [AppThreadSourceKind] = [.cli, .vsCode, .appServer]
         await withTaskGroup(of: Void.self) { group in
             for server in homeDashboardModel.connectedServers {
+                if let runtimeKind,
+                   !server.agentRuntimes.contains(where: { $0.available && $0.kind == runtimeKind }) {
+                    continue
+                }
                 let serverId = server.id
                 group.addTask {
                     _ = try? await appModel.client.listThreads(
                         serverId: serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: nil,
-                            archived: nil,
+                            limit: 80,
+                            sortKey: .updatedAt,
+                            sortDirection: .desc,
+                            modelProviders: nil,
+                            sourceKinds: sourceKinds,
+                            archived: false,
                             cwd: nil,
-                            searchTerm: nil
+                            searchTerm: trimmedQuery.isEmpty ? nil : trimmedQuery,
+                            useStateDbOnly: !forceRepair,
+                            runtimeKinds: runtimeKind.map { [$0] }
                         )
                     )
                 }

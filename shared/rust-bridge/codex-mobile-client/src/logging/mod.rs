@@ -43,7 +43,7 @@ pub(crate) fn install_tracing_subscriber() {
     TRACING_SUBSCRIBER_INSTALLED.get_or_init(|| {
         // Default filter: keep our own crate logs verbose but silence chatty
         // transport-layer crates. quinn / quinn_proto at TRACE under heavy
-        // QUIC load (e.g., the alleycat tunnel streaming a multi-MB
+        // QUIC load (e.g., an iroh stream carrying a multi-MB
         // thread/list response) emits multiple log lines per packet, which
         // on iOS jetsamed the app inside seconds. RUST_LOG overrides if set.
         const DEFAULT_FILTER: &str = "info,\

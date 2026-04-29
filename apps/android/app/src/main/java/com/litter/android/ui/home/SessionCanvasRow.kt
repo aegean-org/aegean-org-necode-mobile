@@ -278,6 +278,14 @@ private fun MetaLine(
                     )
                 }
                 Text(
+                    text = HomeDashboardSupport.runtimeLabel(session.agentRuntimeKind),
+                    color = LitterTheme.accent,
+                    fontFamily = LitterTheme.monoFont,
+                    fontSize = META_FONT_SP.scaled,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
                     text = session.serverDisplayName,
                     color = LitterTheme.textSecondary,
                     fontFamily = LitterTheme.monoFont,

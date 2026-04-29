@@ -15,6 +15,7 @@ final class AppState {
     private static let approvalPolicyKey = "litter.approvalPolicy"
     private static let sandboxModeKey = "litter.sandboxMode"
     private static let preferredModelKey = "litter.preferredModel"
+    private static let preferredAgentRuntimeKindKey = "litter.preferredAgentRuntimeKind"
     private static let preferredReasoningEffortKey = "litter.preferredReasoningEffort"
     private static let inheritPermissionValue = "inherit"
     private static let customPermissionValue = "custom"
@@ -26,10 +27,19 @@ final class AppState {
     var sessionsShowOnlyForks = false
     var sessionsWorkspaceSortModeRaw = "mostRecent"
     var selectedModel = ""
+    var selectedAgentRuntimeKind: AgentRuntimeKind?
     var reasoningEffort = ""
     var preferredModel: String {
         didSet {
             UserDefaults.standard.set(preferredModel, forKey: Self.preferredModelKey)
+        }
+    }
+    var preferredAgentRuntimeKind: AgentRuntimeKind? {
+        didSet {
+            UserDefaults.standard.set(
+                preferredAgentRuntimeKind.map(Self.agentRuntimeWireValue) ?? "",
+                forKey: Self.preferredAgentRuntimeKindKey
+            )
         }
     }
     var preferredReasoningEffort: String {
@@ -60,7 +70,29 @@ final class AppState {
         approvalPolicy = UserDefaults.standard.string(forKey: Self.approvalPolicyKey) ?? "inherit"
         sandboxMode = UserDefaults.standard.string(forKey: Self.sandboxModeKey) ?? "inherit"
         preferredModel = UserDefaults.standard.string(forKey: Self.preferredModelKey) ?? ""
+        preferredAgentRuntimeKind = Self.agentRuntimeKind(
+            UserDefaults.standard.string(forKey: Self.preferredAgentRuntimeKindKey) ?? ""
+        )
         preferredReasoningEffort = UserDefaults.standard.string(forKey: Self.preferredReasoningEffortKey) ?? ""
+    }
+
+    private static func agentRuntimeWireValue(_ kind: AgentRuntimeKind) -> String {
+        switch kind {
+        case .codex: return "codex"
+        case .pi: return "pi"
+        case .opencode: return "opencode"
+        case .claude: return "claude"
+        }
+    }
+
+    private static func agentRuntimeKind(_ raw: String) -> AgentRuntimeKind? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "codex": return .codex
+        case "pi": return .pi
+        case "opencode": return .opencode
+        case "claude": return .claude
+        default: return nil
+        }
     }
 
     func toggleSessionFolder(_ folderPath: String) {

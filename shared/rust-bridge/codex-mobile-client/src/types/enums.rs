@@ -3,6 +3,77 @@
 use codex_app_server_protocol as upstream;
 use serde::{Deserialize, Serialize};
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, uniffi::Enum,
+)]
+pub enum AgentRuntimeKind {
+    Codex,
+    Pi,
+    Opencode,
+    Claude,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum AppSortDirection {
+    Asc,
+    Desc,
+}
+
+impl From<AppSortDirection> for upstream::SortDirection {
+    fn from(value: AppSortDirection) -> Self {
+        match value {
+            AppSortDirection::Asc => Self::Asc,
+            AppSortDirection::Desc => Self::Desc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum AppThreadSortKey {
+    CreatedAt,
+    UpdatedAt,
+}
+
+impl From<AppThreadSortKey> for upstream::ThreadSortKey {
+    fn from(value: AppThreadSortKey) -> Self {
+        match value {
+            AppThreadSortKey::CreatedAt => Self::CreatedAt,
+            AppThreadSortKey::UpdatedAt => Self::UpdatedAt,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum AppThreadSourceKind {
+    Cli,
+    VsCode,
+    Exec,
+    AppServer,
+    SubAgent,
+    SubAgentReview,
+    SubAgentCompact,
+    SubAgentThreadSpawn,
+    SubAgentOther,
+    Unknown,
+}
+
+impl From<AppThreadSourceKind> for upstream::ThreadSourceKind {
+    fn from(value: AppThreadSourceKind) -> Self {
+        match value {
+            AppThreadSourceKind::Cli => Self::Cli,
+            AppThreadSourceKind::VsCode => Self::VsCode,
+            AppThreadSourceKind::Exec => Self::Exec,
+            AppThreadSourceKind::AppServer => Self::AppServer,
+            AppThreadSourceKind::SubAgent => Self::SubAgent,
+            AppThreadSourceKind::SubAgentReview => Self::SubAgentReview,
+            AppThreadSourceKind::SubAgentCompact => Self::SubAgentCompact,
+            AppThreadSourceKind::SubAgentThreadSpawn => Self::SubAgentThreadSpawn,
+            AppThreadSourceKind::SubAgentOther => Self::SubAgentOther,
+            AppThreadSourceKind::Unknown => Self::Unknown,
+        }
+    }
+}
+
 /// Summary status of a thread for mobile thread lists and local state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

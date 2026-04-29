@@ -20,6 +20,7 @@ enum HomeInputMode: Hashable {
 struct HomeBottomBar: View {
     @Binding var mode: HomeInputMode
     @Binding var searchQuery: String
+    var collapseSuppressed = false
     let project: AppProject?
     let transcriptionServerId: String?
     let onThreadCreated: (ThreadKey) -> Void
@@ -166,6 +167,7 @@ struct HomeBottomBar: View {
                     composerHasBeenActive = true
                     return
                 }
+                guard !collapseSuppressed else { return }
                 guard composerHasBeenActive, mode == .composer else { return }
                 let elapsed = Date().timeIntervalSince(composerOpenedAt)
                 guard elapsed > 0.6 else { return }

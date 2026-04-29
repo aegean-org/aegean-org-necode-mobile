@@ -277,6 +277,7 @@
 		7D8DF3D3DF1A25C402708CD2 /* PairBLEAdvertiser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9985C47F86DE72FA41043EE3 /* PairBLEAdvertiser.swift */; };
 		7DE5819DC695EDC07801E1F4 /* AppRpcParams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1251509F0DDD4F5D494C9956 /* AppRpcParams.swift */; };
 		7E12D533FC1A4434D4A0E3E0 /* HomeComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A12222458304DD9CA8D4593 /* HomeComposerView.swift */; };
+		7E5C8BA5FF30E30E8196E59E /* SSHAgentPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B149B584488F5C063EE3BC /* SSHAgentPickerSheet.swift */; };
 		7E7B4AC85F18366192E98E8B /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CFDCB6C4655E3D2D76B41B /* AppState.swift */; };
 		7F7580E318B61556359A4EC1 /* LitterUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46D841AF0FFB0241834F88D0 /* LitterUITests.swift */; };
 		7F9E1F4E77278FA4C9D30B6A /* github-dark-dimmed.json in Resources */ = {isa = PBXBuildFile; fileRef = 69EC5386769902646C245936 /* github-dark-dimmed.json */; };
@@ -332,6 +333,7 @@
 		9900BAB337EAA16B25B5709E /* kanagawa-dragon-VscOyZL-.json in Resources */ = {isa = PBXBuildFile; fileRef = C4ED85CEB24FF82E4E2C4E36 /* kanagawa-dragon-VscOyZL-.json */; };
 		99727CF2AA3B12942AD8F076 /* VoiceSessionControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DD5EE6826564A0EA6AE3FA /* VoiceSessionControl.swift */; };
 		998E606128A3770EE03927FB /* TipJarProducts.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 3AF1303B192D17E47D3F9183 /* TipJarProducts.storekit */; };
+		9A2B73D29CDB5CFEC9AEC2CB /* SSHAgentPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B149B584488F5C063EE3BC /* SSHAgentPickerSheet.swift */; };
 		9AB96D93B2197412451A76F4 /* AnimatedSplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78076308EEAAE64BC3BFDC1F /* AnimatedSplashView.swift */; };
 		9B982CFE6EB151D5E27BB2F3 /* SessionsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C329A73DFA85F4EB70618DCF /* SessionsModel.swift */; };
 		9C2A955AF5986A3C82DA436A /* ImageGenerationToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85743F1AC88293BE8BBD27DA /* ImageGenerationToolCallView.swift */; };
@@ -431,6 +433,7 @@
 		C7381D0F2B63D781225758BA /* material-theme-darker-D.json in Resources */ = {isa = PBXBuildFile; fileRef = 20596BA6184B72B07775A5E1 /* material-theme-darker-D.json */; };
 		C7AD6C6C225FF4C139C81B89 /* CodeBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEDF2E1FEDF741D69062FDDD /* CodeBlockView.swift */; };
 		C866847E4BEBA8A05A0D1EB1 /* HomeDashboardSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FB206863136DF3B8FA50457 /* HomeDashboardSupport.swift */; };
+		C87E14EF9EE09B6990C255AC /* PluginMentionEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37E6A02561EFC0135BB00F5 /* PluginMentionEncodingTests.swift */; };
 		C93588F488F685B4777132FE /* CrossServerToolResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A94747FCE745BAA2DBEBF4 /* CrossServerToolResultView.swift */; };
 		CA41DDEC724CC91E47583700 /* ProjectChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5294396A986F27242D0F814 /* ProjectChip.swift */; };
 		CA5EB741004409272233EC14 /* dracula-soft.json in Resources */ = {isa = PBXBuildFile; fileRef = AF409B64E0082FC6B68379EA /* dracula-soft.json */; };
@@ -488,6 +491,7 @@
 		E002B90CB14F729FD5BF94AF /* AlleycatAddServerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1ADE6881ED6E3294413133 /* AlleycatAddServerSheet.swift */; };
 		E010B8AEEBFF38A28018121D /* ConversationItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF5635331A74B2D510911B8E /* ConversationItem.swift */; };
 		E04DA65EF01434275B11D39D /* AppServerSnapshot+UI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58E2FAFA4D997A5F23A04E5 /* AppServerSnapshot+UI.swift */; };
+		E0F35C6A822034F968B2ED62 /* AgentRuntimePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C66EB395895F19874D3B933 /* AgentRuntimePresentation.swift */; };
 		E129D3CADE431D97BE90BF70 /* ServerPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D220AD4FC96E2D24A533485 /* ServerPill.swift */; };
 		E1408DE3E8499156F9A515D9 /* PairBLE.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14C32BD618AF48814E273862 /* PairBLE.swift */; };
 		E1C1DBC137D5562B08F5E88D /* kanagawa-lotus.json in Resources */ = {isa = PBXBuildFile; fileRef = D2608C1F271D28BFEFBA5EFB /* kanagawa-lotus.json */; };
@@ -531,6 +535,7 @@
 		F1535DE46C8E5A530A8C131E /* ConversationScreenModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B66383694E80CDCBCF582C67 /* ConversationScreenModelTests.swift */; };
 		F28082C2B5339F1BC57764F4 /* oscurange-C.json in Resources */ = {isa = PBXBuildFile; fileRef = 51C3C78C013D314F7F09AB6F /* oscurange-C.json */; };
 		F2A99B16F6AB41896865CD11 /* BerkeleyMono-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 3BD63CCD80D9E1F66879EF97 /* BerkeleyMono-Bold.otf */; };
+		F2F450A57A455A52BD8604C3 /* AgentRuntimePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C66EB395895F19874D3B933 /* AgentRuntimePresentation.swift */; };
 		F320C894D7E17636EE4B5535 /* ConversationScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */; };
 		F3481466D6CAEB76225E5B1F /* SessionReplySwipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0BEC32BA18EED58DFB1D9D7 /* SessionReplySwipe.swift */; };
 		F36A83E0E99555F6B48692C9 /* NearbyMacPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A675C0A5E31FA802F4113CE0 /* NearbyMacPairing.swift */; };
@@ -669,6 +674,7 @@
 		289E852E220BF379FBFA6BCD /* one-dark-pro-D.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "one-dark-pro-D.json"; sourceTree = "<group>"; };
 		2A7F3CC664EDAC7714BA817B /* QuickReplySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickReplySheet.swift; sourceTree = "<group>"; };
 		2BC9B404D9E32D4734566A7D /* LitterWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LitterWatch.entitlements; sourceTree = "<group>"; };
+		2C66EB395895F19874D3B933 /* AgentRuntimePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRuntimePresentation.swift; sourceTree = "<group>"; };
 		2DF6931F753DFD2AB67F62DC /* LitterLiveActivity.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = LitterLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingRendererCoordinator.swift; sourceTree = "<group>"; };
 		2FB04F90D08EE57F92DD7F58 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -727,6 +733,7 @@
 		554F4A83699FF91F38D1E4CE /* VideoWallpaperProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoWallpaperProcessor.swift; sourceTree = "<group>"; };
 		55700E32058BA95A9372AA41 /* ConversationTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationTimelineView.swift; sourceTree = "<group>"; };
 		55A7968182C0B25044D38C00 /* Litter.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Litter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		55B149B584488F5C063EE3BC /* SSHAgentPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHAgentPickerSheet.swift; sourceTree = "<group>"; };
 		56597C90314B4DF5587C3949 /* ExperimentalFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalFeatures.swift; sourceTree = "<group>"; };
 		56CF8611EBE489C15696819A /* nord.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = nord.json; sourceTree = "<group>"; };
 		56EFBFE7DF8014B177A1F7B9 /* ConversationComposerAttachSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationComposerAttachSheet.swift; sourceTree = "<group>"; };
@@ -921,6 +928,7 @@
 		E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWarmupView.swift; sourceTree = "<group>"; };
 		E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscovery.swift; sourceTree = "<group>"; };
 		E2DE018994EE98618A1FB5C7 /* LitterCircularComplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterCircularComplication.swift; sourceTree = "<group>"; };
+		E37E6A02561EFC0135BB00F5 /* PluginMentionEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginMentionEncodingTests.swift; sourceTree = "<group>"; };
 		E518CD2A67CEB8B41545D0D2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E603FBE2AAD5D7C19649F986 /* NewThreadHeroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewThreadHeroView.swift; sourceTree = "<group>"; };
 		E6E494F6BC6E1280CD7E4DD4 /* LitterUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LitterUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1033,6 +1041,7 @@
 				3299D7A71DE1AC05363FDE27 /* MessageContentBridgeTests.swift */,
 				E91C5EBF4621C3644F62BED3 /* NetworkDiscoveryTests.swift */,
 				BE04FF38C9E336A47C7E161B /* PerformanceHelpersTests.swift */,
+				E37E6A02561EFC0135BB00F5 /* PluginMentionEncodingTests.swift */,
 				689720B7DCABED4F7EC8A5C6 /* RealtimeConversationProtocolTests.swift */,
 				E16ACA3C8902C3687BC8518C /* SavedAppsStoreTests.swift */,
 				4B606DE26237FA6DB5D4410B /* StreamingAssistantRenderCacheTests.swift */,
@@ -1366,6 +1375,7 @@
 			isa = PBXGroup;
 			children = (
 				818BC73F3855A9BA29C8E868 /* AccountView.swift */,
+				2C66EB395895F19874D3B933 /* AgentRuntimePresentation.swift */,
 				EC1ADE6881ED6E3294413133 /* AlleycatAddServerSheet.swift */,
 				3759125C1ED21FC24EE5C644 /* AmbientSuggestionsList.swift */,
 				93966B780CB71371994F552D /* AnimatedLogo.swift */,
@@ -1436,6 +1446,7 @@
 				17099E066405571104CB9A37 /* SessionsScreen.swift */,
 				F9F1AA9A960B33D4BF4DEA49 /* SessionsTypes.swift */,
 				DBE8C3705FCC98F7E1642771 /* SettingsView.swift */,
+				55B149B584488F5C063EE3BC /* SSHAgentPickerSheet.swift */,
 				6A9876F2929290D47ED57D77 /* SSHLoginSheet.swift */,
 				EC46EDAF68DEA9B698D2D9BD /* StatusDot.swift */,
 				8148E90D1A219FEE664EB9A1 /* StreamingAssistantRenderCache.swift */,
@@ -1932,6 +1943,7 @@
 				68EE71DC41AA028AFE7118ED /* MessageContentBridgeTests.swift in Sources */,
 				281E122A0363013D87575E4B /* NetworkDiscoveryTests.swift in Sources */,
 				ECD39F196866971BFDF7E17D /* PerformanceHelpersTests.swift in Sources */,
+				C87E14EF9EE09B6990C255AC /* PluginMentionEncodingTests.swift in Sources */,
 				5CADE26AD9CB723244C8F639 /* RealtimeConversationProtocolTests.swift in Sources */,
 				CE6374DC534978B3A07C7688 /* SavedAppsStoreTests.swift in Sources */,
 				59EEAB181A610B1ABF97CC7C /* StreamingAssistantRenderCacheTests.swift in Sources */,
@@ -1959,6 +1971,7 @@
 			files = (
 				5128C7E1A7C94802C9F677BA /* AccountView.swift in Sources */,
 				F6E1ABA46EFFCBFB4063598A /* AgentLabelFormatter.swift in Sources */,
+				E0F35C6A822034F968B2ED62 /* AgentRuntimePresentation.swift in Sources */,
 				BDB323E1E38558C84E479D50 /* AlleycatAddServerSheet.swift in Sources */,
 				D3D196266A7AB00FB80F9CE9 /* AlleycatCredentialStore.swift in Sources */,
 				FA77FC0E7A7570062906E823 /* AmbientSuggestionsList.swift in Sources */,
@@ -2074,6 +2087,7 @@
 				D512CAC21DF746FA702B10EF /* RecentDirectoryStore.swift in Sources */,
 				6DE00D539BF6F92533A4D8C4 /* RustAlleycatBridge.swift in Sources */,
 				3AEBEBB2C0A6483A4E7D62F0 /* RustVoiceHandoff.swift in Sources */,
+				7E5C8BA5FF30E30E8196E59E /* SSHAgentPickerSheet.swift in Sources */,
 				04743D5A1900185832682235 /* SSHLoginSheet.swift in Sources */,
 				B8ADBB0D7496B3BE1285B20F /* SavedAppDetailView.swift in Sources */,
 				701B70DCBE0DB40B9B978B5C /* SavedAppUpdateOverlay.swift in Sources */,
@@ -2136,6 +2150,7 @@
 			files = (
 				E89D0FE23A3FBA385DAD1757 /* AccountView.swift in Sources */,
 				82E7F97F0BBB0EB0FE1B4362 /* AgentLabelFormatter.swift in Sources */,
+				F2F450A57A455A52BD8604C3 /* AgentRuntimePresentation.swift in Sources */,
 				E002B90CB14F729FD5BF94AF /* AlleycatAddServerSheet.swift in Sources */,
 				D11EFBC1C0D250134F354DC5 /* AlleycatCredentialStore.swift in Sources */,
 				8D5985E9F39401CDA4D9722F /* AmbientSuggestionsList.swift in Sources */,
@@ -2236,6 +2251,7 @@
 				ACDDA0682624D4EB1F24618E /* RecentDirectoryStore.swift in Sources */,
 				A91B73BD99881AF4EF7388BE /* RustAlleycatBridge.swift in Sources */,
 				9F41A81BE23B68CA2F74BFE4 /* RustVoiceHandoff.swift in Sources */,
+				9A2B73D29CDB5CFEC9AEC2CB /* SSHAgentPickerSheet.swift in Sources */,
 				59C4E5052033416829304E7E /* SSHLoginSheet.swift in Sources */,
 				32092EEAEF54D6A0637C4ABC /* SavedAppDetailView.swift in Sources */,
 				C43938B0F84917882A0DD215 /* SavedAppUpdateOverlay.swift in Sources */,
@@ -2519,7 +2535,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.5.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
@@ -2668,7 +2684,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.5.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -2757,7 +2773,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.5.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";

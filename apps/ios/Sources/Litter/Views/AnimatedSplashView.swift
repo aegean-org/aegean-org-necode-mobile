@@ -68,9 +68,7 @@ struct AnimatedSplashView: View {
             if !compact {
                 VStack {
                     Spacer()
-                    Text("codex on your phone")
-                        .litterMonoFont(size: 14, weight: .regular)
-                        .foregroundColor(LitterTheme.textMuted)
+                    SplashCarouselText()
                         .padding(.bottom, 80)
                 }
             }
@@ -376,3 +374,123 @@ struct AnimatedSplashView: View {
         }
     }
 }
+
+// MARK: - Vertical word carousel
+//
+// Shows a stack of words that continuously cycles upward like a slot reel.
+// The word in the center slot is treated as "selected" (full color/opacity);
+// neighboring words above/below render dimmer. Each word dwells in the
+// center, then a short eased transition advances to the next word.
+
+private struct CarouselProvider: Identifiable {
+    let label: String
+    let assetName: String
+
+    var id: String { label }
+}
+
+private struct SplashCarouselText: View {
+    private let providers: [CarouselProvider] = [
+        .init(label: "codex", assetName: "agent_codex"),
+        .init(label: "opencode", assetName: "agent_opencode"),
+        .init(label: "pi", assetName: "agent_pi"),
+        .init(label: "claude", assetName: "agent_claude")
+    ]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 0) {
+            SpinningWordCarousel(
+                providers: providers,
+                itemHeight: 18,
+                fontSize: 14,
+                selectedColor: LitterTheme.textSecondary,
+                dimColor: LitterTheme.textMuted
+            )
+
+            Text(" on your phone")
+                .litterMonoFont(size: 14, weight: .regular)
+                .foregroundColor(LitterTheme.textMuted)
+        }
+    }
+}
+
+private struct SpinningWordCarousel: View {
+    let providers: [CarouselProvider]
+    let itemHeight: CGFloat
+    let fontSize: CGFloat
+    let selectedColor: Color
+    let dimColor: Color
+
+    @State private var startDate = Date.now
+
+    private static let frameInterval: TimeInterval = 1.0 / 30.0
+    private let perWord: Double = 0.9
+    private let transitionFraction: Double = 0.45
+
+    var body: some View {
+        TimelineView(.periodic(from: startDate, by: Self.frameInterval)) { timeline in
+            let t = timeline.date.timeIntervalSince(startDate)
+            let phase = easedPhase(t: t)
+            let n = CGFloat(providers.count)
+            let cycleHeight = itemHeight * n
+
+            ZStack(alignment: .trailing) {
+                ForEach(Array(providers.enumerated()), id: \.element.id) { i, provider in
+                    let raw = (CGFloat(i) - CGFloat(phase)) * itemHeight
+                    let y = wrap(raw, range: cycleHeight)
+                    let dist = min(abs(y) / itemHeight, 1.0)
+                    let isSelected = dist < 0.35
+                    let opacity = isSelected ? 1.0 : max(0.18, 1.0 - Double(dist) * 0.7)
+
+                    HStack(spacing: 5) {
+                        Image(provider.assetName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 14, height: 14)
+
+                        Text(provider.label)
+                            .litterMonoFont(size: fontSize, weight: .regular)
+                            .foregroundColor(isSelected ? selectedColor : dimColor)
+                    }
+                    .opacity(opacity)
+                    .offset(y: y)
+                }
+            }
+            .frame(height: itemHeight * 3)
+        }
+        .onAppear { startDate = .now }
+    }
+
+    private func easedPhase(t: TimeInterval) -> Double {
+        let n = Double(providers.count)
+        let totalCycle = perWord * n
+        let cycleT = t.truncatingRemainder(dividingBy: totalCycle)
+        let wordIdx = floor(cycleT / perWord)
+        let withinWord = cycleT - wordIdx * perWord
+        let dwell = perWord * (1.0 - transitionFraction)
+        if withinWord < dwell {
+            return wordIdx
+        }
+        let progress = (withinWord - dwell) / (perWord * transitionFraction)
+        let eased = 0.5 - 0.5 * cos(progress * .pi)
+        return wordIdx + eased
+    }
+
+    private func wrap(_ y: CGFloat, range: CGFloat) -> CGFloat {
+        var v = y.truncatingRemainder(dividingBy: range)
+        if v > range / 2 { v -= range }
+        if v < -range / 2 { v += range }
+        return v
+    }
+}
+
+#if DEBUG
+#Preview("Animated Carousel Text") {
+    ZStack {
+        LitterTheme.backgroundGradient.ignoresSafeArea()
+        SplashCarouselText()
+            .padding(24)
+    }
+    .frame(width: 320, height: 160)
+}
+#endif

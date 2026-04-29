@@ -30,21 +30,21 @@ printf '%s' "$mac""#;
 #[derive(Clone)]
 pub(crate) struct ManagedSshSession {
     pub(crate) client: Arc<SshClient>,
+    pub(crate) host: String,
     pub(crate) pid: Option<u32>,
     pub(crate) shell: RemoteShell,
 }
 
-pub(crate) struct ManagedSshBootstrapFlow {
-    pub(crate) install_decision: Option<oneshot::Sender<bool>>,
-}
+// `ManagedSshBootstrapFlow` lives on `MobileClient::ssh_bootstrap_flows` so
+// the connect entry point (now on `ServerBridge`) and the install-prompt
+// response (on `SshBridge`) can share state across bridges.
+pub(crate) use crate::mobile_client::ManagedSshBootstrapFlow;
 
 #[derive(uniffi::Object)]
 pub struct SshBridge {
     pub(crate) rt: Arc<tokio::runtime::Runtime>,
     pub(crate) ssh_sessions: Mutex<std::collections::HashMap<String, ManagedSshSession>>,
     pub(crate) next_ssh_session_id: AtomicU64,
-    pub(crate) bootstrap_flows:
-        Arc<tokio::sync::Mutex<std::collections::HashMap<String, ManagedSshBootstrapFlow>>>,
 }
 
 #[derive(uniffi::Record)]
@@ -58,6 +58,19 @@ pub struct AppSshConnectionResult {
     pub wake_mac: Option<String>,
 }
 
+#[derive(uniffi::Record)]
+pub struct AppSshSessionResult {
+    pub session_id: String,
+    pub normalized_host: String,
+    pub wake_mac: Option<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct AppSshBridgeConnectResult {
+    pub server_id: String,
+    pub agent_name: String,
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl SshBridge {
     #[uniffi::constructor]
@@ -66,7 +79,6 @@ impl SshBridge {
             rt: shared_runtime(),
             ssh_sessions: Mutex::new(std::collections::HashMap::new()),
             next_ssh_session_id: AtomicU64::new(1),
-            bootstrap_flows: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -177,6 +189,7 @@ impl SshBridge {
             session_id.clone(),
             ManagedSshSession {
                 client: Arc::clone(&session),
+                host: normalized_host.clone(),
                 pid: bootstrap.pid,
                 shell,
             },
@@ -199,6 +212,113 @@ impl SshBridge {
             server_version: bootstrap.server_version,
             pid: bootstrap.pid,
             wake_mac,
+        })
+    }
+
+    pub async fn ssh_open_session(
+        &self,
+        host: String,
+        port: u16,
+        username: String,
+        password: Option<String>,
+        private_key_pem: Option<String>,
+        passphrase: Option<String>,
+        unlock_macos_keychain: bool,
+        accept_unknown_host: bool,
+    ) -> Result<AppSshSessionResult, ClientError> {
+        let normalized_host = normalize_ssh_host(&host);
+        let auth = ssh_auth(password, private_key_pem, passphrase)?;
+        let credentials = SshCredentials {
+            host: normalized_host.clone(),
+            port,
+            username,
+            auth,
+            unlock_macos_keychain,
+        };
+        let session = Arc::new(
+            SshClient::connect(
+                credentials,
+                Box::new(move |_fingerprint| Box::pin(async move { accept_unknown_host })),
+            )
+            .await
+            .map_err(map_ssh_error)?,
+        );
+        let shell = session.detect_remote_shell().await;
+        let wake_mac = self.ssh_read_wake_mac(Arc::clone(&session)).await;
+        let session_id = format!(
+            "ssh-{}",
+            self.next_ssh_session_id.fetch_add(1, Ordering::Relaxed)
+        );
+        self.ssh_sessions_lock().insert(
+            session_id.clone(),
+            ManagedSshSession {
+                client: Arc::clone(&session),
+                host: normalized_host.clone(),
+                pid: None,
+                shell,
+            },
+        );
+        Ok(AppSshSessionResult {
+            session_id,
+            normalized_host,
+            wake_mac,
+        })
+    }
+
+    pub async fn ssh_probe_remote_agents(
+        &self,
+        session_id: String,
+    ) -> Result<Vec<crate::ssh_bridge::RemoteAgentAvailability>, ClientError> {
+        let session = self
+            .ssh_sessions_lock()
+            .get(&session_id)
+            .map(|session| Arc::clone(&session.client))
+            .ok_or_else(|| {
+                ClientError::InvalidParams(format!("unknown SSH session id: {session_id}"))
+            })?;
+        crate::ssh_bridge::probe_remote_agents(&session)
+            .await
+            .map_err(|error| ClientError::Transport(error.to_string()))
+    }
+
+    pub async fn ssh_connect_bridge_session(
+        &self,
+        session_id: String,
+        server_id: String,
+        display_name: String,
+        host: String,
+        state_root: String,
+        runtime_kinds: Vec<crate::types::AgentRuntimeKind>,
+        transport: crate::ssh_bridge::SshBridgeTransport,
+    ) -> Result<AppSshBridgeConnectResult, ClientError> {
+        let managed = self
+            .ssh_sessions_lock()
+            .get(&session_id)
+            .cloned()
+            .ok_or_else(|| {
+                ClientError::InvalidParams(format!("unknown SSH session id: {session_id}"))
+            })?;
+        let host = if host.trim().is_empty() {
+            managed.host.clone()
+        } else {
+            normalize_ssh_host(&host)
+        };
+        let mobile_client = shared_mobile_client();
+        let outcome = mobile_client
+            .connect_remote_over_ssh_bridges(
+                Arc::clone(&managed.client),
+                server_id,
+                display_name,
+                host,
+                state_root,
+                runtime_kinds,
+                transport,
+            )
+            .await
+            .map_err(|error| ClientError::Transport(error.to_string()))?;
+        Ok(AppSshBridgeConnectResult {
+            server_id: outcome.server_id,
+            agent_name: outcome.agent_name,
         })
     }
 
@@ -231,205 +351,6 @@ impl SshBridge {
         Ok(())
     }
 
-    pub async fn ssh_connect_remote_server(
-        &self,
-        server_id: String,
-        display_name: String,
-        host: String,
-        port: u16,
-        username: String,
-        password: Option<String>,
-        private_key_pem: Option<String>,
-        passphrase: Option<String>,
-        unlock_macos_keychain: bool,
-        accept_unknown_host: bool,
-        working_dir: Option<String>,
-        ipc_socket_path_override: Option<String>,
-    ) -> Result<String, ClientError> {
-        let normalized_host = normalize_ssh_host(&host);
-        let auth = ssh_auth(password, private_key_pem, passphrase)?;
-        info!(
-            "SshBridge: ssh_connect_remote_server start server_id={} host={} normalized_host={} ssh_port={} username={} auth={} working_dir={} ipc_socket_path_override={}",
-            server_id,
-            host.as_str(),
-            normalized_host.as_str(),
-            port,
-            username.as_str(),
-            ssh_auth_kind(&auth),
-            working_dir.as_deref().unwrap_or("<none>"),
-            ipc_socket_path_override.as_deref().unwrap_or("<none>")
-        );
-        let credentials = SshCredentials {
-            host: normalized_host.clone(),
-            port,
-            username,
-            auth,
-            unlock_macos_keychain,
-        };
-        let config = ServerConfig {
-            server_id,
-            display_name,
-            host: normalized_host,
-            port: 0,
-            websocket_url: None,
-            is_local: false,
-            tls: false,
-        };
-        let mobile_client = shared_mobile_client();
-        let (tx, rx) = oneshot::channel();
-        let task_server_id = config.server_id.clone();
-
-        // Run the full SSH bootstrap on Tokio and only surface the final
-        // completion back through UniFFI. Polling the full bootstrap future
-        // directly from Swift's cooperative executor can overflow its small
-        // stack on iOS when the websocket handshake wakes aggressively.
-        tokio::spawn(async move {
-            let result = mobile_client
-                .connect_remote_over_ssh(
-                    config,
-                    credentials,
-                    accept_unknown_host,
-                    working_dir,
-                    ipc_socket_path_override,
-                )
-                .await
-                .map_err(|e| ClientError::Transport(e.to_string()));
-            match &result {
-                Ok(server_id) => info!(
-                    "SshBridge: ssh_connect_remote_server completed server_id={}",
-                    server_id
-                ),
-                Err(error) => warn!(
-                    "SshBridge: ssh_connect_remote_server failed server_id={} error={}",
-                    task_server_id, error
-                ),
-            }
-            let _ = tx.send(result);
-        });
-
-        rx.await
-            .map_err(|_| ClientError::Rpc("ssh connect task cancelled".to_string()))?
-    }
-
-    pub async fn ssh_start_remote_server_connect(
-        &self,
-        server_id: String,
-        display_name: String,
-        host: String,
-        port: u16,
-        username: String,
-        password: Option<String>,
-        private_key_pem: Option<String>,
-        passphrase: Option<String>,
-        unlock_macos_keychain: bool,
-        accept_unknown_host: bool,
-        working_dir: Option<String>,
-        ipc_socket_path_override: Option<String>,
-    ) -> Result<String, ClientError> {
-        let normalized_host = normalize_ssh_host(&host);
-        let auth = ssh_auth(password, private_key_pem, passphrase)?;
-        info!(
-            "SshBridge: ssh_start_remote_server_connect start server_id={} host={} normalized_host={} ssh_port={} username={} auth={} working_dir={} ipc_socket_path_override={}",
-            server_id,
-            host.as_str(),
-            normalized_host.as_str(),
-            port,
-            username.as_str(),
-            ssh_auth_kind(&auth),
-            working_dir.as_deref().unwrap_or("<none>"),
-            ipc_socket_path_override.as_deref().unwrap_or("<none>")
-        );
-        let credentials = SshCredentials {
-            host: normalized_host.clone(),
-            port,
-            username,
-            auth,
-            unlock_macos_keychain,
-        };
-        let config = ServerConfig {
-            server_id: server_id.clone(),
-            display_name,
-            host: normalized_host,
-            port: 0,
-            websocket_url: None,
-            is_local: false,
-            tls: false,
-        };
-
-        {
-            let mut flows = self.bootstrap_flows.lock().await;
-            if flows.contains_key(&server_id) {
-                debug!(
-                    "SshBridge: ssh_start_remote_server_connect reusing existing bootstrap flow server_id={}",
-                    server_id
-                );
-                return Ok(server_id);
-            }
-            flows.insert(
-                server_id.clone(),
-                ManagedSshBootstrapFlow {
-                    install_decision: None,
-                },
-            );
-        }
-
-        let mobile_client = shared_mobile_client();
-        mobile_client
-            .app_store
-            .upsert_server(&config, ServerHealthSnapshot::Connecting, true);
-        let initial_progress = AppConnectionProgressSnapshot::ssh_bootstrap();
-        mobile_client
-            .app_store
-            .update_server_connection_progress(&server_id, Some(initial_progress.clone()));
-
-        let flows = Arc::clone(&self.bootstrap_flows);
-        let task_server_id = server_id.clone();
-        let task_host = credentials.host.clone();
-        tokio::spawn(async move {
-            let mut progress = initial_progress;
-            trace!(
-                "SshBridge: guided ssh connect task spawned server_id={} host={}",
-                task_server_id, task_host
-            );
-            let task_result = run_guided_ssh_connect(
-                Arc::clone(&mobile_client),
-                Arc::clone(&flows),
-                config,
-                credentials,
-                accept_unknown_host,
-                working_dir,
-                ipc_socket_path_override,
-                &mut progress,
-            )
-            .await;
-
-            if let Err(ref error) = task_result {
-                warn!(
-                    "guided ssh connect failed server_id={} host={} error={}",
-                    task_server_id, task_host, error
-                );
-                mark_progress_failure(&mut progress, error.to_string());
-                mobile_client
-                    .app_store
-                    .update_server_health(&task_server_id, ServerHealthSnapshot::Disconnected);
-                mobile_client
-                    .app_store
-                    .update_server_connection_progress(&task_server_id, Some(progress));
-            }
-
-            if task_result.is_ok() {
-                info!(
-                    "SshBridge: guided ssh connect completed server_id={} host={}",
-                    task_server_id, task_host
-                );
-            }
-
-            flows.lock().await.remove(&task_server_id);
-        });
-
-        Ok(server_id)
-    }
-
     pub async fn ssh_respond_to_install_prompt(
         &self,
         server_id: String,
@@ -439,8 +360,9 @@ impl SshBridge {
             "SshBridge: ssh_respond_to_install_prompt server_id={} install={}",
             server_id, install
         );
+        let mobile_client = shared_mobile_client();
         let sender = {
-            let mut flows = self.bootstrap_flows.lock().await;
+            let mut flows = mobile_client.ssh_bootstrap_flows.lock().await;
             flows
                 .get_mut(&server_id)
                 .and_then(|flow| flow.install_decision.take())
@@ -455,7 +377,7 @@ impl SshBridge {
     }
 }
 
-fn ssh_auth_kind(auth: &SshAuth) -> &'static str {
+pub(crate) fn ssh_auth_kind(auth: &SshAuth) -> &'static str {
     match auth {
         SshAuth::Password(_) => "password",
         SshAuth::PrivateKey { .. } => "private_key",
@@ -498,7 +420,7 @@ async fn read_wake_mac(session: Arc<SshClient>) -> Option<String> {
     normalize_wake_mac(&result.stdout)
 }
 
-async fn run_guided_ssh_connect(
+pub(crate) async fn run_guided_ssh_connect(
     mobile_client: Arc<crate::MobileClient>,
     bootstrap_flows: Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, ManagedSshBootstrapFlow>>,
@@ -794,7 +716,7 @@ async fn run_guided_ssh_connect(
     Ok(())
 }
 
-fn mark_progress_failure(progress: &mut AppConnectionProgressSnapshot, message: String) {
+pub(crate) fn mark_progress_failure(progress: &mut AppConnectionProgressSnapshot, message: String) {
     if let Some(step) = progress.steps.iter_mut().find(|step| {
         matches!(
             step.state,
@@ -827,7 +749,7 @@ pub(crate) fn map_ssh_error(error: SshError) -> ClientError {
     }
 }
 
-fn ssh_auth(
+pub(crate) fn ssh_auth(
     password: Option<String>,
     private_key_pem: Option<String>,
     passphrase: Option<String>,
@@ -847,7 +769,7 @@ fn ssh_auth(
     }
 }
 
-fn normalize_ssh_host(host: &str) -> String {
+pub(crate) fn normalize_ssh_host(host: &str) -> String {
     let mut normalized = host.trim().trim_matches(['[', ']']).replace("%25", "%");
     if !normalized.contains(':') {
         if let Some((base, _scope)) = normalized.split_once('%') {

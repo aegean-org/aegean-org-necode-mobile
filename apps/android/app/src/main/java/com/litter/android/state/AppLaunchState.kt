@@ -11,6 +11,7 @@ import uniffi.codex_mobile_client.AppReadOnlyAccess
 import uniffi.codex_mobile_client.AppDynamicToolSpec
 import uniffi.codex_mobile_client.AppSandboxMode
 import uniffi.codex_mobile_client.AppSandboxPolicy
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.generativeUiDynamicToolSpecs
 
@@ -25,6 +26,7 @@ data class ThreadPermissionOverride(
 data class AppLaunchStateSnapshot(
     val currentCwd: String = "",
     val selectedModel: String = "",
+    val selectedAgentRuntimeKind: AgentRuntimeKind? = null,
     val reasoningEffort: String = "",
     val approvalPolicy: String = DEFAULT_APPROVAL_POLICY,
     val sandboxMode: String = DEFAULT_SANDBOX_MODE,
@@ -63,10 +65,24 @@ class AppLaunchState(context: Context) {
         }
     }
 
-    fun updateSelectedModel(model: String?) {
+    fun updateSelectedModel(
+        model: String?,
+        agentRuntimeKind: AgentRuntimeKind? = null,
+    ) {
         val normalized = model.normalizedOrEmpty()
+        val normalizedRuntime = if (normalized.isEmpty()) null else agentRuntimeKind
         _snapshot.update { state ->
-            if (state.selectedModel == normalized) state else state.copy(selectedModel = normalized)
+            if (
+                state.selectedModel == normalized &&
+                state.selectedAgentRuntimeKind == normalizedRuntime
+            ) {
+                state
+            } else {
+                state.copy(
+                    selectedModel = normalized,
+                    selectedAgentRuntimeKind = normalizedRuntime,
+                )
+            }
         }
     }
 
@@ -132,6 +148,7 @@ class AppLaunchState(context: Context) {
         val state = snapshot.value
         val selectedModel = modelOverride.normalizedOrNull() ?: state.selectedModel.normalizedOrNull()
         return AppThreadLaunchConfig(
+            agentRuntimeKind = if (selectedModel == null) null else state.selectedAgentRuntimeKind,
             model = selectedModel,
             approvalPolicy = approvalPolicyValue(threadKey),
             sandboxMode = sandboxModeValue(threadKey),

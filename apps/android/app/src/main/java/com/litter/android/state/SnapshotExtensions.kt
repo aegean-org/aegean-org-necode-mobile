@@ -11,6 +11,7 @@ import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.AppConnectionStepKind
 import uniffi.codex_mobile_client.AppConnectionStepSnapshot
 import uniffi.codex_mobile_client.AppConnectionStepState
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.ThreadSummaryStatus
 
 /** Accent green matching iOS theme. */
@@ -170,7 +171,55 @@ val AppThreadSnapshot.hasActiveTurn: Boolean
     get() = activeTurnId?.trim()?.isNotEmpty() == true || info.status.isActiveStatus
 
 val AppThreadSnapshot.resolvedModel: String
-    get() = model ?: info.model ?: ""
+    get() = model?.trim()?.takeIf { it.isNotEmpty() }
+        ?: info.model?.trim()?.takeIf { it.isNotEmpty() }
+        ?: ""
+
+val AppThreadSnapshot.displayModelLabel: String
+    get() = displayModelLabel(
+        model = model,
+        infoModel = info.model,
+        modelProvider = info.modelProvider,
+        agentRuntimeKind = agentRuntimeKind,
+    )
+
+fun displayModelLabel(
+    model: String?,
+    infoModel: String?,
+    modelProvider: String?,
+    agentRuntimeKind: AgentRuntimeKind,
+): String {
+    model?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    infoModel?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    modelProviderDisplayLabel(modelProvider)?.let { return it }
+    return agentRuntimeDisplayLabel(agentRuntimeKind)
+}
+
+private fun modelProviderDisplayLabel(provider: String?): String? {
+    val trimmed = provider?.trim().orEmpty()
+    if (trimmed.isEmpty()) return null
+
+    return when (val normalized = trimmed.lowercase()) {
+        "anthropic", "claude", "claude-code", "claude_code" -> "Claude"
+        "opencode", "open-code", "open_code" -> "opencode"
+        "pi", "pi.dev", "pidev" -> "Pi"
+        "openai", "codex" -> "Codex"
+        else -> {
+            if (normalized.startsWith("claude") || normalized.contains("anthropic")) {
+                "Claude"
+            } else {
+                trimmed
+            }
+        }
+    }
+}
+
+private fun agentRuntimeDisplayLabel(kind: AgentRuntimeKind): String = when (kind) {
+    AgentRuntimeKind.CODEX -> "Codex"
+    AgentRuntimeKind.PI -> "Pi"
+    AgentRuntimeKind.OPENCODE -> "opencode"
+    AgentRuntimeKind.CLAUDE -> "Claude"
+}
 
 val AppThreadSnapshot.displayTitle: String
     get() = info.preview?.takeIf { it.isNotBlank() }

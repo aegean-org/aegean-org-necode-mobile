@@ -1,7 +1,8 @@
 import Foundation
 
 struct AppThreadLaunchConfig: Equatable, Sendable {
-    var model: String?
+    var agentRuntimeKind: AgentRuntimeKind? = nil
+    var model: String? = nil
     var approvalPolicy: AppAskForApproval?
     var sandbox: AppSandboxMode?
     var developerInstructions: String?
@@ -9,6 +10,7 @@ struct AppThreadLaunchConfig: Equatable, Sendable {
 
     func threadStartRequest(cwd: String, dynamicTools: [AppDynamicToolSpec]? = nil) -> AppStartThreadRequest {
         AppStartThreadRequest(
+            agentRuntimeKind: agentRuntimeKind,
             model: model,
             cwd: cwd,
             approvalPolicy: approvalPolicy,

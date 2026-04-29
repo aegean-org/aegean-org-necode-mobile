@@ -175,9 +175,20 @@ struct HeaderView: View {
 
     private var sessionModelLabel: String {
         let pendingModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !pendingModel.isEmpty { return pendingModel }
+        if !pendingModel.isEmpty {
+            if let model = availableModels.first(where: {
+                modelMatchesSelection(
+                    $0,
+                    pendingModel,
+                    runtime: appState.selectedAgentRuntimeKind
+                )
+            }) {
+                return model.displayName
+            }
+            return pendingModel
+        }
 
-        let threadModel = (thread.model ?? thread.info.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let threadModel = thread.displayModelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         if !threadModel.isEmpty { return threadModel }
 
         return "litter"
@@ -192,7 +203,13 @@ struct HeaderView: View {
 
         // Fall back to the model's default reasoning effort from the loaded model list.
         let currentModel = (thread.model ?? thread.info.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if let model = availableModels.first(where: { $0.model == currentModel }),
+        if let model = availableModels.first(where: {
+            modelMatchesSelection(
+                $0,
+                currentModel,
+                runtime: thread.agentRuntimeKind
+            )
+        }),
            !model.defaultReasoningEffort.wireValue.isEmpty {
             return model.defaultReasoningEffort.wireValue
         }
@@ -215,10 +232,31 @@ struct HeaderView: View {
             get: {
                 let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !pending.isEmpty { return pending }
-                return (thread.model ?? thread.info.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return currentThreadModelSelectionId
             },
             set: { appState.selectedModel = $0 }
         )
+    }
+
+    private var selectedAgentRuntimeKindBinding: Binding<AgentRuntimeKind?> {
+        Binding(
+            get: {
+                let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !pending.isEmpty { return appState.selectedAgentRuntimeKind }
+                return currentThreadAgentRuntimeKind
+            },
+            set: { appState.selectedAgentRuntimeKind = $0 }
+        )
+    }
+
+    private var currentThreadModelSelectionId: String {
+        let currentModel = (thread.model ?? thread.info.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentModel.isEmpty else { return "" }
+        return currentModel
+    }
+
+    private var currentThreadAgentRuntimeKind: AgentRuntimeKind? {
+        thread.agentRuntimeKind
     }
 
     private var reasoningEffortBinding: Binding<String> {
@@ -250,6 +288,7 @@ struct ConversationModelPickerPanel: View {
         InlineModelSelectorView(
             models: availableModels,
             selectedModel: selectedModelBinding,
+            selectedAgentRuntimeKind: selectedAgentRuntimeKindBinding,
             reasoningEffort: reasoningEffortBinding,
             threadKey: thread.key,
             collaborationMode: thread.collaborationMode,
@@ -276,6 +315,17 @@ struct ConversationModelPickerPanel: View {
                 return (thread.model ?? thread.info.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             },
             set: { appState.selectedModel = $0 }
+        )
+    }
+
+    private var selectedAgentRuntimeKindBinding: Binding<AgentRuntimeKind?> {
+        Binding(
+            get: {
+                let pending = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !pending.isEmpty { return appState.selectedAgentRuntimeKind }
+                return thread.agentRuntimeKind
+            },
+            set: { appState.selectedAgentRuntimeKind = $0 }
         )
     }
 
@@ -411,9 +461,21 @@ private struct RemoteAuthSession: Identifiable {
     let url: URL
 }
 
+func modelMatchesSelection(
+    _ model: ModelInfo,
+    _ selection: String,
+    runtime: AgentRuntimeKind? = nil
+) -> Bool {
+    let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+    if let runtime, model.agentRuntimeKind != runtime { return false }
+    return model.id == trimmed || model.model == trimmed
+}
+
 struct InlineModelSelectorView: View {
     let models: [ModelInfo]
     @Binding var selectedModel: String
+    @Binding var selectedAgentRuntimeKind: AgentRuntimeKind?
     @Binding var reasoningEffort: String
     /// `nil` indicates the view is being used before a thread exists (home
     /// composer). In that case, plan-mode selection is stored as a pending
@@ -426,10 +488,25 @@ struct InlineModelSelectorView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
     @AppStorage("fastMode") private var fastMode = false
+    @State private var modelSearchQuery = ""
+    @State private var modelSearchIndex = ModelSearchIndex()
     var onDismiss: () -> Void
 
+    private var activeModelSearchIndex: ModelSearchIndex {
+        if modelSearchIndex.isEmpty, !models.isEmpty {
+            return ModelSearchIndex(models: models)
+        }
+        return modelSearchIndex
+    }
+
     private var currentModel: ModelInfo? {
-        if let match = models.first(where: { $0.id == selectedModel }) {
+        if let match = models.first(where: {
+            modelMatchesSelection(
+                $0,
+                selectedModel,
+                runtime: selectedAgentRuntimeKind
+            )
+        }) {
             return match
         }
         // When shown from the home composer, `selectedModel` may be empty
@@ -451,12 +528,34 @@ struct InlineModelSelectorView: View {
     }
 
     var body: some View {
+        let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
+
         VStack(spacing: 0) {
+            modelSearchField
+
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(models) { model in
+                    if models.isEmpty {
+                        Text("Loading models...")
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 24)
+                    } else if visibleModels.isEmpty {
+                        Text("No matching models")
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 24)
+                    }
+
+                    let lastModelID = visibleModels.last?.id
+                    ForEach(visibleModels) { model in
                         Button {
                             selectedModel = model.id
+                            selectedAgentRuntimeKind = model.agentRuntimeKind
                             reasoningEffort = model.defaultReasoningEffort.wireValue
                             // Auto-dismiss only in the thread-scoped popover
                             // context. In the home sheet (no thread yet) we
@@ -465,6 +564,8 @@ struct InlineModelSelectorView: View {
                             if threadKey != nil { onDismiss() }
                         } label: {
                             HStack {
+                                ModelRuntimeIcon(kind: model.agentRuntimeKind)
+
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 6) {
                                         Text(model.displayName)
@@ -485,7 +586,11 @@ struct InlineModelSelectorView: View {
                                         .foregroundColor(LitterTheme.textSecondary)
                                 }
                                 Spacer()
-                                if model.id == selectedModel {
+                                if modelMatchesSelection(
+                                    model,
+                                    selectedModel,
+                                    runtime: selectedAgentRuntimeKind
+                                ) {
                                     Image(systemName: "checkmark")
                                         .litterFont(size: 12, weight: .medium)
                                         .foregroundColor(LitterTheme.accent)
@@ -494,7 +599,7 @@ struct InlineModelSelectorView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                         }
-                        if model.id != models.last?.id {
+                        if model.id != lastModelID {
                             Divider().background(LitterTheme.separator).padding(.leading, 16)
                         }
                     }
@@ -600,6 +705,34 @@ struct InlineModelSelectorView: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(showsBackground ? LitterTheme.surface : Color.clear)
+        .onAppear {
+            modelSearchIndex = ModelSearchIndex(models: models)
+        }
+        .onChange(of: models) { _, newModels in
+            modelSearchIndex = ModelSearchIndex(models: newModels)
+        }
+    }
+
+    private var modelSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(LitterTheme.textMuted)
+            TextField("Search models", text: $modelSearchQuery)
+                .litterFont(.caption)
+                .foregroundStyle(LitterTheme.textPrimary)
+                .tint(LitterTheme.accent)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !modelSearchQuery.isEmpty {
+                Button { modelSearchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(LitterTheme.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 }
 
@@ -618,103 +751,246 @@ private struct InAppSafariView: UIViewControllerRepresentable {
 struct ModelSelectorSheet: View {
     let models: [ModelInfo]
     @Binding var selectedModel: String
+    @Binding var selectedAgentRuntimeKind: AgentRuntimeKind?
     @Binding var reasoningEffort: String
     @AppStorage("fastMode") private var fastMode = false
+    @State private var modelSearchQuery = ""
+    @State private var modelSearchIndex = ModelSearchIndex()
 
     private var currentModel: ModelInfo? {
-        models.first { $0.id == selectedModel }
+        models.first {
+            modelMatchesSelection(
+                $0,
+                selectedModel,
+                runtime: selectedAgentRuntimeKind
+            )
+        }
+    }
+
+    private var activeModelSearchIndex: ModelSearchIndex {
+        if modelSearchIndex.isEmpty, !models.isEmpty {
+            return ModelSearchIndex(models: models)
+        }
+        return modelSearchIndex
     }
 
     var body: some View {
+        let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
+
         ScrollView {
-            VStack(spacing: 0) {
-            ForEach(models) { model in
-                Button {
-                    selectedModel = model.id
-                    reasoningEffort = model.defaultReasoningEffort.wireValue
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(model.displayName)
-                                    .litterFont(.footnote)
-                                    .foregroundColor(LitterTheme.textPrimary)
-                                if model.isDefault {
-                                    Text("default")
+            LazyVStack(spacing: 0) {
+                modelSearchField
+
+                if models.isEmpty {
+                    Text("Loading models...")
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 24)
+                } else if visibleModels.isEmpty {
+                    Text("No matching models")
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 24)
+                }
+
+                ForEach(visibleModels) { model in
+                    Button {
+                        selectedModel = model.id
+                        selectedAgentRuntimeKind = model.agentRuntimeKind
+                        reasoningEffort = model.defaultReasoningEffort.wireValue
+                    } label: {
+                        HStack {
+                            ModelRuntimeIcon(kind: model.agentRuntimeKind)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(model.displayName)
+                                        .litterFont(.footnote)
+                                        .foregroundColor(LitterTheme.textPrimary)
+                                    if model.isDefault {
+                                        Text("default")
+                                            .litterFont(.caption2, weight: .medium)
+                                            .foregroundColor(LitterTheme.accent)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 1)
+                                            .background(LitterTheme.accent.opacity(0.15))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                                Text(model.description)
+                                    .litterFont(.caption2)
+                                    .foregroundColor(LitterTheme.textSecondary)
+                            }
+                            Spacer()
+                            if modelMatchesSelection(
+                                model,
+                                selectedModel,
+                                runtime: selectedAgentRuntimeKind
+                            ) {
+                                Image(systemName: "checkmark")
+                                    .litterFont(size: 12, weight: .medium)
+                                    .foregroundColor(LitterTheme.accent)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                    }
+                    Divider().background(LitterTheme.separator).padding(.leading, 20)
+                }
+
+                if let info = currentModel, !info.supportedReasoningEfforts.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(info.supportedReasoningEfforts) { effort in
+                                Button {
+                                    reasoningEffort = effort.reasoningEffort.wireValue
+                                } label: {
+                                    Text(effort.reasoningEffort.wireValue)
                                         .litterFont(.caption2, weight: .medium)
-                                        .foregroundColor(LitterTheme.accent)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 1)
-                                        .background(LitterTheme.accent.opacity(0.15))
+                                        .foregroundColor(effort.reasoningEffort.wireValue == reasoningEffort ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(effort.reasoningEffort.wireValue == reasoningEffort ? LitterTheme.accent : LitterTheme.surfaceLight)
                                         .clipShape(Capsule())
                                 }
                             }
-                            Text(model.description)
-                                .litterFont(.caption2)
-                                .foregroundColor(LitterTheme.textSecondary)
                         }
-                        Spacer()
-                        if model.id == selectedModel {
-                            Image(systemName: "checkmark")
-                                .litterFont(size: 12, weight: .medium)
-                                .foregroundColor(LitterTheme.accent)
-                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
                 }
+
                 Divider().background(LitterTheme.separator).padding(.leading, 20)
-            }
 
-            if let info = currentModel, !info.supportedReasoningEfforts.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(info.supportedReasoningEfforts) { effort in
-                            Button {
-                                reasoningEffort = effort.reasoningEffort.wireValue
-                            } label: {
-                                Text(effort.reasoningEffort.wireValue)
-                                    .litterFont(.caption2, weight: .medium)
-                                    .foregroundColor(effort.reasoningEffort.wireValue == reasoningEffort ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(effort.reasoningEffort.wireValue == reasoningEffort ? LitterTheme.accent : LitterTheme.surfaceLight)
-                                    .clipShape(Capsule())
-                            }
+                HStack(spacing: 6) {
+                    Button {
+                        fastMode.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.fill")
+                                .litterFont(size: 9, weight: .semibold)
+                            Text("Fast")
+                                .litterFont(.caption2, weight: .medium)
                         }
+                        .foregroundColor(fastMode ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(fastMode ? LitterTheme.warning : LitterTheme.surfaceLight)
+                        .clipShape(Capsule())
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
+                    Spacer()
                 }
-            }
-
-            Divider().background(LitterTheme.separator).padding(.leading, 20)
-
-            HStack(spacing: 6) {
-                Button {
-                    fastMode.toggle()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "bolt.fill")
-                            .litterFont(size: 9, weight: .semibold)
-                        Text("Fast")
-                            .litterFont(.caption2, weight: .medium)
-                    }
-                    .foregroundColor(fastMode ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(fastMode ? LitterTheme.warning : LitterTheme.surfaceLight)
-                    .clipShape(Capsule())
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
 
             }
         }
         .padding(.top, 20)
         .background(.ultraThinMaterial)
+        .onAppear {
+            modelSearchIndex = ModelSearchIndex(models: models)
+        }
+        .onChange(of: models) { _, newModels in
+            modelSearchIndex = ModelSearchIndex(models: newModels)
+        }
+    }
+
+    private var modelSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(LitterTheme.textMuted)
+            TextField("Search models", text: $modelSearchQuery)
+                .litterFont(.body)
+                .foregroundStyle(LitterTheme.textPrimary)
+                .tint(LitterTheme.accent)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !modelSearchQuery.isEmpty {
+                Button { modelSearchQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(LitterTheme.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
+    }
+}
+
+private struct ModelSearchIndex {
+    private struct Row {
+        let model: ModelInfo
+        let searchableText: String
+    }
+
+    private static let maxResults = 80
+
+    private var rows: [Row] = []
+
+    var isEmpty: Bool {
+        rows.isEmpty
+    }
+
+    init() {}
+
+    init(models: [ModelInfo]) {
+        rows = models.map { model in
+            Row(
+                model: model,
+                searchableText: [
+                    model.id,
+                    model.model,
+                    model.displayName,
+                    model.description
+                ]
+                .joined(separator: "\n")
+                .lowercased()
+            )
+        }
+    }
+
+    func results(matching query: String) -> [ModelInfo] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedQuery.isEmpty else {
+            return Array(rows.prefix(Self.maxResults).map(\.model))
+        }
+
+        var matches: [ModelInfo] = []
+        matches.reserveCapacity(min(Self.maxResults, rows.count))
+        for row in rows where row.searchableText.contains(normalizedQuery) {
+            matches.append(row.model)
+            if matches.count == Self.maxResults {
+                break
+            }
+        }
+        return matches
+    }
+}
+
+private struct ModelRuntimeIcon: View {
+    let kind: AgentRuntimeKind
+
+    var body: some View {
+        Image(kind.assetName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 16, height: 16)
+            .padding(kind == .codex ? 0 : 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(kind == .codex ? Color.clear : Color.black.opacity(0.8))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(kind == .codex ? Color.clear : LitterTheme.textPrimary.opacity(0.3), lineWidth: 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .accessibilityLabel(kind.displayLabel)
     }
 }
 

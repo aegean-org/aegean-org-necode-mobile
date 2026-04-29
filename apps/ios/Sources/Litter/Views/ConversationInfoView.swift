@@ -125,7 +125,8 @@ struct ConversationInfoView: View {
 
             // Model + reasoning badges
             HStack(spacing: 8) {
-                if let model = thread?.model ?? thread?.info.model {
+                if let model = thread?.displayModelLabel,
+                   !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(model)
                         .litterFont(size: 13, weight: .medium)
                         .foregroundStyle(LitterTheme.accent)

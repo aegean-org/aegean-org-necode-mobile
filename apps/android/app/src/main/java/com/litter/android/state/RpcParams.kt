@@ -7,6 +7,7 @@ import uniffi.codex_mobile_client.AppResumeThreadRequest
 import uniffi.codex_mobile_client.AppDynamicToolSpec
 import uniffi.codex_mobile_client.AppStartThreadRequest
 import uniffi.codex_mobile_client.AppStartTurnRequest
+import uniffi.codex_mobile_client.AgentRuntimeKind
 import uniffi.codex_mobile_client.ReasoningEffort
 import uniffi.codex_mobile_client.AppSandboxMode
 import uniffi.codex_mobile_client.AppSandboxPolicy
@@ -29,6 +30,7 @@ data class ComposerImageAttachment(
  * Converts to mobile-owned Rust request types.
  */
 data class AppThreadLaunchConfig(
+    val agentRuntimeKind: AgentRuntimeKind? = null,
     val model: String? = null,
     val approvalPolicy: AppAskForApproval? = null,
     val sandboxMode: AppSandboxMode? = null,
@@ -39,6 +41,7 @@ data class AppThreadLaunchConfig(
         cwd: String,
         dynamicTools: List<AppDynamicToolSpec>? = null,
     ): AppStartThreadRequest = AppStartThreadRequest(
+        agentRuntimeKind = agentRuntimeKind,
         model = model,
         cwd = cwd,
         approvalPolicy = approvalPolicy,

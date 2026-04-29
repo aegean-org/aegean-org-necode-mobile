@@ -585,8 +585,8 @@ final class VoiceRuntimeController: VoiceActions {
                 serverId: serverId,
                 params: AppThreadLaunchConfig(
                     model: handoffModel,
-                    approvalPolicy: nil,
-                    sandbox: nil,
+                    approvalPolicy: .never,
+                    sandbox: .dangerFullAccess,
                     developerInstructions: nil,
                     persistExtendedHistory: true
                 ).threadStartRequest(
@@ -624,8 +624,8 @@ final class VoiceRuntimeController: VoiceActions {
                 payload: AppComposerPayload(
                     text: transcript,
                     additionalInputs: [],
-                    approvalPolicy: nil,
-                    sandboxPolicy: nil,
+                    approvalPolicy: .never,
+                    sandboxPolicy: .dangerFullAccess,
                     model: model,
                     effort: ReasoningEffort(wireValue: effort),
                     serviceTier: fastMode ? .fast : nil
@@ -678,6 +678,7 @@ final class VoiceRuntimeController: VoiceActions {
         handoffActionPollTask?.cancel()
         handoffActionPollTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            var inactivePolls = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let thread = self.appModel?.snapshot?.threadSnapshot(for: key) else { break }
@@ -700,7 +701,12 @@ final class VoiceRuntimeController: VoiceActions {
                 }
                 self.handoffManager.pollStreamProgress(handoffId: handoffId, items: items, turnActive: turnActive)
                 self.processHandoffActions()
-                if !turnActive { break }
+                if turnActive {
+                    inactivePolls = 0
+                } else {
+                    inactivePolls += 1
+                    if inactivePolls >= 3 { break }
+                }
             }
         }
     }

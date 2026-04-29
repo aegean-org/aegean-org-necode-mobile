@@ -6,6 +6,7 @@ import SwiftUI
 struct ConversationOptionsSheet: View {
     let models: [ModelInfo]
     @Binding var selectedModel: String
+    @Binding var selectedAgentRuntimeKind: AgentRuntimeKind?
     @Binding var reasoningEffort: String
     var threadKey: ThreadKey?
     var collaborationMode: AppModeKind = .default
@@ -22,6 +23,7 @@ struct ConversationOptionsSheet: View {
         InlineModelSelectorView(
             models: models,
             selectedModel: $selectedModel,
+            selectedAgentRuntimeKind: $selectedAgentRuntimeKind,
             reasoningEffort: $reasoningEffort,
             threadKey: threadKey,
             collaborationMode: collaborationMode,

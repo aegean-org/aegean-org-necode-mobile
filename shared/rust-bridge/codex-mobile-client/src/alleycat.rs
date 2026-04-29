@@ -1,63 +1,108 @@
-//! Internal alleycat tunnel client wrapper.
-//!
-//! Thin shim over [`alleycat_client::Session`] that owns the QUIC session
-//! plus any bound loopback forwards. Mirrors the layering of `crate::ssh`:
-//! internal types live here, the UniFFI surface lives in `crate::ffi::alleycat`.
+use std::pin::Pin;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use std::time::Duration;
+use async_trait::async_trait;
+use codex_app_server_client::{AppServerClient, RemoteAppServerClient, RemoteAppServerConnectArgs};
+use iroh::endpoint::{IdleTimeout, QuicTransportConfig, RecvStream, SendStream};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl};
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tracing::info;
 
-use alleycat_client::{
-    ConnectParams, ForwardHandle, ForwardSpec, Session, SessionError, Target, WIRE_PROTOCOL_VERSION,
-};
-use serde::Deserialize;
-use tracing::{debug, info, warn};
+use crate::session::remote_transport::{Reconnected, RemoteTransport};
+use crate::transport::TransportError;
+use crate::types::AgentRuntimeKind;
 
-/// Length in hex characters of an SHA-256 certificate fingerprint.
-const FINGERPRINT_HEX_LEN: usize = 64;
+pub const ALLEYCAT_PROTOCOL_VERSION: u32 = 1;
+pub const ALLEYCAT_ALPN: &[u8] = b"alleycat/1";
+const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
-/// Per-candidate timeout when racing host candidates. The QUIC handshake
-/// itself takes ~1 RTT once UDP reachability is established, so anything
-/// above 3s is almost certainly a dead candidate (wrong network, NAT, etc.).
-const PER_CANDIDATE_TIMEOUT: Duration = Duration::from_secs(4);
-
-/// Parsed connect-params payload from a paired QR code.
-///
-/// The QR may now also carry an ordered list of host candidates the phone
-/// can race; old QRs without that field deserialize as an empty list and
-/// the caller is expected to provide a host explicitly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedPairPayload {
-    pub protocol_version: u32,
-    pub udp_port: u16,
-    pub cert_fingerprint: String,
+    pub version: u32,
+    pub node_id: String,
     pub token: String,
-    /// Ranked candidate hostnames/IPs, most-likely-reachable first.
-    /// Empty when scanning a pre-`hostCandidates` QR.
-    pub host_candidates: Vec<String>,
+    pub relay: Option<String>,
+    pub host_name: Option<String>,
 }
 
-/// A connected alleycat session plus the forwards we bound on its behalf.
-///
-/// Held by the FFI layer so the QUIC session outlives the WebSocket that's
-/// tunneled through it; reconnect plumbing in `session::connection` keeps
-/// `Arc<AlleycatSession>` to re-`ensure_forward` after WebSocket drops.
-pub struct AlleycatSession {
-    pub session: Session,
-    pub forwards: Vec<BoundForward>,
-    /// Whichever candidate host actually completed the handshake. Useful for
-    /// the iOS layer to display ("connected to studio.tail.ts.net") and to
-    /// stash on the saved-server record.
-    pub connected_host: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentInfo {
+    pub name: String,
+    pub display_name: String,
+    pub wire: AgentWire,
+    pub available: bool,
 }
 
-/// A single bound forward: which target it points at, and the loopback port
-/// we ended up listening on.
+pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntimeKind> {
+    let name = name.trim().to_ascii_lowercase();
+    let display_name = display_name.trim().to_ascii_lowercase();
+    let candidate = if name.is_empty() {
+        display_name.as_str()
+    } else {
+        name.as_str()
+    };
+    match candidate {
+        "codex" => Some(AgentRuntimeKind::Codex),
+        "pi" | "pi.dev" | "pidev" => Some(AgentRuntimeKind::Pi),
+        "opencode" | "open-code" | "open_code" => Some(AgentRuntimeKind::Opencode),
+        "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
+        _ if display_name == "codex" => Some(AgentRuntimeKind::Codex),
+        _ if display_name == "pi" || display_name == "pi.dev" => Some(AgentRuntimeKind::Pi),
+        _ if display_name == "opencode" || display_name == "open code" => {
+            Some(AgentRuntimeKind::Opencode)
+        }
+        _ if display_name == "claude" || display_name == "claude code" => {
+            Some(AgentRuntimeKind::Claude)
+        }
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentWire {
+    Websocket,
+    Jsonl,
+}
+
 #[derive(Debug, Clone)]
-pub struct BoundForward {
-    pub target: Target,
-    pub local_port: u16,
-    /// Held to keep the listener task alive for as long as the session is.
-    pub handle: ForwardHandle,
+pub struct AlleycatReconnectTransport {
+    pub params: ParsedPairPayload,
+    pub agent: String,
+    pub wire: AgentWire,
+}
+
+#[async_trait]
+impl RemoteTransport for AlleycatReconnectTransport {
+    async fn reconnect(
+        &self,
+        _args: &RemoteAppServerConnectArgs,
+        _websocket_url: &str,
+    ) -> Result<Reconnected, TransportError> {
+        // Each successful reconnect creates a fresh iroh Endpoint inside a new
+        // AlleycatSession. The worker stores that AlleycatSession as its keepalive
+        // so the previous endpoint is dropped only after the new one is installed —
+        // the previous behavior of dropping the new session immediately would have
+        // torn down the QUIC connection backing the new client.
+        let (client, session) =
+            connect_app_server_client(self.params.clone(), self.agent.clone(), self.wire)
+                .await
+                .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        Ok(Reconnected {
+            client,
+            keepalive: Some(session as Arc<dyn Send + Sync>),
+        })
+    }
+}
+
+pub struct AlleycatSession {
+    #[allow(dead_code)]
+    endpoint: Endpoint,
+    pub params: ParsedPairPayload,
+    pub agent: String,
+    pub wire: AgentWire,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -66,266 +111,409 @@ pub enum AlleycatError {
     InvalidPayload(String),
     #[error("protocol version mismatch: payload={payload} client={client}")]
     ProtocolMismatch { payload: u32, client: u32 },
-    #[error("session error: {0}")]
-    Session(String),
+    #[error("transport error: {0}")]
+    Transport(String),
 }
 
-impl From<SessionError> for AlleycatError {
-    fn from(value: SessionError) -> Self {
-        AlleycatError::Session(value.to_string())
-    }
-}
-
-/// Wire shape of the JSON payload encoded in the pair QR.
-///
-/// Mirrors the subset of `alleycat_protocol::ReadyFile` that mobile cares
-/// about — the pid / allowlist fields aren't needed at connect time.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct PairPayloadWire {
-    protocol_version: u32,
-    udp_port: u16,
-    cert_fingerprint: String,
+    v: u32,
+    node_id: String,
     token: String,
-    /// Optional for back-compat with the original (pre–host-candidates) QR.
-    #[serde(default)]
-    host_candidates: Vec<String>,
+    relay: Option<String>,
+    #[serde(default, alias = "hostname", alias = "display_name", alias = "name")]
+    host_name: Option<String>,
 }
 
-/// Parse and validate the JSON payload encoded into a pair QR.
-///
-/// Returns the parsed struct on success. Validates that:
-/// - the JSON has all four required fields,
-/// - `cert_fingerprint` is exactly 64 lowercase hex chars (SHA-256),
-/// - `protocol_version` matches [`WIRE_PROTOCOL_VERSION`],
-/// - `token` is non-empty.
+#[derive(Debug, Serialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum Request {
+    ListAgents {
+        v: u32,
+        token: String,
+    },
+    Connect {
+        v: u32,
+        token: String,
+        agent: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct Response {
+    v: u32,
+    ok: bool,
+    #[serde(default)]
+    agents: Vec<AgentInfoWire>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgentInfoWire {
+    name: String,
+    display_name: String,
+    wire: AgentWireWire,
+    available: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum AgentWireWire {
+    Websocket,
+    Jsonl,
+}
+
 pub fn parse_pair_payload(json: &str) -> Result<ParsedPairPayload, AlleycatError> {
     let wire: PairPayloadWire = serde_json::from_str(json)
         .map_err(|error| AlleycatError::InvalidPayload(format!("malformed JSON: {error}")))?;
-
-    if wire.protocol_version != WIRE_PROTOCOL_VERSION {
+    if wire.v != ALLEYCAT_PROTOCOL_VERSION {
         return Err(AlleycatError::ProtocolMismatch {
-            payload: wire.protocol_version,
-            client: WIRE_PROTOCOL_VERSION,
+            payload: wire.v,
+            client: ALLEYCAT_PROTOCOL_VERSION,
         });
     }
-
-    if wire.token.is_empty() {
+    if wire.node_id.trim().is_empty() {
+        return Err(AlleycatError::InvalidPayload("empty node_id".into()));
+    }
+    EndpointId::from_str(&wire.node_id)
+        .map_err(|error| AlleycatError::InvalidPayload(format!("invalid node_id: {error}")))?;
+    if wire.token.trim().is_empty() {
         return Err(AlleycatError::InvalidPayload("empty token".into()));
     }
-
-    let normalized_fp = wire.cert_fingerprint.trim().to_ascii_lowercase();
-    if normalized_fp.len() != FINGERPRINT_HEX_LEN
-        || !normalized_fp.chars().all(|c| c.is_ascii_hexdigit())
-    {
-        return Err(AlleycatError::InvalidPayload(format!(
-            "certFingerprint must be {FINGERPRINT_HEX_LEN} hex chars (sha256), got {}",
-            normalized_fp.len()
-        )));
+    if let Some(relay) = wire.relay.as_deref() {
+        RelayUrl::from_str(relay).map_err(|error| {
+            AlleycatError::InvalidPayload(format!("invalid relay URL: {error}"))
+        })?;
     }
-
-    let host_candidates: Vec<String> = wire
-        .host_candidates
-        .into_iter()
-        .map(|h| h.trim().to_string())
-        .filter(|h| !h.is_empty())
-        .collect();
-
     Ok(ParsedPairPayload {
-        protocol_version: wire.protocol_version,
-        udp_port: wire.udp_port,
-        cert_fingerprint: normalized_fp,
+        version: wire.v,
+        node_id: wire.node_id,
         token: wire.token,
-        host_candidates,
+        relay: wire.relay,
+        host_name: normalize_optional_host_name(wire.host_name),
     })
 }
 
-/// Try each candidate host in order with a short per-attempt timeout, picking
-/// the first that completes a QUIC handshake. Once connected, bind a local
-/// forward for each requested target.
-///
-/// `hosts` must be non-empty — callers typically prepend a user-typed override
-/// (if any) onto `params.host_candidates`. Errors from individual hosts are
-/// collected and returned together if all candidates fail, so the user can
-/// see why every one was unreachable.
-pub async fn connect_and_forward(
-    hosts: Vec<String>,
-    params: ParsedPairPayload,
-    targets: Vec<Target>,
-) -> Result<AlleycatSession, AlleycatError> {
-    if hosts.is_empty() {
-        return Err(AlleycatError::InvalidPayload(
-            "no host candidates supplied".into(),
-        ));
-    }
+fn normalize_optional_host_name(host_name: Option<String>) -> Option<String> {
+    host_name
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+}
 
-    let mut attempt_errors: Vec<String> = Vec::new();
-    let mut session_with_host: Option<(Session, String)> = None;
-
-    for host in hosts {
-        let connect_params = ConnectParams {
-            host: host.clone(),
-            port: params.udp_port,
-            cert_fingerprint: params.cert_fingerprint.clone(),
+pub async fn list_agents(params: ParsedPairPayload) -> Result<Vec<AgentInfo>, AlleycatError> {
+    let (_endpoint, _conn, mut send, mut recv) = open_stream(&params).await?;
+    write_json_frame(
+        &mut send,
+        &Request::ListAgents {
+            v: ALLEYCAT_PROTOCOL_VERSION,
             token: params.token.clone(),
-            protocol_version: params.protocol_version,
-        };
-        info!(
-            "alleycat: attempting host={} udp_port={}",
-            host, params.udp_port
-        );
-        match tokio::time::timeout(PER_CANDIDATE_TIMEOUT, Session::connect(connect_params)).await {
-            Ok(Ok(session)) => {
-                info!("alleycat: connected via host={}", host);
-                session_with_host = Some((session, host));
-                break;
-            }
-            Ok(Err(error)) => {
-                warn!("alleycat: host={} failed: {error}", host);
-                attempt_errors.push(format!("{host}: {error}"));
-            }
-            Err(_) => {
-                warn!(
-                    "alleycat: host={} timed out after {:?}",
-                    host, PER_CANDIDATE_TIMEOUT
-                );
-                attempt_errors.push(format!("{host}: timed out after {PER_CANDIDATE_TIMEOUT:?}"));
-            }
+        },
+    )
+    .await?;
+    let response: Response = read_json_frame(&mut recv).await?;
+    validate_response(&response)?;
+    Ok(response
+        .agents
+        .into_iter()
+        .map(|agent| AgentInfo {
+            name: agent.name,
+            display_name: agent.display_name,
+            wire: agent.wire.into(),
+            available: agent.available,
+        })
+        .collect())
+}
+
+pub async fn connect_app_server_client(
+    params: ParsedPairPayload,
+    agent: String,
+    wire: AgentWire,
+) -> Result<(AppServerClient, Arc<AlleycatSession>), AlleycatError> {
+    let (endpoint, _conn, mut send, mut recv) = open_stream(&params).await?;
+    write_json_frame(
+        &mut send,
+        &Request::Connect {
+            v: ALLEYCAT_PROTOCOL_VERSION,
+            token: params.token.clone(),
+            agent: agent.clone(),
+        },
+    )
+    .await?;
+    let response: Response = read_json_frame(&mut recv).await?;
+    validate_response(&response)?;
+    let label = format!("alleycat://{}/{}", params.node_id, agent);
+    let args = RemoteAppServerConnectArgs {
+        websocket_url: format!("ws://alleycat/{agent}"),
+        auth_token: None,
+        client_name: "Litter".to_string(),
+        client_version: "1.0".to_string(),
+        experimental_api: true,
+        opt_out_notification_methods: Vec::new(),
+        channel_capacity: 256,
+    };
+    let stream = AlleycatStream::new(send, recv);
+    let remote = match wire {
+        AgentWire::Websocket => {
+            RemoteAppServerClient::connect_websocket_stream(stream, args, label)
+                .await
+                .map_err(|error| AlleycatError::Transport(error.to_string()))?
         }
+        AgentWire::Jsonl => RemoteAppServerClient::connect_json_line_stream(stream, args, label)
+            .await
+            .map_err(|error| AlleycatError::Transport(error.to_string()))?,
+    };
+    let session = Arc::new(AlleycatSession {
+        endpoint,
+        params,
+        agent,
+        wire,
+    });
+    Ok((AppServerClient::Remote(remote), session))
+}
+
+async fn open_stream(
+    params: &ParsedPairPayload,
+) -> Result<(Endpoint, iroh::endpoint::Connection, SendStream, RecvStream), AlleycatError> {
+    // QUIC's effective idle timeout is min(local, remote) — leaving the
+    // phone on iroh's 30s default would cap pi/opencode tunnels at 30s
+    // even though the daemon raised its own to 600s, killing idle agent
+    // connections between user actions. Match the daemon's 600s so the
+    // tunnels stay open until either side actually wants to close them.
+    let idle_timeout = IdleTimeout::try_from(std::time::Duration::from_secs(600))
+        .map_err(|err| AlleycatError::Transport(format!("idle timeout: {err}")))?;
+    let transport = QuicTransportConfig::builder()
+        .max_idle_timeout(Some(idle_timeout))
+        .build();
+    let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+        .transport_config(transport)
+        .bind()
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("binding iroh endpoint: {error}")))?;
+    let id = EndpointId::from_str(&params.node_id)
+        .map_err(|error| AlleycatError::InvalidPayload(format!("invalid node_id: {error}")))?;
+    let mut addr = EndpointAddr::new(id);
+    if let Some(relay) = params.relay.as_deref() {
+        let relay = RelayUrl::from_str(relay).map_err(|error| {
+            AlleycatError::InvalidPayload(format!("invalid relay URL: {error}"))
+        })?;
+        addr = addr.with_relay_url(relay);
     }
+    info!("alleycat: connecting node_id={}", params.node_id);
+    let conn = endpoint
+        .connect(addr, ALLEYCAT_ALPN)
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("connecting iroh endpoint: {error}")))?;
+    let (send, recv) = conn
+        .open_bi()
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("opening iroh stream: {error}")))?;
+    Ok((endpoint, conn, send, recv))
+}
 
-    let (session, connected_host) = session_with_host.ok_or_else(|| {
-        AlleycatError::Session(format!(
-            "all host candidates failed: {}",
-            attempt_errors.join("; ")
-        ))
-    })?;
+async fn read_json_frame<T, R>(reader: &mut R) -> Result<T, AlleycatError>
+where
+    T: for<'de> Deserialize<'de>,
+    R: AsyncRead + Unpin,
+{
+    let len = reader
+        .read_u32()
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("reading frame length: {error}")))?
+        as usize;
+    if len > MAX_FRAME_BYTES {
+        return Err(AlleycatError::Transport(format!(
+            "frame too large: {len} bytes"
+        )));
+    }
+    let mut buf = vec![0u8; len];
+    reader
+        .read_exact(&mut buf)
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("reading frame body: {error}")))?;
+    serde_json::from_slice(&buf)
+        .map_err(|error| AlleycatError::Transport(format!("decoding frame JSON: {error}")))
+}
 
-    let mut forwards = Vec::with_capacity(targets.len());
-    for target in targets {
-        let handle = session
-            .ensure_forward(ForwardSpec {
-                local_port: 0,
-                target: target.clone(),
-            })
-            .await?;
-        debug!(
-            "alleycat: bound forward target={:?} local_port={}",
-            target,
-            handle.local_port()
-        );
-        forwards.push(BoundForward {
-            target,
-            local_port: handle.local_port(),
-            handle,
+async fn write_json_frame<T, W>(writer: &mut W, value: &T) -> Result<(), AlleycatError>
+where
+    T: Serialize,
+    W: AsyncWrite + Unpin,
+{
+    let buf = serde_json::to_vec(value)
+        .map_err(|error| AlleycatError::Transport(format!("encoding frame JSON: {error}")))?;
+    if buf.len() > MAX_FRAME_BYTES {
+        return Err(AlleycatError::Transport(format!(
+            "frame too large: {} bytes",
+            buf.len()
+        )));
+    }
+    writer
+        .write_u32(buf.len() as u32)
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("writing frame length: {error}")))?;
+    writer
+        .write_all(&buf)
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("writing frame body: {error}")))?;
+    writer
+        .flush()
+        .await
+        .map_err(|error| AlleycatError::Transport(format!("flushing frame: {error}")))?;
+    Ok(())
+}
+
+fn validate_response(response: &Response) -> Result<(), AlleycatError> {
+    if response.v != ALLEYCAT_PROTOCOL_VERSION {
+        return Err(AlleycatError::ProtocolMismatch {
+            payload: response.v,
+            client: ALLEYCAT_PROTOCOL_VERSION,
         });
     }
+    if !response.ok {
+        return Err(AlleycatError::Transport(
+            response
+                .error
+                .clone()
+                .unwrap_or_else(|| "host rejected request".to_string()),
+        ));
+    }
+    Ok(())
+}
 
-    Ok(AlleycatSession {
-        session,
-        forwards,
-        connected_host,
-    })
+impl From<AgentWireWire> for AgentWire {
+    fn from(value: AgentWireWire) -> Self {
+        match value {
+            AgentWireWire::Websocket => Self::Websocket,
+            AgentWireWire::Jsonl => Self::Jsonl,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AlleycatStream {
+    send: SendStream,
+    recv: RecvStream,
+}
+
+impl AlleycatStream {
+    fn new(send: SendStream, recv: RecvStream) -> Self {
+        Self { send, recv }
+    }
+}
+
+impl AsyncRead for AlleycatStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        Pin::new(&mut this.recv).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for AlleycatStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        AsyncWrite::poll_write(Pin::new(&mut this.send), cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        AsyncWrite::poll_flush(Pin::new(&mut this.send), cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        AsyncWrite::poll_shutdown(Pin::new(&mut this.send), cx)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn good_payload() -> String {
-        format!(
-            r#"{{"protocolVersion":{ver},"udpPort":47123,"certFingerprint":"{fp}","token":"deadbeef"}}"#,
-            ver = WIRE_PROTOCOL_VERSION,
-            fp = "a".repeat(FINGERPRINT_HEX_LEN),
-        )
-    }
-
     #[test]
     fn parse_pair_payload_happy_path() {
-        let parsed = parse_pair_payload(&good_payload()).expect("happy-path parse should succeed");
-        assert_eq!(parsed.protocol_version, WIRE_PROTOCOL_VERSION);
-        assert_eq!(parsed.udp_port, 47123);
-        assert_eq!(parsed.cert_fingerprint, "a".repeat(FINGERPRINT_HEX_LEN));
+        let key = iroh::SecretKey::generate();
+        let json = format!(
+            r#"{{"v":1,"node_id":"{}","token":"deadbeef","relay":"https://relay.example.com","host_name":"studio.local"}}"#,
+            key.public()
+        );
+        let parsed = parse_pair_payload(&json).expect("parse");
+        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.node_id, key.public().to_string());
         assert_eq!(parsed.token, "deadbeef");
-        // host_candidates is optional in the wire format — back-compat with
-        // pre-candidate QRs returns an empty list.
-        assert!(parsed.host_candidates.is_empty());
+        assert_eq!(parsed.relay.as_deref(), Some("https://relay.example.com"));
+        assert_eq!(parsed.host_name.as_deref(), Some("studio.local"));
     }
 
     #[test]
-    fn parse_pair_payload_reads_host_candidates() {
+    fn parse_pair_payload_accepts_legacy_hostname_alias() {
+        let key = iroh::SecretKey::generate();
         let json = format!(
-            r#"{{"protocolVersion":{ver},"udpPort":47123,"certFingerprint":"{fp}","token":"deadbeef","hostCandidates":["studio.tail.ts.net","100.64.0.1"," ","192.168.1.5"]}}"#,
-            ver = WIRE_PROTOCOL_VERSION,
-            fp = "a".repeat(FINGERPRINT_HEX_LEN),
+            r#"{{"v":1,"node_id":"{}","token":"deadbeef","hostname":"studio"}}"#,
+            key.public()
         );
-        let parsed = parse_pair_payload(&json).expect("should parse");
+        let parsed = parse_pair_payload(&json).expect("parse");
+        assert_eq!(parsed.host_name.as_deref(), Some("studio"));
+    }
+
+    #[test]
+    fn parse_pair_payload_rejects_bad_node_id() {
+        let err = parse_pair_payload(r#"{"v":1,"node_id":"nope","token":"deadbeef"}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("invalid node_id"));
+    }
+
+    #[test]
+    fn agent_runtime_kind_maps_known_agents() {
         assert_eq!(
-            parsed.host_candidates,
-            vec![
-                "studio.tail.ts.net".to_string(),
-                "100.64.0.1".to_string(),
-                "192.168.1.5".to_string(),
-            ],
-            "blank entries should be filtered, order preserved"
+            agent_runtime_kind("codex", "Codex"),
+            Some(AgentRuntimeKind::Codex)
+        );
+        assert_eq!(
+            agent_runtime_kind("pi.dev", "Pi"),
+            Some(AgentRuntimeKind::Pi)
+        );
+        assert_eq!(
+            agent_runtime_kind("open-code", "opencode"),
+            Some(AgentRuntimeKind::Opencode)
+        );
+        assert_eq!(
+            agent_runtime_kind("claude-code", "Claude"),
+            Some(AgentRuntimeKind::Claude)
         );
     }
 
     #[test]
-    fn parse_pair_payload_rejects_missing_field() {
-        let json = format!(
-            r#"{{"protocolVersion":{ver},"udpPort":47123,"token":"deadbeef"}}"#,
-            ver = WIRE_PROTOCOL_VERSION
-        );
-        let err = parse_pair_payload(&json).expect_err("missing field should fail");
-        assert!(
-            matches!(err, AlleycatError::InvalidPayload(_)),
-            "expected InvalidPayload, got {err:?}"
-        );
+    fn agent_runtime_kind_ignores_unknown_agents() {
+        assert_eq!(agent_runtime_kind("custom", "Custom"), None);
     }
 
+    /// `AlleycatReconnectTransport` must coerce to `Arc<dyn RemoteTransport>`
+    /// — that's how the worker's reconnect plumbing receives it. This is a
+    /// pure type-check test: it compiles iff the trait impl stays object-safe.
     #[test]
-    fn parse_pair_payload_rejects_bad_fingerprint_hex() {
-        let json = format!(
-            r#"{{"protocolVersion":{ver},"udpPort":47123,"certFingerprint":"not-hex","token":"deadbeef"}}"#,
-            ver = WIRE_PROTOCOL_VERSION
-        );
-        let err = parse_pair_payload(&json).expect_err("bad fingerprint should fail");
-        assert!(matches!(err, AlleycatError::InvalidPayload(_)));
-    }
-
-    #[test]
-    fn parse_pair_payload_rejects_wrong_protocol_version() {
-        let bad_version = WIRE_PROTOCOL_VERSION.wrapping_add(7);
-        let json = format!(
-            r#"{{"protocolVersion":{ver},"udpPort":47123,"certFingerprint":"{fp}","token":"deadbeef"}}"#,
-            ver = bad_version,
-            fp = "a".repeat(FINGERPRINT_HEX_LEN),
-        );
-        let err = parse_pair_payload(&json).expect_err("wrong protocol should fail");
-        match err {
-            AlleycatError::ProtocolMismatch { payload, client } => {
-                assert_eq!(payload, bad_version);
-                assert_eq!(client, WIRE_PROTOCOL_VERSION);
-            }
-            other => panic!("expected ProtocolMismatch, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parse_pair_payload_rejects_malformed_json() {
-        let err = parse_pair_payload("{not valid json").expect_err("malformed should fail");
-        assert!(matches!(err, AlleycatError::InvalidPayload(_)));
-    }
-
-    #[test]
-    fn parse_pair_payload_rejects_empty_token() {
-        let json = format!(
-            r#"{{"protocolVersion":{ver},"udpPort":47123,"certFingerprint":"{fp}","token":""}}"#,
-            ver = WIRE_PROTOCOL_VERSION,
-            fp = "a".repeat(FINGERPRINT_HEX_LEN),
-        );
-        let err = parse_pair_payload(&json).expect_err("empty token should fail");
-        assert!(matches!(err, AlleycatError::InvalidPayload(_)));
+    fn alleycat_reconnect_transport_coerces_to_trait_object() {
+        let key = iroh::SecretKey::generate();
+        let params = ParsedPairPayload {
+            version: ALLEYCAT_PROTOCOL_VERSION,
+            node_id: key.public().to_string(),
+            token: "deadbeef".into(),
+            relay: None,
+            host_name: None,
+        };
+        let transport = AlleycatReconnectTransport {
+            params,
+            agent: "codex".into(),
+            wire: AgentWire::Websocket,
+        };
+        let _erased: Arc<dyn RemoteTransport> = Arc::new(transport);
     }
 }

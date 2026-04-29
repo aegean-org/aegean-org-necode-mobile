@@ -8,6 +8,7 @@ struct DiscoveryView: View {
     @State private var sshServer: DiscoveredServer?
     @State private var connectionChoiceServer: DiscoveredServer?
     @State private var pendingSSHServer: DiscoveredServer?
+    @State private var sshAgentContext: SSHBridgeAgentContext?
     @State private var showManualEntry = false
     @State private var showAlleycatSheet = false
     @State private var manualConnectionMode: ManualConnectionMode = .ssh
@@ -123,8 +124,40 @@ struct DiscoveryView: View {
         .sheet(item: $sshServer) { server in
             SSHLoginSheet(server: server) { target in
                 sshServer = nil
-                Task { await connectToServer(server, targetOverride: target) }
+                if case .sshThenRemote(let host, let credentials) = target {
+                    if ExperimentalFeatures.shared.multiClankerAndQuicEnabled() {
+                        Task { await startSSHAgentProbe(server: server, host: host, credentials: credentials) }
+                    } else {
+                        Task { await connectToServer(server, targetOverride: .sshThenRemote(host: host, credentials: credentials)) }
+                    }
+                } else {
+                    Task { await connectToServer(server, targetOverride: target) }
+                }
             }
+        }
+        .sheet(item: $sshAgentContext) { context in
+            SSHAgentPickerSheet(
+                context: context,
+                appModel: appModel,
+                onConnected: { result in
+                    sshAgentContext = nil
+                    Task { await connectSSHBridgeTarget(result, baseServer: context.server) }
+                },
+                onUseCodex: {
+                    sshAgentContext = nil
+                    Task {
+                        try? await appModel.ssh.sshClose(sessionId: context.sessionId)
+                        await connectToServer(
+                            context.server,
+                            targetOverride: .sshThenRemote(host: context.host, credentials: context.credentials)
+                        )
+                    }
+                },
+                onCancel: {
+                    sshAgentContext = nil
+                    Task { try? await appModel.ssh.sshClose(sessionId: context.sessionId) }
+                }
+            )
         }
         .confirmationDialog(
             connectionChoiceServer.map { "Connect to \($0.name)" } ?? "Choose Connection",
@@ -811,15 +844,14 @@ struct DiscoveryView: View {
         }
     }
 
-    /// Called by `AlleycatAddServerSheet` after the sheet has already
-    /// driven `connectRemoteOverAlleycat` to a fully-connected ServerSession.
-    /// We just persist the saved-server record (so it auto-reconnects on
-    /// next launch via the Rust reconnect path) and navigate.
+    /// Called by `AlleycatAddServerSheet` after the sheet has already opened a
+    /// fully connected ServerSession. Persist the stable node/agent metadata
+    /// and navigate; the token stays in Keychain.
     private func connectAlleycatTarget(_ result: AlleycatConnectedTarget) async {
         let synthesized = DiscoveredServer(
             id: result.serverId,
             name: result.displayName,
-            hostname: result.connectedHost,
+            hostname: result.nodeId,
             port: nil,
             codexPorts: [],
             sshPort: nil,
@@ -833,10 +865,25 @@ struct DiscoveryView: View {
             os: nil,
             sshBanner: nil
         )
-        SavedServerStore.rememberAlleycat(synthesized, relayHost: result.connectedHost)
+        SavedServerStore.rememberAlleycat(
+            synthesized,
+            nodeId: result.nodeId,
+            relay: result.params.relay,
+            agentName: result.agentName,
+            agentWire: alleycatWireStorageValue(result.agentWire)
+        )
         await appModel.refreshSnapshot()
         if appModel.snapshot?.servers.first(where: { $0.serverId == result.serverId })?.health == .connected {
             navigateAfterConnect(synthesized)
+        }
+    }
+
+    private func alleycatWireStorageValue(_ wire: AppAlleycatAgentWire) -> String {
+        switch wire {
+        case .websocket:
+            return "websocket"
+        case .jsonl:
+            return "jsonl"
         }
     }
 
@@ -856,6 +903,111 @@ struct DiscoveryView: View {
             server.withConnectionPreference(.ssh)
         )
         return serverId
+    }
+
+    private func startSSHAgentProbe(
+        server: DiscoveredServer,
+        host: String,
+        credentials: SSHCredentials
+    ) async {
+        guard ExperimentalFeatures.shared.multiClankerAndQuicEnabled() else {
+            await connectToServer(server, targetOverride: .sshThenRemote(host: host, credentials: credentials))
+            return
+        }
+        connectingServer = server
+        connectError = nil
+        do {
+            let session = try await openSSHSession(
+                host: host,
+                port: server.resolvedSSHPort,
+                credentials: credentials
+            )
+            let availability = try await appModel.ssh.sshProbeRemoteAgents(sessionId: session.sessionId)
+            let bridgeAgents = availability.filter {
+                switch $0.kind {
+                case .claude, .pi, .opencode:
+                    return $0.status == .available
+                case .codex:
+                    return false
+                }
+            }
+            connectingServer = nil
+            guard !bridgeAgents.isEmpty else {
+                try? await appModel.ssh.sshClose(sessionId: session.sessionId)
+                await connectToServer(server, targetOverride: .sshThenRemote(host: host, credentials: credentials))
+                return
+            }
+            sshAgentContext = SSHBridgeAgentContext(
+                server: server,
+                sessionId: session.sessionId,
+                host: session.normalizedHost,
+                availability: availability,
+                credentials: credentials
+            )
+        } catch {
+            connectingServer = nil
+            connectError = error.localizedDescription
+        }
+    }
+
+    private func openSSHSession(
+        host: String,
+        port: UInt16,
+        credentials: SSHCredentials
+    ) async throws -> AppSshSessionResult {
+        switch credentials {
+        case .password(let username, let password, let unlockMacosKeychain):
+            return try await appModel.ssh.sshOpenSession(
+                host: host,
+                port: port,
+                username: username,
+                password: password,
+                privateKeyPem: nil,
+                passphrase: nil,
+                unlockMacosKeychain: unlockMacosKeychain,
+                acceptUnknownHost: true
+            )
+        case .key(let username, let privateKey, let passphrase):
+            return try await appModel.ssh.sshOpenSession(
+                host: host,
+                port: port,
+                username: username,
+                password: nil,
+                privateKeyPem: privateKey,
+                passphrase: passphrase,
+                unlockMacosKeychain: false,
+                acceptUnknownHost: true
+            )
+        }
+    }
+
+    private func connectSSHBridgeTarget(
+        _ result: SSHBridgeAgentResult,
+        baseServer: DiscoveredServer
+    ) async {
+        let synthesized = DiscoveredServer(
+            id: result.serverId,
+            name: result.displayName,
+            hostname: result.host,
+            port: nil,
+            codexPorts: [],
+            sshPort: result.port,
+            source: .ssh,
+            hasCodexServer: true,
+            wakeMAC: baseServer.wakeMAC,
+            sshPortForwardingEnabled: false,
+            websocketURL: nil,
+            preferredConnectionMode: .ssh,
+            preferredCodexPort: nil,
+            os: baseServer.os,
+            sshBanner: baseServer.sshBanner
+        )
+        SavedServerStore.rememberSSHBridge(synthesized, runtimeKinds: result.runtimeKinds)
+        await SshSessionStore.shared.record(sessionId: result.sessionId, for: result.serverId)
+        await appModel.refreshSnapshot()
+        if appModel.snapshot?.servers.first(where: { $0.serverId == result.serverId })?.health == .connected {
+            navigateAfterConnect(synthesized)
+        }
     }
 
     private func sshConnectAndConnectServer(
@@ -884,7 +1036,7 @@ struct DiscoveryView: View {
         let ipcSocketPathOverride = ExperimentalFeatures.shared.ipcSocketPathOverride()
         switch credentials {
         case .password(let username, let password, let unlockMacosKeychain):
-            return try await appModel.ssh.sshStartRemoteServerConnect(
+            return try await appModel.serverBridge.startRemoteOverSshConnect(
                 serverId: serverId,
                 displayName: displayName,
                 host: host,
@@ -899,7 +1051,7 @@ struct DiscoveryView: View {
                 ipcSocketPathOverride: ipcSocketPathOverride
             )
         case .key(let username, let privateKey, let passphrase):
-            return try await appModel.ssh.sshStartRemoteServerConnect(
+            return try await appModel.serverBridge.startRemoteOverSshConnect(
                 serverId: serverId,
                 displayName: displayName,
                 host: host,

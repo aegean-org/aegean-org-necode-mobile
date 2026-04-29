@@ -39,8 +39,20 @@ extension AppThreadSnapshot {
     var resolvedModel: String {
         let direct = model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !direct.isEmpty { return direct }
+
         let infoModel = info.model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return infoModel
+    }
+
+    var displayModelLabel: String {
+        let resolved = resolvedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !resolved.isEmpty { return resolved }
+
+        if let providerLabel = Self.modelProviderDisplayLabel(info.modelProvider) {
+            return providerLabel
+        }
+
+        return Self.agentRuntimeDisplayLabel(agentRuntimeKind)
     }
 
     var resolvedPreview: String {
@@ -90,5 +102,41 @@ extension AppThreadSnapshot {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return snippet.isEmpty ? nil : snippet
+    }
+
+    private static func modelProviderDisplayLabel(_ provider: String?) -> String? {
+        let normalized = provider?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        guard !normalized.isEmpty else { return nil }
+
+        switch normalized {
+        case "anthropic", "claude", "claude-code", "claude_code":
+            return "Claude"
+        case "opencode", "open-code", "open_code":
+            return "opencode"
+        case "pi", "pi.dev", "pidev":
+            return "Pi"
+        case "openai", "codex":
+            return "Codex"
+        default:
+            if normalized.hasPrefix("claude") || normalized.contains("anthropic") {
+                return "Claude"
+            }
+            return provider?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private static func agentRuntimeDisplayLabel(_ runtime: AgentRuntimeKind) -> String {
+        switch runtime {
+        case .codex:
+            return "Codex"
+        case .pi:
+            return "Pi"
+        case .opencode:
+            return "opencode"
+        case .claude:
+            return "Claude"
+        }
     }
 }

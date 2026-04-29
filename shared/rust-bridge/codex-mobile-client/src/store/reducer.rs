@@ -18,12 +18,13 @@ use crate::conversation_uniffi::{
 use crate::session::connection::ServerConfig;
 use crate::session::events::UiEvent;
 use crate::types::{
-    AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppVoiceSessionPhase,
-    AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
+    AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
+    PendingApprovalWithSeed, PendingUserInputAnswer, PendingUserInputRequest, ThreadInfo,
+    ThreadKey, ThreadSummaryStatus,
 };
 use crate::types::{
-    PendingApproval, PendingApprovalKey, PendingApprovalSeed, PendingApprovalWithSeed,
-    PendingUserInputAnswer, PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
+    AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppVoiceSessionPhase,
+    AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
 };
 
 use super::actions::{
@@ -47,6 +48,22 @@ use super::voice::{VoiceDerivedUpdate, VoiceRealtimeState};
 const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
 const USER_INPUT_OTHER_OPTION_LABEL: &str = "None of the above";
 const LOCAL_USER_MESSAGE_ITEM_PREFIX: &str = "local-user-message:";
+
+fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInfo> {
+    let mut indexes_by_kind: HashMap<AgentRuntimeKind, usize> = HashMap::new();
+    let mut deduped: Vec<AgentRuntimeInfo> = Vec::new();
+    for runtime in runtimes {
+        if let Some(index) = indexes_by_kind.get(&runtime.kind).copied() {
+            if runtime.available && !deduped[index].available {
+                deduped[index] = runtime;
+            }
+        } else {
+            indexes_by_kind.insert(runtime.kind, deduped.len());
+            deduped.push(runtime);
+        }
+    }
+    deduped
+}
 
 pub struct AppStoreReducer {
     snapshot: RwLock<AppSnapshot>,
@@ -135,6 +152,7 @@ impl AppStoreReducer {
                 requires_openai_auth,
                 existing_rate_limits,
                 existing_available_models,
+                existing_agent_runtimes,
                 existing_supports_ipc,
                 existing_has_ipc,
                 existing_connection_progress,
@@ -148,6 +166,7 @@ impl AppStoreReducer {
                     existing.requires_openai_auth,
                     existing.rate_limits.clone(),
                     existing.available_models.clone(),
+                    existing.agent_runtimes.clone(),
                     existing.supports_ipc,
                     existing.has_ipc,
                     existing.connection_progress.clone(),
@@ -162,6 +181,12 @@ impl AppStoreReducer {
                     false,
                     None,
                     None,
+                    vec![AgentRuntimeInfo {
+                        kind: AgentRuntimeKind::Codex,
+                        name: "codex".to_string(),
+                        display_name: "Codex".to_string(),
+                        available: true,
+                    }],
                     false,
                     false,
                     None,
@@ -186,6 +211,7 @@ impl AppStoreReducer {
                     requires_openai_auth,
                     rate_limits: existing_rate_limits,
                     available_models: existing_available_models,
+                    agent_runtimes: existing_agent_runtimes,
                     connection_progress: existing_connection_progress,
                     transport: existing_transport,
                     codex_version: existing_codex_version,
@@ -254,6 +280,15 @@ impl AppStoreReducer {
     }
 
     pub fn sync_thread_list(&self, server_id: &str, threads: &[ThreadInfo]) {
+        self.sync_thread_list_for_runtime(server_id, AgentRuntimeKind::Codex, threads);
+    }
+
+    pub fn sync_thread_list_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        threads: &[ThreadInfo],
+    ) {
         let incoming_ids = threads
             .iter()
             .map(|info| info.id.clone())
@@ -301,13 +336,16 @@ impl AppStoreReducer {
                     if info_changed || model_changed {
                         entry.info = next_info;
                         entry.model = next_model;
+                        updated_thread_keys.push(key.clone());
+                    }
+                    if entry.agent_runtime_kind != runtime_kind {
+                        entry.agent_runtime_kind = runtime_kind;
                         updated_thread_keys.push(key);
                     }
                 } else {
-                    snapshot.threads.insert(
-                        key.clone(),
-                        ThreadSnapshot::from_info(server_id, info.clone()),
-                    );
+                    let mut thread = ThreadSnapshot::from_info(server_id, info.clone());
+                    thread.agent_runtime_kind = runtime_kind;
+                    snapshot.threads.insert(key.clone(), thread);
                     upserted_thread_keys.push(key);
                 }
             }
@@ -387,8 +425,19 @@ impl AppStoreReducer {
     }
 
     pub fn upsert_thread_list_page(&self, server_id: &str, threads: &[ThreadInfo]) {
+        self.upsert_thread_list_page_for_runtime(server_id, AgentRuntimeKind::Codex, threads);
+    }
+
+    pub fn upsert_thread_list_page_for_runtime(
+        &self,
+        server_id: &str,
+        runtime_kind: AgentRuntimeKind,
+        threads: &[ThreadInfo],
+    ) {
         for info in threads {
-            self.upsert_thread_snapshot(ThreadSnapshot::from_info(server_id, info.clone()));
+            let mut snapshot = ThreadSnapshot::from_info(server_id, info.clone());
+            snapshot.agent_runtime_kind = runtime_kind;
+            self.upsert_thread_snapshot(snapshot);
         }
     }
 
@@ -531,6 +580,11 @@ impl AppStoreReducer {
                 preserve_thread_preview(&existing.info, &mut thread.info);
                 preserve_thread_created_at(&existing.info, &mut thread.info);
                 preserve_thread_runtime_state(existing, &mut thread);
+                if thread.agent_runtime_kind == AgentRuntimeKind::Codex
+                    && existing.agent_runtime_kind != AgentRuntimeKind::Codex
+                {
+                    thread.agent_runtime_kind = existing.agent_runtime_kind;
+                }
                 thread.is_resumed = thread.is_resumed || existing.is_resumed;
                 preserve_local_overlay_items(existing, &mut thread);
                 preserve_queued_follow_ups(existing, &mut thread);
@@ -1069,6 +1123,37 @@ impl AppStoreReducer {
         self.emit(AppStoreUpdateRecord::ServerChanged {
             server_id: server_id.to_string(),
         });
+    }
+
+    pub fn update_server_agent_runtimes(&self, server_id: &str, runtimes: Vec<AgentRuntimeInfo>) {
+        let runtimes = dedupe_agent_runtimes(runtimes);
+        {
+            let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+            if let Some(server) = snapshot.servers.get_mut(server_id) {
+                server.agent_runtimes = runtimes;
+            }
+        }
+        self.emit(AppStoreUpdateRecord::ServerChanged {
+            server_id: server_id.to_string(),
+        });
+    }
+
+    pub fn set_thread_agent_runtime(&self, key: &ThreadKey, runtime_kind: AgentRuntimeKind) {
+        let changed = {
+            let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
+            let Some(thread) = snapshot.threads.get_mut(key) else {
+                return;
+            };
+            if thread.agent_runtime_kind == runtime_kind {
+                false
+            } else {
+                thread.agent_runtime_kind = runtime_kind;
+                true
+            }
+        };
+        if changed {
+            self.emit_thread_metadata_changed(key);
+        }
     }
 
     pub fn update_server_ipc_state(&self, server_id: &str, has_ipc: bool) {
@@ -3285,6 +3370,50 @@ mod tests {
             is_local: false,
             tls: false,
         }
+    }
+
+    #[test]
+    fn sync_thread_list_for_runtime_tags_threads() {
+        let reducer = AppStoreReducer::new();
+        let config = make_server_config("srv");
+        reducer.upsert_server(&config, ServerHealthSnapshot::Connected, false);
+
+        reducer.sync_thread_list_for_runtime(
+            "srv",
+            AgentRuntimeKind::Pi,
+            &[make_thread_info("thread-1")],
+        );
+
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        assert_eq!(
+            reducer.thread_snapshot(&key).unwrap().agent_runtime_kind,
+            AgentRuntimeKind::Pi
+        );
+    }
+
+    #[test]
+    fn update_server_agent_runtimes_replaces_available_metadata() {
+        let reducer = AppStoreReducer::new();
+        let config = make_server_config("srv");
+        reducer.upsert_server(&config, ServerHealthSnapshot::Connected, false);
+
+        reducer.update_server_agent_runtimes(
+            "srv",
+            vec![AgentRuntimeInfo {
+                kind: AgentRuntimeKind::Opencode,
+                name: "opencode".to_string(),
+                display_name: "opencode".to_string(),
+                available: true,
+            }],
+        );
+
+        let snapshot = reducer.snapshot();
+        let server = snapshot.servers.get("srv").unwrap();
+        assert_eq!(server.agent_runtimes.len(), 1);
+        assert_eq!(server.agent_runtimes[0].kind, AgentRuntimeKind::Opencode);
     }
 
     #[test]

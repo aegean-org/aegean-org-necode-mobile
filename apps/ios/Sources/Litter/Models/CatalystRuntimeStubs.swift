@@ -22,6 +22,9 @@ final class AppRuntimeController {
             localDisplayName: appModel.resolvedLocalServerDisplayName(),
             rememberedOnly: true
         )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(
+            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
+        )
         appModel.reconnectController.syncSavedServers(servers: servers)
         let results = await appModel.reconnectController.reconnectSavedServers()
         await appModel.refreshSnapshot()
@@ -36,6 +39,9 @@ final class AppRuntimeController {
         guard let appModel else { return }
         let servers = SavedServerStore.reconnectRecords(
             localDisplayName: appModel.resolvedLocalServerDisplayName()
+        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(
+            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
         )
         appModel.reconnectController.syncSavedServers(servers: servers)
         let result = await appModel.reconnectController.reconnectServer(serverId: serverId)

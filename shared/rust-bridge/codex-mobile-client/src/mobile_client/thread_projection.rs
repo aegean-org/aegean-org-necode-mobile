@@ -680,18 +680,39 @@ pub(super) async fn refresh_thread_list_from_app_server(
     app_store: Arc<AppStoreReducer>,
     server_id: &str,
 ) -> Result<(), RpcError> {
-    let mut cursor = None;
+    // Multiplexed sessions (Alleycat) carry a separate command channel per
+    // agent runtime. `thread/list` is not thread-scoped, so the default
+    // dispatcher routes it to Codex only — pi and opencode threads would
+    // never appear in the UI. Fan the request out across every runtime the
+    // session knows about and merge the pages, so the user sees their pi /
+    // opencode threads alongside codex's. `runtime_kinds()` returns
+    // `[Codex]` for non-multiplexed sessions, preserving the previous
+    // single-runtime behavior.
+    let runtime_kinds = session.runtime_kinds();
+
     let mut incoming_ids = HashSet::new();
+    for runtime_kind in runtime_kinds {
+        let mut cursor = None;
+        loop {
+            let response =
+                match request_thread_list_page_for_runtime(&session, runtime_kind, cursor).await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        warn!(
+                            "thread/list failed for runtime {:?} on server {}: {}",
+                            runtime_kind, server_id, error
+                        );
+                        break;
+                    }
+                };
+            let page = thread_list_page_to_thread_infos(response.data, &mut incoming_ids);
+            app_store.upsert_thread_list_page_for_runtime(server_id, runtime_kind, &page);
 
-    loop {
-        let response = request_thread_list_page(&session, cursor).await?;
-        let page = thread_list_page_to_thread_infos(response.data, &mut incoming_ids);
-        app_store.upsert_thread_list_page(server_id, &page);
-
-        let Some(next_cursor) = response.next_cursor else {
-            break;
-        };
-        cursor = Some(next_cursor);
+            let Some(next_cursor) = response.next_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
     }
 
     app_store.finalize_thread_list_sync(server_id, &incoming_ids);
@@ -722,17 +743,41 @@ pub(super) async fn refresh_account_from_app_server(
     Ok(())
 }
 
-async fn request_thread_list_page(
+async fn request_thread_list_page_for_runtime(
     session: &ServerSession,
+    runtime_kind: AgentRuntimeKind,
     cursor: Option<String>,
 ) -> Result<upstream::ThreadListResponse, RpcError> {
     let params = match cursor {
         Some(cursor) => serde_json::json!({ "cursor": cursor }),
         None => serde_json::json!({}),
     };
-    let response = session.request("thread/list", params).await?;
+    let response = session
+        .request_for_runtime(runtime_kind, "thread/list", params)
+        .await?;
+    let mut response = response;
+    normalize_empty_thread_list_cwds(&mut response);
     serde_json::from_value::<upstream::ThreadListResponse>(response)
         .map_err(|error| RpcError::Deserialization(format!("deserialize thread/list: {error}")))
+}
+
+fn normalize_empty_thread_list_cwds(value: &mut serde_json::Value) {
+    let Some(data) = value
+        .get_mut("data")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for item in data {
+        let Some(map) = item.as_object_mut() else {
+            continue;
+        };
+        if let Some(serde_json::Value::String(cwd)) = map.get_mut("cwd")
+            && cwd.is_empty()
+        {
+            *cwd = "/".to_string();
+        }
+    }
 }
 
 fn thread_list_page_to_thread_infos(

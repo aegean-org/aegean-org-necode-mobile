@@ -10,8 +10,22 @@
 use codex_app_server_protocol as upstream;
 use serde::{Deserialize, Serialize};
 
-use super::enums::{AppModeKind, AppPlanStepStatus, ThreadSummaryStatus};
+use super::enums::{AgentRuntimeKind, AppModeKind, AppPlanStepStatus, ThreadSummaryStatus};
 use crate::RpcClientError;
+
+const MAX_REASONABLE_EPOCH_SECONDS: i64 = 10_000_000_000;
+
+fn default_agent_runtime_kind() -> AgentRuntimeKind {
+    AgentRuntimeKind::Codex
+}
+
+fn normalize_epoch_seconds(timestamp: i64) -> i64 {
+    if timestamp.abs() >= MAX_REASONABLE_EPOCH_SECONDS {
+        timestamp / 1000
+    } else {
+        timestamp
+    }
+}
 
 // ── AbsolutePath conversions ─────────────────────────────────────────────
 
@@ -107,6 +121,15 @@ pub struct ThreadInfo {
     pub updated_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, uniffi::Record)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRuntimeInfo {
+    pub kind: AgentRuntimeKind,
+    pub name: String,
+    pub display_name: String,
+    pub available: bool,
+}
+
 impl From<upstream::Thread> for ThreadInfo {
     fn from(thread: upstream::Thread) -> Self {
         // Extract agent info from source (SubAgent variant).
@@ -158,8 +181,8 @@ impl From<upstream::Thread> for ThreadInfo {
             agent_role,
             parent_thread_id,
             agent_status: None,
-            created_at: Some(thread.created_at),
-            updated_at: Some(thread.updated_at),
+            created_at: Some(normalize_epoch_seconds(thread.created_at)),
+            updated_at: Some(normalize_epoch_seconds(thread.updated_at)),
         }
     }
 }
@@ -1129,6 +1152,8 @@ pub struct ModelInfo {
     #[uniffi(default = false)]
     pub supports_personality: bool,
     pub is_default: bool,
+    #[serde(default = "default_agent_runtime_kind")]
+    pub agent_runtime_kind: AgentRuntimeKind,
 }
 
 impl From<upstream::Model> for ModelInfo {
@@ -1160,6 +1185,7 @@ impl From<upstream::Model> for ModelInfo {
             input_modalities: value.input_modalities.into_iter().map(Into::into).collect(),
             supports_personality: value.supports_personality,
             is_default: value.is_default,
+            agent_runtime_kind: AgentRuntimeKind::Codex,
         }
     }
 }
@@ -1229,6 +1255,121 @@ impl From<upstream::SkillMetadata> for SkillMetadata {
             scope: value.scope.into(),
             enabled: value.enabled,
         }
+    }
+}
+
+/// Public plugin install policy used by mobile composer UI.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, uniffi::Enum)]
+pub enum PluginInstallPolicy {
+    #[serde(rename = "NOT_AVAILABLE")]
+    NotAvailable,
+    #[serde(rename = "AVAILABLE")]
+    Available,
+    #[serde(rename = "INSTALLED_BY_DEFAULT")]
+    InstalledByDefault,
+}
+
+impl From<upstream::PluginInstallPolicy> for PluginInstallPolicy {
+    fn from(value: upstream::PluginInstallPolicy) -> Self {
+        match value {
+            upstream::PluginInstallPolicy::NotAvailable => Self::NotAvailable,
+            upstream::PluginInstallPolicy::Available => Self::Available,
+            upstream::PluginInstallPolicy::InstalledByDefault => Self::InstalledByDefault,
+        }
+    }
+}
+
+/// Subset of upstream PluginInterface useful in mobile composer rows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[derive(uniffi::Record)]
+pub struct PluginInterface {
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub short_description: Option<String>,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub category: Option<String>,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub developer_name: Option<String>,
+}
+
+impl From<upstream::PluginInterface> for PluginInterface {
+    fn from(value: upstream::PluginInterface) -> Self {
+        Self {
+            display_name: value.display_name,
+            short_description: value.short_description,
+            category: value.category,
+            developer_name: value.developer_name,
+        }
+    }
+}
+
+/// Public plugin metadata used by mobile composer UI. Marketplace context is
+/// attached at flatten time and `mention_path` is precomputed so platform code
+/// never has to assemble `plugin://name@marketplace` itself.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[derive(uniffi::Record)]
+pub struct PluginSummary {
+    pub id: String,
+    pub name: String,
+    pub marketplace_name: String,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub marketplace_path: Option<AbsolutePath>,
+    pub installed: bool,
+    pub enabled: bool,
+    pub install_policy: PluginInstallPolicy,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub interface: Option<PluginInterface>,
+    /// Canonical mention path (`plugin://name@marketplace`) used both as the
+    /// outgoing `AppUserInput::Mention.path` and as a dedupe key.
+    pub mention_path: String,
+    /// Best display title — `interface.display_name` if present, else `name`.
+    pub display_title: String,
+}
+
+impl PluginSummary {
+    pub(crate) fn from_upstream(
+        marketplace_name: String,
+        marketplace_path: Option<AbsolutePath>,
+        value: upstream::PluginSummary,
+    ) -> Self {
+        let interface = value.interface.map(PluginInterface::from);
+        let display_title = interface
+            .as_ref()
+            .and_then(|i| i.display_name.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| value.name.clone());
+        let mention_path = format!("plugin://{}@{}", value.name, marketplace_name);
+        Self {
+            id: value.id,
+            name: value.name,
+            marketplace_name,
+            marketplace_path,
+            installed: value.installed,
+            enabled: value.enabled,
+            install_policy: value.install_policy.into(),
+            interface,
+            mention_path,
+            display_title,
+        }
+    }
+
+    /// Whether this plugin should appear in `@`-autocomplete. Platforms never
+    /// call this directly; `list_plugins` filters before returning.
+    pub(crate) fn is_available_for_mention(&self) -> bool {
+        self.installed
+            || self.enabled
+            || matches!(self.install_policy, PluginInstallPolicy::InstalledByDefault)
     }
 }
 
@@ -1498,6 +1639,34 @@ mod tests {
         assert_eq!(info.parent_thread_id.as_deref(), Some(parent_thread_id_str));
         assert_eq!(info.agent_nickname.as_deref(), Some("Scout"));
         assert_eq!(info.agent_role.as_deref(), Some("reviewer"));
+    }
+
+    #[test]
+    fn thread_info_from_upstream_normalizes_millisecond_timestamps() {
+        let upstream_thread: upstream::Thread = serde_json::from_value(serde_json::json!({
+            "id": "thread-1",
+            "preview": "hi",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "createdAt": 1710000000000i64,
+            "updatedAt": 1710000005000i64,
+            "status": { "type": "idle" },
+            "path": "/tmp/thread",
+            "cwd": "/tmp/thread",
+            "cliVersion": "1.0.0",
+            "source": "cli",
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": "thread",
+            "turns": []
+        }))
+        .expect("upstream Thread should deserialize");
+
+        let info = ThreadInfo::from(upstream_thread);
+
+        assert_eq!(info.created_at, Some(1_710_000_000));
+        assert_eq!(info.updated_at, Some(1_710_000_005));
     }
 
     #[test]

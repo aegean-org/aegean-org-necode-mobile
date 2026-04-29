@@ -10,16 +10,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import uniffi.codex_mobile_client.AppAskForApproval
 import uniffi.codex_mobile_client.AppDynamicToolSpec
 import uniffi.codex_mobile_client.AppRealtimeStartTransport
+import uniffi.codex_mobile_client.AppSandboxMode
+import uniffi.codex_mobile_client.AppSandboxPolicy
 import uniffi.codex_mobile_client.AppStoreUpdateRecord
 import uniffi.codex_mobile_client.HandoffManager
 import uniffi.codex_mobile_client.PinnedThreadKey
+import uniffi.codex_mobile_client.ReasoningEffort
+import uniffi.codex_mobile_client.ServiceTier
 import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.AppFinalizeRealtimeHandoffRequest
 import uniffi.codex_mobile_client.AppResolveRealtimeHandoffRequest
 import uniffi.codex_mobile_client.AppStartRealtimeSessionRequest
 import uniffi.codex_mobile_client.AppStopRealtimeSessionRequest
+import uniffi.codex_mobile_client.generativeUiDynamicToolSpecs
 import java.util.UUID
 
 /**
@@ -413,9 +419,15 @@ class VoiceRuntimeController {
                         ?.isLocal == true
                     val key = appModel.startThread(
                         action.targetServerId,
-                        appModel.launchState.threadStartRequest(
-                            action.cwd,
-                            serverIsLocal = serverIsLocal,
+                        AppThreadLaunchConfig(
+                            model = null,
+                            approvalPolicy = AppAskForApproval.Never,
+                            sandboxMode = AppSandboxMode.DANGER_FULL_ACCESS,
+                            developerInstructions = null,
+                            persistHistory = true,
+                        ).toAppStartThreadRequest(
+                            cwd = action.cwd,
+                            dynamicTools = if (serverIsLocal) generativeUiDynamicToolSpecs() else null,
                         ),
                     )
                     SavedThreadsStore.add(
@@ -430,7 +442,14 @@ class VoiceRuntimeController {
 
             is uniffi.codex_mobile_client.HandoffAction.SendTurn -> {
                 try {
-                    val payload = AppComposerPayload(text = action.transcript)
+                    val payload = AppComposerPayload(
+                        text = action.transcript,
+                        approvalPolicy = AppAskForApproval.Never,
+                        sandboxPolicy = AppSandboxPolicy.DangerFullAccess,
+                        model = action.config.model,
+                        reasoningEffort = reasoningEffortFromWireValue(action.config.effort),
+                        serviceTier = if (action.config.fastMode) ServiceTier.FAST else null,
+                    )
                     appModel.startTurn(
                         ThreadKey(serverId = action.targetServerId, threadId = action.threadId),
                         payload,
@@ -498,6 +517,17 @@ class VoiceRuntimeController {
             Use a remote server name ONLY to run coding tasks, shell commands, or file operations on that machine.
         """.trimIndent()
     }
+
+    private fun reasoningEffortFromWireValue(value: String?): ReasoningEffort? =
+        when (value?.trim()?.lowercase()) {
+            "none" -> ReasoningEffort.NONE
+            "minimal" -> ReasoningEffort.MINIMAL
+            "low" -> ReasoningEffort.LOW
+            "medium" -> ReasoningEffort.MEDIUM
+            "high" -> ReasoningEffort.HIGH
+            "xhigh", "x-high" -> ReasoningEffort.X_HIGH
+            else -> null
+        }
 
     private fun buildDynamicToolSpecs(): List<AppDynamicToolSpec> = listOf(
         AppDynamicToolSpec(

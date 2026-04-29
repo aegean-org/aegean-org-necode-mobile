@@ -1,5 +1,6 @@
 package com.litter.android.ui.discovery
 
+import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.DesktopWindows
@@ -78,13 +80,27 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.codex_mobile_client.AgentAvailabilityStatus
+import uniffi.codex_mobile_client.AgentRuntimeKind
+import uniffi.codex_mobile_client.AppSshSessionResult
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppDiscoveredServer
+import uniffi.codex_mobile_client.RemoteAgentAvailability
+import uniffi.codex_mobile_client.SshBridgeTransport
+
+private data class SshBridgeAgentContext(
+    val server: SavedServer,
+    val sessionId: String,
+    val host: String,
+    val availability: List<RemoteAgentAvailability>,
+    val credential: SavedSshCredential,
+)
 
 /**
  * Server discovery and connection screen.
@@ -110,6 +126,7 @@ fun DiscoveryScreen(
     var showAlleycatSheet by remember { mutableStateOf(false) }
     var pendingManualSshServer by remember { mutableStateOf<SavedServer?>(null) }
     var sshServer by remember { mutableStateOf<SavedServer?>(null) }
+    var sshAgentContext by remember { mutableStateOf<SshBridgeAgentContext?>(null) }
     var connectionChoiceServer by remember { mutableStateOf<SavedServer?>(null) }
     var pendingAutoNavigateServerId by remember { mutableStateOf<String?>(null) }
     var wakingServerId by remember { mutableStateOf<String?>(null) }
@@ -148,6 +165,69 @@ fun DiscoveryScreen(
 
     suspend fun reloadSavedServers() {
         savedServers = SavedServerStore.load(context)
+    }
+
+    suspend fun openSshSession(server: SavedServer, credential: SavedSshCredential): AppSshSessionResult =
+        when (credential.method) {
+            SshAuthMethod.PASSWORD -> appModel.ssh.sshOpenSession(
+                host = server.hostname,
+                port = server.resolvedSshPort.toUShort(),
+                username = credential.username,
+                password = credential.password,
+                privateKeyPem = null,
+                passphrase = null,
+                unlockMacosKeychain = credential.unlockMacosKeychain,
+                acceptUnknownHost = true,
+            )
+
+            SshAuthMethod.KEY -> appModel.ssh.sshOpenSession(
+                host = server.hostname,
+                port = server.resolvedSshPort.toUShort(),
+                username = credential.username,
+                password = null,
+                privateKeyPem = credential.privateKey,
+                passphrase = credential.passphrase,
+                unlockMacosKeychain = false,
+                acceptUnknownHost = true,
+            )
+        }
+
+    suspend fun startGuidedSshConnect(server: SavedServer, credential: SavedSshCredential) {
+        when (credential.method) {
+            SshAuthMethod.PASSWORD -> {
+                appModel.serverBridge.startRemoteOverSshConnect(
+                    serverId = server.id,
+                    displayName = server.name,
+                    host = server.hostname,
+                    port = server.resolvedSshPort.toUShort(),
+                    username = credential.username,
+                    password = credential.password,
+                    privateKeyPem = null,
+                    passphrase = null,
+                    unlockMacosKeychain = credential.unlockMacosKeychain,
+                    acceptUnknownHost = true,
+                    workingDir = null,
+                    ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
+                )
+            }
+
+            SshAuthMethod.KEY -> {
+                appModel.serverBridge.startRemoteOverSshConnect(
+                    serverId = server.id,
+                    displayName = server.name,
+                    host = server.hostname,
+                    port = server.resolvedSshPort.toUShort(),
+                    username = credential.username,
+                    password = null,
+                    privateKeyPem = credential.privateKey,
+                    passphrase = credential.passphrase,
+                    unlockMacosKeychain = false,
+                    acceptUnknownHost = true,
+                    workingDir = null,
+                    ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
+                )
+            }
+        }
     }
 
     suspend fun prepareServerForSelection(entry: SavedServer): SavedServer {
@@ -304,7 +384,7 @@ fun DiscoveryScreen(
                 IconButton(onClick = { showAlleycatSheet = true }) {
                     Icon(
                         Icons.Default.QrCodeScanner,
-                        "Add via Alleycat",
+                        "Add remote host",
                         tint = LitterTheme.textSecondary,
                     )
                 }
@@ -492,7 +572,7 @@ fun DiscoveryScreen(
                 try {
                     LLog.t(
                         logTag,
-                        "starting guided SSH connect",
+                        "starting SSH connect",
                         fields = mapOf(
                             "serverId" to server.id,
                             "host" to server.hostname,
@@ -501,64 +581,77 @@ fun DiscoveryScreen(
                             "os" to server.os,
                         ),
                     )
-                    when (credential.method) {
-                        SshAuthMethod.PASSWORD -> {
-                            appModel.ssh.sshStartRemoteServerConnect(
-                                serverId = server.id,
-                                displayName = server.name,
-                                host = server.hostname,
-                                port = server.resolvedSshPort.toUShort(),
-                                username = credential.username,
-                                password = credential.password,
-                                privateKeyPem = null,
-                                passphrase = null,
-                                unlockMacosKeychain = credential.unlockMacosKeychain,
-                                acceptUnknownHost = true,
-                                workingDir = null,
-                                ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
-                            )
-                        }
-
-                        SshAuthMethod.KEY -> {
-                            appModel.ssh.sshStartRemoteServerConnect(
-                                serverId = server.id,
-                                displayName = server.name,
-                                host = server.hostname,
-                                port = server.resolvedSshPort.toUShort(),
-                                username = credential.username,
-                                password = null,
-                                privateKeyPem = credential.privateKey,
-                                passphrase = credential.passphrase,
-                                unlockMacosKeychain = false,
-                                acceptUnknownHost = true,
-                                workingDir = null,
-                                ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
-                            )
-                        }
-                    }
                     if (rememberCredentials) {
                         sshCredentialStore.save(server.hostname, server.resolvedSshPort, credential)
                     } else {
                         sshCredentialStore.delete(server.hostname, server.resolvedSshPort)
                     }
-                    SavedServerStore.remember(
-                        context,
-                        server.withPreferredConnection("ssh"),
-                    )
-                    reloadSavedServers()
-                    appModel.refreshSnapshot()
-                    pendingAutoNavigateServerId = server.id
-                    LLog.t(
-                        logTag,
-                        "guided SSH bootstrap started",
-                        fields = mapOf(
-                            "serverId" to server.id,
-                            "host" to server.hostname,
-                            "sshPort" to server.resolvedSshPort,
-                        ),
-                    )
-                    sshServer = null
-                    null
+
+                    if (!ExperimentalFeatures.multiClankerAndQuicEnabled()) {
+                        startGuidedSshConnect(server, credential)
+                        SavedServerStore.remember(
+                            context,
+                            server.withPreferredConnection("ssh"),
+                        )
+                        reloadSavedServers()
+                        appModel.refreshSnapshot()
+                        pendingAutoNavigateServerId = server.id
+                        LLog.t(
+                            logTag,
+                            "guided SSH bootstrap started",
+                            fields = mapOf(
+                                "serverId" to server.id,
+                                "host" to server.hostname,
+                                "sshPort" to server.resolvedSshPort,
+                            ),
+                        )
+                        sshServer = null
+                        null
+                    } else {
+                        val session = openSshSession(server, credential)
+                        val availability = appModel.ssh.sshProbeRemoteAgents(session.sessionId)
+                        val bridgeAgents = availableSshBridgeKinds(availability)
+                        if (bridgeAgents.isNotEmpty()) {
+                            sshAgentContext = SshBridgeAgentContext(
+                                server = server,
+                                sessionId = session.sessionId,
+                                host = session.normalizedHost,
+                                availability = availability,
+                                credential = credential,
+                            )
+                            sshServer = null
+                            null
+                        } else {
+                            appModel.ssh.sshClose(session.sessionId)
+                            LLog.t(
+                                logTag,
+                                "no SSH bridge agents available; falling back to Codex SSH",
+                                fields = mapOf(
+                                    "serverId" to server.id,
+                                    "host" to server.hostname,
+                                ),
+                            )
+                            startGuidedSshConnect(server, credential)
+                            SavedServerStore.remember(
+                                context,
+                                server.withPreferredConnection("ssh"),
+                            )
+                            reloadSavedServers()
+                            appModel.refreshSnapshot()
+                            pendingAutoNavigateServerId = server.id
+                            LLog.t(
+                                logTag,
+                                "guided SSH bootstrap started",
+                                fields = mapOf(
+                                    "serverId" to server.id,
+                                    "host" to server.hostname,
+                                    "sshPort" to server.resolvedSshPort,
+                                ),
+                            )
+                            sshServer = null
+                            null
+                        }
+                    }
                 } catch (e: Exception) {
                     LLog.e(
                         logTag,
@@ -573,6 +666,72 @@ fun DiscoveryScreen(
                         ),
                     )
                     e.message ?: "Unable to connect over SSH."
+                }
+            },
+        )
+    }
+
+    sshAgentContext?.let { agentContext ->
+        SSHAgentPickerDialog(
+            context = agentContext,
+            onDismiss = {
+                scope.launch {
+                    runCatching { appModel.ssh.sshClose(agentContext.sessionId) }
+                    sshAgentContext = null
+                }
+            },
+            onUseCodex = {
+                scope.launch {
+                    runCatching { appModel.ssh.sshClose(agentContext.sessionId) }
+                    startGuidedSshConnect(agentContext.server, agentContext.credential)
+                    SavedServerStore.remember(
+                        context,
+                        agentContext.server.withPreferredConnection("ssh"),
+                    )
+                    reloadSavedServers()
+                    appModel.refreshSnapshot()
+                    pendingAutoNavigateServerId = agentContext.server.id
+                    sshAgentContext = null
+                }
+            },
+            onConnect = { selectedKinds ->
+                try {
+                    val result = appModel.ssh.sshConnectBridgeSession(
+                        sessionId = agentContext.sessionId,
+                        serverId = "ssh-bridge:${agentContext.host}",
+                        displayName = agentContext.server.name,
+                        host = agentContext.host,
+                        stateRoot = sshBridgeStateRoot(context, agentContext.host),
+                        runtimeKinds = selectedKinds,
+                        transport = SshBridgeTransport.EPHEMERAL,
+                    )
+                    val server = agentContext.server.copy(
+                        id = result.serverId,
+                        hostname = agentContext.host,
+                        port = 0,
+                        codexPorts = emptyList(),
+                        source = "ssh",
+                        hasCodexServer = true,
+                        preferredConnectionMode = "ssh",
+                    )
+                    appModel.sshSessionStore.record(result.serverId, agentContext.sessionId)
+                    SavedServerStore.remember(context, server)
+                    reloadSavedServers()
+                    appModel.refreshSnapshot()
+                    pendingAutoNavigateServerId = result.serverId
+                    sshAgentContext = null
+                    null
+                } catch (e: Exception) {
+                    LLog.e(
+                        logTag,
+                        "SSH bridge connect failed",
+                        e,
+                        fields = mapOf(
+                            "serverId" to agentContext.server.id,
+                            "host" to agentContext.host,
+                        ),
+                    )
+                    e.message ?: "Unable to connect SSH bridge agents."
                 }
             },
         )
@@ -685,7 +844,10 @@ fun DiscoveryScreen(
                                 context = context,
                                 serverId = result.serverId,
                                 displayName = result.displayName,
-                                relayHost = result.connectedHost,
+                                nodeId = result.nodeId,
+                                relay = result.params.relay,
+                                agentName = result.agentName,
+                                agentWire = alleycatWireStorageValue(result.agentWire),
                             )
                             reloadSavedServers()
                             appModel.refreshSnapshot()
@@ -1144,6 +1306,162 @@ private fun SSHLoginDialog(
             }
         },
     )
+}
+
+@Composable
+private fun SSHAgentPickerDialog(
+    context: SshBridgeAgentContext,
+    onDismiss: () -> Unit,
+    onUseCodex: () -> Unit,
+    onConnect: suspend (List<AgentRuntimeKind>) -> String?,
+) {
+    val scope = rememberCoroutineScope()
+    val availableKinds = remember(context.sessionId) {
+        availableSshBridgeKinds(context.availability)
+    }
+    var selectedKinds by remember(context.sessionId) { mutableStateOf(availableKinds.toSet()) }
+    var isConnecting by remember(context.sessionId) { mutableStateOf(false) }
+    var errorMessage by remember(context.sessionId) { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = { if (!isConnecting) onDismiss() },
+        title = { Text("Remote Agents") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    text = "${context.server.name.ifBlank { context.host }}\n${context.host}",
+                    color = LitterTheme.textPrimary,
+                    fontSize = 13.sp,
+                )
+                context.availability.forEach { agent ->
+                    val enabled = isSshBridgeKind(agent.kind) &&
+                        agent.status == AgentAvailabilityStatus.AVAILABLE &&
+                        !isConnecting
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = enabled) {
+                                selectedKinds = if (agent.kind in selectedKinds) {
+                                    selectedKinds - agent.kind
+                                } else {
+                                    selectedKinds + agent.kind
+                                }
+                            }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = sshRuntimeLabel(agent.kind),
+                                color = if (agent.status == AgentAvailabilityStatus.AVAILABLE) {
+                                    LitterTheme.textPrimary
+                                } else {
+                                    LitterTheme.textSecondary
+                                },
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = sshAgentStatusLabel(agent),
+                                color = LitterTheme.textSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        if (agent.kind in selectedKinds) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = LitterTheme.accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        color = LitterTheme.danger,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !isConnecting && selectedKinds.isNotEmpty(),
+                onClick = {
+                    scope.launch {
+                        isConnecting = true
+                        errorMessage = onConnect(selectedKinds.sortedBy(::sshRuntimeSortRank))
+                        isConnecting = false
+                    }
+                },
+            ) {
+                if (isConnecting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = LitterTheme.accent,
+                    )
+                } else {
+                    Text("Connect")
+                }
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onUseCodex, enabled = !isConnecting) {
+                    Text("Use Codex SSH")
+                }
+                TextButton(onClick = onDismiss, enabled = !isConnecting) {
+                    Text("Cancel")
+                }
+            }
+        },
+    )
+}
+
+private fun availableSshBridgeKinds(agents: List<RemoteAgentAvailability>): List<AgentRuntimeKind> =
+    agents
+        .filter { isSshBridgeKind(it.kind) && it.status == AgentAvailabilityStatus.AVAILABLE }
+        .map { it.kind }
+        .sortedBy(::sshRuntimeSortRank)
+
+private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean = when (kind) {
+    AgentRuntimeKind.CODEX,
+    AgentRuntimeKind.CLAUDE,
+    AgentRuntimeKind.PI,
+    AgentRuntimeKind.OPENCODE -> true
+}
+
+private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = when (kind) {
+    AgentRuntimeKind.CODEX -> "Codex"
+    AgentRuntimeKind.PI -> "Pi"
+    AgentRuntimeKind.OPENCODE -> "OpenCode"
+    AgentRuntimeKind.CLAUDE -> "Claude"
+}
+
+private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = when (kind) {
+    AgentRuntimeKind.CLAUDE -> 0
+    AgentRuntimeKind.PI -> 1
+    AgentRuntimeKind.OPENCODE -> 2
+    AgentRuntimeKind.CODEX -> 3
+}
+
+private fun sshAgentStatusLabel(agent: RemoteAgentAvailability): String = when (agent.status) {
+    AgentAvailabilityStatus.AVAILABLE -> "Available"
+    AgentAvailabilityStatus.AGENT_CLI_MISSING -> "CLI missing"
+    AgentAvailabilityStatus.WINDOWS_NOT_YET_SUPPORTED -> "Windows not supported"
+}
+
+private fun sshBridgeStateRoot(context: Context, host: String): String {
+    val safeHost = host.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val dir = File(File(context.filesDir, "alleycat-bridges"), safeHost)
+    dir.mkdirs()
+    return dir.absolutePath
 }
 
 private fun serverIconForEntry(entry: SavedServer): androidx.compose.ui.graphics.vector.ImageVector {

@@ -33,6 +33,7 @@ pub struct AppServerSnapshot {
     pub requires_openai_auth: bool,
     pub rate_limits: Option<crate::types::RateLimitSnapshot>,
     pub available_models: Option<Vec<crate::types::ModelInfo>>,
+    pub agent_runtimes: Vec<crate::types::AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
     pub usage_stats: Option<AppServerUsageStats>,
     /// Semver version string parsed from the server's `initialize.user_agent`,
@@ -85,6 +86,7 @@ pub struct AppServerCapabilities {
 pub struct AppThreadSnapshot {
     pub key: ThreadKey,
     pub info: ThreadInfo,
+    pub agent_runtime_kind: crate::types::AgentRuntimeKind,
     pub collaboration_mode: AppModeKind,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
@@ -113,6 +115,7 @@ pub struct AppThreadSnapshot {
 pub struct AppThreadStateRecord {
     pub key: ThreadKey,
     pub info: ThreadInfo,
+    pub agent_runtime_kind: crate::types::AgentRuntimeKind,
     pub collaboration_mode: AppModeKind,
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
@@ -363,6 +366,7 @@ pub struct AppModelUsageEntry {
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct AppSessionSummary {
     pub key: ThreadKey,
+    pub agent_runtime_kind: crate::types::AgentRuntimeKind,
     pub server_display_name: String,
     pub server_host: String,
     pub title: String,
@@ -468,6 +472,7 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                     requires_openai_auth: server.requires_openai_auth,
                     rate_limits: server.rate_limits,
                     available_models: server.available_models,
+                    agent_runtimes: server.agent_runtimes,
                     connection_progress: server.connection_progress,
                     usage_stats,
                     codex_version: server.codex_version,
@@ -513,6 +518,7 @@ fn app_thread_snapshot_from_state(
     Ok(AppThreadSnapshot {
         key: thread.key.clone(),
         info: thread.info.clone(),
+        agent_runtime_kind: thread.agent_runtime_kind,
         collaboration_mode: thread.collaboration_mode,
         model: thread.model.clone(),
         reasoning_effort: thread.reasoning_effort.clone(),
@@ -549,6 +555,7 @@ fn app_thread_state_record_from_state(
     Ok(AppThreadStateRecord {
         key: thread.key.clone(),
         info: thread.info.clone(),
+        agent_runtime_kind: thread.agent_runtime_kind,
         collaboration_mode: thread.collaboration_mode,
         model: thread.model.clone(),
         reasoning_effort: thread.reasoning_effort.clone(),
@@ -611,6 +618,7 @@ pub(crate) fn session_summaries_from_snapshot(snapshot: &AppSnapshot) -> Vec<App
 /// this row anyway, so every other field is trivially defaulted.
 pub(crate) fn empty_session_summary(key: ThreadKey) -> AppSessionSummary {
     AppSessionSummary {
+        agent_runtime_kind: crate::types::AgentRuntimeKind::Codex,
         server_display_name: key.server_id.clone(),
         server_host: key.server_id.clone(),
         key,
@@ -684,6 +692,7 @@ pub(crate) fn app_session_summary(
 
     AppSessionSummary {
         key: thread.key.clone(),
+        agent_runtime_kind: thread.agent_runtime_kind,
         server_display_name: server
             .map(|server| server.display_name.clone())
             .unwrap_or_else(|| thread.key.server_id.clone()),
@@ -1435,8 +1444,8 @@ mod tests {
     };
     use crate::store::{AppSnapshot, ThreadSnapshot};
     use crate::types::{
-        AppModeKind, AppPlanImplementationPromptSnapshot, PendingUserInputRequest, ThreadInfo,
-        ThreadKey, ThreadSummaryStatus,
+        AgentRuntimeKind, AppModeKind, AppPlanImplementationPromptSnapshot,
+        PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
     };
 
     #[test]
@@ -1489,6 +1498,7 @@ mod tests {
                     status: ThreadSummaryStatus::Active,
                     updated_at: Some(10),
                 },
+                agent_runtime_kind: AgentRuntimeKind::Codex,
                 collaboration_mode: AppModeKind::Default,
                 model: None,
                 reasoning_effort: None,

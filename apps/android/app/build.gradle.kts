@@ -163,7 +163,7 @@ dependencies {
 
     implementation("io.github.webrtc-sdk:android:144.7559.04")
 
-    // Alleycat pairing QR scanner
+    // Alleycat remote-host pairing QR scanner
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")

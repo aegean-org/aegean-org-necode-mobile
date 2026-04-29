@@ -89,6 +89,34 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         XCTAssertEqual(snapshot.threadsWithTrackedTurns.map(\.key), [otherKey])
     }
 
+    func testDisplayModelLabelUsesConcreteThreadModelFirst() {
+        let thread = makeThreadSnapshot(
+            key: ThreadKey(serverId: "srv", threadId: "thread-1"),
+            model: "gpt-5.4",
+            modelProvider: "anthropic",
+            agentRuntimeKind: .claude
+        )
+
+        XCTAssertEqual(thread.displayModelLabel, "gpt-5.4")
+    }
+
+    func testDisplayModelLabelFallsBackToProviderRuntimeLabel() {
+        let claude = makeThreadSnapshot(
+            key: ThreadKey(serverId: "srv", threadId: "thread-claude"),
+            modelProvider: "anthropic",
+            agentRuntimeKind: .claude
+        )
+        let opencode = makeThreadSnapshot(
+            key: ThreadKey(serverId: "srv", threadId: "thread-opencode"),
+            modelProvider: nil,
+            agentRuntimeKind: .opencode
+        )
+
+        XCTAssertEqual(claude.resolvedModel, "")
+        XCTAssertEqual(claude.displayModelLabel, "Claude")
+        XCTAssertEqual(opencode.displayModelLabel, "opencode")
+    }
+
     func testApplyLocalThreadTitleUpdatesThreadAndSessionSummary() {
         let key = ThreadKey(serverId: "srv", threadId: "thread-1")
         var snapshot = makeSnapshot(
@@ -309,11 +337,15 @@ final class AppSnapshotRuntimeTests: XCTestCase {
             requiresOpenaiAuth: false,
             rateLimits: nil,
             availableModels: nil,
-            connectionProgress: nil
+            agentRuntimes: [AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)],
+            connectionProgress: nil,
+            usageStats: nil,
+            codexVersion: nil
         )
         let sessionSummaries = threads.map { thread in
             AppSessionSummary(
                 key: thread.key,
+                agentRuntimeKind: thread.agentRuntimeKind,
                 serverDisplayName: server.displayName,
                 serverHost: server.host,
                 title: thread.info.title ?? "",
@@ -328,8 +360,18 @@ final class AppSnapshotRuntimeTests: XCTestCase {
                 agentStatus: .unknown,
                 updatedAt: thread.info.updatedAt,
                 hasActiveTurn: thread.hasActiveTurn,
+                isResumed: false,
                 isSubagent: false,
-                isFork: false
+                isFork: false,
+                lastResponsePreview: nil,
+                lastResponseTurnId: nil,
+                lastUserMessage: nil,
+                lastToolLabel: nil,
+                recentToolLog: [],
+                lastTurnStartMs: nil,
+                lastTurnEndMs: nil,
+                stats: nil,
+                tokenUsage: nil
             )
         }
 
@@ -356,7 +398,10 @@ final class AppSnapshotRuntimeTests: XCTestCase {
         key: ThreadKey,
         status: ThreadSummaryStatus = .idle,
         activeTurnId: String? = nil,
-        parentThreadId: String? = nil
+        parentThreadId: String? = nil,
+        model: String? = nil,
+        modelProvider: String? = nil,
+        agentRuntimeKind: AgentRuntimeKind = .codex
     ) -> AppThreadSnapshot {
         AppThreadSnapshot(
             key: key,
@@ -368,7 +413,7 @@ final class AppSnapshotRuntimeTests: XCTestCase {
                 preview: "Preview",
                 cwd: "/tmp",
                 path: nil,
-                modelProvider: nil,
+                modelProvider: modelProvider,
                 agentNickname: nil,
                 agentRole: nil,
                 parentThreadId: parentThreadId,
@@ -376,8 +421,9 @@ final class AppSnapshotRuntimeTests: XCTestCase {
                 createdAt: nil,
                 updatedAt: nil
             ),
+            agentRuntimeKind: agentRuntimeKind,
             collaborationMode: .default,
-            model: nil,
+            model: model,
             reasoningEffort: nil,
             effectiveApprovalPolicy: nil,
             effectiveSandboxPolicy: nil,
@@ -389,7 +435,11 @@ final class AppSnapshotRuntimeTests: XCTestCase {
             contextTokensUsed: nil,
             modelContextWindow: nil,
             rateLimits: nil,
-            realtimeSessionId: nil
+            realtimeSessionId: nil,
+            stats: nil,
+            tokenUsage: nil,
+            olderTurnsCursor: nil,
+            initialTurnsLoaded: true
         )
     }
 }
