@@ -294,6 +294,16 @@ impl AppClient {
                 .get_session(&server_id)
                 .map_err(|error| ClientError::Rpc(error.to_string()))?;
             let available_runtime_kinds = session.runtime_kinds();
+            tracing::info!(
+                "list_threads: resolve runtimes server_id={} requested={:?} available={:?} search_term={:?} use_state_db_only={} limit={:?} cursor={:?}",
+                server_id,
+                requested_runtime_kinds,
+                available_runtime_kinds,
+                params.search_term,
+                params.use_state_db_only,
+                params.limit,
+                params.cursor
+            );
             let mut runtime_kinds = match requested_runtime_kinds {
                 Some(requested) if !requested.is_empty() => requested
                     .into_iter()
@@ -311,6 +321,11 @@ impl AppClient {
             }
             runtime_kinds.sort();
             runtime_kinds.dedup();
+            tracing::info!(
+                "list_threads: fanout start server_id={} runtime_kinds={:?}",
+                server_id,
+                runtime_kinds
+            );
 
             // Fan out per-runtime concurrently. The previous sequential loop
             // exhausted Codex's full cursor pagination before non-Codex runtimes
@@ -338,6 +353,14 @@ impl AppClient {
                     let mut request_params = initial_params;
                     let mut ids = Vec::new();
                     let mut completed = true;
+                    tracing::info!(
+                        "list_threads: runtime start server_id={} runtime={:?} initial_limit={:?} search_term={:?} use_state_db_only={}",
+                        server_id,
+                        runtime_kind,
+                        request_params.limit,
+                        request_params.search_term,
+                        request_params.use_state_db_only
+                    );
                     loop {
                         // 10s per-page timeout: a stalled agent (e.g.
                         // opencode mid-restart) must not wedge the join.
@@ -371,6 +394,13 @@ impl AppClient {
                                     break;
                                 }
                             };
+                        tracing::info!(
+                            "list_threads: runtime page server_id={} runtime={:?} count={} next_cursor_present={}",
+                            server_id,
+                            runtime_kind,
+                            response.data.len(),
+                            response.next_cursor.is_some()
+                        );
                         let page = client.upsert_thread_list_page_for_runtime(
                             &server_id,
                             runtime_kind,
@@ -385,11 +415,26 @@ impl AppClient {
                         }
                         request_params.cursor = Some(next_cursor);
                     }
+                    tracing::info!(
+                        "list_threads: runtime complete server_id={} runtime={:?} completed={} upserted_ids={}",
+                        server_id,
+                        runtime_kind,
+                        completed,
+                        ids.len()
+                    );
                     (runtime_kind, ids, completed)
                 });
             }
 
             let results = futures::future::join_all(tasks).await;
+            tracing::info!(
+                "list_threads: fanout complete server_id={} results={:?}",
+                server_id,
+                results
+                    .iter()
+                    .map(|(runtime, ids, completed)| (*runtime, ids.len(), *completed))
+                    .collect::<Vec<_>>()
+            );
             // Only prune if every runtime finished cleanly. A partial
             // result (one runtime timed out / errored) means we don't
             // know its true thread set yet, and `finalize_thread_list_sync`
