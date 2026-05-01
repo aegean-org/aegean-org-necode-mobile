@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.DeveloperBoard
 import androidx.compose.material.icons.outlined.Dns
@@ -57,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.SavedServer
@@ -1143,6 +1146,7 @@ private fun SSHLoginDialog(
     var username by remember(server.id) { mutableStateOf(initialCredential?.username ?: "") }
     var authMethod by remember(server.id) { mutableStateOf(initialCredential?.method ?: SshAuthMethod.PASSWORD) }
     var password by remember(server.id) { mutableStateOf(initialCredential?.password ?: "") }
+    var isPasswordVisible by remember(server.id) { mutableStateOf(false) }
     var privateKey by remember(server.id) { mutableStateOf(initialCredential?.privateKey ?: "") }
     var passphrase by remember(server.id) { mutableStateOf(initialCredential?.passphrase ?: "") }
     var rememberCredentials by remember(server.id) { mutableStateOf(initialCredential != null) }
@@ -1184,7 +1188,10 @@ private fun SSHLoginDialog(
                         Text(if (authMethod == SshAuthMethod.PASSWORD) "Password *" else "Password")
                     }
                     TextButton(
-                        onClick = { authMethod = SshAuthMethod.KEY },
+                        onClick = {
+                            authMethod = SshAuthMethod.KEY
+                            isPasswordVisible = false
+                        },
                         enabled = !isConnecting,
                     ) {
                         Text(if (authMethod == SshAuthMethod.KEY) "SSH Key *" else "SSH Key")
@@ -1196,7 +1203,30 @@ private fun SSHLoginDialog(
                         onValueChange = { password = it },
                         label = { Text("Password") },
                         singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (isPasswordVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { isPasswordVisible = !isPasswordVisible },
+                                enabled = !isConnecting,
+                            ) {
+                                Icon(
+                                    imageVector = if (isPasswordVisible) {
+                                        Icons.Filled.VisibilityOff
+                                    } else {
+                                        Icons.Filled.Visibility
+                                    },
+                                    contentDescription = if (isPasswordVisible) {
+                                        "Hide password"
+                                    } else {
+                                        "Show password"
+                                    },
+                                )
+                            }
+                        },
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
