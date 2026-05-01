@@ -22,16 +22,24 @@ struct PetOverlayView: View {
     @State private var controller = PetOverlayController.shared
     let pet: CachedPetPackage
     let state: PetAvatarState
+    let message: String?
     let reduceMotion: Bool
     @State private var lastDragTranslation = CGSize.zero
 
     var body: some View {
-        PetSpriteView(
-            spritesheetBytes: pet.spritesheetBytes,
-            state: state,
-            reduceMotion: reduceMotion
-        )
-        .frame(width: 112, height: 122)
+        ZStack(alignment: .topLeading) {
+            PetSpriteView(
+                spritesheetBytes: pet.spritesheetBytes,
+                state: state,
+                reduceMotion: reduceMotion
+            )
+            .frame(width: 112, height: 122)
+
+            if let message {
+                PetSpeechBubble(text: message)
+                    .offset(x: 64, y: -10)
+            }
+        }
         .offset(controller.dragOffset)
         .gesture(
             DragGesture()
@@ -46,6 +54,30 @@ struct PetOverlayView: View {
                     controller.endDrag()
                 }
         )
+    }
+}
+
+private struct PetSpeechBubble: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(LitterTheme.textPrimary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(maxWidth: 180, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(LitterTheme.surface.opacity(0.94))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(LitterTheme.border.opacity(0.9), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
     }
 }
 

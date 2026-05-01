@@ -175,6 +175,23 @@ object PetOverlayController {
         return if (connected) PetAvatarState.IDLE else PetAvatarState.WAITING
     }
 
+    fun avatarMessage(snapshot: AppSnapshotRecord?): String? {
+        if (isLoading) return "Fetching pet..."
+        if (isDragging) return null
+        if (snapshot == null) return null
+        if (snapshot.pendingApprovals.isNotEmpty()) return "Review needed"
+        if (snapshot.pendingUserInputs.isNotEmpty()) return "Input needed"
+        val activeKey = snapshot.activeThread
+        val activeThread = activeKey?.let { key ->
+            snapshot.threads.firstOrNull { it.key == key }
+        }
+        if (activeThread?.info?.status == ThreadSummaryStatus.SYSTEM_ERROR) return "Run failed"
+        if (activeThread?.hasActiveTurn == true) return "Working..."
+        if (snapshot.threads.any { it.info.status == ThreadSummaryStatus.SYSTEM_ERROR }) return "Thread failed"
+        val connected = snapshot.servers.any { it.transportState == AppServerTransportState.CONNECTED }
+        return if (connected) null else "Waiting for server"
+    }
+
     private fun cacheFile(context: Context, serverId: String, petId: String): File {
         val safeServer = serverId.replace(Regex("[^A-Za-z0-9_.-]"), "_")
         val safePet = petId.replace(Regex("[^A-Za-z0-9_.-]"), "_")

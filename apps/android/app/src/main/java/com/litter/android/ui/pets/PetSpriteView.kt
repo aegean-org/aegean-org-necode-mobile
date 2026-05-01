@@ -3,28 +3,38 @@ package com.litter.android.ui.pets
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.litter.android.state.CachedPetPackage
 import com.litter.android.state.PetAvatarState
 import com.litter.android.state.PetOverlayController
+import com.litter.android.ui.LitterTheme
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -46,6 +56,7 @@ private data class PetSpriteAtlas(
 fun PetOverlayView(
     pet: CachedPetPackage,
     state: PetAvatarState,
+    message: String?,
     reducedMotion: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -75,7 +86,42 @@ fun PetOverlayView(
             state = state,
             reducedMotion = reducedMotion,
         )
+        if (message != null) {
+            PetSpeechBubble(
+                text = message,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = 64.dp, y = (-10).dp),
+            )
+        }
     }
+}
+
+@Composable
+private fun PetSpeechBubble(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        modifier = modifier
+            .widthIn(max = 180.dp)
+            .background(
+                color = LitterTheme.surface.copy(alpha = 0.94f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .border(
+                width = 1.dp,
+                color = LitterTheme.border.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        color = LitterTheme.textPrimary,
+        fontFamily = LitterTheme.monoFont,
+        fontSize = 11.sp,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable

@@ -429,6 +429,7 @@ fun LitterApp(appModel: AppModel) {
                 PetOverlayView(
                     pet = pet,
                     state = PetOverlayController.avatarState(snapshot),
+                    message = PetOverlayController.avatarMessage(snapshot),
                     reducedMotion = context.animationsDisabled(),
                     modifier = Modifier.align(Alignment.TopStart),
                 )

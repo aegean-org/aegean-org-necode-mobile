@@ -120,6 +120,23 @@ final class PetOverlayController {
         return snapshot.servers.contains(where: \.isConnected) ? .idle : .waiting
     }
 
+    func avatarMessage(snapshot: AppSnapshotRecord?) -> String? {
+        if isLoading { return "Fetching pet..." }
+        if isDragging { return nil }
+        guard let snapshot else { return nil }
+        if !snapshot.pendingApprovals.isEmpty { return "Review needed" }
+        if !snapshot.pendingUserInputs.isEmpty { return "Input needed" }
+        let activeThread = snapshot.activeThread.flatMap { key in
+            snapshot.threads.first(where: { $0.key == key })
+        }
+        if activeThread?.info.status == .systemError { return "Run failed" }
+        if activeThread?.hasActiveTurn == true { return "Working..." }
+        if snapshot.threads.contains(where: { $0.info.status == .systemError }) {
+            return "Thread failed"
+        }
+        return snapshot.servers.contains(where: \.isConnected) ? nil : "Waiting for server"
+    }
+
     private var cacheDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("Pets", isDirectory: true)

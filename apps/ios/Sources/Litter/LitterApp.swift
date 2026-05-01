@@ -403,6 +403,7 @@ struct ContentView: View {
                     PetOverlayView(
                         pet: pet,
                         state: petOverlay.avatarState(snapshot: appModel.snapshot),
+                        message: petOverlay.avatarMessage(snapshot: appModel.snapshot),
                         reduceMotion: UIAccessibility.isReduceMotionEnabled
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
