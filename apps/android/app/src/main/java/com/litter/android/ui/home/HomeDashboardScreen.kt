@@ -106,6 +106,7 @@ import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.common.DebugBuildLabel
 import com.litter.android.ui.common.runtimeSortIndex
 import com.litter.android.ui.scaled
 import com.sigkitten.litter.android.R
@@ -746,6 +747,7 @@ fun HomeDashboardScreen(
                     .fillMaxWidth()
                     .background(LitterTheme.background.copy(alpha = 0.4f)),
             ) {
+                DebugBuildLabel(modifier = Modifier.align(Alignment.End))
                 when {
                     // Full-screen search overlay above handles the search UI;
                     // suppress the bottom chrome entirely while it's open so

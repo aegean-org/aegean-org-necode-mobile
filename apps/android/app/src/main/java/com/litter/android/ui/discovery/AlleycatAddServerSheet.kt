@@ -60,6 +60,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.litter.android.core.bridge.UniffiInit
 import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
@@ -117,6 +118,7 @@ fun AlleycatAddServerSheet(
         scope.launch {
             try {
                 val loaded = withContext(Dispatchers.IO) {
+                    UniffiInit.ensure(context.applicationContext)
                     appModel.serverBridge.listAlleycatAgents(params)
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
@@ -193,6 +195,7 @@ fun AlleycatAddServerSheet(
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
+                    UniffiInit.ensure(context.applicationContext)
                     appModel.serverBridge.connectRemoteOverAlleycat(
                         serverId = serverId,
                         displayName = resolvedName,

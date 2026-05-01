@@ -150,6 +150,7 @@
 		43085FEE6339B734DE71C448 /* ThemeDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD31922D3510DA506B0EC85 /* ThemeDefinition.swift */; };
 		437762E0F261BFCF3527A3CB /* ConversationComposerContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35815D57BE688636CDD27415 /* ConversationComposerContentView.swift */; };
 		439364114EC527898BA7FFD7 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1641427B3606638F140B4E9A /* SystemConfiguration.framework */; };
+		43DAA3EC91CD24E1B32E907B /* DebugBuildLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6A65D0A7AA6DB6DEBB90BE0 /* DebugBuildLabel.swift */; };
 		440BFC190CBECB4A55E8BE32 /* fs in Resources */ = {isa = PBXBuildFile; fileRef = 9EB7EE8D376CFC9A7FC00334 /* fs */; };
 		44638D758B4155F7F8FF8A72 /* RealtimeWebRtcSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7705BE9E4D681844D5FB6C20 /* RealtimeWebRtcSession.swift */; };
 		4526C97E5DF2AA7D0E5E2412 /* CloudKVSBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F503F51C28F35CF80376D9FD /* CloudKVSBridge.swift */; };
@@ -286,6 +287,7 @@
 		7FC6B4B80A1578461A29247B /* linear-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 1725F41F271A5EBF02FD4ECA /* linear-dark.json */; };
 		7FD18540D6D2339D69F8466A /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101538FB7758F2441ED27F40 /* Extensions.swift */; };
 		8162FA999156618F9B3D7ADF /* LiveActivityPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C822FD11C8902B0EDED54723 /* LiveActivityPreview.swift */; };
+		8181782DFED3DEC99DC63030 /* DebugBuildLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6A65D0A7AA6DB6DEBB90BE0 /* DebugBuildLabel.swift */; };
 		818679028BC9D93AEBD01BF5 /* ConnectionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4925417F70C546B80DBD9EFF /* ConnectionTarget.swift */; };
 		82E763E808260942539A23E8 /* notion-dark-BTRKJ-yg.json in Resources */ = {isa = PBXBuildFile; fileRef = 5FB346B6064CA358E9EEAD00 /* notion-dark-BTRKJ-yg.json */; };
 		82E7F97F0BBB0EB0FE1B4362 /* AgentLabelFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02ED53258B9C053AB7035CD1 /* AgentLabelFormatter.swift */; };
@@ -846,6 +848,7 @@
 		A58307B7673850139031D023 /* SavedAppUpdateOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedAppUpdateOverlay.swift; sourceTree = "<group>"; };
 		A58E2FAFA4D997A5F23A04E5 /* AppServerSnapshot+UI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppServerSnapshot+UI.swift"; sourceTree = "<group>"; };
 		A675C0A5E31FA802F4113CE0 /* NearbyMacPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyMacPairing.swift; sourceTree = "<group>"; };
+		A6A65D0A7AA6DB6DEBB90BE0 /* DebugBuildLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugBuildLabel.swift; sourceTree = "<group>"; };
 		A71F4E34844D8B42B4D170F9 /* OnboardingCoachmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCoachmarks.swift; sourceTree = "<group>"; };
 		A75C53171D642CD800C76553 /* MobilePreferencesDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePreferencesDirectory.swift; sourceTree = "<group>"; };
 		A865AC79A6E0831D5F80A7E7 /* VoiceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceScreen.swift; sourceTree = "<group>"; };
@@ -1408,6 +1411,7 @@
 				BF245554F39E59E68B72EB22 /* ConversationView.swift */,
 				E27C590AB2E27ACAAB6432EF /* ConversationWarmupView.swift */,
 				86A94747FCE745BAA2DBEBF4 /* CrossServerToolResultView.swift */,
+				A6A65D0A7AA6DB6DEBB90BE0 /* DebugBuildLabel.swift */,
 				D0453F9A958E06582AE93013 /* DiffRendering.swift */,
 				318F2F8563E91AB97950F5DA /* DirectoryPickerView.swift */,
 				034CE02FECF86AB9EC0842D0 /* DiscoveryView.swift */,
@@ -2030,6 +2034,7 @@
 				F64EB92413EE8FA1EAA77BC8 /* ConversationWarmupView.swift in Sources */,
 				5A66F52BBAB0439DB07A21C4 /* CrossServerToolResultView.swift in Sources */,
 				19B4F5707625A7336C99DC88 /* CrossServerTools.swift in Sources */,
+				8181782DFED3DEC99DC63030 /* DebugBuildLabel.swift in Sources */,
 				ECDF3FB523E8728522E50B26 /* DebugSettings.swift in Sources */,
 				DECB9D0F729B54CDD4DF1DA8 /* DiffRendering.swift in Sources */,
 				CFA5E4B56537F480AFECC903 /* DirectoryPickerView.swift in Sources */,
@@ -2203,6 +2208,7 @@
 				69CD7E945F5E2F84A69A556C /* ConversationWarmupView.swift in Sources */,
 				C93588F488F685B4777132FE /* CrossServerToolResultView.swift in Sources */,
 				33F382D1EE69512F4466A59F /* CrossServerTools.swift in Sources */,
+				43DAA3EC91CD24E1B32E907B /* DebugBuildLabel.swift in Sources */,
 				AF137CE1A948A9DB6ED381E4 /* DebugSettings.swift in Sources */,
 				746139312C6BC04FE029B672 /* DiffRendering.swift in Sources */,
 				8C64101921FCB8587FFEBC33 /* DirectoryPickerView.swift in Sources */,

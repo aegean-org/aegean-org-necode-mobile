@@ -459,6 +459,8 @@ struct HomeDashboardView: View {
 
     private var bottomChrome: some View {
         VStack(alignment: .trailing, spacing: 6) {
+            DebugBuildLabel()
+                .padding(.trailing, 14)
             if inputMode == .composer {
                 HStack(spacing: 8) {
                     Spacer()
