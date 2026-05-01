@@ -178,6 +178,32 @@ fun HomeDashboardScreen(
         else homeSessions.filter { it.key.serverId == scopedServerId }
     }
 
+    fun pinThreadOnHome(key: ThreadKey) {
+        val displacedKeys = if (pinnedKeys.isEmpty()) {
+            recentSessions
+                .map { it.key }
+                .filter { it != key }
+        } else {
+            emptyList()
+        }
+        val pin = PinnedThreadKey(serverId = key.serverId, threadId = key.threadId)
+        SavedThreadsStore.add(context, pin)
+        if (hiddenKeys.contains(pin)) {
+            SavedThreadsStore.unhide(context, pin)
+        }
+        pinnedKeys = SavedThreadsStore.pinnedKeys(context)
+        hiddenKeys = SavedThreadsStore.hiddenKeys(context)
+        if (displacedKeys.isNotEmpty()) {
+            scope.launch {
+                displacedKeys.distinct().forEach { displacedKey ->
+                    runCatching {
+                        appModel.store.unsubscribeThread(displacedKey)
+                    }
+                }
+            }
+        }
+    }
+
     // Saved apps by origin thread id. The store's `.apps` StateFlow is kept
     // fresh by AppModel's handleUpdate on SavedAppsChanged (R3), plus a
     // best-effort reload on home re-entry to catch any changes that arrived
@@ -679,28 +705,7 @@ fun HomeDashboardScreen(
                             }
                         },
                         onPin = { session ->
-                            val displacedKeys = if (pinnedKeys.isEmpty()) {
-                                recentSessions
-                                    .map { it.key }
-                                    .filter { it != session.key }
-                            } else {
-                                emptyList()
-                            }
-                            val key = PinnedThreadKey(
-                                serverId = session.key.serverId,
-                                threadId = session.key.threadId,
-                            )
-                            SavedThreadsStore.add(context, key)
-                            pinnedKeys = SavedThreadsStore.pinnedKeys(context)
-                            if (displacedKeys.isNotEmpty()) {
-                                scope.launch {
-                                    displacedKeys.distinct().forEach { displacedKey ->
-                                        runCatching {
-                                            appModel.store.unsubscribeThread(displacedKey)
-                                        }
-                                    }
-                                }
-                            }
+                            pinThreadOnHome(session.key)
                             selectedSearchRuntimeKind = null
                         },
                         onUnpin = { session ->
@@ -802,7 +807,10 @@ fun HomeDashboardScreen(
                         }
                         HomeComposerBar(
                             project = selectedProject,
-                            onThreadCreated = onThreadCreated,
+                            onThreadCreated = { key ->
+                                pinThreadOnHome(key)
+                                onThreadCreated(key)
+                            },
                             onLoginRequired = onOpenAccount,
                             onActiveChange = { active ->
                                 if (active) {

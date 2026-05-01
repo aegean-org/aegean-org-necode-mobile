@@ -368,6 +368,7 @@ struct ContentView: View {
     @State private var appState = AppState()
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
+    @State private var petOverlay = PetOverlayController.shared
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
     @State private var showBetaSunsetNotice = false
@@ -396,6 +397,15 @@ struct ContentView: View {
                         splashDismissed = true
                         (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
                     }
+                }
+
+                if petOverlay.visible, let pet = petOverlay.selectedPet {
+                    PetOverlayView(
+                        pet: pet,
+                        state: petOverlay.avatarState(snapshot: appModel.snapshot),
+                        reduceMotion: UIAccessibility.isReduceMotionEnabled
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
 
                 if let approval = appModel.snapshot?.pendingApprovals.first(where: {

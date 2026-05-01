@@ -121,6 +121,7 @@ mod mobile_client;
 pub mod pair;
 pub mod parser;
 pub mod permissions;
+pub mod pets;
 pub mod plugin_refs;
 pub mod preferences;
 pub mod project;

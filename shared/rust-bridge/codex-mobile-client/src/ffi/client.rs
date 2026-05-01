@@ -839,6 +839,53 @@ impl AppClient {
         })
     }
 
+    pub async fn list_pets(
+        &self,
+        server_id: String,
+    ) -> Result<Vec<types::AppPetSummary>, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let entries = scan_remote_pets(c.as_ref(), &server_id).await?;
+            Ok(entries.into_iter().map(|entry| entry.summary).collect())
+        })
+    }
+
+    pub async fn load_pet(
+        &self,
+        server_id: String,
+        pet_id: String,
+    ) -> Result<types::AppPetPackage, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            let trimmed_pet_id = pet_id.trim();
+            if trimmed_pet_id.is_empty() {
+                return Err(ClientError::InvalidParams("pet id is empty".to_string()));
+            }
+            let entries = scan_remote_pets(c.as_ref(), &server_id).await?;
+            let entry = entries
+                .into_iter()
+                .find(|entry| entry.summary.id == trimmed_pet_id)
+                .ok_or_else(|| ClientError::Rpc(format!("pet not found: {trimmed_pet_id}")))?;
+            if let Some(error) = entry.summary.validation_error.as_ref() {
+                return Err(ClientError::Rpc(error.clone()));
+            }
+            let spritesheet_file = entry
+                .summary
+                .spritesheet_path
+                .as_deref()
+                .ok_or_else(|| ClientError::Rpc("pet has no spritesheet path".to_string()))?;
+            let spritesheet_path =
+                crate::pets::local_spritesheet_path(&entry.summary.source_path, spritesheet_file)
+                    .map_err(ClientError::Serialization)?;
+            let spritesheet_bytes =
+                read_remote_file_bytes(c.as_ref(), &server_id, &spritesheet_path).await?;
+            crate::pets::package_from_parts(
+                entry.summary.source_path,
+                &entry.manifest_json,
+                spritesheet_bytes,
+            )
+            .map_err(ClientError::Serialization)
+        })
+    }
+
     pub async fn write_config_value(
         &self,
         server_id: String,
@@ -1515,6 +1562,137 @@ fn is_windows_path(path: &str) -> bool {
         && bytes[0].is_ascii_alphabetic()
         && (bytes[2] == b'\\' || bytes[2] == b'/'))
         || path.starts_with("\\\\")
+}
+
+struct RemotePetScanEntry {
+    summary: types::AppPetSummary,
+    manifest_json: String,
+}
+
+async fn scan_remote_pets(
+    client: &MobileClient,
+    server_id: &str,
+) -> Result<Vec<RemotePetScanEntry>, ClientError> {
+    let script = r#"root="${CODEX_HOME:-$HOME/.codex}/pets"
+[ -d "$root" ] || exit 0
+for manifest in "$root"/*/pet.json; do
+  [ -f "$manifest" ] || continue
+  dir=${manifest%/pet.json}
+  printf '%s\t' "$(printf '%s' "$dir" | base64 | tr -d '\n')"
+  base64 < "$manifest" | tr -d '\n'
+  printf '\n'
+done"#;
+    let response = exec_command_simple_owned(
+        client,
+        server_id,
+        vec!["/bin/sh".to_string(), "-lc".to_string(), script.to_string()],
+        None,
+    )
+    .await?;
+    if response.exit_code != 0 {
+        let stderr = response.stderr.trim();
+        return Err(ClientError::Rpc(if stderr.is_empty() {
+            "pet scan failed".to_string()
+        } else {
+            stderr.to_string()
+        }));
+    }
+
+    let mut entries = Vec::new();
+    for line in response.stdout.lines() {
+        let Some((path_b64, manifest_b64)) = line.split_once('\t') else {
+            continue;
+        };
+        let path = decode_base64_utf8(path_b64, "pet path")?;
+        let manifest_json = decode_base64_utf8(manifest_b64, "pet manifest")?;
+        let mut summary = crate::pets::summary_from_manifest(path.clone(), &manifest_json, false);
+        if let Some(spritesheet_file) = summary.spritesheet_path.as_deref() {
+            let spritesheet_path = crate::pets::local_spritesheet_path(&path, spritesheet_file)
+                .map_err(ClientError::Serialization)?;
+            summary.has_valid_spritesheet =
+                remote_file_exists(client, server_id, &spritesheet_path).await?;
+            if summary.has_valid_spritesheet {
+                summary.validation_error = None;
+            } else if summary.validation_error.is_none() {
+                summary.validation_error = Some(format!("{spritesheet_file} is missing"));
+            }
+        }
+        entries.push(RemotePetScanEntry {
+            summary,
+            manifest_json,
+        });
+    }
+    entries.sort_by(|a, b| {
+        a.summary
+            .display_name
+            .to_lowercase()
+            .cmp(&b.summary.display_name.to_lowercase())
+    });
+    Ok(entries)
+}
+
+async fn remote_file_exists(
+    client: &MobileClient,
+    server_id: &str,
+    path: &str,
+) -> Result<bool, ClientError> {
+    let response =
+        exec_command_simple_owned(client, server_id, file_exists_command(path), None).await?;
+    Ok(response.exit_code == 0)
+}
+
+async fn read_remote_file_bytes(
+    client: &MobileClient,
+    server_id: &str,
+    path: &str,
+) -> Result<Vec<u8>, ClientError> {
+    let response =
+        exec_command_simple_owned(client, server_id, image_read_command(path), None).await?;
+    if response.exit_code != 0 {
+        let stderr = response.stderr.trim();
+        return Err(ClientError::Rpc(if stderr.is_empty() {
+            "file read failed".to_string()
+        } else {
+            stderr.to_string()
+        }));
+    }
+    let payload: String = response
+        .stdout
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .map_err(|error| ClientError::Serialization(format!("invalid file base64: {error}")))
+}
+
+fn decode_base64_utf8(value: &str, label: &str) -> Result<String, ClientError> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(value.trim())
+        .map_err(|error| ClientError::Serialization(format!("invalid {label} base64: {error}")))?;
+    String::from_utf8(bytes)
+        .map_err(|error| ClientError::Serialization(format!("invalid {label} utf8: {error}")))
+}
+
+fn file_exists_command(path: &str) -> Vec<String> {
+    if is_windows_path(path) {
+        return vec![
+            "powershell.exe".to_string(),
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-Command".to_string(),
+            "$p = $args[0]; if ($p.StartsWith('~/') -or $p.StartsWith('~\\\\')) { $p = Join-Path $HOME $p.Substring(2) }; if (Test-Path -LiteralPath $p -PathType Leaf) { exit 0 } else { exit 1 }".to_string(),
+            path.to_string(),
+        ];
+    }
+    vec![
+        "/bin/sh".to_string(),
+        "-lc".to_string(),
+        r#"path="$1"; case "$path" in "~/"*) path="$HOME/${path#~/}" ;; esac; test -f "$path""#
+            .to_string(),
+        "sh".to_string(),
+        path.to_string(),
+    ]
 }
 
 enum ImageViewSource {
