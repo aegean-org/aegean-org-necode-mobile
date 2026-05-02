@@ -371,7 +371,6 @@ struct ContentView: View {
     @State private var petOverlay = PetOverlayController.shared
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
-    @State private var showBetaSunsetNotice = false
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
 
     private var textScale: CGFloat {
@@ -486,20 +485,6 @@ struct ContentView: View {
                 .environment(appState)
                 .environment(themeManager)
                 .environment(\.textScale, textScale)
-        }
-        .sheet(isPresented: $showBetaSunsetNotice) {
-            BetaSunsetNoticeView(onDismiss: { showBetaSunsetNotice = false })
-                .environment(\.textScale, textScale)
-        }
-        .onChange(of: splashDismissed) { _, dismissed in
-            // Wait until the splash window has faded out so the sheet is
-            // visible — the splash sits at a window level above the main UI.
-            guard dismissed, BetaSunsetNotice.shouldShow else { return }
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(800))
-                guard BetaSunsetNotice.shouldShow else { return }
-                showBetaSunsetNotice = true
-            }
         }
         #if targetEnvironment(macCatalyst)
         .onReceive(NotificationCenter.default.publisher(for: .litterCommandShowSettings)) { _ in

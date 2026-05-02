@@ -191,7 +191,6 @@
 		559D9CFDF4AAC8C5E5FC4452 /* StreamingRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */; };
 		55C3EEE366FD3ABE9BCFA271 /* ConversationScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */; };
 		55C6A6864F364EC484A9D349 /* notion-dark-BTRKJ-yg.json in Resources */ = {isa = PBXBuildFile; fileRef = 5FB346B6064CA358E9EEAD00 /* notion-dark-BTRKJ-yg.json */; };
-		564CF5E6130D00E08D8FD248 /* BetaSunsetNoticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B220F4648DAC131B3BEBAE39 /* BetaSunsetNoticeView.swift */; };
 		568C0B1181B1ACFFBD7B165D /* LockScreenCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892D583790A9BD90CFD89701 /* LockScreenCardView.swift */; };
 		56F93B9C3848A3D983526A2F /* CodexVoiceCallAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB2B7BC833F0EB556D8401A /* CodexVoiceCallAttributes.swift */; };
 		5784473E9D446D638DE2EEB2 /* CodexVoiceCallAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB2B7BC833F0EB556D8401A /* CodexVoiceCallAttributes.swift */; };
@@ -258,7 +257,6 @@
 		714E942B02990424C166E85C /* MobilePreferencesDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75C53171D642CD800C76553 /* MobilePreferencesDirectory.swift */; };
 		71BDE48B071FBFA7B591DE4B /* catppuccin-macchiato.json in Resources */ = {isa = PBXBuildFile; fileRef = 73F81DFBE27A2FE1EB02C1DA /* catppuccin-macchiato.json */; };
 		72158718B1E67C9A80C407CC /* HairballUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7326ADC3586B9A9CE7E3B749 /* HairballUI */; };
-		722610BA65338E4168C827BD /* BetaSunsetNoticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B220F4648DAC131B3BEBAE39 /* BetaSunsetNoticeView.swift */; };
 		7238212F682875E246F51241 /* gruvbox-light-soft.json in Resources */ = {isa = PBXBuildFile; fileRef = BAC7D83216AF4F0FFA325009 /* gruvbox-light-soft.json */; };
 		72CDBF97DCE4D38083BD232B /* gruvbox-dark-soft.json in Resources */ = {isa = PBXBuildFile; fileRef = E8733DBC110CC719F3AEAD45 /* gruvbox-dark-soft.json */; };
 		72D8BB1A1C9A959CFE255E63 /* VoiceSessionControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DD5EE6826564A0EA6AE3FA /* VoiceSessionControl.swift */; };
@@ -873,7 +871,6 @@
 		B0648D501D363553E86BAE63 /* BerkeleyMono-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BerkeleyMono-Regular.otf"; sourceTree = "<group>"; };
 		B0C1A0569B4424123A37B0DA /* ConversationPlanSemanticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationPlanSemanticsTests.swift; sourceTree = "<group>"; };
 		B17C306BA7D9DCF6ACF24169 /* WatchAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppStore.swift; sourceTree = "<group>"; };
-		B220F4648DAC131B3BEBAE39 /* BetaSunsetNoticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetaSunsetNoticeView.swift; sourceTree = "<group>"; };
 		B22B0C284B20FB135A3A35BE /* MinigameOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinigameOverlayView.swift; sourceTree = "<group>"; };
 		B361A4FDCFF12B0FE7E893EC /* VideoWallpaperPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoWallpaperPlayerView.swift; sourceTree = "<group>"; };
 		B3987DD421CCBF1312C3CB8B /* UniFFICodexClient.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniFFICodexClient.generated.swift; sourceTree = "<group>"; };
@@ -1399,7 +1396,6 @@
 				9D216CEBFB1B4B71CFC2C0F8 /* AppearanceSettingsView.swift */,
 				DD7A57CD59F1F3C8300A9ECE /* AppsListView.swift */,
 				63D9ACF04F4018F2949FB7E0 /* AudioWaveformView.swift */,
-				B220F4648DAC131B3BEBAE39 /* BetaSunsetNoticeView.swift */,
 				C361CBF40ED3D35C44D46880 /* BrandLogo.swift */,
 				A36C53F042D99EC31804B19E /* CatalystVoiceStubs.swift */,
 				4754654D5240E850C98AB85D /* ChatWallpaperBackground.swift */,
@@ -2010,7 +2006,6 @@
 				70835F6848317358DA94F963 /* AppearanceSettingsView.swift in Sources */,
 				9F71666B27E5CCCB2A0A9966 /* AppsListView.swift in Sources */,
 				1E4B6194A06FB712657A24C7 /* AudioWaveformView.swift in Sources */,
-				564CF5E6130D00E08D8FD248 /* BetaSunsetNoticeView.swift in Sources */,
 				E41F675D5DA4CB9AAF30EDC4 /* BrandLogo.swift in Sources */,
 				1D50169996989CD0831C3768 /* CarPlaySceneDelegate.swift in Sources */,
 				483C48A38E7D5B48F9735CB6 /* CarPlayVoiceManager.swift in Sources */,
@@ -2192,7 +2187,6 @@
 				BBA3818C96635CEB35946AA5 /* AppearanceSettingsView.swift in Sources */,
 				200625E357DD536744735D21 /* AppsListView.swift in Sources */,
 				AC42D6FE72AF65BDC551B0A6 /* AudioWaveformView.swift in Sources */,
-				722610BA65338E4168C827BD /* BetaSunsetNoticeView.swift in Sources */,
 				A5D2556BF0AC3D6805FF91FF /* BrandLogo.swift in Sources */,
 				A4106AB49B911B49D4DCAE1A /* CatalystRuntimeStubs.swift in Sources */,
 				4CC1297FBBAEBB597D72C0DA /* CatalystVoiceStubs.swift in Sources */,
