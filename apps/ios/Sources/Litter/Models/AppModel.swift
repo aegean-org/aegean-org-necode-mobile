@@ -69,7 +69,7 @@ final class AppModel {
         let rc = ReconnectController()
         rc.setCredentialProvider(provider: SwiftSshCredentialProvider())
         rc.setIpcSocketPathOverride(path: ExperimentalFeatures.shared.ipcSocketPathOverride())
-        rc.setMultiClankerAndQuicEnabled(enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled())
+        rc.setMultiClankerAndQuicEnabled(enabled: true)
         return RustBridges(
             store: AppStore(),
             client: AppClient(),

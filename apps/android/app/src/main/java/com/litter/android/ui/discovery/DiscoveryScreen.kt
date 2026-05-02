@@ -73,7 +73,6 @@ import com.litter.android.state.isConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
 import com.litter.android.ui.ExperimentalFeatures
-import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.util.LLog
@@ -383,14 +382,12 @@ fun DiscoveryScreen(
             IconButton(onClick = onRefresh) {
                 Icon(Icons.Default.Refresh, "Refresh", tint = LitterTheme.textSecondary)
             }
-            if (ExperimentalFeatures.isEnabled(LitterFeature.ALLEYCAT)) {
-                IconButton(onClick = { showAlleycatSheet = true }) {
-                    Icon(
-                        Icons.Default.QrCodeScanner,
-                        "Add remote host",
-                        tint = LitterTheme.textSecondary,
-                    )
-                }
+            IconButton(onClick = { showAlleycatSheet = true }) {
+                Icon(
+                    Icons.Default.QrCodeScanner,
+                    "Add remote host",
+                    tint = LitterTheme.textSecondary,
+                )
             }
             IconButton(onClick = { showManualEntry = true }) {
                 Icon(Icons.Default.Add, "Add Server", tint = LitterTheme.textSecondary)
@@ -590,7 +587,29 @@ fun DiscoveryScreen(
                         sshCredentialStore.delete(server.hostname, server.resolvedSshPort)
                     }
 
-                    if (!ExperimentalFeatures.multiClankerAndQuicEnabled()) {
+                    val session = openSshSession(server, credential)
+                    val availability = appModel.ssh.sshProbeRemoteAgents(session.sessionId)
+                    val bridgeAgents = availableSshBridgeKinds(availability)
+                    if (bridgeAgents.isNotEmpty()) {
+                        sshAgentContext = SshBridgeAgentContext(
+                            server = server,
+                            sessionId = session.sessionId,
+                            host = session.normalizedHost,
+                            availability = availability,
+                            credential = credential,
+                        )
+                        sshServer = null
+                        null
+                    } else {
+                        appModel.ssh.sshClose(session.sessionId)
+                        LLog.t(
+                            logTag,
+                            "no SSH bridge agents available; falling back to Codex SSH",
+                            fields = mapOf(
+                                "serverId" to server.id,
+                                "host" to server.hostname,
+                            ),
+                        )
                         startGuidedSshConnect(server, credential)
                         SavedServerStore.remember(
                             context,
@@ -610,50 +629,6 @@ fun DiscoveryScreen(
                         )
                         sshServer = null
                         null
-                    } else {
-                        val session = openSshSession(server, credential)
-                        val availability = appModel.ssh.sshProbeRemoteAgents(session.sessionId)
-                        val bridgeAgents = availableSshBridgeKinds(availability)
-                        if (bridgeAgents.isNotEmpty()) {
-                            sshAgentContext = SshBridgeAgentContext(
-                                server = server,
-                                sessionId = session.sessionId,
-                                host = session.normalizedHost,
-                                availability = availability,
-                                credential = credential,
-                            )
-                            sshServer = null
-                            null
-                        } else {
-                            appModel.ssh.sshClose(session.sessionId)
-                            LLog.t(
-                                logTag,
-                                "no SSH bridge agents available; falling back to Codex SSH",
-                                fields = mapOf(
-                                    "serverId" to server.id,
-                                    "host" to server.hostname,
-                                ),
-                            )
-                            startGuidedSshConnect(server, credential)
-                            SavedServerStore.remember(
-                                context,
-                                server.withPreferredConnection("ssh"),
-                            )
-                            reloadSavedServers()
-                            appModel.refreshSnapshot()
-                            pendingAutoNavigateServerId = server.id
-                            LLog.t(
-                                logTag,
-                                "guided SSH bootstrap started",
-                                fields = mapOf(
-                                    "serverId" to server.id,
-                                    "host" to server.hostname,
-                                    "sshPort" to server.resolvedSshPort,
-                                ),
-                            )
-                            sshServer = null
-                            null
-                        }
                     }
                 } catch (e: Exception) {
                     LLog.e(

@@ -10,7 +10,6 @@ struct LitterWatchApp: App {
 
     init() {
         WatchSessionBridge.shared.start()
-        Self.scheduleNextBackgroundRefresh()
     }
 
     var body: some Scene {
@@ -20,34 +19,11 @@ struct LitterWatchApp: App {
                 .preferredColorScheme(.dark)
                 .tint(WatchTheme.ginger)
         }
-        .backgroundTask(.appRefresh("litter.watch.refresh")) {
-            await Self.handleBackgroundRefresh()
-        }
 
         WKNotificationScene(
             controller: LitterNotificationController.self,
             category: "litter.task.complete"
         )
-    }
-
-    /// Re-arm the periodic background refresh and request a fresh snapshot
-    /// from the phone. Called on app launch and from the background-task
-    /// handler.
-    fileprivate static func scheduleNextBackgroundRefresh() {
-        let next = Date().addingTimeInterval(15 * 60)
-        WKApplication.shared().scheduleBackgroundRefresh(
-            withPreferredDate: next,
-            userInfo: nil
-        ) { _ in }
-    }
-
-    @MainActor
-    fileprivate static func handleBackgroundRefresh() async {
-        scheduleNextBackgroundRefresh()
-        WatchSessionBridge.shared.requestSnapshot()
-        // Give WCSession a short window to deliver the reply before the
-        // system suspends us; the inbound handler will update the store.
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
     }
 }
 

@@ -392,6 +392,12 @@ struct HomeDashboardView: View {
                 sidebarBottomChrome
             }
         }
+        .overlay {
+            if showOnboardingCoachmarks {
+                emptyHomeFatCat
+                    .transition(.opacity)
+            }
+        }
         .overlayPreferenceValue(CoachmarkAnchorKey.self) { anchors in
             if showOnboardingCoachmarks {
                 OnboardingCoachmarksView(anchors: anchors)
@@ -567,6 +573,44 @@ struct HomeDashboardView: View {
     /// branch just reserves vertical space for the scroll view.
     private var emptyState: some View {
         Color.clear.frame(height: 1)
+    }
+
+    /// Fat cat illustration shown on the empty home screen. Positioned in
+    /// the middle vertical band — between the addServer label (y≈0.20) and
+    /// the search/newThread labels (y≈0.62/0.70) — so it never collides
+    /// with the coachmark arrows or labels. Plays the entrance APNG once
+    /// then crossfades to the looping APNG, matching the cat footer.
+    private var emptyHomeFatCat: some View {
+        GeometryReader { proxy in
+            let h = proxy.size.height
+            let w = proxy.size.width
+            let catWidth = min(max(180, w * 0.55), 260)
+            let catHeight = catWidth * 202.0 / 360.0
+            EmptyHomeFatCatView()
+                .frame(width: catWidth, height: catHeight)
+                .position(x: w / 2, y: h * 0.42)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct EmptyHomeFatCatView: View {
+    @State private var showingLoop = false
+
+    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
+    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
+
+    var body: some View {
+        Group {
+            if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
+                AlphaAnimatedImageView(
+                    fileURL: imageURL,
+                    repeatCount: showingLoop ? 0 : 1,
+                    onFinished: showingLoop ? nil : { showingLoop = true }
+                )
+                .accessibilityHidden(true)
+            }
+        }
     }
 }
 

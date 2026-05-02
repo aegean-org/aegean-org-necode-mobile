@@ -43,9 +43,7 @@ final class AppLifecycleController {
             localDisplayName: appModel.resolvedLocalServerDisplayName(),
             rememberedOnly: true
         )
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(servers: servers)
         let results = await appModel.reconnectController.reconnectSavedServers()
         await appModel.refreshSnapshot()
@@ -65,9 +63,7 @@ final class AppLifecycleController {
         let servers = SavedServerStore.reconnectRecords(
             localDisplayName: appModel.resolvedLocalServerDisplayName()
         )
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(servers: servers)
         let result = await appModel.reconnectController.reconnectServer(serverId: serverId)
         await appModel.refreshSnapshot()
@@ -360,9 +356,7 @@ final class AppLifecycleController {
             localDisplayName: appModel.resolvedLocalServerDisplayName(),
             rememberedOnly: true
         )
-        appModel.reconnectController.setMultiClankerAndQuicEnabled(
-            enabled: ExperimentalFeatures.shared.multiClankerAndQuicEnabled()
-        )
+        appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(servers: servers)
         let results = await appModel.reconnectController.onAppBecameActive()
         await appModel.refreshSnapshot()
