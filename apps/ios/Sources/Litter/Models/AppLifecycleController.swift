@@ -604,6 +604,7 @@ final class AppLifecycleController {
         if !model.isEmpty { bodyParts.append(model) }
         content.body = bodyParts.joined(separator: " - ")
         content.sound = .default
+        content.categoryIdentifier = "litter.task.complete"
         content.userInfo = [
             Self.notificationServerIdKey: threadKey.serverId,
             Self.notificationThreadIdKey: threadKey.threadId

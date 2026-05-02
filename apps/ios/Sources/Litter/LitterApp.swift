@@ -73,6 +73,14 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
         application.registerForRemoteNotifications()
         UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(
+                identifier: "litter.task.complete",
+                actions: [],
+                intentIdentifiers: [],
+                options: [.allowAnnouncement]
+            )
+        ])
         OrientationResponder.shared.start()
         DispatchQueue.main.async {
             CloudKVSBridge.shared.start()

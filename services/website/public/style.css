@@ -182,7 +182,7 @@ nav .container {
 }
 
 .hero h1 {
-  font-size: clamp(32px, 5vw, 48px);
+  font-size: clamp(22px, 4vw, 36px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
@@ -195,6 +195,65 @@ nav .container {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* ── Agent carousel (mirrors the iOS splash) ── */
+.agent-carousel {
+  display: inline-block;
+  vertical-align: baseline;
+  height: 1.15em;
+  line-height: 1.15;
+  overflow: hidden;
+  /* fixed slot wide enough for the longest agent ("opencode") */
+  width: calc(8ch + 1em);
+}
+
+.agent-track {
+  display: block;
+  animation: agent-cycle 9s infinite cubic-bezier(0.65, 0, 0.35, 1);
+  will-change: transform;
+}
+
+.agent-item {
+  display: block;
+  text-align: center;
+  height: 1.15em;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.agent-icon,
+.agent-logo {
+  display: inline-block;
+  vertical-align: -0.10em;
+}
+
+.agent-icon {
+  width: 0.62em;
+  height: 0.62em;
+}
+
+.agent-logo {
+  width: 0.52em;   /* 0.66em × 32/40 to preserve aspect ratio */
+  height: 0.66em;
+}
+
+.agent-name {
+  color: var(--text);
+  margin-right: 0.28em;
+  letter-spacing: -0.01em;
+}
+
+@keyframes agent-cycle {
+  0%,   17.5% { transform: translateY(0); }
+  25%,  42.5% { transform: translateY(-1.15em); }
+  50%,  67.5% { transform: translateY(-2.30em); }
+  75%,  92.5% { transform: translateY(-3.45em); }
+  100%        { transform: translateY(-4.60em); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-track { animation: none; }
 }
 
 .hero-sub {

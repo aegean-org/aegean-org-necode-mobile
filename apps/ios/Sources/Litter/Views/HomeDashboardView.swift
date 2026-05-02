@@ -87,8 +87,17 @@ struct HomeDashboardView: View {
         connectedServers.filter(\.canLaunchSessions)
     }
 
+    private var selectedMachineServerId: String? {
+        let trimmed = selectedServerId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var composerServerId: String? {
+        selectedProject?.serverId ?? selectedMachineServerId
+    }
+
     private var selectedLaunchableServer: HomeDashboardServer? {
-        let serverId = selectedProject?.serverId ?? selectedServerId
+        let serverId = composerServerId
         guard let serverId else { return nil }
         return launchableServers.first { $0.id == serverId }
     }
@@ -144,7 +153,7 @@ struct HomeDashboardView: View {
     }
 
     private var visibleSessions: [HomeDashboardRecentSession] {
-        let serverId = selectedProject?.serverId ?? selectedServerId
+        let serverId = selectedMachineServerId
         guard let serverId, !serverId.isEmpty else { return recentSessions }
         return recentSessions.filter { $0.serverId == serverId }
     }
@@ -416,7 +425,7 @@ struct HomeDashboardView: View {
     private var topChrome: some View {
         ServerPillRow(
             servers: connectedServers,
-            selectedServerId: selectedProject?.serverId ?? selectedServerId,
+            selectedServerId: selectedMachineServerId,
             onTap: onSelectServer,
             onReconnect: { server in onReconnectServer?(server) },
             onRestartAppServer: { server in onRestartAppServer?(server) },
@@ -465,7 +474,7 @@ struct HomeDashboardView: View {
                 HStack(spacing: 8) {
                     Spacer()
                     HomeModelChip(
-                        serverId: selectedProject?.serverId ?? selectedServerId,
+                        serverId: composerServerId,
                         disabled: selectedLaunchableServer == nil,
                         onSheetStateChange: { isPresented in
                             suppressComposerCollapse = isPresented
@@ -486,7 +495,7 @@ struct HomeDashboardView: View {
                 searchQuery: $searchQuery,
                 collapseSuppressed: suppressComposerCollapse,
                 project: selectedProject,
-                transcriptionServerId: selectedProject?.serverId ?? selectedServerId,
+                transcriptionServerId: composerServerId,
                 onThreadCreated: onThreadCreated
             )
         }
