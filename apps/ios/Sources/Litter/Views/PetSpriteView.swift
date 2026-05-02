@@ -18,6 +18,36 @@ private struct PetSpriteAtlas {
     }
 }
 
+private struct PetAnimationProfile {
+    let frameDurationsMs: [UInt64]
+
+    func durationMs(for frameIndex: Int) -> UInt64 {
+        guard !frameDurationsMs.isEmpty else { return 120 }
+        return frameDurationsMs[min(frameIndex, frameDurationsMs.count - 1)]
+    }
+
+    static func profile(for state: PetAvatarState) -> PetAnimationProfile {
+        switch state {
+        case .idle:
+            return PetAnimationProfile(frameDurationsMs: [1680, 660, 660, 840, 840, 1920])
+        case .runningRight, .runningLeft:
+            return PetAnimationProfile(frameDurationsMs: [120, 120, 120, 120, 120, 120, 120, 220])
+        case .running:
+            return PetAnimationProfile(frameDurationsMs: [120, 120, 120, 120, 120, 220])
+        case .waiting:
+            return PetAnimationProfile(frameDurationsMs: [150, 150, 150, 150, 150, 260])
+        case .review:
+            return PetAnimationProfile(frameDurationsMs: [150, 150, 150, 150, 150, 280])
+        case .failed:
+            return PetAnimationProfile(frameDurationsMs: [140, 140, 140, 140, 140, 140, 140, 240])
+        case .jumping:
+            return PetAnimationProfile(frameDurationsMs: [140, 140, 140, 140, 280])
+        case .waving:
+            return PetAnimationProfile(frameDurationsMs: [140, 140, 140, 280])
+        }
+    }
+}
+
 struct PetOverlayView: View {
     @State private var controller = PetOverlayController.shared
     let pet: CachedPetPackage
@@ -86,13 +116,18 @@ struct PetSpriteView: View {
     let state: PetAvatarState
     let reduceMotion: Bool
     @State private var atlas: PetSpriteAtlas?
+    @State private var playbackState: PetAvatarState?
     @State private var frameIndex = 0
 
     var body: some View {
-        let frames = atlas?.frames(for: state) ?? [0]
+        let renderedState = playbackState ?? state
+        let frames = atlas?.frames(for: renderedState) ?? [0]
+        let atlasSignature = atlas?.framesByRow.map { row in
+            row.map(String.init).joined(separator: ",")
+        }.joined(separator: "|") ?? ""
 
         GeometryReader { proxy in
-            if let atlas, let frameImage = frameImage(from: atlas, frames: frames) {
+            if let atlas, let frameImage = frameImage(from: atlas, state: renderedState, frames: frames) {
                 Image(uiImage: frameImage)
                     .resizable()
                     .interpolation(.none)
@@ -104,17 +139,24 @@ struct PetSpriteView: View {
         .task(id: spritesheetBytes) {
             atlas = decodeAtlas(from: spritesheetBytes)
         }
-        .task(id: "\(state.rawValue)-\(reduceMotion)-\(frames)") {
+        .task(id: "\(state.rawValue)-\(reduceMotion)-\(atlasSignature)") {
+            playbackState = state
             frameIndex = 0
-            guard !reduceMotion, frames.count > 1 else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(120))
-                frameIndex = (frameIndex + 1) % frames.count
+            guard !reduceMotion else { return }
+
+            if state == .idle {
+                await playLoop(for: .idle)
+            } else {
+                await playLoop(for: state, cycles: 3)
+                guard !Task.isCancelled else { return }
+                playbackState = .idle
+                frameIndex = 0
+                await playLoop(for: .idle)
             }
         }
     }
 
-    private func frameImage(from atlas: PetSpriteAtlas, frames: [Int]) -> UIImage? {
+    private func frameImage(from atlas: PetSpriteAtlas, state: PetAvatarState, frames: [Int]) -> UIImage? {
         guard let cgImage = atlas.image.cgImage else { return nil }
         let frame = frames.indices.contains(frameIndex) ? frames[frameIndex] : frames.first ?? 0
         let rect = CGRect(
@@ -125,6 +167,23 @@ struct PetSpriteView: View {
         )
         guard let cropped = cgImage.cropping(to: rect) else { return nil }
         return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    }
+
+    private func playLoop(for state: PetAvatarState, cycles: Int? = nil) async {
+        let frames = atlas?.frames(for: state) ?? [0]
+        guard frames.count > 1 else { return }
+        let profile = PetAnimationProfile.profile(for: state)
+        var completedCycles = 0
+
+        while cycles == nil || completedCycles < (cycles ?? 0) {
+            for index in frames.indices {
+                guard !Task.isCancelled else { return }
+                playbackState = state
+                frameIndex = index
+                try? await Task.sleep(for: .milliseconds(profile.durationMs(for: index)))
+            }
+            completedCycles += 1
+        }
     }
 
     private func decodeAtlas(from data: Data) -> PetSpriteAtlas? {

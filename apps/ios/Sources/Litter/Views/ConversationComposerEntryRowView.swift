@@ -166,7 +166,7 @@ struct ConversationComposerEntryRowView: View {
             }
             .animation(.easeInOut(duration: 0.15), value: shouldShowExpand)
 
-            if canSend && !isTurnActive {
+            if canSend {
                 Button(action: onSendText) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(LitterFont.styled(size: 30))
@@ -182,7 +182,7 @@ struct ConversationComposerEntryRowView: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
 
-            if isTurnActive {
+            if isTurnActive && !canSend {
                 Button(action: onInterrupt) {
                     Text("Cancel")
                         .font(LitterFont.styled(size: 15, weight: .medium))
