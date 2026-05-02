@@ -1573,6 +1573,8 @@ async fn scan_remote_pets(
     client: &MobileClient,
     server_id: &str,
 ) -> Result<Vec<RemotePetScanEntry>, ClientError> {
+    ensure_pet_runtime_available(client, server_id)?;
+
     let script = r#"root="${CODEX_HOME:-$HOME/.codex}/pets"
 [ -d "$root" ] || exit 0
 for manifest in "$root"/*/pet.json; do
@@ -1629,6 +1631,19 @@ done"#;
             .cmp(&b.summary.display_name.to_lowercase())
     });
     Ok(entries)
+}
+
+fn ensure_pet_runtime_available(client: &MobileClient, server_id: &str) -> Result<(), ClientError> {
+    let runtime_kinds = client
+        .get_session(server_id)
+        .map_err(|error| ClientError::Rpc(error.to_string()))?
+        .runtime_kinds();
+    if runtime_kinds.contains(&types::AgentRuntimeKind::Codex) {
+        return Ok(());
+    }
+    Err(ClientError::Rpc(
+        "pets require a connected Codex runtime; select the Codex Alleycat agent or connect to a Codex server".to_string(),
+    ))
 }
 
 async fn remote_file_exists(
