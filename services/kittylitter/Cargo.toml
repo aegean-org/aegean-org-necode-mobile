@@ -28,3 +28,10 @@ path = "src/main.rs"
 # `pub fn run`) must be pushed to main before this resolves.
 alleycat = { git = "https://github.com/dnakov/alleycat.git", branch = "main" }
 anyhow = "1"
+
+# cargo-dist builds with `cargo build --profile dist`. Mirrors the
+# upstream alleycat workspace's profile so binaries are LTO-thinned in
+# release artifacts.
+[profile.dist]
+inherits = "release"
+lto = "thin"
