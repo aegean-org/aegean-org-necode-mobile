@@ -53,9 +53,6 @@ struct ConversationComposerTextView: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.onPasteImage = onPasteImage
         textView.onHardwareSubmit = onHardwareSubmit
-        textView.onSwipeDownToDismiss = { [weak textView, coordinator = context.coordinator] in
-            coordinator.dismissKeyboardFromSwipe(textView)
-        }
         textView.text = text
         context.coordinator.applyStyling(to: textView)
         context.coordinator.updateScrollState(for: textView)
@@ -66,9 +63,6 @@ struct ConversationComposerTextView: UIViewRepresentable {
         context.coordinator.parent = self
         uiView.onPasteImage = onPasteImage
         uiView.onHardwareSubmit = onHardwareSubmit
-        uiView.onSwipeDownToDismiss = { [weak uiView, coordinator = context.coordinator] in
-            coordinator.dismissKeyboardFromSwipe(uiView)
-        }
         context.coordinator.applyStyling(to: uiView)
 
         if uiView.text != text, uiView.markedTextRange == nil {
@@ -158,16 +152,6 @@ struct ConversationComposerTextView: UIViewRepresentable {
             DispatchQueue.main.async(execute: work)
         }
 
-        func dismissKeyboardFromSwipe(_ textView: UITextView?) {
-            focusSyncWorkItem?.cancel()
-            focusSyncWorkItem = nil
-            requestedFocusState = false
-            if parent.isFocused {
-                parent.isFocused = false
-            }
-            textView?.resignFirstResponder()
-        }
-
         func applyStyling(to textView: UITextView) {
             textView.font = composerFont()
             textView.textColor = UIColor(LitterTheme.textPrimary)
@@ -182,8 +166,12 @@ struct ConversationComposerTextView: UIViewRepresentable {
                 ? textView.bounds.height
                 : maximumHeight(for: textView)
             let shouldScroll = fittingHeight > threshold + 0.5
-            if textView.isScrollEnabled != shouldScroll {
-                textView.isScrollEnabled = shouldScroll
+            let shouldScrollForDismiss = parent.isFocused || shouldScroll
+            if textView.isScrollEnabled != shouldScrollForDismiss {
+                textView.isScrollEnabled = shouldScrollForDismiss
+            }
+            if textView.alwaysBounceVertical != shouldScrollForDismiss {
+                textView.alwaysBounceVertical = shouldScrollForDismiss
             }
         }
 
@@ -239,29 +227,9 @@ struct ConversationComposerTextView: UIViewRepresentable {
     }
 }
 
-final class PasteAwareComposerUITextView: UITextView, UIGestureRecognizerDelegate {
+final class PasteAwareComposerUITextView: UITextView {
     var onPasteImage: ((UIImage) -> Void)?
     var onHardwareSubmit: (() -> Void)?
-    var onSwipeDownToDismiss: (() -> Void)?
-    private var didTriggerSwipeDismiss = false
-    private lazy var swipeDismissRecognizer: UIPanGestureRecognizer = {
-        let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handleSwipeDismissPan(_:)))
-        recognizer.cancelsTouchesInView = false
-        recognizer.delaysTouchesBegan = false
-        recognizer.delaysTouchesEnded = false
-        recognizer.delegate = self
-        return recognizer
-    }()
-
-    override init(frame: CGRect, textContainer: NSTextContainer?) {
-        super.init(frame: frame, textContainer: textContainer)
-        addGestureRecognizer(swipeDismissRecognizer)
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        addGestureRecognizer(swipeDismissRecognizer)
-    }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)), UIPasteboard.general.hasImages {
@@ -278,22 +246,6 @@ final class PasteAwareComposerUITextView: UITextView, UIGestureRecognizerDelegat
         super.paste(sender)
     }
 
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === swipeDismissRecognizer,
-              let pan = gestureRecognizer as? UIPanGestureRecognizer else {
-            return super.gestureRecognizerShouldBegin(gestureRecognizer)
-        }
-        let velocity = pan.velocity(in: self)
-        return velocity.y > abs(velocity.x)
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        gestureRecognizer === swipeDismissRecognizer || otherGestureRecognizer === swipeDismissRecognizer
-    }
-
     override var keyCommands: [UIKeyCommand]? {
         var commands = super.keyCommands ?? []
         guard onHardwareSubmit != nil else { return commands }
@@ -305,32 +257,6 @@ final class PasteAwareComposerUITextView: UITextView, UIGestureRecognizerDelegat
 
     @objc private func handleHardwareSubmit(_ sender: UIKeyCommand) {
         onHardwareSubmit?()
-    }
-
-    @objc private func handleSwipeDismissPan(_ recognizer: UIPanGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            didTriggerSwipeDismiss = false
-        case .changed:
-            guard !didTriggerSwipeDismiss, isFirstResponder else { return }
-            let translation = recognizer.translation(in: self)
-            let velocity = recognizer.velocity(in: self)
-            guard translation.y > 28,
-                  translation.y > abs(translation.x) * 1.15,
-                  velocity.y > 120 else {
-                return
-            }
-            if isScrollEnabled {
-                let topOffset = -adjustedContentInset.top
-                guard contentOffset.y <= topOffset + 2 else { return }
-            }
-            didTriggerSwipeDismiss = true
-            onSwipeDownToDismiss?()
-        case .ended, .cancelled, .failed:
-            didTriggerSwipeDismiss = false
-        default:
-            break
-        }
     }
 }
 

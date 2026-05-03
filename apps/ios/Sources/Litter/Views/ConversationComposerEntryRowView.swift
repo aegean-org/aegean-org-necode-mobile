@@ -84,10 +84,13 @@ struct ConversationComposerEntryRowView: View {
                         .frame(width: Metrics.controlSize, height: Metrics.controlSize)
                         .modifier(GlassCircleModifier())
                 }
+                .frame(width: 52, height: 52)
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
                 .transition(.scale.combined(with: .opacity))
                 .accessibilityLabel("Attach")
+                .zIndex(1)
             }
 
             HStack(spacing: 0) {
