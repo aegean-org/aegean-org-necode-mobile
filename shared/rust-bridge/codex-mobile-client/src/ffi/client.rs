@@ -1398,7 +1398,7 @@ pub(crate) async fn exec_command_simple(
         cwd: cwd.map(std::path::PathBuf::from),
         env: None,
         size: None,
-        sandbox_policy: None,
+        sandbox_policy: Some(upstream::SandboxPolicy::DangerFullAccess),
         permission_profile: None,
     };
     rpc(

@@ -822,6 +822,9 @@ final class AppModel {
         case .threadStreamingDelta(let key, let itemId, let kind, let text):
             switch kind {
             case .assistantText:
+                if !applyThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text) {
+                    scheduleThreadSnapshotRefresh(for: key)
+                }
                 StreamingRendererCoordinator.shared.appendDelta(text, for: itemId)
             default:
                 if !applyThreadStreamingDelta(key: key, itemId: itemId, kind: kind, text: text) {
