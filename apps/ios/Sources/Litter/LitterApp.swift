@@ -1625,11 +1625,20 @@ private struct HomeNavigationView: View {
     }
 
     @Sendable
-    private func loadSearchThreads(query: String, runtimeKind: AgentRuntimeKind?, forceRepair: Bool) async {
+    private func loadSearchThreads(
+        query: String,
+        runtimeKind: AgentRuntimeKind?,
+        serverId selectedServerId: String?,
+        forceRepair: Bool
+    ) async {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceKinds: [AppThreadSourceKind] = [.cli, .vsCode, .appServer]
+        let selectedServerFilterId = selectedServerId?.trimmingCharacters(in: .whitespacesAndNewlines)
         await withTaskGroup(of: Void.self) { group in
             for server in homeDashboardModel.connectedServers {
+                if let selectedServerFilterId, !selectedServerFilterId.isEmpty, server.id != selectedServerFilterId {
+                    continue
+                }
                 if let runtimeKind,
                    !server.agentRuntimes.contains(where: { $0.available && $0.kind == runtimeKind }) {
                     continue

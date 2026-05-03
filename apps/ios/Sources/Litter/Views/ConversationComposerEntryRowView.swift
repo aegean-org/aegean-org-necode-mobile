@@ -84,8 +84,9 @@ struct ConversationComposerEntryRowView: View {
                         .frame(width: Metrics.controlSize, height: Metrics.controlSize)
                         .modifier(GlassCircleModifier())
                 }
-                .frame(width: 52, height: 52)
+                .padding(4)
                 .contentShape(Rectangle())
+                .padding(-4)
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
                 .transition(.scale.combined(with: .opacity))

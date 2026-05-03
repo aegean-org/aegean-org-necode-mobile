@@ -8,12 +8,16 @@ private let petRows = 9
 private let petAtlasWidth = petFrameWidth * petColumns
 private let petAtlasHeight = petFrameHeight * petRows
 
-private struct PetSpriteAtlas {
+private struct PetSpriteFrame {
+    let index: Int
     let image: UIImage
-    let framesByRow: [[Int]]
+}
 
-    func frames(for state: PetAvatarState) -> [Int] {
-        guard framesByRow.indices.contains(state.rawValue) else { return [0] }
+private struct PetSpriteAtlas {
+    let framesByRow: [[PetSpriteFrame]]
+
+    func frames(for state: PetAvatarState) -> [PetSpriteFrame] {
+        guard framesByRow.indices.contains(state.rawValue) else { return [] }
         return framesByRow[state.rawValue]
     }
 }
@@ -121,14 +125,14 @@ struct PetSpriteView: View {
 
     var body: some View {
         let renderedState = playbackState ?? state
-        let frames = atlas?.frames(for: renderedState) ?? [0]
+        let frames = atlas?.frames(for: renderedState) ?? []
         let atlasSignature = atlas?.framesByRow.map { row in
-            row.map(String.init).joined(separator: ",")
+            row.map(\.index).map(String.init).joined(separator: ",")
         }.joined(separator: "|") ?? ""
 
         GeometryReader { proxy in
-            if let atlas, let frameImage = frameImage(from: atlas, state: renderedState, frames: frames) {
-                Image(uiImage: frameImage)
+            if let frame = frame(from: frames) {
+                Image(uiImage: frame.image)
                     .resizable()
                     .interpolation(.none)
                     .scaledToFit()
@@ -156,21 +160,12 @@ struct PetSpriteView: View {
         }
     }
 
-    private func frameImage(from atlas: PetSpriteAtlas, state: PetAvatarState, frames: [Int]) -> UIImage? {
-        guard let cgImage = atlas.image.cgImage else { return nil }
-        let frame = frames.indices.contains(frameIndex) ? frames[frameIndex] : frames.first ?? 0
-        let rect = CGRect(
-            x: frame * petFrameWidth,
-            y: state.rawValue * petFrameHeight,
-            width: petFrameWidth,
-            height: petFrameHeight
-        )
-        guard let cropped = cgImage.cropping(to: rect) else { return nil }
-        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+    private func frame(from frames: [PetSpriteFrame]) -> PetSpriteFrame? {
+        frames.indices.contains(frameIndex) ? frames[frameIndex] : frames.first
     }
 
     private func playLoop(for state: PetAvatarState, cycles: Int? = nil) async {
-        let frames = atlas?.frames(for: state) ?? [0]
+        let frames = atlas?.frames(for: state) ?? []
         guard frames.count > 1 else { return }
         let profile = PetAnimationProfile.profile(for: state)
         var completedCycles = 0
@@ -192,28 +187,40 @@ struct PetSpriteView: View {
               cgImage.width == petAtlasWidth,
               cgImage.height == petAtlasHeight
         else { return nil }
-        return PetSpriteAtlas(image: image, framesByRow: detectNonTransparentFrames(in: cgImage))
+        return PetSpriteAtlas(framesByRow: buildVisibleFrames(in: cgImage))
     }
 }
 
-private func detectNonTransparentFrames(in image: CGImage) -> [[Int]] {
+private func buildVisibleFrames(in image: CGImage) -> [[PetSpriteFrame]] {
     (0..<petRows).map { row in
-        let frames = (0..<petColumns).filter { column in
-            frameHasVisiblePixels(in: image, row: row, column: column)
+        var frames: [PetSpriteFrame] = []
+        var fallback: PetSpriteFrame?
+        for column in 0..<petColumns {
+            guard let frame = cropFrame(in: image, row: row, column: column) else { continue }
+            let spriteFrame = PetSpriteFrame(
+                index: column,
+                image: UIImage(cgImage: frame, scale: 1, orientation: .up)
+            )
+            if column == 0 { fallback = spriteFrame }
+            if frameHasVisiblePixels(in: frame) {
+                frames.append(spriteFrame)
+            }
         }
-        return frames.isEmpty ? [0] : frames
+        return frames.isEmpty ? fallback.map { [$0] } ?? [] : frames
     }
 }
 
-private func frameHasVisiblePixels(in image: CGImage, row: Int, column: Int) -> Bool {
+private func cropFrame(in image: CGImage, row: Int, column: Int) -> CGImage? {
     let rect = CGRect(
         x: column * petFrameWidth,
         y: row * petFrameHeight,
         width: petFrameWidth,
         height: petFrameHeight
     )
-    guard let frame = image.cropping(to: rect) else { return false }
+    return image.cropping(to: rect)
+}
 
+private func frameHasVisiblePixels(in frame: CGImage) -> Bool {
     var pixels = [UInt8](repeating: 0, count: petFrameWidth * petFrameHeight * 4)
     guard let context = CGContext(
         data: &pixels,

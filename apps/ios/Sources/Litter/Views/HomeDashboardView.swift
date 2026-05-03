@@ -102,13 +102,25 @@ struct HomeDashboardView: View {
         return launchableServers.first { $0.id == serverId }
     }
 
-    var onSearchThreads: (@Sendable (_ query: String, _ runtimeKind: AgentRuntimeKind?, _ forceRepair: Bool) async -> Void)? = nil
+    var onSearchThreads: (@Sendable (_ query: String, _ runtimeKind: AgentRuntimeKind?, _ serverId: String?, _ forceRepair: Bool) async -> Void)? = nil
 
     private var isSearchExpanded: Bool { inputMode == .search }
 
+    private var searchSessions: [HomeDashboardRecentSession] {
+        let serverId = selectedMachineServerId
+        guard let serverId, !serverId.isEmpty else { return allSessions }
+        return allSessions.filter { $0.serverId == serverId }
+    }
+
+    private var searchServers: [HomeDashboardServer] {
+        let serverId = selectedMachineServerId
+        guard let serverId, !serverId.isEmpty else { return connectedServers }
+        return connectedServers.filter { $0.id == serverId }
+    }
+
     private var availableSearchRuntimeKinds: [AgentRuntimeKind] {
         let kinds = Set(
-            connectedServers.flatMap { server in
+            searchServers.flatMap { server in
                 server.agentRuntimes
                     .filter(\.available)
                     .map(\.kind)
@@ -120,6 +132,7 @@ struct HomeDashboardView: View {
     private var searchLoadID: String {
         [
             isSearchExpanded ? "open" : "closed",
+            selectedMachineServerId ?? "all",
             searchQuery,
             selectedSearchRuntimeKind?.displayLabel ?? "all"
         ].joined(separator: "|")
@@ -198,12 +211,13 @@ struct HomeDashboardView: View {
                 guard isSearchExpanded, let onSearchThreads else { return }
                 let query = searchQuery
                 let runtimeKind = selectedSearchRuntimeKind
+                let serverId = selectedMachineServerId
                 if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                     guard !Task.isCancelled else { return }
                 }
                 await MainActor.run { isLoadingThreadListing = true }
-                await onSearchThreads(query, runtimeKind, false)
+                await onSearchThreads(query, runtimeKind, serverId, false)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { isLoadingThreadListing = false }
             }
@@ -357,12 +371,12 @@ struct HomeDashboardView: View {
                 ZStack(alignment: .top) {
                     LitterTheme.backgroundGradient.ignoresSafeArea()
                     ThreadSearchResultsView(
-                        sessions: allSessions,
+                        sessions: searchSessions,
                         pinnedThreadKeys: Set(pinnedThreadKeys),
                         query: searchQuery,
                         runtimeKinds: availableSearchRuntimeKinds,
                         selectedRuntimeKind: $selectedSearchRuntimeKind,
-                        isLoading: isLoadingThreadListing && allSessions.isEmpty,
+                        isLoading: isLoadingThreadListing && searchSessions.isEmpty,
                         onRefresh: refreshSearchThreads,
                         onAdd: { session in
                             onPinThread(session.key)
@@ -410,7 +424,7 @@ struct HomeDashboardView: View {
     private func refreshSearchThreads() async {
         guard let onSearchThreads else { return }
         await MainActor.run { isLoadingThreadListing = true }
-        await onSearchThreads(searchQuery, selectedSearchRuntimeKind, true)
+        await onSearchThreads(searchQuery, selectedSearchRuntimeKind, selectedMachineServerId, true)
         await MainActor.run { isLoadingThreadListing = false }
     }
 

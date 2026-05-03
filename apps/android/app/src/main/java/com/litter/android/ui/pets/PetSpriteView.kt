@@ -36,7 +36,9 @@ import com.litter.android.state.CachedPetPackage
 import com.litter.android.state.PetAvatarState
 import com.litter.android.state.PetOverlayController
 import com.litter.android.ui.LitterTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 private const val FrameWidth = 192
@@ -151,15 +153,11 @@ fun PetSpriteView(
     reducedMotion: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val atlas = remember(spritesheetBytes) {
-        BitmapFactory.decodeByteArray(spritesheetBytes, 0, spritesheetBytes.size)
-            ?.takeIf { it.width == AtlasWidth && it.height == AtlasHeight }
-            ?.let { bitmap ->
-                PetSpriteAtlas(
-                    image = bitmap.asImageBitmap(),
-                    framesByRow = detectNonTransparentFrames(bitmap),
-                )
-            }
+    var atlas by remember(spritesheetBytes) { mutableStateOf<PetSpriteAtlas?>(null) }
+    LaunchedEffect(spritesheetBytes) {
+        atlas = withContext(Dispatchers.Default) {
+            decodeAtlas(spritesheetBytes)
+        }
     }
     var playbackState by remember(state, reducedMotion, atlas) { mutableStateOf(state) }
     val frames = atlas?.framesFor(playbackState) ?: listOf(0)
@@ -210,6 +208,16 @@ fun PetSpriteView(
         )
     }
 }
+
+private fun decodeAtlas(bytes: ByteArray): PetSpriteAtlas? =
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        ?.takeIf { it.width == AtlasWidth && it.height == AtlasHeight }
+        ?.let { bitmap ->
+            PetSpriteAtlas(
+                image = bitmap.asImageBitmap(),
+                framesByRow = detectNonTransparentFrames(bitmap),
+            )
+        }
 
 private fun detectNonTransparentFrames(bitmap: Bitmap): List<List<Int>> {
     val framePixels = IntArray(FrameWidth * FrameHeight)
