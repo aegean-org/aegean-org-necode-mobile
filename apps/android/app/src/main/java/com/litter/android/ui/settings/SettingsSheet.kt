@@ -87,6 +87,7 @@ import com.litter.android.state.isIpcConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.LitterAppearanceMode
 import com.litter.android.ui.LitterColorThemeType
 import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.ConversationPrefs
@@ -457,6 +458,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
     var textSizeStep by remember { mutableFloatStateOf(com.litter.android.ui.TextSizePrefs.currentStep.toFloat()) }
     var showThemePicker by remember { mutableStateOf<LitterColorThemeType?>(null) }
     var wallpaperError by remember { mutableStateOf<String?>(null) }
+    val appearanceMode = LitterThemeManager.appearanceMode
     val wallpaperPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri == null) {
@@ -492,6 +494,23 @@ private fun AppearanceScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Appearance mode
+            item { SectionHeader("Mode") }
+            item {
+                AppearanceModePicker(
+                    selectedMode = appearanceMode,
+                    onSelect = LitterThemeManager::applyAppearanceMode,
+                )
+            }
+            item {
+                Text(
+                    "Match the device setting, or keep Litter fixed in light or dark mode.",
+                    color = LitterTheme.textMuted,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+
             // Font size slider
             item { SectionHeader("Font Size") }
             item {
@@ -709,10 +728,8 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                 onSelect = { slug ->
                     if (type == LitterColorThemeType.DARK) {
                         LitterThemeManager.selectDarkTheme(slug)
-                        LitterThemeManager.applyDarkMode(true)
                     } else {
                         LitterThemeManager.selectLightTheme(slug)
-                        LitterThemeManager.applyDarkMode(false)
                     }
                     showThemePicker = null
                 },
@@ -856,6 +873,40 @@ private fun ThemePickerButton(entry: LitterThemeIndexEntry?, onClick: () -> Unit
             Text("No themes", color = LitterTheme.textMuted, fontSize = 14.sp, modifier = Modifier.weight(1f))
         }
         Text("⇅", color = LitterTheme.textMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AppearanceModePicker(
+    selectedMode: LitterAppearanceMode,
+    onSelect: (LitterAppearanceMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        LitterAppearanceMode.entries.forEach { mode ->
+            val isSelected = mode == selectedMode
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isSelected) LitterTheme.accent else Color.Transparent)
+                    .clickable { onSelect(mode) }
+                    .padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = mode.displayName,
+                    color = if (isSelected) LitterTheme.onAccentStrong else LitterTheme.textSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        }
     }
 }
 
