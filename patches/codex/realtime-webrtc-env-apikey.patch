@@ -1,21 +1,14 @@
 diff --git a/codex-rs/core/src/realtime_conversation.rs b/codex-rs/core/src/realtime_conversation.rs
-index 8c69110d13..caaf354d35 100644
+index 7524cd2309..e2df67583b 100644
 --- a/codex-rs/core/src/realtime_conversation.rs
 +++ b/codex-rs/core/src/realtime_conversation.rs
-@@ -709,10 +709,11 @@ async fn prepare_realtime_start(
-                 Some(realtime_api_key.as_str()),
+@@ -699,7 +699,8 @@ async fn prepare_realtime_start(
              )?
          }
          ConversationStartTransport::Webrtc { .. } => {
--            realtime_request_headers(
--                requested_realtime_session_id.as_deref(),
--                /*api_key*/ None,
--            )?
+-            realtime_request_headers(requested_session_id.as_deref(), /*api_key*/ None)?
 +            let realtime_api_key = realtime_api_key(auth.as_ref(), &provider).ok();
-+            realtime_request_headers(
-+                requested_realtime_session_id.as_deref(),
-+                realtime_api_key.as_deref(),
-+            )?
++            realtime_request_headers(requested_session_id.as_deref(), realtime_api_key.as_deref())?
          }
      };
      Ok(PreparedRealtimeConversationStart {
