@@ -1,8 +1,8 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2.rs b/codex-rs/app-server-protocol/src/protocol/v2.rs
-index e4f55cd91e..ce01f70882 100644
+index 92da9551f5..99a1dc70f6 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2.rs
-@@ -4418,6 +4418,10 @@ pub struct ThreadReadParams {
+@@ -4654,6 +4654,10 @@ pub struct ThreadReadParams {
  #[ts(export_to = "v2/")]
  pub struct ThreadReadResponse {
      pub thread: Thread,
@@ -13,51 +13,83 @@ index e4f55cd91e..ce01f70882 100644
  }
  
  #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-diff --git a/codex-rs/app-server/src/codex_message_processor.rs b/codex-rs/app-server/src/codex_message_processor.rs
-index 1613813925..1f3b74a496 100644
---- a/codex-rs/app-server/src/codex_message_processor.rs
-+++ b/codex-rs/app-server/src/codex_message_processor.rs
-@@ -3885,7 +3885,38 @@ impl CodexMessageProcessor {
-             .read_thread_view(thread_uuid, include_turns)
-             .await
-             .map_err(thread_read_view_error)?;
--        Ok(ThreadReadResponse { thread })
-+        let loaded_thread = self.load_live_thread_for_read(thread_uuid).await;
-+        let live_config_snapshot = if let Some(loaded) = loaded_thread.as_ref() {
-+            Some(loaded.config_snapshot().await)
-+        } else {
-+            None
-+        };
-+        let persisted_metadata = if let Some(state_db_ctx) = get_state_db(&self.config).await {
-+            state_db_ctx.get_thread(thread_uuid).await.ok().flatten()
-+        } else {
-+            None
-+        };
-+        Ok(ThreadReadResponse {
-+            thread,
-+            approval_policy: live_config_snapshot
-+                .as_ref()
-+                .map(|config| config.approval_policy.into())
-+                .or_else(|| {
-+                    persisted_metadata
-+                        .as_ref()
-+                        .and_then(thread_metadata_approval_policy)
-+                        .map(Into::into)
-+                }),
-+            sandbox: live_config_snapshot
-+                .as_ref()
-+                .map(|config| config.sandbox_policy().into())
-+                .or_else(|| {
-+                    persisted_metadata
-+                        .as_ref()
-+                        .and_then(thread_metadata_sandbox_policy)
-+                        .map(Into::into)
-+                }),
-+        })
-     }
+@@ -5577,6 +5581,11 @@ pub struct ThreadRealtimeStartParams {
+     pub transport: Option<ThreadRealtimeStartTransport>,
+     #[ts(optional = nullable)]
+     pub voice: Option<RealtimeVoice>,
++    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
++    pub client_controlled_handoff: bool,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    #[ts(optional = nullable)]
++    pub dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
+ }
  
-     /// Builds the API view for `thread/read` from persisted metadata plus optional live state.
-@@ -8733,6 +8764,28 @@ fn merge_persisted_resume_metadata(
+ /// EXPERIMENTAL - transport used by thread realtime.
+@@ -5642,6 +5651,35 @@ pub struct ThreadRealtimeStopParams {
+ #[ts(export_to = "v2/")]
+ pub struct ThreadRealtimeStopResponse {}
+ 
++/// EXPERIMENTAL - resolve a client-controlled handoff with tool output.
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeResolveHandoffParams {
++    pub thread_id: String,
++    pub tool_call_output: String,
++}
++
++/// EXPERIMENTAL - response for resolving a handoff.
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeResolveHandoffResponse {}
++
++/// EXPERIMENTAL - finalize a resolved handoff (triggers response.create).
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeFinalizeHandoffParams {
++    pub thread_id: String,
++}
++
++/// EXPERIMENTAL - response for finalizing a handoff.
++#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
++#[serde(rename_all = "camelCase")]
++#[ts(export_to = "v2/")]
++pub struct ThreadRealtimeFinalizeHandoffResponse {}
++
+ /// EXPERIMENTAL - list voices supported by thread realtime.
+ #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
+ #[serde(rename_all = "camelCase")]
+diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
+index cb713ac6e9..ea4dc86422 100644
+--- a/codex-rs/app-server/src/request_processors.rs
++++ b/codex-rs/app-server/src/request_processors.rs
+@@ -134,6 +134,7 @@ use codex_app_server_protocol::ReviewStartParams;
+ use codex_app_server_protocol::ReviewStartResponse;
+ use codex_app_server_protocol::ReviewTarget as ApiReviewTarget;
+ use codex_app_server_protocol::SandboxMode;
++use codex_app_server_protocol::SandboxPolicy;
+ use codex_app_server_protocol::SendAddCreditsNudgeEmailParams;
+ use codex_app_server_protocol::SendAddCreditsNudgeEmailResponse;
+ use codex_app_server_protocol::ServerNotification;
+@@ -192,7 +193,11 @@ use codex_app_server_protocol::ThreadRealtimeAppendAudioParams;
+ use codex_app_server_protocol::ThreadRealtimeAppendAudioResponse;
+ use codex_app_server_protocol::ThreadRealtimeAppendTextParams;
+ use codex_app_server_protocol::ThreadRealtimeAppendTextResponse;
++use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffParams;
++use codex_app_server_protocol::ThreadRealtimeFinalizeHandoffResponse;
+ use codex_app_server_protocol::ThreadRealtimeListVoicesResponse;
++use codex_app_server_protocol::ThreadRealtimeResolveHandoffParams;
++use codex_app_server_protocol::ThreadRealtimeResolveHandoffResponse;
+ use codex_app_server_protocol::ThreadRealtimeStartParams;
+ use codex_app_server_protocol::ThreadRealtimeStartResponse;
+ use codex_app_server_protocol::ThreadRealtimeStartTransport;
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 3d8746092d..39ea5c4acc 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -150,6 +150,28 @@ fn merge_persisted_resume_metadata(
      }
  }
  
@@ -83,6 +115,47 @@ index 1613813925..1f3b74a496 100644
 +    parse_thread_metadata_enum(&persisted_metadata.sandbox_policy)
 +}
 +
- fn has_model_resume_override(
-     request_overrides: Option<&HashMap<String, serde_json::Value>>,
-     typesafe_overrides: &ConfigOverrides,
+ fn normalize_thread_list_cwd_filters(
+     cwd: Option<ThreadListCwdFilter>,
+ ) -> Result<Option<Vec<PathBuf>>, JSONRPCErrorError> {
+@@ -1830,7 +1852,39 @@ impl ThreadRequestProcessor {
+             .read_thread_view(thread_uuid, include_turns)
+             .await
+             .map_err(thread_read_view_error)?;
+-        Ok(ThreadReadResponse { thread })
++        let loaded_thread = self.thread_manager.get_thread(thread_uuid).await.ok();
++        let live_config_snapshot = if let Some(loaded_thread) = loaded_thread.as_ref() {
++            Some(loaded_thread.config_snapshot().await)
++        } else {
++            None
++        };
++        let persisted_metadata = if let Some(state_db) = self.state_db.as_ref() {
++            state_db.get_thread(thread_uuid).await.ok().flatten()
++        } else {
++            None
++        };
++
++        Ok(ThreadReadResponse {
++            thread,
++            approval_policy: live_config_snapshot
++                .as_ref()
++                .map(|config| config.approval_policy.into())
++                .or_else(|| {
++                    persisted_metadata
++                        .as_ref()
++                        .and_then(thread_metadata_approval_policy)
++                        .map(Into::into)
++                }),
++            sandbox: live_config_snapshot
++                .as_ref()
++                .map(|config| config.sandbox_policy().into())
++                .or_else(|| {
++                    persisted_metadata
++                        .as_ref()
++                        .and_then(thread_metadata_sandbox_policy)
++                        .map(Into::into)
++                }),
++        })
+     }
+ 
+     /// Builds the API view for `thread/read` from persisted metadata plus optional live state.
