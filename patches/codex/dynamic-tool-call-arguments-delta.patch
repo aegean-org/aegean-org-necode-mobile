@@ -273,3 +273,27 @@ index 5420733..357373a 100644
          | EventMsg::PlanDelta(_)
          | EventMsg::ReasoningContentDelta(_)
          | EventMsg::ReasoningRawContentDelta(_)
+diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
+index aeb92ad..b013d4e 100644
+--- a/codex-rs/rollout/src/policy.rs
++++ b/codex-rs/rollout/src/policy.rs
+@@ -169,6 +169,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
+         | EventMsg::HookStarted(_)
+         | EventMsg::HookCompleted(_)
+         | EventMsg::AgentMessageContentDelta(_)
++        | EventMsg::DynamicToolCallArgumentsDelta(_)
+         | EventMsg::PlanDelta(_)
+         | EventMsg::ReasoningContentDelta(_)
+         | EventMsg::ReasoningRawContentDelta(_)
+diff --git a/codex-rs/mcp-server/src/codex_tool_runner.rs b/codex-rs/mcp-server/src/codex_tool_runner.rs
+index 4070cc7..9ecad47 100644
+--- a/codex-rs/mcp-server/src/codex_tool_runner.rs
++++ b/codex-rs/mcp-server/src/codex_tool_runner.rs
+@@ -366,6 +366,7 @@ async fn run_codex_tool_session_inner(
+                     | EventMsg::HookStarted(_)
+                     | EventMsg::HookCompleted(_)
+                     | EventMsg::AgentMessageContentDelta(_)
++                    | EventMsg::DynamicToolCallArgumentsDelta(_)
+                     | EventMsg::ReasoningContentDelta(_)
+                     | EventMsg::ReasoningRawContentDelta(_)
+                     | EventMsg::SkillsUpdateAvailable
