@@ -1,27 +1,8 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
-index 477d0427b2..14ad892fa1 100644
+index 3282b1e..14ad892 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/common.rs
-@@ -761,6 +761,18 @@ client_request_definitions! {
-         serialization: thread_id(params.thread_id),
-         response: v2::ThreadRealtimeStopResponse,
-     },
-+    #[experimental("thread/realtime/resolveHandoff")]
-+    ThreadRealtimeResolveHandoff => "thread/realtime/resolveHandoff" {
-+        params: v2::ThreadRealtimeResolveHandoffParams,
-+        serialization: thread_id(params.thread_id),
-+        response: v2::ThreadRealtimeResolveHandoffResponse,
-+    },
-+    #[experimental("thread/realtime/finalizeHandoff")]
-+    ThreadRealtimeFinalizeHandoff => "thread/realtime/finalizeHandoff" {
-+        params: v2::ThreadRealtimeFinalizeHandoffParams,
-+        serialization: thread_id(params.thread_id),
-+        response: v2::ThreadRealtimeFinalizeHandoffResponse,
-+    },
-     #[experimental("thread/realtime/listVoices")]
-     ThreadRealtimeListVoices => "thread/realtime/listVoices" {
-         params: v2::ThreadRealtimeListVoicesParams,
-@@ -1431,6 +1443,9 @@ server_notification_definitions! {
+@@ -1443,6 +1443,9 @@ server_notification_definitions! {
      /// This event is internal-only. Used by Codex Cloud.
      RawResponseItemCompleted => "rawResponseItem/completed" (v2::RawResponseItemCompletedNotification),
      AgentMessageDelta => "item/agentMessage/delta" (v2::AgentMessageDeltaNotification),
@@ -32,7 +13,7 @@ index 477d0427b2..14ad892fa1 100644
      PlanDelta => "item/plan/delta" (v2::PlanDeltaNotification),
      /// Stream base64-encoded stdout/stderr chunks for a running `command/exec` session.
 diff --git a/codex-rs/app-server-protocol/src/protocol/event_mapping.rs b/codex-rs/app-server-protocol/src/protocol/event_mapping.rs
-index 609ca83a5d..6d80d22038 100644
+index 609ca83..6d80d22 100644
 --- a/codex-rs/app-server-protocol/src/protocol/event_mapping.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/event_mapping.rs
 @@ -7,6 +7,7 @@ use crate::protocol::v2::CollabAgentState;
@@ -62,69 +43,10 @@ index 609ca83a5d..6d80d22038 100644
              thread_id,
              turn_id,
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2.rs b/codex-rs/app-server-protocol/src/protocol/v2.rs
-index 92da9551f5..d122fdadda 100644
+index 99a1dc7..d122fda 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2.rs
-@@ -4654,6 +4654,10 @@ pub struct ThreadReadParams {
- #[ts(export_to = "v2/")]
- pub struct ThreadReadResponse {
-     pub thread: Thread,
-+    #[serde(default)]
-+    pub approval_policy: Option<AskForApproval>,
-+    #[serde(default)]
-+    pub sandbox: Option<SandboxPolicy>,
- }
- 
- #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-@@ -5577,6 +5581,11 @@ pub struct ThreadRealtimeStartParams {
-     pub transport: Option<ThreadRealtimeStartTransport>,
-     #[ts(optional = nullable)]
-     pub voice: Option<RealtimeVoice>,
-+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-+    pub client_controlled_handoff: bool,
-+    #[serde(default, skip_serializing_if = "Option::is_none")]
-+    #[ts(optional = nullable)]
-+    pub dynamic_tools: Option<Vec<codex_protocol::dynamic_tools::DynamicToolSpec>>,
- }
- 
- /// EXPERIMENTAL - transport used by thread realtime.
-@@ -5642,6 +5651,35 @@ pub struct ThreadRealtimeStopParams {
- #[ts(export_to = "v2/")]
- pub struct ThreadRealtimeStopResponse {}
- 
-+/// EXPERIMENTAL - resolve a client-controlled handoff with tool output.
-+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
-+#[serde(rename_all = "camelCase")]
-+#[ts(export_to = "v2/")]
-+pub struct ThreadRealtimeResolveHandoffParams {
-+    pub thread_id: String,
-+    pub tool_call_output: String,
-+}
-+
-+/// EXPERIMENTAL - response for resolving a handoff.
-+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
-+#[serde(rename_all = "camelCase")]
-+#[ts(export_to = "v2/")]
-+pub struct ThreadRealtimeResolveHandoffResponse {}
-+
-+/// EXPERIMENTAL - finalize a resolved handoff (triggers response.create).
-+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
-+#[serde(rename_all = "camelCase")]
-+#[ts(export_to = "v2/")]
-+pub struct ThreadRealtimeFinalizeHandoffParams {
-+    pub thread_id: String,
-+}
-+
-+/// EXPERIMENTAL - response for finalizing a handoff.
-+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
-+#[serde(rename_all = "camelCase")]
-+#[ts(export_to = "v2/")]
-+pub struct ThreadRealtimeFinalizeHandoffResponse {}
-+
- /// EXPERIMENTAL - list voices supported by thread realtime.
- #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
- #[serde(rename_all = "camelCase")]
-@@ -7228,6 +7266,20 @@ pub struct AgentMessageDeltaNotification {
+@@ -7266,6 +7266,20 @@ pub struct AgentMessageDeltaNotification {
      pub delta: String,
  }
  
@@ -146,78 +68,10 @@ index 92da9551f5..d122fdadda 100644
  #[serde(rename_all = "camelCase")]
  #[ts(export_to = "v2/")]
 diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
-index 045854c9bc..ed5cc7248c 100644
+index d363494..ed5cc72 100644
 --- a/codex-rs/app-server/src/bespoke_event_handling.rs
 +++ b/codex-rs/app-server/src/bespoke_event_handling.rs
-@@ -485,6 +485,7 @@ pub(crate) async fn apply_bespoke_event_handling(
-                         "item_id": handoff.item_id,
-                         "input_transcript": handoff.input_transcript,
-                         "active_transcript": handoff.active_transcript,
-+                        "server": handoff.server,
-                     }),
-                 };
-                 outgoing
-@@ -493,6 +494,59 @@ pub(crate) async fn apply_bespoke_event_handling(
-                     ))
-                     .await;
-             }
-+            RealtimeEvent::ToolCallRequested(item) => {
-+                let call_id = item
-+                    .get("call_id")
-+                    .or_else(|| item.get("id"))
-+                    .and_then(serde_json::Value::as_str)
-+                    .unwrap_or("")
-+                    .to_string();
-+                let tool_name = item
-+                    .get("name")
-+                    .and_then(serde_json::Value::as_str)
-+                    .unwrap_or("")
-+                    .to_string();
-+                let arguments_str = item
-+                    .get("arguments")
-+                    .and_then(serde_json::Value::as_str)
-+                    .unwrap_or("{}")
-+                    .to_string();
-+                let arguments: serde_json::Value = serde_json::from_str(&arguments_str)
-+                    .unwrap_or(serde_json::Value::Object(Default::default()));
-+
-+                let params = DynamicToolCallParams {
-+                    thread_id: conversation_id.to_string(),
-+                    turn_id: String::new(),
-+                    call_id: call_id.clone(),
-+                    namespace: None,
-+                    tool: tool_name,
-+                    arguments,
-+                };
-+                let (_pending_request_id, rx) = outgoing
-+                    .send_request(ServerRequestPayload::DynamicToolCall(params))
-+                    .await;
-+
-+                let thread = conversation.clone();
-+                tokio::spawn(async move {
-+                    let output = match rx.await {
-+                        Ok(Ok(value)) => value
-+                            .get("contentItems")
-+                            .and_then(serde_json::Value::as_array)
-+                            .and_then(|items| items.first())
-+                            .and_then(|item| item.get("text"))
-+                            .and_then(serde_json::Value::as_str)
-+                            .unwrap_or("")
-+                            .to_string(),
-+                        _ => "Tool call failed".to_string(),
-+                    };
-+                    let _ = thread
-+                        .submit(codex_protocol::protocol::Op::RealtimeResolveDynamicTool {
-+                            call_id,
-+                            output,
-+                        })
-+                        .await;
-+                });
-+            }
-             RealtimeEvent::Error(message) => {
-                 let notification = ThreadRealtimeErrorNotification {
-                     thread_id: conversation_id.to_string(),
-@@ -839,6 +893,7 @@ pub(crate) async fn apply_bespoke_event_handling(
+@@ -893,6 +893,7 @@ pub(crate) async fn apply_bespoke_event_handling(
              // App-server v2 receives the canonical TurnItem::McpToolCall lifecycle instead.
          }
          msg @ (EventMsg::DynamicToolCallResponse(_)
@@ -226,7 +80,7 @@ index 045854c9bc..ed5cc7248c 100644
          | EventMsg::CollabAgentSpawnEnd(_)
          | EventMsg::CollabAgentInteractionBegin(_)
 diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
-index 4e949e43ae..8793b06118 100644
+index 4e949e4..8793b06 100644
 --- a/codex-rs/codex-api/src/sse/responses.rs
 +++ b/codex-rs/codex-api/src/sse/responses.rs
 @@ -311,7 +311,7 @@ pub fn process_responses_event(
@@ -256,7 +110,7 @@ index 4e949e43ae..8793b06118 100644
  
      #[tokio::test]
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index ce035b2cea..8fe0338af8 100644
+index ce035b2..8fe0338 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
 @@ -89,6 +89,7 @@ use codex_protocol::protocol::AgentMessageContentDeltaEvent;
@@ -367,79 +221,11 @@ index ce035b2cea..8fe0338af8 100644
                  }
              }
              ResponseEvent::ReasoningSummaryDelta {
-diff --git a/codex-rs/mcp-server/src/codex_tool_runner.rs b/codex-rs/mcp-server/src/codex_tool_runner.rs
-index 4070cc7e11..9ecad4714f 100644
---- a/codex-rs/mcp-server/src/codex_tool_runner.rs
-+++ b/codex-rs/mcp-server/src/codex_tool_runner.rs
-@@ -366,6 +366,7 @@ async fn run_codex_tool_session_inner(
-                     | EventMsg::HookStarted(_)
-                     | EventMsg::HookCompleted(_)
-                     | EventMsg::AgentMessageContentDelta(_)
-+                    | EventMsg::DynamicToolCallArgumentsDelta(_)
-                     | EventMsg::ReasoningContentDelta(_)
-                     | EventMsg::ReasoningRawContentDelta(_)
-                     | EventMsg::SkillsUpdateAvailable
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index a84685cb91..407e7097e2 100644
+index 888fed5..407e709 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
-@@ -170,6 +170,10 @@ pub struct ConversationStartParams {
-     pub transport: Option<ConversationStartTransport>,
-     #[serde(skip_serializing_if = "Option::is_none")]
-     pub voice: Option<RealtimeVoice>,
-+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-+    pub client_controlled_handoff: bool,
-+    #[serde(default, skip_serializing_if = "Option::is_none")]
-+    pub dynamic_tools: Option<Vec<crate::dynamic_tools::DynamicToolSpec>>,
- }
- 
- #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
-@@ -337,6 +341,8 @@ pub struct RealtimeHandoffRequested {
-     pub item_id: String,
-     pub input_transcript: String,
-     pub active_transcript: Vec<RealtimeTranscriptEntry>,
-+    #[serde(default, skip_serializing_if = "Option::is_none")]
-+    pub server: Option<String>,
- }
- 
- #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-@@ -386,6 +392,7 @@ pub enum RealtimeEvent {
-     },
-     HandoffRequested(RealtimeHandoffRequested),
-     NoopRequested(RealtimeNoopRequested),
-+    ToolCallRequested(Value),
-     Error(String),
- }
- 
-@@ -425,6 +432,15 @@ pub enum Op {
-     /// Close the running realtime conversation stream.
-     RealtimeConversationClose,
- 
-+    /// Resolve a handoff request with tool output (client-controlled handoff).
-+    RealtimeConversationResolveHandoff { tool_call_output: String },
-+
-+    /// Resolve a dynamic tool call with output (sends function_call_output to realtime API).
-+    RealtimeResolveDynamicTool { call_id: String, output: String },
-+
-+    /// Finalize a resolved handoff (triggers response.create).
-+    RealtimeConversationFinalizeHandoff,
-+
-     /// Request the list of voices supported by realtime conversation streams.
-     RealtimeConversationListVoices,
- 
-@@ -884,6 +900,11 @@ impl Op {
-             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
-             Self::RealtimeConversationText(_) => "realtime_conversation_text",
-             Self::RealtimeConversationClose => "realtime_conversation_close",
-+            Self::RealtimeConversationResolveHandoff { .. } => {
-+                "realtime_conversation_resolve_handoff"
-+            }
-+            Self::RealtimeResolveDynamicTool { .. } => "realtime_resolve_dynamic_tool",
-+            Self::RealtimeConversationFinalizeHandoff => "realtime_conversation_finalize_handoff",
-             Self::RealtimeConversationListVoices => "realtime_conversation_list_voices",
-             Self::UserInput { .. } => "user_input",
-             Self::UserInputWithTurnContext { .. } => "user_input_with_turn_context",
-@@ -1484,6 +1505,7 @@ pub enum EventMsg {
+@@ -1505,6 +1505,7 @@ pub enum EventMsg {
      HookCompleted(HookCompletedEvent),
  
      AgentMessageContentDelta(AgentMessageContentDeltaEvent),
@@ -447,7 +233,7 @@ index a84685cb91..407e7097e2 100644
      PlanDelta(PlanDeltaEvent),
      ReasoningContentDelta(ReasoningContentDeltaEvent),
      ReasoningRawContentDelta(ReasoningRawContentDeltaEvent),
-@@ -1890,6 +1912,17 @@ pub struct AgentMessageContentDeltaEvent {
+@@ -1911,6 +1912,17 @@ pub struct AgentMessageContentDeltaEvent {
      pub delta: String,
  }
  
@@ -465,35 +251,3 @@ index a84685cb91..407e7097e2 100644
  impl HasLegacyEvent for AgentMessageContentDeltaEvent {
      fn as_legacy_events(&self, _: bool) -> Vec<EventMsg> {
          Vec::new()
-diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-trace/src/protocol_event.rs
-index 542073342e..357373a050 100644
---- a/codex-rs/rollout-trace/src/protocol_event.rs
-+++ b/codex-rs/rollout-trace/src/protocol_event.rs
-@@ -276,6 +276,7 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
-         | EventMsg::HookStarted(_)
-         | EventMsg::HookCompleted(_)
-         | EventMsg::AgentMessageContentDelta(_)
-+        | EventMsg::DynamicToolCallArgumentsDelta(_)
-         | EventMsg::PlanDelta(_)
-         | EventMsg::ReasoningContentDelta(_)
-         | EventMsg::ReasoningRawContentDelta(_)
-@@ -351,6 +352,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
-         | EventMsg::HookStarted(_)
-         | EventMsg::HookCompleted(_)
-         | EventMsg::AgentMessageContentDelta(_)
-+        | EventMsg::DynamicToolCallArgumentsDelta(_)
-         | EventMsg::PlanDelta(_)
-         | EventMsg::ReasoningContentDelta(_)
-         | EventMsg::ReasoningRawContentDelta(_)
-diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
-index aeb92ade11..b013d4ef9f 100644
---- a/codex-rs/rollout/src/policy.rs
-+++ b/codex-rs/rollout/src/policy.rs
-@@ -169,6 +169,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
-         | EventMsg::HookStarted(_)
-         | EventMsg::HookCompleted(_)
-         | EventMsg::AgentMessageContentDelta(_)
-+        | EventMsg::DynamicToolCallArgumentsDelta(_)
-         | EventMsg::PlanDelta(_)
-         | EventMsg::ReasoningContentDelta(_)
-         | EventMsg::ReasoningRawContentDelta(_)
