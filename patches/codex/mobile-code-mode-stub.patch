@@ -108,7 +108,7 @@ diff --git a/codex-rs/code-mode/src/service_stub.rs b/codex-rs/code-mode/src/ser
 new file mode 100644
 --- /dev/null
 +++ b/codex-rs/code-mode/src/service_stub.rs
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,93 @@
 +use std::collections::HashMap;
 +use std::sync::Arc;
 +use std::sync::atomic::{AtomicU64, Ordering};
