@@ -1,8 +1,8 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
-index 0f95e55f90..86a0f7dbe9 100644
+index c90bb0e1c0..232e245cbe 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/common.rs
-@@ -1047,6 +1047,9 @@ server_notification_definitions! {
+@@ -1388,6 +1388,9 @@ server_notification_definitions! {
      /// This event is internal-only. Used by Codex Cloud.
      RawResponseItemCompleted => "rawResponseItem/completed" (v2::RawResponseItemCompletedNotification),
      AgentMessageDelta => "item/agentMessage/delta" (v2::AgentMessageDeltaNotification),
@@ -13,10 +13,10 @@ index 0f95e55f90..86a0f7dbe9 100644
      PlanDelta => "item/plan/delta" (v2::PlanDeltaNotification),
      /// Stream base64-encoded stdout/stderr chunks for a running `command/exec` session.
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2.rs b/codex-rs/app-server-protocol/src/protocol/v2.rs
-index dfeb35cd54..3d1a61da2f 100644
+index ce01f70882..fdb6112975 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2.rs
-@@ -6374,6 +6374,20 @@ pub struct AgentMessageDeltaNotification {
+@@ -6900,6 +6900,20 @@ pub struct AgentMessageDeltaNotification {
      pub delta: String,
  }
  
@@ -38,18 +38,18 @@ index dfeb35cd54..3d1a61da2f 100644
  #[serde(rename_all = "camelCase")]
  #[ts(export_to = "v2/")]
 diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
-index 3c6bad0259..f447965c8d 100644
+index 0029b1a402..e00060949c 100644
 --- a/codex-rs/app-server/src/bespoke_event_handling.rs
 +++ b/codex-rs/app-server/src/bespoke_event_handling.rs
-@@ -31,6 +31,7 @@ use codex_app_server_protocol::CommandExecutionSource;
+@@ -27,6 +27,7 @@ use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
+ use codex_app_server_protocol::CommandExecutionSource;
  use codex_app_server_protocol::CommandExecutionStatus;
- use codex_app_server_protocol::ContextCompactedNotification;
  use codex_app_server_protocol::DeprecationNoticeNotification;
 +use codex_app_server_protocol::DynamicToolCallArgumentsDeltaNotification;
  use codex_app_server_protocol::DynamicToolCallOutputContentItem;
  use codex_app_server_protocol::DynamicToolCallParams;
  use codex_app_server_protocol::DynamicToolCallStatus;
-@@ -1436,6 +1437,26 @@ pub(crate) async fn apply_bespoke_event_handling(
+@@ -1276,6 +1277,26 @@ pub(crate) async fn apply_bespoke_event_handling(
                  .send_server_notification(ServerNotification::AgentMessageDelta(notification))
                  .await;
          }
@@ -77,10 +77,10 @@ index 3c6bad0259..f447965c8d 100644
              let notification = PlanDeltaNotification {
                  thread_id: conversation_id.to_string(),
 diff --git a/codex-rs/codex-api/src/sse/responses.rs b/codex-rs/codex-api/src/sse/responses.rs
-index 7b4a4ceab0..d3e8bdb828 100644
+index 4e949e43ae..8793b06118 100644
 --- a/codex-rs/codex-api/src/sse/responses.rs
 +++ b/codex-rs/codex-api/src/sse/responses.rs
-@@ -297,7 +297,7 @@ pub fn process_responses_event(
+@@ -311,7 +311,7 @@ pub fn process_responses_event(
                  return Ok(Some(ResponseEvent::OutputTextDelta(delta)));
              }
          }
@@ -89,7 +89,7 @@ index 7b4a4ceab0..d3e8bdb828 100644
              if let (Some(delta), Some(item_id)) =
                  (event.delta, event.item_id.clone().or(event.call_id.clone()))
              {
-@@ -805,7 +805,15 @@ mod tests {
+@@ -822,7 +822,15 @@ mod tests {
                  delta,
              } if item_id == "ctc_1" && call_id == "call_1" && delta == "*** Begin"
          );
@@ -107,7 +107,7 @@ index 7b4a4ceab0..d3e8bdb828 100644
  
      #[tokio::test]
 diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
-index 54accc3afe..7c99a68de5 100644
+index 07e4e30041..88f250bee2 100644
 --- a/codex-rs/core/src/session/turn.rs
 +++ b/codex-rs/core/src/session/turn.rs
 @@ -87,6 +87,7 @@ use codex_protocol::protocol::AgentMessageContentDeltaEvent;
@@ -118,7 +118,7 @@ index 54accc3afe..7c99a68de5 100644
  use codex_protocol::protocol::ErrorEvent;
  use codex_protocol::protocol::EventMsg;
  use codex_protocol::protocol::PlanDeltaEvent;
-@@ -1547,6 +1548,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
+@@ -1497,6 +1498,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
          | EventMsg::HookStarted(_)
          | EventMsg::HookCompleted(_)
          | EventMsg::AgentMessageContentDelta(_)
@@ -126,7 +126,7 @@ index 54accc3afe..7c99a68de5 100644
          | EventMsg::PlanDelta(_)
          | EventMsg::ReasoningContentDelta(_)
          | EventMsg::ReasoningRawContentDelta(_)
-@@ -1904,6 +1906,7 @@ async fn try_run_sampling_request(
+@@ -1853,6 +1855,7 @@ async fn try_run_sampling_request(
          String,
          Box<dyn ToolArgumentDiffConsumer>,
      )> = None;
@@ -134,7 +134,7 @@ index 54accc3afe..7c99a68de5 100644
      let mut should_emit_turn_diff = false;
      let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
      let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
-@@ -1947,6 +1950,7 @@ async fn try_run_sampling_request(
+@@ -1901,6 +1904,7 @@ async fn try_run_sampling_request(
          match event {
              ResponseEvent::Created => {}
              ResponseEvent::OutputItemDone(item) => {
@@ -142,7 +142,7 @@ index 54accc3afe..7c99a68de5 100644
                  if let Some((_, mut consumer)) = active_tool_argument_diff_consumer.take()
                      && let Some(event) = consumer.flush_on_complete()
                  {
-@@ -2030,13 +2034,28 @@ async fn try_run_sampling_request(
+@@ -1983,13 +1987,25 @@ async fn try_run_sampling_request(
                  }
              }
              ResponseEvent::OutputItemAdded(item) => {
@@ -154,10 +154,7 @@ index 54accc3afe..7c99a68de5 100644
                          .map(|consumer| (call_id.clone(), consumer));
 -                } else if matches!(&item, ResponseItem::FunctionCall { .. }) {
 +                } else if let ResponseItem::FunctionCall {
-+                    id,
-+                    name,
-+                    call_id,
-+                    ..
++                    id, name, call_id, ..
 +                } = &item
 +                {
                      active_tool_argument_diff_consumer = None;
@@ -172,7 +169,7 @@ index 54accc3afe..7c99a68de5 100644
                  }
                  if let Some(turn_item) = handle_non_tool_response_item(
                      sess.as_ref(),
-@@ -2183,17 +2202,34 @@ async fn try_run_sampling_request(
+@@ -2139,17 +2155,37 @@ async fn try_run_sampling_request(
                  call_id,
                  delta,
              } => {
@@ -213,16 +210,19 @@ index 54accc3afe..7c99a68de5 100644
 +                        call_id: matched_call_id,
 +                        delta,
 +                    };
-+                    sess.send_event(&turn_context, EventMsg::DynamicToolCallArgumentsDelta(event))
-+                        .await;
++                    sess.send_event(
++                        &turn_context,
++                        EventMsg::DynamicToolCallArgumentsDelta(event),
++                    )
++                    .await;
                  }
              }
              ResponseEvent::ReasoningSummaryDelta {
 diff --git a/codex-rs/mcp-server/src/codex_tool_runner.rs b/codex-rs/mcp-server/src/codex_tool_runner.rs
-index 99fffb8013..0cbdb11fc0 100644
+index 46b786eba7..0ac5e82e79 100644
 --- a/codex-rs/mcp-server/src/codex_tool_runner.rs
 +++ b/codex-rs/mcp-server/src/codex_tool_runner.rs
-@@ -371,6 +371,7 @@ async fn run_codex_tool_session_inner(
+@@ -378,6 +378,7 @@ async fn run_codex_tool_session_inner(
                      | EventMsg::HookStarted(_)
                      | EventMsg::HookCompleted(_)
                      | EventMsg::AgentMessageContentDelta(_)
@@ -231,10 +231,10 @@ index 99fffb8013..0cbdb11fc0 100644
                      | EventMsg::ReasoningRawContentDelta(_)
                      | EventMsg::SkillsUpdateAvailable
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index 51b37aec88..1f0e57c6ab 100644
+index 554708e2cb..fcd39bc01e 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
-@@ -1722,6 +1722,7 @@ pub enum EventMsg {
+@@ -1524,6 +1524,7 @@ pub enum EventMsg {
      HookCompleted(HookCompletedEvent),
  
      AgentMessageContentDelta(AgentMessageContentDeltaEvent),
@@ -242,7 +242,7 @@ index 51b37aec88..1f0e57c6ab 100644
      PlanDelta(PlanDeltaEvent),
      ReasoningContentDelta(ReasoningContentDeltaEvent),
      ReasoningRawContentDelta(ReasoningRawContentDeltaEvent),
-@@ -2092,6 +2093,17 @@ pub struct AgentMessageContentDeltaEvent {
+@@ -1911,6 +1912,17 @@ pub struct AgentMessageContentDeltaEvent {
      pub delta: String,
  }
  
@@ -260,22 +260,11 @@ index 51b37aec88..1f0e57c6ab 100644
  impl HasLegacyEvent for AgentMessageContentDeltaEvent {
      fn as_legacy_events(&self, _: bool) -> Vec<EventMsg> {
          vec![EventMsg::AgentMessageDelta(AgentMessageDeltaEvent {
-diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
-index ddd42e5778..ea1d09b9f5 100644
---- a/codex-rs/rollout/src/policy.rs
-+++ b/codex-rs/rollout/src/policy.rs
-@@ -174,6 +174,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
-         | EventMsg::HookStarted(_)
-         | EventMsg::HookCompleted(_)
-         | EventMsg::AgentMessageContentDelta(_)
-+        | EventMsg::DynamicToolCallArgumentsDelta(_)
-         | EventMsg::PlanDelta(_)
-         | EventMsg::ReasoningContentDelta(_)
-         | EventMsg::ReasoningRawContentDelta(_)
 diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-trace/src/protocol_event.rs
+index 2aa5af5af6..aca8ab4865 100644
 --- a/codex-rs/rollout-trace/src/protocol_event.rs
 +++ b/codex-rs/rollout-trace/src/protocol_event.rs
-@@ -283,6 +283,7 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
+@@ -282,6 +282,7 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
          | EventMsg::HookStarted(_)
          | EventMsg::HookCompleted(_)
          | EventMsg::AgentMessageContentDelta(_)
@@ -284,6 +273,18 @@ diff --git a/codex-rs/rollout-trace/src/protocol_event.rs b/codex-rs/rollout-tra
          | EventMsg::ReasoningContentDelta(_)
          | EventMsg::ReasoningRawContentDelta(_)
 @@ -363,6 +364,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
+         | EventMsg::HookStarted(_)
+         | EventMsg::HookCompleted(_)
+         | EventMsg::AgentMessageContentDelta(_)
++        | EventMsg::DynamicToolCallArgumentsDelta(_)
+         | EventMsg::PlanDelta(_)
+         | EventMsg::ReasoningContentDelta(_)
+         | EventMsg::ReasoningRawContentDelta(_)
+diff --git a/codex-rs/rollout/src/policy.rs b/codex-rs/rollout/src/policy.rs
+index 22615623f3..ee0c814083 100644
+--- a/codex-rs/rollout/src/policy.rs
++++ b/codex-rs/rollout/src/policy.rs
+@@ -173,6 +173,7 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
          | EventMsg::HookStarted(_)
          | EventMsg::HookCompleted(_)
          | EventMsg::AgentMessageContentDelta(_)

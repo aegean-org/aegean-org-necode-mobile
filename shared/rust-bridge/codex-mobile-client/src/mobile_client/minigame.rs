@@ -265,7 +265,7 @@ pub(crate) async fn run_minigame(
         approval_policy: None,
         approvals_reviewer: None,
         sandbox: None,
-        permission_profile: None,
+        permissions: None,
         config: None,
         service_name: None,
         base_instructions: None,
@@ -323,7 +323,7 @@ pub(crate) async fn run_minigame(
         approvals_reviewer: None,
         sandbox_policy: None,
         environments: None,
-        permission_profile: None,
+        permissions: None,
         model: Some(MINIGAME_MODEL.to_string()),
         // Upstream TurnStartParams.service_tier is Option<Option<CoreServiceTier>>
         service_tier: Some(Some(service_tier_into_upstream(ServiceTier::Fast))),

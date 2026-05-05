@@ -1,8 +1,8 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2.rs b/codex-rs/app-server-protocol/src/protocol/v2.rs
-index 72ac0db65e..ca5c5c1693 100644
+index e4f55cd91e..ce01f70882 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2.rs
-@@ -3395,6 +3395,10 @@ pub struct ThreadReadParams {
+@@ -4418,6 +4418,10 @@ pub struct ThreadReadParams {
  #[ts(export_to = "v2/")]
  pub struct ThreadReadResponse {
      pub thread: Thread,
@@ -14,14 +14,14 @@ index 72ac0db65e..ca5c5c1693 100644
  
  #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 diff --git a/codex-rs/app-server/src/codex_message_processor.rs b/codex-rs/app-server/src/codex_message_processor.rs
-index 0342cc84ce..22e4dfc8e9 100644
+index 1613813925..1f3b74a496 100644
 --- a/codex-rs/app-server/src/codex_message_processor.rs
 +++ b/codex-rs/app-server/src/codex_message_processor.rs
-@@ -3911,7 +3911,38 @@ impl CodexMessageProcessor {
-                 return;
-             }
-         };
--        let response = ThreadReadResponse { thread };
+@@ -3885,7 +3885,38 @@ impl CodexMessageProcessor {
+             .read_thread_view(thread_uuid, include_turns)
+             .await
+             .map_err(thread_read_view_error)?;
+-        Ok(ThreadReadResponse { thread })
 +        let loaded_thread = self.load_live_thread_for_read(thread_uuid).await;
 +        let live_config_snapshot = if let Some(loaded) = loaded_thread.as_ref() {
 +            Some(loaded.config_snapshot().await)
@@ -33,7 +33,7 @@ index 0342cc84ce..22e4dfc8e9 100644
 +        } else {
 +            None
 +        };
-+        let response = ThreadReadResponse {
++        Ok(ThreadReadResponse {
 +            thread,
 +            approval_policy: live_config_snapshot
 +                .as_ref()
@@ -46,18 +46,18 @@ index 0342cc84ce..22e4dfc8e9 100644
 +                }),
 +            sandbox: live_config_snapshot
 +                .as_ref()
-+                .map(|config| config.sandbox_policy.clone().into())
++                .map(|config| config.sandbox_policy().into())
 +                .or_else(|| {
 +                    persisted_metadata
 +                        .as_ref()
 +                        .and_then(thread_metadata_sandbox_policy)
 +                        .map(Into::into)
 +                }),
-+        };
-         self.outgoing.send_response(request_id, response).await;
++        })
      }
  
-@@ -9171,6 +9202,28 @@ fn merge_persisted_resume_metadata(
+     /// Builds the API view for `thread/read` from persisted metadata plus optional live state.
+@@ -8733,6 +8764,28 @@ fn merge_persisted_resume_metadata(
      }
  }
  

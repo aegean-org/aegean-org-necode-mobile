@@ -1,29 +1,31 @@
 diff --git a/codex-rs/app-server-protocol/src/protocol/common.rs b/codex-rs/app-server-protocol/src/protocol/common.rs
-index 3ca9695848..86a0f7dbe9 100644
+index cdea769f02..c90bb0e1c0 100644
 --- a/codex-rs/app-server-protocol/src/protocol/common.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/common.rs
-@@ -463,6 +463,16 @@ client_request_definitions! {
-         params: v2::ThreadRealtimeStopParams,
+@@ -734,6 +734,18 @@ client_request_definitions! {
+         serialization: thread_id(params.thread_id),
          response: v2::ThreadRealtimeStopResponse,
      },
 +    #[experimental("thread/realtime/resolveHandoff")]
 +    ThreadRealtimeResolveHandoff => "thread/realtime/resolveHandoff" {
 +        params: v2::ThreadRealtimeResolveHandoffParams,
++        serialization: thread_id(params.thread_id),
 +        response: v2::ThreadRealtimeResolveHandoffResponse,
 +    },
 +    #[experimental("thread/realtime/finalizeHandoff")]
 +    ThreadRealtimeFinalizeHandoff => "thread/realtime/finalizeHandoff" {
 +        params: v2::ThreadRealtimeFinalizeHandoffParams,
++        serialization: thread_id(params.thread_id),
 +        response: v2::ThreadRealtimeFinalizeHandoffResponse,
 +    },
      #[experimental("thread/realtime/listVoices")]
      ThreadRealtimeListVoices => "thread/realtime/listVoices" {
          params: v2::ThreadRealtimeListVoicesParams,
 diff --git a/codex-rs/app-server-protocol/src/protocol/v2.rs b/codex-rs/app-server-protocol/src/protocol/v2.rs
-index e2d4819bcf..3d1a61da2f 100644
+index 2c1f2abc30..e4f55cd91e 100644
 --- a/codex-rs/app-server-protocol/src/protocol/v2.rs
 +++ b/codex-rs/app-server-protocol/src/protocol/v2.rs
-@@ -4754,6 +4758,11 @@ pub struct ThreadRealtimeStartParams {
+@@ -5257,6 +5257,11 @@ pub struct ThreadRealtimeStartParams {
      pub transport: Option<ThreadRealtimeStartTransport>,
      #[ts(optional = nullable)]
      pub voice: Option<RealtimeVoice>,
@@ -35,7 +37,7 @@ index e2d4819bcf..3d1a61da2f 100644
  }
  
  /// EXPERIMENTAL - transport used by thread realtime.
-@@ -4819,6 +4828,35 @@ pub struct ThreadRealtimeStopParams {
+@@ -5322,6 +5327,35 @@ pub struct ThreadRealtimeStopParams {
  #[ts(export_to = "v2/")]
  pub struct ThreadRealtimeStopResponse {}
  
@@ -72,84 +74,82 @@ index e2d4819bcf..3d1a61da2f 100644
  #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, JsonSchema, TS)]
  #[serde(rename_all = "camelCase")]
 diff --git a/codex-rs/app-server/src/bespoke_event_handling.rs b/codex-rs/app-server/src/bespoke_event_handling.rs
-index 58a8c2fc84..f447965c8d 100644
+index 00f3635f3d..0029b1a402 100644
 --- a/codex-rs/app-server/src/bespoke_event_handling.rs
 +++ b/codex-rs/app-server/src/bespoke_event_handling.rs
-@@ -552,6 +553,7 @@ pub(crate) async fn apply_bespoke_event_handling(
-                                 "item_id": handoff.item_id,
-                                 "input_transcript": handoff.input_transcript,
-                                 "active_transcript": handoff.active_transcript,
-+                                "server": handoff.server,
-                             }),
-                         };
-                         outgoing
-@@ -560,6 +562,61 @@ pub(crate) async fn apply_bespoke_event_handling(
-                             ))
-                             .await;
-                     }
-+                    RealtimeEvent::ToolCallRequested(item) => {
-+                        let call_id = item
-+                            .get("call_id")
-+                            .or_else(|| item.get("id"))
+@@ -515,6 +515,7 @@ pub(crate) async fn apply_bespoke_event_handling(
+                         "item_id": handoff.item_id,
+                         "input_transcript": handoff.input_transcript,
+                         "active_transcript": handoff.active_transcript,
++                        "server": handoff.server,
+                     }),
+                 };
+                 outgoing
+@@ -523,6 +524,59 @@ pub(crate) async fn apply_bespoke_event_handling(
+                     ))
+                     .await;
+             }
++            RealtimeEvent::ToolCallRequested(item) => {
++                let call_id = item
++                    .get("call_id")
++                    .or_else(|| item.get("id"))
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or("")
++                    .to_string();
++                let tool_name = item
++                    .get("name")
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or("")
++                    .to_string();
++                let arguments_str = item
++                    .get("arguments")
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or("{}")
++                    .to_string();
++                let arguments: serde_json::Value = serde_json::from_str(&arguments_str)
++                    .unwrap_or(serde_json::Value::Object(Default::default()));
++
++                let params = DynamicToolCallParams {
++                    thread_id: conversation_id.to_string(),
++                    turn_id: String::new(),
++                    call_id: call_id.clone(),
++                    namespace: None,
++                    tool: tool_name,
++                    arguments,
++                };
++                let (_pending_request_id, rx) = outgoing
++                    .send_request(ServerRequestPayload::DynamicToolCall(params))
++                    .await;
++
++                let thread = conversation.clone();
++                tokio::spawn(async move {
++                    let output = match rx.await {
++                        Ok(Ok(value)) => value
++                            .get("contentItems")
++                            .and_then(serde_json::Value::as_array)
++                            .and_then(|items| items.first())
++                            .and_then(|item| item.get("text"))
 +                            .and_then(serde_json::Value::as_str)
 +                            .unwrap_or("")
-+                            .to_string();
-+                        let tool_name = item
-+                            .get("name")
-+                            .and_then(serde_json::Value::as_str)
-+                            .unwrap_or("")
-+                            .to_string();
-+                        let arguments_str = item
-+                            .get("arguments")
-+                            .and_then(serde_json::Value::as_str)
-+                            .unwrap_or("{}")
-+                            .to_string();
-+                        let arguments: serde_json::Value = serde_json::from_str(&arguments_str)
-+                            .unwrap_or(serde_json::Value::Object(Default::default()));
-+
-+                        let params = DynamicToolCallParams {
-+                            thread_id: conversation_id.to_string(),
-+                            turn_id: String::new(),
-+                            call_id: call_id.clone(),
-+                            namespace: None,
-+                            tool: tool_name,
-+                            arguments,
-+                        };
-+                        let (_pending_request_id, rx) = outgoing
-+                            .send_request(ServerRequestPayload::DynamicToolCall(params))
-+                            .await;
-+
-+                        // Wait for client response, then submit the tool output back
-+                        // through the core so it reaches the realtime API.
-+                        let thread = conversation.clone();
-+                        tokio::spawn(async move {
-+                            let output = match rx.await {
-+                                Ok(Ok(value)) => value
-+                                    .get("contentItems")
-+                                    .and_then(serde_json::Value::as_array)
-+                                    .and_then(|items| items.first())
-+                                    .and_then(|item| item.get("text"))
-+                                    .and_then(serde_json::Value::as_str)
-+                                    .unwrap_or("")
-+                                    .to_string(),
-+                                _ => "Tool call failed".to_string(),
-+                            };
-+                            let _ = thread
-+                                .submit(codex_protocol::protocol::Op::RealtimeResolveDynamicTool {
-+                                    call_id,
-+                                    output,
-+                                })
-+                                .await;
-+                        });
-+                    }
-                     RealtimeEvent::Error(message) => {
-                         let notification = ThreadRealtimeErrorNotification {
-                             thread_id: conversation_id.to_string(),
++                            .to_string(),
++                        _ => "Tool call failed".to_string(),
++                    };
++                    let _ = thread
++                        .submit(codex_protocol::protocol::Op::RealtimeResolveDynamicTool {
++                            call_id,
++                            output,
++                        })
++                        .await;
++                });
++            }
+             RealtimeEvent::Error(message) => {
+                 let notification = ThreadRealtimeErrorNotification {
+                     thread_id: conversation_id.to_string(),
 diff --git a/codex-rs/app-server/src/codex_message_processor.rs b/codex-rs/app-server/src/codex_message_processor.rs
-index 75a457acbd..f984afab6f 100644
+index ea82c306bf..1613813925 100644
 --- a/codex-rs/app-server/src/codex_message_processor.rs
 +++ b/codex-rs/app-server/src/codex_message_processor.rs
-@@ -1040,6 +1040,14 @@ impl CodexMessageProcessor {
+@@ -1175,6 +1175,14 @@ impl CodexMessageProcessor {
                  self.thread_realtime_stop(to_connection_request_id(request_id), params)
                      .await;
              }
@@ -164,7 +164,7 @@ index 75a457acbd..f984afab6f 100644
              ClientRequest::ThreadRealtimeListVoices { request_id, params } => {
                  self.thread_realtime_list_voices(to_connection_request_id(request_id), params)
                      .await;
-@@ -7310,6 +7349,8 @@ impl CodexMessageProcessor {
+@@ -6986,6 +6994,8 @@ impl CodexMessageProcessor {
                          }
                      }),
                      voice: params.voice,
@@ -172,9 +172,9 @@ index 75a457acbd..f984afab6f 100644
 +                    dynamic_tools: params.dynamic_tools,
                  }),
              )
-             .await;
-@@ -7436,6 +7477,82 @@ impl CodexMessageProcessor {
-         }
+             .await
+@@ -7081,6 +7091,62 @@ impl CodexMessageProcessor {
+         self.send_optional_result(request_id, result).await;
      }
  
 +    async fn thread_realtime_resolve_handoff(
@@ -182,38 +182,28 @@ index 75a457acbd..f984afab6f 100644
 +        request_id: ConnectionRequestId,
 +        params: codex_app_server_protocol::ThreadRealtimeResolveHandoffParams,
 +    ) {
-+        let Some((_, thread)) = self
-+            .prepare_realtime_conversation_thread(request_id.clone(), &params.thread_id)
-+            .await
-+        else {
-+            return;
-+        };
-+        let submit = self
-+            .submit_core_op(
++        let result = async {
++            let Some((_, thread)) = self
++                .prepare_realtime_conversation_thread(&request_id, &params.thread_id)
++                .await?
++            else {
++                return Ok(None);
++            };
++            self.submit_core_op(
 +                &request_id,
 +                thread.as_ref(),
 +                Op::RealtimeConversationResolveHandoff {
 +                    tool_call_output: params.tool_call_output,
 +                },
 +            )
-+            .await;
-+        match submit {
-+            Ok(_) => {
-+                self.outgoing
-+                    .send_response(
-+                        request_id,
-+                        codex_app_server_protocol::ThreadRealtimeResolveHandoffResponse::default(),
-+                    )
-+                    .await;
-+            }
-+            Err(err) => {
-+                self.send_internal_error(
-+                    request_id,
-+                    format!("failed to resolve realtime handoff: {err}"),
-+                )
-+                .await;
-+            }
++            .await
++            .map_err(|err| internal_error(format!("failed to resolve realtime handoff: {err}")))?;
++            Ok::<_, JSONRPCErrorError>(Some(
++                codex_app_server_protocol::ThreadRealtimeResolveHandoffResponse::default(),
++            ))
 +        }
++        .await;
++        self.send_optional_result(request_id, result).await;
 +    }
 +
 +    async fn thread_realtime_finalize_handoff(
@@ -221,36 +211,26 @@ index 75a457acbd..f984afab6f 100644
 +        request_id: ConnectionRequestId,
 +        params: codex_app_server_protocol::ThreadRealtimeFinalizeHandoffParams,
 +    ) {
-+        let Some((_, thread)) = self
-+            .prepare_realtime_conversation_thread(request_id.clone(), &params.thread_id)
-+            .await
-+        else {
-+            return;
-+        };
-+        let submit = self
-+            .submit_core_op(
++        let result = async {
++            let Some((_, thread)) = self
++                .prepare_realtime_conversation_thread(&request_id, &params.thread_id)
++                .await?
++            else {
++                return Ok(None);
++            };
++            self.submit_core_op(
 +                &request_id,
 +                thread.as_ref(),
 +                Op::RealtimeConversationFinalizeHandoff,
 +            )
-+            .await;
-+        match submit {
-+            Ok(_) => {
-+                self.outgoing
-+                    .send_response(
-+                        request_id,
-+                        codex_app_server_protocol::ThreadRealtimeFinalizeHandoffResponse::default(),
-+                    )
-+                    .await;
-+            }
-+            Err(err) => {
-+                self.send_internal_error(
-+                    request_id,
-+                    format!("failed to finalize realtime handoff: {err}"),
-+                )
-+                .await;
-+            }
++            .await
++            .map_err(|err| internal_error(format!("failed to finalize realtime handoff: {err}")))?;
++            Ok::<_, JSONRPCErrorError>(Some(
++                codex_app_server_protocol::ThreadRealtimeFinalizeHandoffResponse::default(),
++            ))
 +        }
++        .await;
++        self.send_optional_result(request_id, result).await;
 +    }
 +
      async fn thread_realtime_list_voices(
@@ -269,10 +249,10 @@ index b0342c5349..97bd082466 100644
      }
  
 diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
-index 3c1fd7bd91..a8689b2bfb 100644
+index 3c1fd7bd91..003da97c31 100644
 --- a/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
 +++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs
-@@ -309,12 +309,32 @@ impl RealtimeWebsocketWriter {
+@@ -309,12 +309,33 @@ impl RealtimeWebsocketWriter {
              .await
      }
  
@@ -289,8 +269,9 @@ index 3c1fd7bd91..a8689b2bfb 100644
 +                "output": output_text,
 +            }
 +        });
-+        let encoded = serde_json::to_string(&payload)
-+            .map_err(|err| ApiError::Stream(format!("failed to encode dynamic tool output: {err}")))?;
++        let encoded = serde_json::to_string(&payload).map_err(|err| {
++            ApiError::Stream(format!("failed to encode dynamic tool output: {err}"))
++        })?;
 +        debug!("realtime websocket dynamic tool output: {}", encoded);
 +        self.send_payload(encoded).await
 +    }
@@ -305,7 +286,7 @@ index 3c1fd7bd91..a8689b2bfb 100644
      ) -> Result<(), ApiError> {
          let session_mode = normalized_session_mode(self.event_parser, session_mode);
          let session = session_update_session(
-@@ -323,6 +343,7 @@ impl RealtimeWebsocketWriter {
+@@ -323,6 +344,7 @@ impl RealtimeWebsocketWriter {
              session_mode,
              output_modality,
              voice,
@@ -313,7 +294,7 @@ index 3c1fd7bd91..a8689b2bfb 100644
          );
          self.send_json(&RealtimeOutboundMessage::SessionUpdate { session })
              .await
-@@ -477,6 +498,7 @@ impl RealtimeWebsocketEvents {
+@@ -477,6 +499,7 @@ impl RealtimeWebsocketEvents {
              | RealtimeEvent::ConversationItemDone { .. }
              | RealtimeEvent::NoopRequested(_)
              | RealtimeEvent::ConversationItemAdded(_)
@@ -321,7 +302,7 @@ index 3c1fd7bd91..a8689b2bfb 100644
              | RealtimeEvent::Error(_) => {}
          }
      }
-@@ -687,6 +709,7 @@ impl RealtimeWebsocketClient {
+@@ -687,6 +710,7 @@ impl RealtimeWebsocketClient {
                  config.session_mode,
                  config.output_modality,
                  config.voice,
@@ -532,10 +513,10 @@ index 3c1d25aed7..afc4c7e3fe 100644
          }
          "error" => parse_error_event(&parsed),
 diff --git a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
-index ee0bba9946..75d6dcd70d 100644
+index ee0bba9946..e39c2391c2 100644
 --- a/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
 +++ b/codex-rs/codex-api/src/endpoint/realtime_websocket/protocol_v2.rs
-@@ -133,6 +133,14 @@ fn parse_conversation_item_done_event(parsed: &Value) -> Option<RealtimeEvent> {
+@@ -133,6 +133,16 @@ fn parse_conversation_item_done_event(parsed: &Value) -> Option<RealtimeEvent> {
          return Some(noop);
      }
  
@@ -544,13 +525,15 @@ index ee0bba9946..75d6dcd70d 100644
 +        && item.get("status").and_then(Value::as_str) == Some("completed")
 +        && item.get("name").and_then(Value::as_str) != Some(BACKGROUND_AGENT_TOOL_NAME)
 +    {
-+        return Some(RealtimeEvent::ToolCallRequested(Value::Object(item.clone())));
++        return Some(RealtimeEvent::ToolCallRequested(Value::Object(
++            item.clone(),
++        )));
 +    }
 +
      item.get("id")
          .and_then(Value::as_str)
          .map(str::to_string)
-@@ -157,11 +165,23 @@ fn parse_handoff_requested_event(item: &JsonMap<String, Value>) -> Option<Realti
+@@ -157,11 +167,23 @@ fn parse_handoff_requested_event(item: &JsonMap<String, Value>) -> Option<Realti
          .to_string();
      let arguments = item.get("arguments").and_then(Value::as_str).unwrap_or("");
  
@@ -874,10 +857,10 @@ index 0ca7c1c169..19873c2523 100644
  
      if events_tx.send(event).await.is_err() {
 diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
-index 9c91f78188..416f60f41a 100644
+index 624331ea62..ed010071de 100644
 --- a/codex-rs/core/src/session/handlers.rs
 +++ b/codex-rs/core/src/session/handlers.rs
-@@ -1104,6 +1104,20 @@ pub(super) async fn submission_loop(
+@@ -1011,6 +1011,20 @@ pub(super) async fn submission_loop(
                      handle_realtime_conversation_close(&sess, sub.id.clone()).await;
                      false
                  }
@@ -899,10 +882,10 @@ index 9c91f78188..416f60f41a 100644
                      realtime_conversation_list_voices(&sess, sub.id.clone()).await;
                      false
 diff --git a/codex-rs/protocol/src/protocol.rs b/codex-rs/protocol/src/protocol.rs
-index e087cc0279..1f0e57c6ab 100644
+index fa7a9aa6ad..554708e2cb 100644
 --- a/codex-rs/protocol/src/protocol.rs
 +++ b/codex-rs/protocol/src/protocol.rs
-@@ -167,6 +167,10 @@ pub struct ConversationStartParams {
+@@ -168,6 +168,10 @@ pub struct ConversationStartParams {
      pub transport: Option<ConversationStartTransport>,
      #[serde(skip_serializing_if = "Option::is_none")]
      pub voice: Option<RealtimeVoice>,
@@ -913,7 +896,7 @@ index e087cc0279..1f0e57c6ab 100644
  }
  
  #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
-@@ -334,6 +338,8 @@ pub struct RealtimeHandoffRequested {
+@@ -335,6 +339,8 @@ pub struct RealtimeHandoffRequested {
      pub item_id: String,
      pub input_transcript: String,
      pub active_transcript: Vec<RealtimeTranscriptEntry>,
@@ -922,7 +905,7 @@ index e087cc0279..1f0e57c6ab 100644
  }
  
  #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-@@ -383,6 +389,7 @@ pub enum RealtimeEvent {
+@@ -384,6 +390,7 @@ pub enum RealtimeEvent {
      },
      HandoffRequested(RealtimeHandoffRequested),
      NoopRequested(RealtimeNoopRequested),
@@ -930,7 +913,7 @@ index e087cc0279..1f0e57c6ab 100644
      Error(String),
  }
  
-@@ -422,6 +429,15 @@ pub enum Op {
+@@ -423,6 +430,15 @@ pub enum Op {
      /// Close the running realtime conversation stream.
      RealtimeConversationClose,
  
@@ -946,7 +929,7 @@ index e087cc0279..1f0e57c6ab 100644
      /// Request the list of voices supported by realtime conversation streams.
      RealtimeConversationListVoices,
  
-@@ -876,6 +892,11 @@ impl Op {
+@@ -888,6 +904,11 @@ impl Op {
              Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
              Self::RealtimeConversationText(_) => "realtime_conversation_text",
              Self::RealtimeConversationClose => "realtime_conversation_close",
