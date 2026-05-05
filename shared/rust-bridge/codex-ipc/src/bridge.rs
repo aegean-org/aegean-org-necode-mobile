@@ -262,7 +262,6 @@ fn diff_turn_items(
                                     item: next_item.clone(),
                                     thread_id: thread_id.to_string(),
                                     turn_id: turn_id.to_string(),
-                                    completed_at_ms: 0,
                                 },
                             ),
                         });
@@ -277,7 +276,6 @@ fn diff_turn_items(
                             item: next_item.clone(),
                             thread_id: thread_id.to_string(),
                             turn_id: turn_id.to_string(),
-                            started_at_ms: 0,
                         },
                     ),
                 });
@@ -288,7 +286,6 @@ fn diff_turn_items(
                             item: next_item.clone(),
                             thread_id: thread_id.to_string(),
                             turn_id: turn_id.to_string(),
-                            completed_at_ms: 0,
                         },
                     ),
                 });
@@ -560,7 +557,6 @@ fn emit_item_completed(
                 item: item.clone(),
                 thread_id: thread_id.to_string(),
                 turn_id: turn_id.to_string(),
-                completed_at_ms: 0,
             },
         ),
     });
@@ -642,7 +638,6 @@ pub(crate) fn bootstrap_events(
                             item: item.clone(),
                             thread_id: thread_id.to_string(),
                             turn_id: active_id.clone(),
-                            started_at_ms: 0,
                         },
                     ),
                 });
@@ -653,7 +648,6 @@ pub(crate) fn bootstrap_events(
                             item: item.clone(),
                             thread_id: thread_id.to_string(),
                             turn_id: active_id.clone(),
-                            completed_at_ms: 0,
                         },
                     ),
                 });
