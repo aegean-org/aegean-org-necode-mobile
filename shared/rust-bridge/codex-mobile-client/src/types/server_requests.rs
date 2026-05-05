@@ -796,7 +796,7 @@ impl TryFrom<AppStartRealtimeSessionRequest> for upstream::ThreadRealtimeStartPa
         Ok(Self {
             thread_id: value.thread_id,
             prompt: Some(Some(value.prompt)),
-            realtime_session_id: value.session_id,
+            session_id: value.session_id,
             output_modality: value
                 .output_modality
                 .unwrap_or(crate::types::models::AppRealtimeOutputModality::Audio)

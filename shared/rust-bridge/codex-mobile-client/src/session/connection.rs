@@ -621,7 +621,6 @@ impl ServerSession {
             cloud_requirements,
             feedback,
             log_db: None,
-            state_db: None,
             thread_config_loader: Arc::new(codex_config::NoopThreadConfigLoader),
             environment_manager: Arc::new(
                 codex_exec_server::EnvironmentManager::default_for_tests(),
