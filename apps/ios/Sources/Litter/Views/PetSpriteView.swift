@@ -7,6 +7,8 @@ private let petColumns = 8
 private let petRows = 9
 private let petAtlasWidth = petFrameWidth * petColumns
 private let petAtlasHeight = petFrameHeight * petRows
+private let ambientMessages = ["Ready", "Watching", "Let's go"]
+private let ambientStates: [PetAvatarState] = [.waving, .jumping]
 
 private struct PetSpriteFrame {
     let index: Int
@@ -59,18 +61,23 @@ struct PetOverlayView: View {
     let message: String?
     let reduceMotion: Bool
     @State private var lastDragTranslation = CGSize.zero
+    @State private var ambientState: PetAvatarState?
+    @State private var ambientMessage: String?
 
     var body: some View {
+        let displayState = ambientState ?? state
+        let displayMessage = message ?? ambientMessage
+
         ZStack(alignment: .topLeading) {
             PetSpriteView(
                 spritesheetBytes: pet.spritesheetBytes,
-                state: state,
+                state: displayState,
                 reduceMotion: reduceMotion
             )
             .frame(width: 112, height: 122)
 
-            if let message {
-                PetSpeechBubble(text: message)
+            if let displayMessage {
+                PetSpeechBubble(text: displayMessage)
                     .offset(x: 64, y: -10)
             }
         }
@@ -88,6 +95,49 @@ struct PetOverlayView: View {
                     controller.endDrag()
                 }
         )
+        .task(id: "\(pet.id)-\(state.rawValue)-\(message ?? "")-\(reduceMotion)") {
+            ambientState = nil
+            ambientMessage = nil
+            guard state == .idle, message == nil else { return }
+
+            var messageIndex = 0
+            var stateIndex = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(3200))
+                guard !Task.isCancelled else { return }
+
+                if reduceMotion {
+                    ambientState = nil
+                    ambientMessage = ambientMessages[messageIndex % ambientMessages.count]
+                    messageIndex += 1
+                    try? await Task.sleep(for: .milliseconds(2200))
+                    ambientMessage = nil
+                    try? await Task.sleep(for: .milliseconds(2800))
+                    continue
+                }
+
+                let nextState = ambientStates[stateIndex % ambientStates.count]
+                let nextMessage = ambientMessages[messageIndex % ambientMessages.count]
+                stateIndex += 1
+                messageIndex += 1
+
+                ambientState = nextState
+                ambientMessage = nextMessage
+                let durationMs: UInt64
+                switch nextState {
+                case .waving:
+                    durationMs = 1800
+                case .jumping:
+                    durationMs = 1600
+                default:
+                    durationMs = 1400
+                }
+                try? await Task.sleep(for: .milliseconds(durationMs))
+                ambientState = nil
+                ambientMessage = nil
+                try? await Task.sleep(for: .milliseconds(2600))
+            }
+        }
     }
 }
 

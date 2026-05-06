@@ -121,10 +121,18 @@ import uniffi.codex_mobile_client.AppPetSummary
 fun SettingsSheet(
     onDismiss: () -> Unit,
     onOpenAccount: (serverId: String) -> Unit,
+    initialSubScreen: SettingsStartDestination = SettingsStartDestination.TopLevel,
     onOpenApps: (() -> Unit)? = null,
 ) {
     // Sub-screen navigation
-    var subScreen by remember { mutableStateOf<SettingsSubScreen?>(null) }
+    var subScreen by remember(initialSubScreen) {
+        mutableStateOf(
+            when (initialSubScreen) {
+                SettingsStartDestination.TopLevel -> null
+                SettingsStartDestination.Pets -> SettingsSubScreen.Pets
+            },
+        )
+    }
 
     when (subScreen) {
         SettingsSubScreen.Appearance -> AppearanceScreen(onBack = { subScreen = null })
@@ -144,6 +152,8 @@ fun SettingsSheet(
         )
     }
 }
+
+enum class SettingsStartDestination { TopLevel, Pets }
 
 private enum class SettingsSubScreen { Appearance, Experimental, Pets, TipJar, Debug }
 
@@ -938,6 +948,7 @@ private fun PetsScreen(onBack: () -> Unit) {
     var pets by remember(selectedServerId) { mutableStateOf<List<AppPetSummary>>(emptyList()) }
     var loading by remember(selectedServerId) { mutableStateOf(false) }
     var error by remember(selectedServerId) { mutableStateOf<String?>(null) }
+    val overlayPermissionGranted = PetOverlayController.canDrawOverlays(context)
 
     fun refresh() {
         if (selectedServerId.isBlank()) return
@@ -991,6 +1002,34 @@ private fun PetsScreen(onBack: () -> Unit) {
                         onCheckedChange = { PetOverlayController.setVisible(context, it) },
                         colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.accent),
                     )
+                },
+            )
+        }
+        item {
+            SettingsRow(
+                label = "Show Over Other Apps",
+                subtitle = if (overlayPermissionGranted) {
+                    "Overlay permission granted"
+                } else {
+                    "Needs Display over other apps permission"
+                },
+                icon = { Icon(Icons.Default.Widgets, null, tint = LitterTheme.accent, modifier = Modifier.size(18.dp)) },
+                trailing = {
+                    Switch(
+                        checked = PetOverlayController.overlayEnabled,
+                        onCheckedChange = { enabled ->
+                            PetOverlayController.setOverlayEnabled(context, enabled)
+                            if (enabled && !overlayPermissionGranted) {
+                                PetOverlayController.requestOverlayPermission(context)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.accent),
+                    )
+                },
+                onClick = if (!overlayPermissionGranted) {
+                    { PetOverlayController.requestOverlayPermission(context) }
+                } else {
+                    null
                 },
             )
         }
