@@ -755,6 +755,7 @@ where
     let legacy_permission_profile = normalize_legacy_permission_profile_fields(&mut normalized);
     normalize_empty_cwd_fields(&mut normalized, None);
     normalize_default_service_tier(&mut normalized);
+    normalize_legacy_v0_128_compat(&mut normalized);
     normalize_dynamic_tool_content_item_aliases(&mut normalized);
     normalize_tool_status_aliases(&mut normalized);
     normalize_command_action_aliases(&mut normalized);
@@ -902,6 +903,66 @@ fn normalize_default_service_tier(value: &mut serde_json::Value) {
         serde_json::Value::Array(items) => {
             for child in items {
                 normalize_default_service_tier(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Inject defaults for fields that upstream rust-v0.129.0 made required on
+/// `Thread`, `ItemStartedNotification`, and `ItemCompletedNotification`.
+/// Servers running older codex versions (e.g., rust-v0.128.0) don't emit
+/// these fields, so the typed deserializer would fail with `missing field
+/// 'sessionId'` etc. We mirror legacy server behavior here rather than
+/// patching the upstream protocol crate so the litter-side build can stay
+/// upstream-faithful.
+///
+/// The `Thread.sessionId` fallback follows upstream's own convention for
+/// stored/unloaded threads (see PR #21336): when no live session id is
+/// known, treat `sessionId == id`. Litter's sub-agent grouping uses
+/// `Thread.source` + `parent_thread_id` rather than `session_id`, so the
+/// fallback is harmless there; for any future upstream-style consumer this
+/// matches what app-server itself returns for stored threads.
+fn normalize_legacy_v0_128_compat(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            // Thread: detected by id+preview+status+source which all v2
+            // Thread payloads carry. sessionId was added in v0.129.
+            if map.contains_key("id")
+                && map.contains_key("preview")
+                && map.contains_key("status")
+                && map.contains_key("source")
+                && !map.contains_key("sessionId")
+            {
+                let fallback = map.get("id").cloned().unwrap_or(serde_json::Value::Null);
+                map.insert("sessionId".to_string(), fallback);
+            }
+            // Item lifecycle notifications: detected by item+threadId+turnId.
+            // startedAtMs/completedAtMs were added in v0.129.
+            if map.contains_key("item")
+                && map.contains_key("threadId")
+                && map.contains_key("turnId")
+            {
+                if !map.contains_key("startedAtMs") {
+                    map.insert(
+                        "startedAtMs".to_string(),
+                        serde_json::Value::Number(0.into()),
+                    );
+                }
+                if !map.contains_key("completedAtMs") {
+                    map.insert(
+                        "completedAtMs".to_string(),
+                        serde_json::Value::Number(0.into()),
+                    );
+                }
+            }
+            for child in map.values_mut() {
+                normalize_legacy_v0_128_compat(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                normalize_legacy_v0_128_compat(child);
             }
         }
         _ => {}

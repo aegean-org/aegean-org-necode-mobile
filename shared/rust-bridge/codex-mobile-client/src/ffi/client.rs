@@ -1913,6 +1913,7 @@ async fn start_ephemeral_thread_for_structured(
         personality: None,
         ephemeral: Some(true),
         session_start_source: None,
+        thread_source: None,
         environments: None,
         dynamic_tools: None,
         mock_experimental_field: None,
@@ -2151,7 +2152,7 @@ async fn perform_update_saved_app(
         None
     } else {
         Some(Some(
-            crate::types::server_requests::service_tier_into_upstream(
+            crate::types::server_requests::service_tier_into_upstream_string(
                 crate::types::ServiceTier::Fast,
             ),
         ))
@@ -2204,6 +2205,7 @@ async fn perform_update_saved_app(
         personality: None,
         ephemeral: Some(false),
         session_start_source: None,
+        thread_source: None,
         environments: None,
         dynamic_tools: None,
         mock_experimental_field: None,

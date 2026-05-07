@@ -6,7 +6,6 @@
 
 use crate::RpcClientError;
 use codex_app_server_protocol as upstream;
-use codex_protocol::config_types::ServiceTier as CoreServiceTier;
 use codex_protocol::openai_models::ReasoningEffort as CoreReasoningEffort;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use serde::{Deserialize, Serialize};
@@ -59,10 +58,12 @@ pub(crate) fn sandbox_mode_into_upstream(value: AppSandboxMode) -> upstream::San
     }
 }
 
-pub(crate) fn service_tier_into_upstream(value: ServiceTier) -> CoreServiceTier {
+/// Wire-format string for upstream `Option<Option<String>>` service_tier
+/// fields. Matches `ServiceTier`'s `rename_all = "lowercase"` serde shape.
+pub(crate) fn service_tier_into_upstream_string(value: ServiceTier) -> String {
     match value {
-        ServiceTier::Fast => CoreServiceTier::Fast,
-        ServiceTier::Flex => CoreServiceTier::Flex,
+        ServiceTier::Fast => "fast".to_string(),
+        ServiceTier::Flex => "flex".to_string(),
     }
 }
 
@@ -342,6 +343,7 @@ impl TryFrom<AppStartThreadRequest> for upstream::ThreadStartParams {
             personality: None,
             ephemeral: value.ephemeral,
             session_start_source: None,
+            thread_source: None,
             dynamic_tools: value
                 .dynamic_tools
                 .map(|tools| {
@@ -450,6 +452,7 @@ impl TryFrom<AppForkThreadRequest> for upstream::ThreadForkParams {
             base_instructions: None,
             developer_instructions: value.developer_instructions,
             ephemeral: false,
+            thread_source: None,
             exclude_turns: value.exclude_turns,
             persist_extended_history: value.persist_extended_history,
         })
@@ -704,7 +707,10 @@ impl TryFrom<AppListPluginsRequest> for upstream::PluginListParams {
             }
             Some(converted)
         };
-        Ok(Self { cwds })
+        Ok(Self {
+            cwds,
+            marketplace_kinds: None,
+        })
     }
 }
 
@@ -749,7 +755,10 @@ impl TryFrom<AppStartTurnRequest> for upstream::TurnStartParams {
             environments: None,
             permissions: None,
             model: value.model,
-            service_tier: value.service_tier.map(service_tier_into_upstream).map(Some),
+            service_tier: value
+                .service_tier
+                .map(service_tier_into_upstream_string)
+                .map(Some),
             effort: value.effort.map(reasoning_effort_into_upstream),
             summary: None,
             personality: None,
@@ -796,7 +805,7 @@ impl TryFrom<AppStartRealtimeSessionRequest> for upstream::ThreadRealtimeStartPa
         Ok(Self {
             thread_id: value.thread_id,
             prompt: Some(Some(value.prompt)),
-            session_id: value.session_id,
+            realtime_session_id: value.session_id,
             output_modality: value
                 .output_modality
                 .unwrap_or(crate::types::models::AppRealtimeOutputModality::Audio)
