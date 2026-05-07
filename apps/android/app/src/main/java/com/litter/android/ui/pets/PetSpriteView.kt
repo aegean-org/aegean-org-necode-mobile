@@ -9,7 +9,6 @@ import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.offset
@@ -194,8 +193,9 @@ fun PetOverlayBody(
         message = message,
         reducedMotion = reducedMotion,
     )
+    val scale = PetOverlayController.petScale
     Box(
-        modifier = modifier.size(width = PetBodyWidth, height = PetBodyHeight),
+        modifier = modifier.size(width = PetBodyWidth * scale, height = PetBodyHeight * scale),
     ) {
         PetSpriteView(
             spritesheetBytes = pet.spritesheetBytes,
@@ -226,6 +226,9 @@ fun PetAvatarBubble(
     onDragEnd: (() -> Unit)? = null,
     onDrag: ((Float, Float) -> Unit)? = null,
     onDragAbsolute: ((Float, Float) -> Unit)? = null,
+    onPinchStart: (() -> Unit)? = null,
+    onPinch: ((Float) -> Unit)? = null,
+    onPinchEnd: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -240,9 +243,12 @@ fun PetAvatarBubble(
     var lastRawY by remember(pet.id) { mutableStateOf(0f) }
     var dragStarted by remember(pet.id) { mutableStateOf(false) }
     var longPressTriggered by remember(pet.id) { mutableStateOf(false) }
+    var pinching by remember(pet.id) { mutableStateOf(false) }
+    var pinchOccurred by remember(pet.id) { mutableStateOf(false) }
+    var pinchInitialDistance by remember(pet.id) { mutableStateOf(0f) }
     val longPressRunnable = remember(pet.id, onLongClick) {
         Runnable {
-            if (!dragStarted) {
+            if (!dragStarted && !pinching) {
                 longPressTriggered = true
                 onLongClick?.invoke()
             }
@@ -257,98 +263,142 @@ fun PetAvatarBubble(
     val displayState = presentation.state
     val displayMessage = presentation.message
 
+    val scale = PetOverlayController.petScale
+    val bodyWidth = PetBodyWidth * scale
+    val bodyHeight = PetBodyHeight * scale
+    val hostWidth = bodyWidth.coerceAtLeast(BubbleHostWidth)
+    val hostHeight = PetTopInset + bodyHeight
+
     Box(
         modifier = modifier
-            .size(width = PetHostWidth, height = PetHostHeight)
-            .pointerInput(pet.id, onClick, onLongClick) {
-                detectTapGestures(
-                    onTap = { onClick?.invoke() },
-                    onLongPress = { onLongClick?.invoke() },
-                )
+            .size(width = hostWidth, height = hostHeight)
+            .pointerInteropFilter { event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        activePointerId = event.getPointerId(0)
+                        downRawX = event.rawX
+                        downRawY = event.rawY
+                        lastRawX = event.rawX
+                        lastRawY = event.rawY
+                        dragStarted = false
+                        longPressTriggered = false
+                        pinching = false
+                        pinchOccurred = false
+                        longPressHandler.removeCallbacks(longPressRunnable)
+                        longPressHandler.postDelayed(longPressRunnable, longPressTimeoutMs)
+                        true
+                    }
+
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        if (event.pointerCount == 2) {
+                            longPressHandler.removeCallbacks(longPressRunnable)
+                            if (dragStarted) {
+                                onDragEnd?.invoke()
+                                dragStarted = false
+                            }
+                            val initial = pointerSpan(event)
+                            if (initial > 0f) {
+                                pinchInitialDistance = initial
+                                pinching = true
+                                pinchOccurred = true
+                                onPinchStart?.invoke()
+                            }
+                        }
+                        true
+                    }
+
+                    MotionEvent.ACTION_MOVE -> {
+                        if (pinching) {
+                            if (event.pointerCount >= 2) {
+                                val current = pointerSpan(event)
+                                if (pinchInitialDistance > 0f && current > 0f) {
+                                    onPinch?.invoke(current / pinchInitialDistance)
+                                }
+                            }
+                            return@pointerInteropFilter true
+                        }
+                        if (activePointerId == MotionEvent.INVALID_POINTER_ID) return@pointerInteropFilter false
+                        val pointerIndex = event.findPointerIndex(activePointerId)
+                        if (pointerIndex < 0) return@pointerInteropFilter false
+
+                        val rawX = event.rawX
+                        val rawY = event.rawY
+                        val totalDx = rawX - downRawX
+                        val totalDy = rawY - downRawY
+
+                        if (!dragStarted && !longPressTriggered) {
+                            val distance = kotlin.math.hypot(totalDx.toDouble(), totalDy.toDouble()).toFloat()
+                            if (distance > touchSlop) {
+                                dragStarted = true
+                                longPressHandler.removeCallbacks(longPressRunnable)
+                                onDragStart?.invoke()
+                            }
+                        }
+
+                        if (dragStarted) {
+                            val dx = rawX - lastRawX
+                            val dy = rawY - lastRawY
+                            if (onDragAbsolute != null) {
+                                onDragAbsolute.invoke(totalDx, totalDy)
+                            } else if (dx != 0f || dy != 0f) {
+                                onDrag?.invoke(dx, dy)
+                            }
+                        }
+
+                        lastRawX = rawX
+                        lastRawY = rawY
+                        true
+                    }
+
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        if (pinching) {
+                            pinching = false
+                            onPinchEnd?.invoke()
+                            activePointerId = MotionEvent.INVALID_POINTER_ID
+                        }
+                        true
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        longPressHandler.removeCallbacks(longPressRunnable)
+                        if (pinching) {
+                            pinching = false
+                            onPinchEnd?.invoke()
+                        } else if (dragStarted) {
+                            onDragEnd?.invoke()
+                        } else if (!longPressTriggered && !pinchOccurred) {
+                            onClick?.invoke()
+                        }
+                        activePointerId = MotionEvent.INVALID_POINTER_ID
+                        dragStarted = false
+                        longPressTriggered = false
+                        pinchOccurred = false
+                        true
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> {
+                        longPressHandler.removeCallbacks(longPressRunnable)
+                        if (pinching) {
+                            pinching = false
+                            onPinchEnd?.invoke()
+                        } else if (dragStarted) {
+                            onDragCancel?.invoke()
+                        }
+                        activePointerId = MotionEvent.INVALID_POINTER_ID
+                        dragStarted = false
+                        longPressTriggered = false
+                        pinchOccurred = false
+                        true
+                    }
+
+                    else -> false
+                }
             },
     ) {
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .size(width = PetBodyWidth, height = PetBodyHeight)
-                .pointerInteropFilter { event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            activePointerId = event.getPointerId(0)
-                            downRawX = event.rawX
-                            downRawY = event.rawY
-                            lastRawX = event.rawX
-                            lastRawY = event.rawY
-                            dragStarted = false
-                            longPressTriggered = false
-                            longPressHandler.removeCallbacks(longPressRunnable)
-                            longPressHandler.postDelayed(longPressRunnable, longPressTimeoutMs)
-                            true
-                        }
-
-                        MotionEvent.ACTION_MOVE -> {
-                            if (activePointerId == MotionEvent.INVALID_POINTER_ID) return@pointerInteropFilter false
-                            val pointerIndex = event.findPointerIndex(activePointerId)
-                            if (pointerIndex < 0) return@pointerInteropFilter false
-
-                            val rawX = event.rawX
-                            val rawY = event.rawY
-                            val totalDx = rawX - downRawX
-                            val totalDy = rawY - downRawY
-
-                            if (!dragStarted && !longPressTriggered) {
-                                val distance = kotlin.math.hypot(totalDx.toDouble(), totalDy.toDouble()).toFloat()
-                                if (distance > touchSlop) {
-                                    dragStarted = true
-                                    longPressHandler.removeCallbacks(longPressRunnable)
-                                    onDragStart?.invoke()
-                                }
-                            }
-
-                            if (dragStarted) {
-                                val dx = rawX - lastRawX
-                                val dy = rawY - lastRawY
-                                val totalDx = rawX - downRawX
-                                val totalDy = rawY - downRawY
-                                if (onDragAbsolute != null) {
-                                    onDragAbsolute.invoke(totalDx, totalDy)
-                                } else if (dx != 0f || dy != 0f) {
-                                    onDrag?.invoke(dx, dy)
-                                }
-                            }
-
-                            lastRawX = rawX
-                            lastRawY = rawY
-                            true
-                        }
-
-                        MotionEvent.ACTION_UP -> {
-                            longPressHandler.removeCallbacks(longPressRunnable)
-                            if (dragStarted) {
-                                onDragEnd?.invoke()
-                            } else if (!longPressTriggered) {
-                                onClick?.invoke()
-                            }
-                            activePointerId = MotionEvent.INVALID_POINTER_ID
-                            dragStarted = false
-                            longPressTriggered = false
-                            true
-                        }
-
-                        MotionEvent.ACTION_CANCEL -> {
-                            longPressHandler.removeCallbacks(longPressRunnable)
-                            if (dragStarted) {
-                                onDragCancel?.invoke()
-                            }
-                            activePointerId = MotionEvent.INVALID_POINTER_ID
-                            dragStarted = false
-                            longPressTriggered = false
-                            true
-                        }
-
-                        else -> false
-                    }
-                },
+                .size(width = bodyWidth, height = bodyHeight),
         ) {
             PetSpriteView(
                 spritesheetBytes = pet.spritesheetBytes,
@@ -365,6 +415,13 @@ fun PetAvatarBubble(
             )
         }
     }
+}
+
+private fun pointerSpan(event: MotionEvent): Float {
+    if (event.pointerCount < 2) return 0f
+    val dx = event.getX(0) - event.getX(1)
+    val dy = event.getY(0) - event.getY(1)
+    return kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
 }
 
 @Composable

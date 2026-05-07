@@ -212,6 +212,16 @@ class PetOverlayService : LifecycleService() {
                                     updateWindowPosition()
                                     refreshOverlay()
                                 },
+                                onPinchStart = {
+                                    menuVisible.value = false
+                                    PetOverlayController.startPinch()
+                                },
+                                onPinch = { factor ->
+                                    PetOverlayController.pinchBy(factor)
+                                },
+                                onPinchEnd = {
+                                    PetOverlayController.endPinch(this@PetOverlayService)
+                                },
                                 onClick = {
                                     if (menuVisible.value) {
                                         menuVisible.value = false

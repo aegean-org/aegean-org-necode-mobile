@@ -66,7 +66,12 @@ object PetOverlayController {
     private const val KEY_PET_NAME = "pet_name"
     private const val KEY_DRAG_OFFSET_X = "drag_offset_x"
     private const val KEY_DRAG_OFFSET_Y = "drag_offset_y"
+    private const val KEY_PET_SCALE = "pet_scale"
     private const val CACHE_DIR = "pets"
+
+    const val MIN_PET_SCALE = 0.25f
+    const val MAX_PET_SCALE = 5.0f
+    const val DEFAULT_PET_SCALE = 1.0f
 
     var visible by mutableStateOf(false)
         private set
@@ -84,6 +89,11 @@ object PetOverlayController {
         private set
     var isDragging by mutableStateOf(false)
         private set
+    var petScale by mutableFloatStateOf(DEFAULT_PET_SCALE)
+        private set
+    var isPinching by mutableStateOf(false)
+        private set
+    private var pinchInitialScale: Float = DEFAULT_PET_SCALE
     private var dragDirection by mutableStateOf(PetAvatarState.RUNNING_RIGHT)
     private var initialized = false
 
@@ -95,6 +105,8 @@ object PetOverlayController {
         overlayEnabled = prefs.getBoolean(KEY_OVERLAY_ENABLED, false)
         dragOffsetX = prefs.getFloat(KEY_DRAG_OFFSET_X, 24f)
         dragOffsetY = prefs.getFloat(KEY_DRAG_OFFSET_Y, 96f)
+        petScale = prefs.getFloat(KEY_PET_SCALE, DEFAULT_PET_SCALE)
+            .coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
         val serverId = prefs.getString(KEY_SERVER_ID, null)
         val petId = prefs.getString(KEY_PET_ID, null)
         val name = prefs.getString(KEY_PET_NAME, null)
@@ -194,6 +206,26 @@ object PetOverlayController {
         isDragging = false
     }
 
+    fun startPinch() {
+        pinchInitialScale = petScale
+        isPinching = true
+    }
+
+    fun pinchBy(factor: Float) {
+        if (!factor.isFinite() || factor <= 0f) return
+        petScale = (pinchInitialScale * factor).coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
+    }
+
+    fun endPinch(context: Context) {
+        isPinching = false
+        persistScale(context)
+    }
+
+    fun setScale(context: Context, value: Float) {
+        petScale = value.coerceIn(MIN_PET_SCALE, MAX_PET_SCALE)
+        persistScale(context)
+    }
+
     fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
 
     fun requestOverlayPermission(context: Context) {
@@ -237,6 +269,13 @@ object PetOverlayController {
             .edit()
             .putFloat(KEY_DRAG_OFFSET_X, dragOffsetX)
             .putFloat(KEY_DRAG_OFFSET_Y, dragOffsetY)
+            .apply()
+    }
+
+    private fun persistScale(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(KEY_PET_SCALE, petScale)
             .apply()
     }
 

@@ -67,6 +67,7 @@ struct PetOverlayView: View {
     var body: some View {
         let displayState = ambientState ?? state
         let displayMessage = message ?? ambientMessage
+        let scale = controller.petScale
 
         ZStack(alignment: .topLeading) {
             PetSpriteView(
@@ -74,17 +75,18 @@ struct PetOverlayView: View {
                 state: displayState,
                 reduceMotion: reduceMotion
             )
-            .frame(width: 112, height: 122)
+            .frame(width: 112 * scale, height: 122 * scale)
 
             if let displayMessage {
                 PetSpeechBubble(text: displayMessage)
-                    .offset(x: 64, y: -10)
+                    .offset(x: 64 * scale, y: -10)
             }
         }
         .offset(controller.dragOffset)
         .gesture(
             DragGesture()
                 .onChanged { value in
+                    if controller.isPinching { return }
                     controller.startDrag()
                     let delta = value.translation - lastDragTranslation
                     lastDragTranslation = value.translation
@@ -93,6 +95,20 @@ struct PetOverlayView: View {
                 .onEnded { _ in
                     lastDragTranslation = .zero
                     controller.endDrag()
+                }
+        )
+        .simultaneousGesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    if !controller.isPinching {
+                        controller.endDrag()
+                        lastDragTranslation = .zero
+                    }
+                    controller.startPinch()
+                    controller.pinchBy(value.magnification)
+                }
+                .onEnded { _ in
+                    controller.endPinch()
                 }
         )
         .task(id: "\(pet.id)-\(state.rawValue)-\(message ?? "")-\(reduceMotion)") {
