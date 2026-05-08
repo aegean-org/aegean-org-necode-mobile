@@ -29,7 +29,7 @@ struct AlleycatAddServerSheet: View {
     @State private var showScanner = false
     @State private var didRequestInitialScan = false
     @State private var cameraDenied = false
-    #if DEBUG
+    #if targetEnvironment(macCatalyst) || DEBUG
     @State private var pasteJSON: String = ""
     @State private var showPaste: Bool = false
     #endif
@@ -81,6 +81,7 @@ struct AlleycatAddServerSheet: View {
         .onAppear {
             requestInitialScanIfNeeded()
         }
+        #if !targetEnvironment(macCatalyst)
         .fullScreenCover(isPresented: $showScanner) {
             QRScannerScreen(
                 onScan: { scanned in
@@ -110,19 +111,65 @@ struct AlleycatAddServerSheet: View {
                 Text("Allow camera access in Settings to scan an Alleycat pairing QR code.")
             }
         )
+        #endif
     }
 
     private func requestInitialScanIfNeeded() {
+        #if targetEnvironment(macCatalyst)
+        return
+        #else
         guard startScanningOnAppear, !didRequestInitialScan, parsedParams == nil else { return }
         didRequestInitialScan = true
         Task { @MainActor in
             await Task.yield()
             requestCameraAndScan()
         }
+        #endif
     }
 
     private var pairingSection: some View {
         Section {
+            #if targetEnvironment(macCatalyst)
+            Text("Run \(Self.pairCommandLabel) on the host you want to connect to, then paste the JSON it prints below.")
+                .litterFont(.caption)
+                .foregroundColor(LitterTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextEditor(text: $pasteJSON)
+                .litterFont(.caption)
+                .foregroundColor(LitterTheme.textPrimary)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 110)
+                .overlay(alignment: .topLeading) {
+                    if pasteJSON.isEmpty {
+                        Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textMuted)
+                            .padding(.top, 8)
+                            .padding(.leading, 4)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+            HStack {
+                Button("Paste from Clipboard") {
+                    if let clipboard = UIPasteboard.general.string {
+                        pasteJSON = clipboard
+                    }
+                }
+                .litterFont(.footnote)
+                .foregroundColor(LitterTheme.accent)
+
+                Spacer()
+
+                Button(parsedParams == nil ? "Parse JSON" : "Reparse JSON") {
+                    handleScannedPayload(pasteJSON)
+                }
+                .litterFont(.footnote)
+                .foregroundColor(LitterTheme.accent)
+                .disabled(pasteJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            #else
             Button {
                 requestCameraAndScan()
             } label: {
@@ -168,12 +215,15 @@ struct AlleycatAddServerSheet: View {
                 }
             )
             #endif
+            #endif
         } header: {
             Text("Pairing")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
+
+    private static let pairCommandLabel = "npx kittylitter"
 
     private func previewSection(params: AppAlleycatPairPayload) -> some View {
         Section {
