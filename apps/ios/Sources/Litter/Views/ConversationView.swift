@@ -2141,7 +2141,13 @@ private struct ConversationInputBar: View {
     private func makeGoalCardActions() -> GoalCardActions {
         GoalCardActions(
             togglePause: {
-                let next: AppThreadGoalStatus = (snapshot.goal?.status == .paused) ? .active : .paused
+                guard let current = snapshot.goal?.status else { return }
+                let next: AppThreadGoalStatus
+                switch current {
+                case .active: next = .paused
+                case .paused, .budgetLimited: next = .active
+                case .complete: return
+                }
                 Task { await applyGoalUpdate(status: next) }
             },
             markComplete: {
@@ -2151,7 +2157,15 @@ private struct ConversationInputBar: View {
                 Task { await applyGoalUpdate(objective: objective) }
             },
             setBudget: { value in
-                Task { await applyGoalUpdate(tokenBudget: value) }
+                let goal = snapshot.goal
+                let resumeFromLimit = goal?.status == .budgetLimited
+                    && (value ?? 0) > (goal?.tokensUsed ?? 0)
+                Task {
+                    await applyGoalUpdate(
+                        status: resumeFromLimit ? .active : nil,
+                        tokenBudget: value
+                    )
+                }
             },
             clear: {
                 Task { await clearGoal() }

@@ -6,6 +6,15 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -433,10 +443,11 @@ fun ComposerBar(
                 GoalCardActions(
                     togglePause = {
                         scope.launch {
-                            val next = if (current.status == AppThreadGoalStatus.PAUSED) {
-                                AppThreadGoalStatus.ACTIVE
-                            } else {
-                                AppThreadGoalStatus.PAUSED
+                            val next = when (current.status) {
+                                AppThreadGoalStatus.ACTIVE -> AppThreadGoalStatus.PAUSED
+                                AppThreadGoalStatus.PAUSED,
+                                AppThreadGoalStatus.BUDGET_LIMITED -> AppThreadGoalStatus.ACTIVE
+                                AppThreadGoalStatus.COMPLETE -> return@launch
                             }
                             runCatching {
                                 appModel.client.setThreadGoal(
@@ -483,13 +494,16 @@ fun ComposerBar(
                     },
                     setBudget = { budget ->
                         scope.launch {
+                            val resumeFromLimit = current.status == AppThreadGoalStatus.BUDGET_LIMITED
+                                && budget != null
+                                && budget > current.tokensUsed
                             runCatching {
                                 appModel.client.setThreadGoal(
                                     threadKey.serverId,
                                     AppThreadGoalSetRequest(
                                         threadId = threadKey.threadId,
                                         objective = null,
-                                        status = null,
+                                        status = if (resumeFromLimit) AppThreadGoalStatus.ACTIVE else null,
                                         tokenBudget = budget,
                                     ),
                                 )
@@ -1512,12 +1526,6 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
         AppThreadGoalStatus.BUDGET_LIMITED -> "limited"
         AppThreadGoalStatus.COMPLETE -> "complete"
     }
-    val statusGlyph = when (goal.status) {
-        AppThreadGoalStatus.ACTIVE -> "◎"
-        AppThreadGoalStatus.PAUSED -> "❚❚"
-        AppThreadGoalStatus.BUDGET_LIMITED -> "!"
-        AppThreadGoalStatus.COMPLETE -> "✓"
-    }
     val budgetProgress: Float? = goal.tokenBudget?.takeIf { it > 0 }?.let { budget ->
         (goal.tokensUsed.toFloat() / budget.toFloat()).coerceIn(0f, 1f)
     }
@@ -1530,18 +1538,46 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
         budgetProgress >= 0.85f -> LitterTheme.warning
         else -> tint
     }
-    val budgetTextTint = when {
+    val progressTextTint = when {
         budgetProgress == null -> LitterTheme.textSecondary
         budgetProgress >= 1f -> LitterTheme.danger
         budgetProgress >= 0.85f -> LitterTheme.warning
         else -> LitterTheme.textSecondary
     }
-    val canTogglePause = goal.status == AppThreadGoalStatus.ACTIVE || goal.status == AppThreadGoalStatus.PAUSED
+    val canTogglePause = goal.status != AppThreadGoalStatus.COMPLETE
+    val pauseResumeLabel: String? = when (goal.status) {
+        AppThreadGoalStatus.ACTIVE -> "Pause goal"
+        AppThreadGoalStatus.PAUSED -> "Resume goal"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "Resume goal (override cap)"
+        AppThreadGoalStatus.COMPLETE -> null
+    }
 
     var showMenu by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showBudgetDialog by remember { mutableStateOf(false) }
     var showClearConfirm by remember { mutableStateOf(false) }
+
+    // Pulsing status dot — only animates while the goal is active. Mirrors
+    // the iOS pill's 0.35 ↔ 1.0 ease-in-out at 1.1s autoreverse.
+    val pulse = rememberInfiniteTransition(label = "goalPulse")
+    val pulseAlpha by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "goalPulseAlpha",
+    )
+    val statusDotAlpha = if (goal.status == AppThreadGoalStatus.ACTIVE) pulseAlpha else 1f
+    val animatedProgress by animateFloatAsState(
+        targetValue = budgetProgress ?: 0f,
+        animationSpec = spring(
+            dampingRatio = 0.85f,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "goalProgress",
+    )
 
     Column(
         modifier = Modifier
@@ -1550,52 +1586,54 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
             .clip(RoundedCornerShape(12.dp))
             .background(LitterTheme.codeBackground.copy(alpha = 0.92f))
             .border(1.dp, tint.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = statusGlyph,
-                color = tint,
-                fontSize = LitterTextStyle.caption.scaled,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "Goal",
-                color = LitterTheme.textPrimary,
-                fontSize = LitterTextStyle.caption.scaled,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = statusLabel,
-                color = tint,
-                fontSize = 10f.scaled,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = BerkeleyMono,
+            // Status pill — tappable to pause/resume (or override cap when
+            // BUDGET_LIMITED). Disabled once the goal is COMPLETE.
+            Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .background(tint.copy(alpha = 0.14f))
                     .border(0.5.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
                     .clickable(enabled = canTogglePause) { actions.togglePause() }
-                    .padding(horizontal = 6.dp, vertical = 1.dp),
-            )
-            Spacer(Modifier.weight(1f))
-            if (budgetLabel != null) {
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(tint.copy(alpha = statusDotAlpha), CircleShape),
+                )
                 Text(
-                    text = budgetLabel,
-                    color = budgetTextTint,
+                    text = statusLabel.uppercase(),
+                    color = tint,
                     fontSize = 10f.scaled,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = BerkeleyMono,
                 )
             }
+
+            Text(
+                text = goal.objective,
+                color = LitterTheme.textPrimary,
+                fontSize = LitterTextStyle.caption.scaled,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { showEditDialog = true },
+            )
+
             Box {
                 IconButton(
                     onClick = { showMenu = true },
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(24.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
@@ -1608,6 +1646,15 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                 ) {
+                    if (pauseResumeLabel != null) {
+                        DropdownMenuItem(
+                            text = { Text(pauseResumeLabel, color = LitterTheme.textPrimary) },
+                            onClick = {
+                                showMenu = false
+                                actions.togglePause()
+                            },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Edit objective", color = LitterTheme.textPrimary) },
                         onClick = {
@@ -1641,27 +1688,50 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                 }
             }
         }
-        Text(
-            text = goal.objective,
-            color = LitterTheme.textPrimary,
-            fontSize = LitterTextStyle.caption.scaled,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
+
         if (budgetProgress != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(LitterTheme.surface.copy(alpha = 0.7f)),
+            val percent = (budgetProgress * 100).toInt()
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(fraction = budgetProgress)
-                        .background(progressTint, RoundedCornerShape(2.dp)),
-                )
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(tint.copy(alpha = 0.10f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fraction = animatedProgress.coerceIn(0f, 1f))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(progressTint.copy(alpha = 0.85f), progressTint),
+                                ),
+                                RoundedCornerShape(999.dp),
+                            ),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (budgetLabel != null) {
+                        Text(
+                            text = budgetLabel,
+                            color = LitterTheme.textSecondary,
+                            fontSize = 10f.scaled,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = BerkeleyMono,
+                        )
+                    }
+                    Text(
+                        text = "$percent%",
+                        color = progressTextTint,
+                        fontSize = 10f.scaled,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = BerkeleyMono,
+                    )
+                }
             }
         }
     }

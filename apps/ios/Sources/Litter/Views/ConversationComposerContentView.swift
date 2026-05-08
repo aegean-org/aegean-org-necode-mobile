@@ -555,6 +555,14 @@ private struct ConversationComposerGoalRowView: View {
 
     private var overflowMenu: some View {
         Menu {
+            if let pauseResume = pauseResumeMenuItem {
+                Button {
+                    actions.togglePause()
+                } label: {
+                    Label(pauseResume.label, systemImage: pauseResume.systemImage)
+                }
+            }
+
             Button {
                 draftObjective = goal.objective
                 showEditSheet = true
@@ -630,15 +638,27 @@ private struct ConversationComposerGoalRowView: View {
     }
 
     private var canTogglePause: Bool {
-        goal.status == .active || goal.status == .paused
+        switch goal.status {
+        case .active, .paused, .budgetLimited: return true
+        case .complete: return false
+        }
     }
 
     private var pauseToggleAccessibilityLabel: String {
         switch goal.status {
         case .active: return "Pause goal"
         case .paused: return "Resume goal"
-        case .budgetLimited: return "Goal limited by budget"
+        case .budgetLimited: return "Resume goal (override budget cap)"
         case .complete: return "Goal complete"
+        }
+    }
+
+    private var pauseResumeMenuItem: (label: String, systemImage: String)? {
+        switch goal.status {
+        case .active: return ("Pause Goal", "pause.circle")
+        case .paused: return ("Resume Goal", "play.circle")
+        case .budgetLimited: return ("Resume Goal (override cap)", "play.circle")
+        case .complete: return nil
         }
     }
 

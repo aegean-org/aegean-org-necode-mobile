@@ -8,7 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
 import uniffi.codex_mobile_client.AppPetSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.AppServerTransportState
@@ -258,7 +257,7 @@ object PetOverlayController {
             action = PetOverlayService.ACTION_SYNC
         }
         if (shouldShowSystemOverlay(appContext)) {
-            ContextCompat.startForegroundService(appContext, intent)
+            appContext.startService(intent)
         } else {
             appContext.stopService(intent)
         }
