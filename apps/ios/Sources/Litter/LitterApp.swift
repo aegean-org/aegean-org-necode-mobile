@@ -2012,58 +2012,62 @@ private struct ApprovalPromptView: View {
                     .litterFont(.headline)
                     .foregroundColor(LitterTheme.textPrimary)
 
-                if let reason = approval.reason, !reason.isEmpty {
-                    Text(reason)
-                        .litterFont(.footnote)
-                        .foregroundColor(LitterTheme.textSecondary)
-                }
-
-                if let threadId = approval.threadId, onViewThread != nil {
-                    HStack {
-                        Button {
-                            onViewThread?(ThreadKey(serverId: approval.serverId, threadId: threadId))
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text("View Thread")
-                                    .litterFont(.caption, weight: .medium)
-                                Image(systemName: "arrow.right")
-                                    .litterFont(size: 9, weight: .semibold)
-                            }
-                            .foregroundColor(LitterTheme.accent)
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer()
-                    }
-                }
-
-                if let command = approval.command, !command.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Command")
-                            .litterFont(.caption)
-                            .foregroundColor(LitterTheme.textMuted)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            Text(command)
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let reason = approval.reason, !reason.isEmpty {
+                            Text(reason)
                                 .litterFont(.footnote)
-                                .foregroundColor(LitterTheme.textBody)
-                                .padding(10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(LitterTheme.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+
+                        if let threadId = approval.threadId, onViewThread != nil {
+                            HStack {
+                                Button {
+                                    onViewThread?(ThreadKey(serverId: approval.serverId, threadId: threadId))
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Text("View Thread")
+                                            .litterFont(.caption, weight: .medium)
+                                        Image(systemName: "arrow.right")
+                                            .litterFont(size: 9, weight: .semibold)
+                                    }
+                                    .foregroundColor(LitterTheme.accent)
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+                            }
+                        }
+
+                        if let command = approval.command, !command.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Command")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textMuted)
+                                Text(command)
+                                    .litterFont(.footnote)
+                                    .foregroundColor(LitterTheme.textBody)
+                                    .textSelection(.enabled)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(LitterTheme.surface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+
+                        if let cwd = approval.cwd, !cwd.isEmpty {
+                            Text("CWD: \(cwd)")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textMuted)
+                        }
+
+                        if let grantRoot = approval.grantRoot, !grantRoot.isEmpty {
+                            Text("Grant Root: \(grantRoot)")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textMuted)
                         }
                     }
-                }
-
-                if let cwd = approval.cwd, !cwd.isEmpty {
-                    Text("CWD: \(cwd)")
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textMuted)
-                }
-
-                if let grantRoot = approval.grantRoot, !grantRoot.isEmpty {
-                    Text("Grant Root: \(grantRoot)")
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 VStack(spacing: 8) {
@@ -2090,6 +2094,7 @@ private struct ApprovalPromptView: View {
                 .litterFont(.callout)
             }
             .padding(16)
+            .frame(maxHeight: UIScreen.main.bounds.height * 0.8)
             .modifier(GlassRectModifier(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
