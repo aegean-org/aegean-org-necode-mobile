@@ -221,27 +221,31 @@ final class AppLifecycleController {
         )
         guard !keys.isEmpty else { return }
 
-        // A push wake means iOS thawed the process specifically because
-        // the host has news for us — but the alleycat Connection has
-        // been frozen since `appDidEnterBackground` (typically minutes),
-        // so it's almost certainly dead. Same logic as `performForegroundRecovery`:
-        // if backgrounded longer than iroh's per-path idle, abandon the
-        // live Connection so the worker rebuilds before any user-visible
-        // request lands.
-        let backgroundDuration = lastBackgroundedAt.map { Date().timeIntervalSince($0) }
-        if let duration = backgroundDuration, duration > Self.longResumeThreshold {
-            LLog.info(
-                "push",
-                "background push wake — abandoning live alleycat connections",
-                fields: ["backgroundDurationSec": Int(duration)]
-            )
-            await appModel.reconnectController.onLongResume()
-        }
-
+        // Do NOT proactively close the alleycat Connection on every push
+        // wake. The 30s push cadence matches iroh's idle window — closing
+        // the connection here tears down the very transport iOS just
+        // thawed us to use, costing a reconnect handshake out of our 30s
+        // budget. If the path is actually dead, the next request will
+        // fail and the transport's own reconnect logic will rebuild it
+        // (and `connect_remote_over_alleycat` short-circuits when a
+        // healthy session already exists). The longer foreground-resume
+        // path still uses `onLongResume` because there iroh's per-path
+        // idle has plausibly killed the path silently.
         await reconnectSavedServers(appModel: appModel)
+        // refreshTrackedThreads uses the force-authoritative path so the
+        // server's response carries the embedded turn list — the only
+        // way `reconcile_active_turn` can clear an `active_turn_id` for
+        // a turn that completed during the background freeze (no
+        // `TurnCompleted` event was ever delivered to this client). The
+        // RPC also re-attaches the new `ConnectionId` to the per-thread
+        // subscription set so subsequent live events route correctly.
         let reloadKeys = keys.filter { !shouldTrustLiveThreadState(for: $0, appModel: appModel) }
         if !reloadKeys.isEmpty {
-            await refreshTrackedThreads(appModel: appModel, keys: Array(reloadKeys))
+            await refreshTrackedThreads(
+                appModel: appModel,
+                keys: Array(reloadKeys),
+                forceAuthoritative: true
+            )
         } else {
             LLog.info(
                 "push",
@@ -444,7 +448,19 @@ final class AppLifecycleController {
             notificationActivationAge: notificationActivationAge
         )
         if !reloadKeys.isEmpty {
-            await refreshTrackedThreads(appModel: appModel, keys: Array(reloadKeys))
+            // Force authoritative refresh: a turn that completed during a
+            // long iOS suspension fired `TurnCompleted` while no client
+            // connection was attached, so the local snapshot still shows
+            // the turn as in-progress. Without `exclude_turns: false` the
+            // resume returns no turn list and `reconcile_active_turn`
+            // can't clear the stale `active_turn_id` — leaving the user
+            // staring at a "thinking" spinner whose `turn/interrupt`
+            // attempts get rejected with "no active turn to interrupt".
+            await refreshTrackedThreads(
+                appModel: appModel,
+                keys: Array(reloadKeys),
+                forceAuthoritative: true
+            )
             guard !Task.isCancelled else { return }
         } else if !keysToRefresh.isEmpty {
             LLog.info(
@@ -461,7 +477,11 @@ final class AppLifecycleController {
         LLog.info("lifecycle", "performForegroundRecovery completed")
     }
 
-    private func refreshTrackedThreads(appModel: AppModel, keys: [ThreadKey]) async {
+    private func refreshTrackedThreads(
+        appModel: AppModel,
+        keys: [ThreadKey],
+        forceAuthoritative: Bool = false
+    ) async {
         guard !keys.isEmpty else { return }
         let signpostID = OSSignpostID(log: appLifecycleSignpostLog)
         os_signpost(.begin, log: appLifecycleSignpostLog, name: "RefreshTrackedThreads", signpostID: signpostID)
@@ -469,7 +489,10 @@ final class AppLifecycleController {
         LLog.info(
             "lifecycle",
             "refreshTrackedThreads started",
-            fields: ["keys": keys.map(\.debugLabel)]
+            fields: [
+                "keys": keys.map(\.debugLabel),
+                "forceAuthoritative": forceAuthoritative
+            ]
         )
 
         let activeKey = appModel.snapshot?.activeThread
@@ -483,7 +506,11 @@ final class AppLifecycleController {
         })
 
         if let firstKey = orderedKeys.first {
-            await reloadTrackedThread(appModel: appModel, key: firstKey)
+            await reloadTrackedThread(
+                appModel: appModel,
+                key: firstKey,
+                forceAuthoritative: forceAuthoritative
+            )
         }
 
         let remainingKeys = Array(orderedKeys.dropFirst())
@@ -513,12 +540,55 @@ final class AppLifecycleController {
         }
 
         for key in remainingKeys {
-            await reloadTrackedThread(appModel: appModel, key: key)
+            await reloadTrackedThread(
+                appModel: appModel,
+                key: key,
+                forceAuthoritative: forceAuthoritative
+            )
         }
         LLog.info("lifecycle", "refreshTrackedThreads completed", fields: ["keyCount": keys.count])
     }
 
-    private func reloadTrackedThread(appModel: AppModel, key: ThreadKey) async {
+    private func reloadTrackedThread(
+        appModel: AppModel,
+        key: ThreadKey,
+        forceAuthoritative: Bool = false
+    ) async {
+        // After a long resume / push wake the locally-cached snapshot may
+        // have missed `TurnCompleted` events — the in-flight turn fired
+        // those while the app was frozen, no client connection was
+        // attached to the per-thread subscription set, and the events
+        // were dropped. The regular `reloadThread` short-circuits via
+        // the direct-resume marker, so we'd keep showing the stale
+        // active turn until the user manually refreshes. Force-
+        // authoritative bypasses both short-circuits and pulls back
+        // `exclude_turns: false`, which is what `reconcile_active_turn`
+        // needs to clear a stale `active_turn_id`.
+        if forceAuthoritative {
+            LLog.info(
+                "lifecycle",
+                "reloadTrackedThread started (authoritative)",
+                fields: ["key": key.debugLabel]
+            )
+            do {
+                try await appModel.forceRefreshThreadAuthoritative(key: key)
+                await appModel.refreshThreadSnapshot(key: key)
+                LLog.info(
+                    "lifecycle",
+                    "reloadTrackedThread completed (authoritative)",
+                    fields: ["key": key.debugLabel]
+                )
+            } catch {
+                LLog.error(
+                    "lifecycle",
+                    "reloadTrackedThread (authoritative) failed",
+                    error: error,
+                    fields: ["key": key.debugLabel]
+                )
+            }
+            return
+        }
+
         let snapshot = appModel.snapshot
         let existing = snapshot?.threadSnapshot(for: key)
         let cwd = existing?.info.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)

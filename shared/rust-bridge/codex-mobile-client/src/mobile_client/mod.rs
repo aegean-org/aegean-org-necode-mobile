@@ -1119,6 +1119,34 @@ impl MobileClient {
             server_id
         };
 
+        // Short-circuit if a healthy session for this server already
+        // exists. Otherwise the saved-server reconnect path can race with
+        // `AlleycatReconnectTransport`'s own auto-retry: the transport
+        // self-heals after a `BrokenPipe`, fires a Disconnected→Connected
+        // health transition that schedules `run_post_reconnect_resubscribe`
+        // against the now-healthy old session, and the saved-server
+        // reconnect tears that session down via `replace_existing_session`
+        // before the resubscribe finishes — every pending `thread/resume`
+        // then fails with `transport error: disconnected`.
+        if let Some(existing) = self.sessions_read().get(server_id.as_str()).cloned() {
+            let health = existing.health().borrow().clone();
+            if matches!(
+                health,
+                crate::session::connection::ConnectionHealth::Connected
+            ) {
+                let runtime_kinds = existing.runtime_kinds();
+                info!(
+                    "MobileClient: connect_remote_over_alleycat short-circuit; healthy session exists server_id={} runtimes={:?}",
+                    server_id, runtime_kinds,
+                );
+                return Ok(AlleycatConnectOutcome {
+                    server_id,
+                    node_id: params.node_id.clone(),
+                    agent_name: agent_name.clone(),
+                });
+            }
+        }
+
         let config = ServerConfig {
             server_id: server_id.clone(),
             display_name,
@@ -1612,6 +1640,18 @@ impl MobileClient {
         let sessions: Vec<Arc<ServerSession>> =
             self.sessions_read().values().cloned().collect();
         for session in sessions {
+            // Direct-resume markers are scoped to a live `ConnectionId`. Once
+            // we close the underlying Connection, any subsequent
+            // `external_resume_thread` for this server must re-issue
+            // `thread/resume` against the new connection — otherwise it
+            // would short-circuit on the stale marker and the new
+            // `ConnectionId` would never be added to the per-thread
+            // subscription set, silencing turn-stream events. The
+            // post-reconnect resubscribe in `spawn_health_reader` also
+            // clears these on Disconnected→Connected, but doing it eagerly
+            // here lets a refresh issued before the new connection is up
+            // (e.g. push-wake `refreshTrackedThreads`) take the slow path.
+            self.clear_direct_resume_markers_for_server(session.config().server_id.as_str());
             session.close_current_connections().await;
         }
     }
@@ -1812,6 +1852,35 @@ impl MobileClient {
         thread_id: &str,
         host_id: Option<String>,
     ) -> Result<(), RpcError> {
+        self.external_resume_thread_inner(server_id, thread_id, host_id, false)
+            .await
+    }
+
+    /// Force a fresh `thread/resume` against the server even if a direct
+    /// listener was already attached for the current session, and pull
+    /// down the embedded turn list (`exclude_turns: false`) so
+    /// `reconcile_active_turn` can clear a locally-cached `active_turn_id`
+    /// that finished while the client was disconnected.
+    ///
+    /// Use after a long resume / push wake — the in-flight turn the
+    /// client believes is still running may have completed during the
+    /// background window with no `TurnCompleted` event delivered.
+    pub async fn force_refresh_thread_authoritative(
+        &self,
+        server_id: &str,
+        thread_id: &str,
+    ) -> Result<(), RpcError> {
+        self.external_resume_thread_inner(server_id, thread_id, None, true)
+            .await
+    }
+
+    async fn external_resume_thread_inner(
+        &self,
+        server_id: &str,
+        thread_id: &str,
+        host_id: Option<String>,
+        force_authoritative: bool,
+    ) -> Result<(), RpcError> {
         let session = self.get_session(server_id)?;
         if self.app_store.server_transport_authority(server_id)
             == Some(ServerTransportAuthority::DirectOnly)
@@ -1837,45 +1906,54 @@ impl MobileClient {
             thread_id: thread_id.to_string(),
         };
 
-        // If the server has live IPC and the thread already exists in the store
-        // with populated data, skip the RPC — IPC broadcasts are already keeping
-        // the thread state up to date.  This is the "passive IPC open" path that
-        // was previously handled in platform code (Swift/Kotlin).
-        if server_has_live_ipc(&self.app_store, server_id, &session) {
-            let thread_exists_with_data = self
-                .app_store
-                .snapshot()
-                .threads
-                .get(&key)
-                .is_some_and(|t| !t.items.is_empty());
-            if thread_exists_with_data {
+        // Force path skips both short-circuits — caller has out-of-band
+        // knowledge that the locally-cached snapshot may have missed
+        // turn-completion events.
+        if !force_authoritative {
+            // If the server has live IPC and the thread already exists in the store
+            // with populated data, skip the RPC — IPC broadcasts are already keeping
+            // the thread state up to date.  This is the "passive IPC open" path that
+            // was previously handled in platform code (Swift/Kotlin).
+            if server_has_live_ipc(&self.app_store, server_id, &session) {
+                let thread_exists_with_data = self
+                    .app_store
+                    .snapshot()
+                    .threads
+                    .get(&key)
+                    .is_some_and(|t| !t.items.is_empty());
+                if thread_exists_with_data {
+                    debug!(
+                        "external_resume_thread: skipping RPC for server={} thread={} — IPC is live and thread data exists in store",
+                        server_id, thread_id
+                    );
+                    self.app_store.mark_thread_resumed(&key, true);
+                    return Ok(());
+                }
                 debug!(
-                    "external_resume_thread: skipping RPC for server={} thread={} — IPC is live and thread data exists in store",
+                    "external_resume_thread: IPC live but thread not in store, falling back to thread/read for server={} thread={}",
                     server_id, thread_id
                 );
-                self.app_store.mark_thread_resumed(&key, true);
-                return Ok(());
             }
-            debug!(
-                "external_resume_thread: IPC live but thread not in store, falling back to thread/read for server={} thread={}",
-                server_id, thread_id
-            );
-        }
-        if self.has_direct_resume_marker(&key) {
-            let thread_has_loaded_turns = self
-                .app_store
-                .thread_snapshot(&key)
-                .is_some_and(|thread| !thread.items.is_empty() || thread.initial_turns_loaded);
-            if thread_has_loaded_turns {
+            if self.has_direct_resume_marker(&key) {
+                let thread_has_loaded_turns = self.app_store.thread_snapshot(&key).is_some_and(
+                    |thread| !thread.items.is_empty() || thread.initial_turns_loaded,
+                );
+                if thread_has_loaded_turns {
+                    debug!(
+                        "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session",
+                        server_id, thread_id
+                    );
+                    self.app_store.mark_thread_resumed(&key, true);
+                    return Ok(());
+                }
                 debug!(
-                    "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session",
+                    "external_resume_thread: direct listener exists but thread has no loaded turns, refreshing server={} thread={}",
                     server_id, thread_id
                 );
-                self.app_store.mark_thread_resumed(&key, true);
-                return Ok(());
             }
+        } else {
             debug!(
-                "external_resume_thread: direct listener exists but thread has no loaded turns, refreshing server={} thread={}",
+                "external_resume_thread: force-authoritative refresh server={} thread={}",
                 server_id, thread_id
             );
         }
@@ -1891,7 +1969,12 @@ impl MobileClient {
 
         let mut lookup_errors = Vec::new();
         for runtime_kind in runtime_candidates.iter().copied() {
-            let exclude_turns = self.app_store.server_supports_turn_pagination(server_id);
+            // For the authoritative refresh path, force `exclude_turns: false`
+            // so the response carries the embedded turn list. That is the
+            // signal `reconcile_active_turn` needs to clear a stale
+            // `active_turn_id` whose turn has already completed server-side.
+            let exclude_turns = !force_authoritative
+                && self.app_store.server_supports_turn_pagination(server_id);
             match self
                 .resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, exclude_turns)
                 .await
@@ -3355,8 +3438,14 @@ pub(super) fn run_post_reconnect_resubscribe(
         );
 
         for key in keys_to_resume {
+            // Force-authoritative so the response carries the embedded
+            // turn list. Without it `thread/resume` short-circuits via the
+            // direct-resume marker (or returns an empty turn list under
+            // `exclude_turns: true`), and `reconcile_active_turn` keeps
+            // any stale `active_turn_id` whose turn has already completed
+            // server-side.
             match client
-                .external_resume_thread(&key.server_id, &key.thread_id, None)
+                .force_refresh_thread_authoritative(&key.server_id, &key.thread_id)
                 .await
             {
                 Ok(()) => debug!(

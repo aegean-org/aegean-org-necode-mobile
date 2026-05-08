@@ -298,6 +298,15 @@ final class AppModel {
         return key
     }
 
+    /// Force a fresh `thread/resume` (with `excludeTurns: false`) so the
+    /// store reconciles `active_turn_id` against the server's authoritative
+    /// turn list. Use after a long resume / push wake — the in-flight turn
+    /// the local snapshot shows as running may have completed during the
+    /// background window with no `TurnCompleted` event delivered.
+    func forceRefreshThreadAuthoritative(key: ThreadKey) async throws {
+        try await store.forceRefreshThreadAuthoritative(key: key)
+    }
+
     func refreshThreadIncludingTurns(key: ThreadKey) async throws -> ThreadKey {
         do {
             let nextKey = try await client.readThread(

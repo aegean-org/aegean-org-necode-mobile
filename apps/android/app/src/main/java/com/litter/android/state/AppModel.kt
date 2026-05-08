@@ -729,6 +729,24 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
+    /**
+     * Force a fresh `thread/resume` (with `excludeTurns = false`) so the
+     * store reconciles `active_turn_id` against the server's authoritative
+     * turn list. Use after a long resume / push wake — the in-flight turn
+     * the local snapshot shows as running may have completed during the
+     * background window with no `TurnCompleted` event delivered.
+     */
+    suspend fun forceRefreshThreadAuthoritative(key: ThreadKey) {
+        restoreStoredLocalAuthIfNeeded(key.serverId, reason = "forceRefreshAuthoritative")
+        try {
+            store.forceRefreshThreadAuthoritative(key)
+            _lastError.value = null
+        } catch (e: Exception) {
+            _lastError.value = e.message
+            throw e
+        }
+    }
+
     suspend fun refreshThreadIncludingTurns(key: ThreadKey): ThreadKey {
         try {
             val nextKey = client.readThread(

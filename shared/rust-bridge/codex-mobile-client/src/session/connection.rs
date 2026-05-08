@@ -564,7 +564,7 @@ impl ServerSession {
             ("features.realtime_conversation".to_string(), true.into()),
             (
                 "experimental_realtime_ws_model".to_string(),
-                "gpt-realtime-1.5".to_string().into(),
+                "gpt-realtime-2".to_string().into(),
             ),
             ("realtime.version".to_string(), "v2".to_string().into()),
             (

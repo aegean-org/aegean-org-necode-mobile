@@ -111,7 +111,23 @@ class AppLifecycleController {
         restoreLocalStateAfterReconnect(appModel, results)
         backgroundedTurnKeys.clear()
         keysToRefresh.forEach { key ->
-            appModel.refreshThreadSnapshot(key)
+            // Force-authoritative: a turn that completed during a long
+            // suspension fired `TurnCompleted` while no client connection
+            // was attached, so the local snapshot still shows the turn
+            // as in-progress. Pull back `excludeTurns = false` so
+            // `reconcile_active_turn` can clear the stale
+            // `active_turn_id` — otherwise the user sees a "thinking"
+            // spinner whose `turn/interrupt` attempts get rejected with
+            // "no active turn to interrupt".
+            try {
+                appModel.forceRefreshThreadAuthoritative(key)
+            } catch (error: Exception) {
+                LLog.w(
+                    "AppLifecycleController",
+                    "force-authoritative refresh failed; falling back to refreshThreadSnapshot: ${error.message}",
+                )
+                appModel.refreshThreadSnapshot(key)
+            }
         }
         // Capture any freshly-generated alleycat device secret key from
         // this foreground's reconnect cycle.

@@ -691,9 +691,10 @@ impl AppStoreReducer {
         item_id: &str,
         turn_id: &str,
     ) {
-        if let Some((updated_item, removed_item_ids)) =
-            self.mutate_thread_with_result(key, |thread| {
+        if let Some((updated_item, removed_item_ids, needs_reprojection)) = self
+            .mutate_thread_with_result(key, |thread| {
                 let mut updated_item = None;
+                let mut needs_reprojection = false;
                 if let Some(item) = thread
                     .local_overlay_items
                     .iter_mut()
@@ -701,6 +702,7 @@ impl AppStoreReducer {
                 {
                     if item.source_turn_id.as_deref() != Some(turn_id) {
                         item.source_turn_id = Some(turn_id.to_string());
+                        needs_reprojection = true;
                     }
                     updated_item = Some(item.clone());
                 }
@@ -714,10 +716,11 @@ impl AppStoreReducer {
                             .any(|existing| existing.id == item.id)
                     }),
                     removed_item_ids,
+                    needs_reprojection,
                 )
             })
         {
-            if !removed_item_ids.is_empty() {
+            if !removed_item_ids.is_empty() || needs_reprojection {
                 self.emit_thread_upsert(key);
             } else if let Some(item) = updated_item {
                 self.emit_thread_item_changed(key, item);
@@ -730,14 +733,16 @@ impl AppStoreReducer {
         key: &ThreadKey,
         turn_id: &str,
     ) {
-        if let Some((updated_item, removed_item_ids)) =
-            self.mutate_thread_with_result(key, |thread| {
+        if let Some((updated_item, removed_item_ids, needs_reprojection)) = self
+            .mutate_thread_with_result(key, |thread| {
                 let mut updated_item = None;
+                let mut needs_reprojection = false;
                 if let Some(item) = thread.local_overlay_items.iter_mut().find(|item| {
                     item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
                         && item.source_turn_id.is_none()
                 }) {
                     item.source_turn_id = Some(turn_id.to_string());
+                    needs_reprojection = true;
                     updated_item = Some(item.clone());
                 }
                 let removed_item_ids = duplicate_local_overlay_item_ids(thread);
@@ -750,10 +755,11 @@ impl AppStoreReducer {
                             .any(|existing| existing.id == item.id)
                     }),
                     removed_item_ids,
+                    needs_reprojection,
                 )
             })
         {
-            if !removed_item_ids.is_empty() {
+            if !removed_item_ids.is_empty() || needs_reprojection {
                 self.emit_thread_upsert(key);
             } else if let Some(item) = updated_item {
                 self.emit_thread_item_changed(key, item);
@@ -4840,6 +4846,61 @@ mod tests {
             .find(|item| item.id == overlay_id)
             .expect("overlay item exists");
         assert_eq!(item.source_turn_id.as_deref(), Some("turn-2"));
+    }
+
+    #[test]
+    fn turn_started_binding_local_user_overlay_emits_thread_upsert_for_reprojection() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread
+            .items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "assistant-1".to_string(),
+                content: HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                    text: "response".to_string(),
+                    agent_nickname: None,
+                    agent_role: None,
+                    phase: None,
+                }),
+                source_turn_id: Some("turn-1".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: false,
+            });
+        reducer.upsert_thread_snapshot(thread);
+        let overlay_id = reducer
+            .stage_local_user_message_overlay(
+                &key,
+                &[upstream::UserInput::Text {
+                    text: "prompt".to_string(),
+                    text_elements: Vec::new(),
+                }],
+            )
+            .expect("overlay id");
+
+        let mut receiver = reducer.subscribe();
+        let _ = drain_updates(&mut receiver);
+
+        reducer.bind_local_user_message_overlay_to_turn(&key, &overlay_id, "turn-1");
+
+        let updates = drain_updates(&mut receiver);
+        assert!(
+            updates.iter().any(
+                |update| matches!(update, AppStoreUpdateRecord::ThreadUpserted { thread, .. }
+                    if thread.key == key
+                        && thread
+                            .hydrated_conversation_items
+                            .iter()
+                            .map(|item| item.id.as_str())
+                            .collect::<Vec<_>>()
+                            == vec![overlay_id.as_str(), "assistant-1"])
+            ),
+            "binding a local user overlay must emit a reprojected thread upsert; got {updates:?}"
+        );
     }
 
     #[test]

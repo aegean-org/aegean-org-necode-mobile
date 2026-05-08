@@ -15,6 +15,8 @@ use super::snapshot::{
     ServerHealthSnapshot, ServerIpcStateSnapshot, ServerSnapshot, ThreadSnapshot,
 };
 
+const LOCAL_USER_MESSAGE_ITEM_PREFIX: &str = "local-user-message:";
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct AppServerSnapshot {
     pub server_id: String,
@@ -162,8 +164,37 @@ fn merged_hydrated_items(
             selected_overlays.push(overlay);
         }
     }
-    merged.extend(selected_overlays.into_iter().cloned().map(Into::into));
+    for overlay in selected_overlays {
+        insert_overlay_item(&mut merged, overlay.clone().into());
+    }
     merged
+}
+
+fn insert_overlay_item(
+    merged: &mut Vec<HydratedConversationItem>,
+    overlay: HydratedConversationItem,
+) {
+    // Bound local user overlays semantically start their turn even when the
+    // server has not echoed a UserMessage item yet.
+    let insert_at = if is_local_user_turn_boundary_overlay(&overlay) {
+        overlay.source_turn_id.as_deref().and_then(|turn_id| {
+            merged.iter().position(|item| {
+                item.source_turn_id.as_deref() == Some(turn_id)
+                    && !is_local_user_turn_boundary_overlay(item)
+            })
+        })
+    } else {
+        None
+    }
+    .unwrap_or(merged.len());
+
+    merged.insert(insert_at, overlay);
+}
+
+fn is_local_user_turn_boundary_overlay(item: &HydratedConversationItem) -> bool {
+    item.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
+        && item.is_from_user_turn_boundary
+        && matches!(&item.content, HydratedConversationItemContent::User(_))
 }
 
 pub(crate) fn project_hydrated_item(
@@ -272,7 +303,7 @@ fn same_overlay_semantics(
             crate::conversation_uniffi::HydratedConversationItemContent::User(lhs_data),
             crate::conversation_uniffi::HydratedConversationItemContent::User(rhs_data),
         ) => {
-            lhs.id.starts_with("local-user-message:")
+            lhs.id.starts_with(LOCAL_USER_MESSAGE_ITEM_PREFIX)
                 && lhs_data == rhs_data
                 && (
                     // Both bound to the same turn.
@@ -1770,6 +1801,114 @@ mod tests {
         assert_eq!(
             projected.hydrated_conversation_items[0].id,
             "server-user-item"
+        );
+    }
+
+    #[test]
+    fn app_thread_snapshot_places_bound_local_user_overlay_before_same_turn_items() {
+        let mut snapshot = AppSnapshot::default();
+        let mut thread = ThreadSnapshot::from_info(
+            "srv",
+            ThreadInfo {
+                id: "thread".to_string(),
+                title: None,
+                model: None,
+                preview: None,
+                cwd: None,
+                path: None,
+                model_provider: None,
+                agent_nickname: None,
+                agent_role: None,
+                parent_thread_id: None,
+                agent_status: None,
+                created_at: None,
+                status: ThreadSummaryStatus::Active,
+                updated_at: None,
+            },
+        );
+        thread
+            .items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "old-user".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::User(
+                    crate::conversation_uniffi::HydratedUserMessageData {
+                        text: "previous prompt".to_string(),
+                        image_data_uris: Vec::new(),
+                    },
+                ),
+                source_turn_id: Some("turn-0".to_string()),
+                source_turn_index: Some(0),
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            });
+        thread
+            .items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "old-assistant".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::Assistant(
+                    crate::conversation_uniffi::HydratedAssistantMessageData {
+                        text: "previous response".to_string(),
+                        agent_nickname: None,
+                        agent_role: None,
+                        phase: None,
+                    },
+                ),
+                source_turn_id: Some("turn-0".to_string()),
+                source_turn_index: Some(0),
+                timestamp: None,
+                is_from_user_turn_boundary: false,
+            });
+        thread
+            .items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "assistant-1".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::Assistant(
+                    crate::conversation_uniffi::HydratedAssistantMessageData {
+                        text: "new response".to_string(),
+                        agent_nickname: None,
+                        agent_role: None,
+                        phase: None,
+                    },
+                ),
+                source_turn_id: Some("turn-1".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: false,
+            });
+        thread
+            .local_overlay_items
+            .push(crate::conversation_uniffi::HydratedConversationItem {
+                id: "local-user-message:1".to_string(),
+                content: crate::conversation_uniffi::HydratedConversationItemContent::User(
+                    crate::conversation_uniffi::HydratedUserMessageData {
+                        text: "new prompt".to_string(),
+                        image_data_uris: Vec::new(),
+                    },
+                ),
+                source_turn_id: Some("turn-1".to_string()),
+                source_turn_index: None,
+                timestamp: None,
+                is_from_user_turn_boundary: true,
+            });
+        let key = thread.key.clone();
+        snapshot.threads.insert(key.clone(), thread);
+
+        let projected =
+            app_thread_snapshot_from_state(&snapshot, snapshot.threads.get(&key).unwrap()).unwrap();
+        let item_ids = projected
+            .hydrated_conversation_items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            item_ids,
+            vec![
+                "old-user",
+                "old-assistant",
+                "local-user-message:1",
+                "assistant-1"
+            ]
         );
     }
 
