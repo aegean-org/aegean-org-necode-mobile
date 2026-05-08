@@ -425,7 +425,15 @@ mod mobile_client_tests {
             initial_turns_loaded: false,
             is_resumed: true,
         };
-        let mut target = ThreadSnapshot::from_info("srv", make_thread_info("thread-1"));
+        let mut target = ThreadSnapshot::from_info("srv", {
+            // The default `make_thread_info` returns `status: Active`,
+            // but this test verifies that `copy_thread_runtime_fields`
+            // does NOT propagate `active_turn_id` / `info.status` from
+            // `source` into a target whose own state says Idle.
+            let mut info = make_thread_info("thread-1");
+            info.status = ThreadSummaryStatus::Idle;
+            info
+        });
 
         copy_thread_runtime_fields(&source, &mut target);
 
@@ -685,6 +693,7 @@ mod mobile_client_tests {
         let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
             "thread": {
                 "id": "thread-1",
+                "sessionId": "session-1",
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -747,6 +756,7 @@ mod mobile_client_tests {
         let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
             "thread": {
                 "id": "thread-1",
+                "sessionId": "session-1",
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -763,10 +773,14 @@ mod mobile_client_tests {
                 "name": "thread",
                 "turns": [
                     {
-                        "turnId": "turn-1",
-                        "status": "completed",
+                        "id": "turn-1",
                         "items": [],
-                        "params": { "input": [] }
+                        "itemsView": "full",
+                        "status": "completed",
+                        "error": null,
+                        "startedAt": null,
+                        "completedAt": null,
+                        "durationMs": null
                     }
                 ]
             },

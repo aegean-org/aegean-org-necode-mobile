@@ -1582,6 +1582,7 @@ mod tests {
         let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
             "thread": {
                 "id": thread_id,
+                "sessionId": "session-1",
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -1646,6 +1647,7 @@ mod tests {
         let upstream_thread: codex_app_server_protocol::Thread =
             serde_json::from_value(serde_json::json!({
                 "id": thread_id,
+                "sessionId": "session-1",
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -1685,6 +1687,7 @@ mod tests {
     fn thread_info_from_upstream_normalizes_millisecond_timestamps() {
         let upstream_thread: upstream::Thread = serde_json::from_value(serde_json::json!({
             "id": "thread-1",
+            "sessionId": "session-1",
             "preview": "hi",
             "ephemeral": false,
             "modelProvider": "openai",
@@ -1714,6 +1717,7 @@ mod tests {
         let response: upstream::ThreadResumeResponse = serde_json::from_value(serde_json::json!({
             "thread": {
                 "id": "thread-1",
+                "sessionId": "session-1",
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",
@@ -1786,6 +1790,7 @@ mod tests {
         let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
             "thread": {
                 "id": "thread-1",
+                "sessionId": "session-1",
                 "preview": "hi",
                 "ephemeral": false,
                 "modelProvider": "openai",

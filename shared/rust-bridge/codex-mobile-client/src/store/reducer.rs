@@ -2537,12 +2537,12 @@ impl AppStoreReducer {
                     if queued_changed {
                         self.emit_thread_metadata_changed(key);
                     }
-                    let session_summary = self.compute_session_summary(key);
-                    self.emit(AppStoreUpdateRecord::ThreadItemChanged {
-                        key: key.clone(),
-                        item,
-                        session_summary,
-                    });
+                    // Route through `emit_thread_item_changed` so multi-agent
+                    // target ids get projected to display labels (e.g.
+                    // "child-thread" → "Scout [explorer]"). The direct
+                    // emission used to skip the projector, leaving raw
+                    // thread ids in the wire-bound record.
+                    self.emit_thread_item_changed(key, item);
                 }
             }
             Some((None, queued_changed, removed_overlay_ids)) => {

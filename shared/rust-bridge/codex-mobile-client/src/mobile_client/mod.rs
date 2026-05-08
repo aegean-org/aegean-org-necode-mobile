@@ -415,10 +415,22 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
+        "anthropic" => Some(AgentRuntimeKind::Claude),
         "opencode" | "open-code" | "open_code" | "open code" => Some(AgentRuntimeKind::Opencode),
         "pi" | "pi.dev" | "pidev" | "pi dev" => Some(AgentRuntimeKind::Pi),
         "codex" => Some(AgentRuntimeKind::Codex),
+        // Match patterns like `anthropic/claude-opus-4-7` or
+        // `claude-3-5-sonnet` — i.e. a `claude` token anywhere in the
+        // hint, after stripping a leading provider prefix. We treat
+        // `<segment>/claude...` as Claude even if the leading segment
+        // is `anthropic`.
         _ if normalized.starts_with("claude") => Some(AgentRuntimeKind::Claude),
+        _ if normalized
+            .split('/')
+            .any(|segment| segment.starts_with("claude")) =>
+        {
+            Some(AgentRuntimeKind::Claude)
+        }
         _ if normalized.contains("opencode")
             || normalized.contains("open-code")
             || normalized.contains("open_code")
@@ -1935,19 +1947,33 @@ impl MobileClient {
                 );
             }
             if self.has_direct_resume_marker(&key) {
+                // The marker is set after a successful `thread/resume`
+                // for the current session — server-side this means the
+                // connection is in the per-thread subscription set. We
+                // can skip a duplicate resume when *either* of:
+                //   - the thread has loaded turns (items / initial_turns_loaded);
+                //   - the server is using pagination (`supports_turn_pagination`),
+                //     so a `thread/resume` under `exclude_turns: true`
+                //     intentionally returned empty — the data path is
+                //     `thread/turns/list`, not another resume.
+                // Otherwise (thread truly empty AND pagination off), we
+                // need to refresh because the previous resume returned
+                // nothing usable.
                 let thread_has_loaded_turns = self.app_store.thread_snapshot(&key).is_some_and(
                     |thread| !thread.items.is_empty() || thread.initial_turns_loaded,
                 );
-                if thread_has_loaded_turns {
+                let pagination_supported =
+                    self.app_store.server_supports_turn_pagination(server_id);
+                if thread_has_loaded_turns || pagination_supported {
                     debug!(
-                        "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session",
-                        server_id, thread_id
+                        "external_resume_thread: skipping RPC for server={} thread={} — direct listener already attached for current session (loaded={} pagination={})",
+                        server_id, thread_id, thread_has_loaded_turns, pagination_supported
                     );
                     self.app_store.mark_thread_resumed(&key, true);
                     return Ok(());
                 }
                 debug!(
-                    "external_resume_thread: direct listener exists but thread has no loaded turns, refreshing server={} thread={}",
+                    "external_resume_thread: direct listener exists but thread has no loaded turns and pagination is off, refreshing server={} thread={}",
                     server_id, thread_id
                 );
             }
