@@ -236,6 +236,14 @@ impl MobileClient {
                             "reconnect",
                         );
                     }
+                    // Re-subscribe per-thread listeners on the new
+                    // connection: server-side `ConnectionId` changed, so
+                    // turn-stream events would otherwise be silently
+                    // dropped until the user navigates.
+                    run_post_reconnect_resubscribe(
+                        Arc::clone(&app_store),
+                        server_id.clone(),
+                    );
                 }
                 prev_connected = is_connected;
 

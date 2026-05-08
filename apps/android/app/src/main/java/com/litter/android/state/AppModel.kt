@@ -94,6 +94,10 @@ class AppModel private constructor(context: android.content.Context) {
     val parser: MessageParser
     val reconnectController: ReconnectController
     val launchState: AppLaunchState
+    /** Observes Wi-Fi ↔ cellular handoffs etc. and hints iroh. */
+    val reachability: NetworkReachabilityObserver
+    /** Persists the iroh device secret key across cold launches. */
+    val alleycatCredentials: AlleycatCredentialStore
     val appContext: android.content.Context = context
     init {
         UniffiInit.ensure(context)
@@ -118,6 +122,29 @@ class AppModel private constructor(context: android.content.Context) {
         )
         reconnectController.setMultiClankerAndQuicEnabled(true)
         launchState = AppLaunchState(context)
+        reachability = NetworkReachabilityObserver(context, this)
+        reachability.start()
+
+        // Push any persisted iroh device secret key to the Rust client
+        // BEFORE any alleycat operation triggers the endpoint bind, so
+        // the same `EndpointId` is reused across cold launches.
+        alleycatCredentials = AlleycatCredentialStore(context)
+        runCatching { alleycatCredentials.loadDeviceSecretKey() }
+            .getOrNull()
+            ?.let { client.setAlleycatSecretKey(it) }
+    }
+
+    /**
+     * After an alleycat operation has triggered the Rust endpoint
+     * bind, read back the device key bytes from Rust and persist if
+     * not already saved. Idempotent.
+     */
+    fun persistAlleycatSecretKeyIfNeeded() {
+        val bytes = client.alleycatSecretKey() ?: return
+        val existing = runCatching { alleycatCredentials.loadDeviceSecretKey() }.getOrNull()
+        if (existing != null && existing.contentEquals(bytes)) return
+        runCatching { alleycatCredentials.saveDeviceSecretKey(bytes) }
+            .onFailure { LLog.w("AppModel", "saveDeviceSecretKey failed: ${it.message}") }
     }
 
     // --- Observable state ----------------------------------------------------

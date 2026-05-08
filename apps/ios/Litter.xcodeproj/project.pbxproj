@@ -133,6 +133,7 @@
 		351947D2FEA33D97932BC35B /* HairballUI in Frameworks */ = {isa = PBXBuildFile; productRef = 310C6E0E8E6A97ED615759F1 /* HairballUI */; };
 		3615DCA0009D5C37F425B64D /* pierre-light.json in Resources */ = {isa = PBXBuildFile; fileRef = DAA99286AFF6A9ABC43C36D6 /* pierre-light.json */; };
 		361BE759DABB06DBA2EBD315 /* LitterComplicationTint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93959230D2A3D1FDD7091CA9 /* LitterComplicationTint.swift */; };
+		36B2248451363077E0104FC0 /* NetworkReachabilityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */; };
 		3867E91BD19F9448436E2B3E /* vitesse-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 43A18135FA93A4608A16C98F /* vitesse-dark.json */; };
 		38E91CBA78AD8F9487363350 /* ConversationComposerEntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075CAE1122242626CE33A93F /* ConversationComposerEntryRowView.swift */; };
 		3940AC132FAD6B2D8ABB3EDD /* AnimatedLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93966B780CB71371994F552D /* AnimatedLogo.swift */; };
@@ -187,6 +188,7 @@
 		50EE97AA17838B217B0167F5 /* LitterWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23AE60CA6B3DD70D4FC71FD0 /* LitterWatchApp.swift */; };
 		5128C7E1A7C94802C9F677BA /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818BC73F3855A9BA29C8E868 /* AccountView.swift */; };
 		51BEDF843D3BE5D93D7F9E62 /* CatalystVoiceStubs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A36C53F042D99EC31804B19E /* CatalystVoiceStubs.swift */; };
+		52479A0932D4896CD0847B46 /* NetworkReachabilityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */; };
 		52588C7F80941205018E7804 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 2FB04F90D08EE57F92DD7F58 /* AppIcon.icon */; };
 		52830FCFF8417E724A15555F /* HomeAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5CAE8D1301B5643D9510273 /* HomeAnchor.swift */; };
 		52C9C8C4692470EC7B2CC9E5 /* DynamicTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4874A6712A57F780064DB0E /* DynamicTools.swift */; };
@@ -857,6 +859,7 @@
 		93966B780CB71371994F552D /* AnimatedLogo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedLogo.swift; sourceTree = "<group>"; };
 		93CDBDD02E344E7C903D5DEC /* RustAlleycatBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustAlleycatBridge.swift; sourceTree = "<group>"; };
 		9465B38F1CE05DAC59F5A918 /* proof-light.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "proof-light.json"; sourceTree = "<group>"; };
+		952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkReachabilityObserver.swift; sourceTree = "<group>"; };
 		971354BA3CB115869D1FB27C /* tokyo-night.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "tokyo-night.json"; sourceTree = "<group>"; };
 		991F612D39C0762BB7657452 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
 		9985C47F86DE72FA41043EE3 /* PairBLEAdvertiser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairBLEAdvertiser.swift; sourceTree = "<group>"; };
@@ -1392,6 +1395,7 @@
 				A75C53171D642CD800C76553 /* MobilePreferencesDirectory.swift */,
 				A675C0A5E31FA802F4113CE0 /* NearbyMacPairing.swift */,
 				E2C54AE62D2865D1C7750F7A /* NetworkDiscovery.swift */,
+				952E431DD6FA6740D6585B4A /* NetworkReachabilityObserver.swift */,
 				3374916FC10F81E9D1C0FCE5 /* OpenAIApiKeyStore.swift */,
 				1022F3BB191F207126130232 /* OrientationResponder.swift */,
 				14C32BD618AF48814E273862 /* PairBLE.swift */,
@@ -2147,6 +2151,7 @@
 				714E942B02990424C166E85C /* MobilePreferencesDirectory.swift in Sources */,
 				5CAC2A329BF000D744E4B9B0 /* NearbyMacPairing.swift in Sources */,
 				FF4D813592AD383AD342CFFB /* NetworkDiscovery.swift in Sources */,
+				36B2248451363077E0104FC0 /* NetworkReachabilityObserver.swift in Sources */,
 				5A262DF631E7FC201F8281FC /* NewThreadHeroView.swift in Sources */,
 				59B39287F39980DFD5D9E746 /* OnboardingCoachmarks.swift in Sources */,
 				123438277614AD5D2F7CDBC4 /* OpenAIApiKeyStore.swift in Sources */,
@@ -2318,6 +2323,7 @@
 				023216994D8B1FF4D1E01A6C /* MobilePreferencesDirectory.swift in Sources */,
 				F36A83E0E99555F6B48692C9 /* NearbyMacPairing.swift in Sources */,
 				3B231AE724CB8BEE3E7DE445 /* NetworkDiscovery.swift in Sources */,
+				52479A0932D4896CD0847B46 /* NetworkReachabilityObserver.swift in Sources */,
 				8520A62BEAC441DA2157FE87 /* NewThreadHeroView.swift in Sources */,
 				FE3764D045C51C2313EDD24B /* OnboardingCoachmarks.swift in Sources */,
 				909A0CDCE6D9729A20D0DA43 /* OpenAIApiKeyStore.swift in Sources */,

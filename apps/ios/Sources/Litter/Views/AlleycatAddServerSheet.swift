@@ -454,6 +454,13 @@ struct AlleycatAddServerSheet: View {
                 } catch {
                     NSLog("[ALLEYCAT_CREDENTIALS] keychain save failed: %@", error.localizedDescription)
                 }
+                // First successful alleycat pair triggers the iroh
+                // endpoint bind. Persist the freshly-generated device
+                // secret key so the next cold launch reuses the same
+                // `EndpointId`.
+                await MainActor.run {
+                    AppRuntimeController.shared.persistAlleycatSecretKeyIfNeeded()
+                }
 
                 await MainActor.run {
                     isConnecting = false

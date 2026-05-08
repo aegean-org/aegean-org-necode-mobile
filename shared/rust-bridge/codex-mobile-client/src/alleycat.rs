@@ -2,16 +2,17 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use codex_app_server_client::{AppServerClient, RemoteAppServerClient, RemoteAppServerConnectArgs};
-use iroh::endpoint::{IdleTimeout, QuicTransportConfig, RecvStream, SendStream};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl};
+use iroh::endpoint::{Connection, QuicTransportConfig, RecvStream, SendStream, VarInt};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tracing::info;
+use tracing::{debug, info};
 
-use crate::session::remote_transport::{Reconnected, RemoteTransport};
+use crate::session::remote_transport::{Reconnected, RemoteTransport, SessionKeepalive};
 use crate::transport::TransportError;
 use crate::types::AgentRuntimeKind;
 
@@ -67,11 +68,48 @@ pub enum AgentWire {
     Jsonl,
 }
 
-#[derive(Debug, Clone)]
+/// Reconnect strategy for an alleycat-backed session. The transport
+/// holds a clone of the app-wide shared iroh `Endpoint` (cheap — iroh's
+/// `Endpoint` is an `Arc`-backed handle) so reconnects open a fresh
+/// `Connection` on the existing endpoint instead of binding a new one.
+///
+/// `current_session` tracks the most recently established `AlleycatSession`
+/// (and therefore its `Connection`) so that lifecycle code outside the
+/// session worker can call `close_current_connection()` to abandon a
+/// silently-dead connection — e.g. after iOS resumed the process from a
+/// long background, where iroh's idle timer would otherwise wait 30s
+/// before declaring the path dead.
 pub struct AlleycatReconnectTransport {
     pub params: ParsedPairPayload,
     pub agent: String,
     pub wire: AgentWire,
+    endpoint: Endpoint,
+    current_session: Arc<tokio::sync::Mutex<Option<Arc<AlleycatSession>>>>,
+}
+
+impl AlleycatReconnectTransport {
+    pub fn new(
+        params: ParsedPairPayload,
+        agent: String,
+        wire: AgentWire,
+        endpoint: Endpoint,
+    ) -> Self {
+        Self {
+            params,
+            agent,
+            wire,
+            endpoint,
+            current_session: Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Register the freshly-built session with the transport so external
+    /// lifecycle code can target its `Connection`. Called once after
+    /// `connect_remote_over_alleycat` builds the initial session, and
+    /// implicitly by every successful `reconnect()`.
+    pub async fn register_initial_session(&self, session: Arc<AlleycatSession>) {
+        *self.current_session.lock().await = Some(session);
+    }
 }
 
 #[async_trait]
@@ -81,28 +119,81 @@ impl RemoteTransport for AlleycatReconnectTransport {
         _args: &RemoteAppServerConnectArgs,
         _websocket_url: &str,
     ) -> Result<Reconnected, TransportError> {
-        // Each successful reconnect creates a fresh iroh Endpoint inside a new
-        // AlleycatSession. The worker stores that AlleycatSession as its keepalive
-        // so the previous endpoint is dropped only after the new one is installed —
-        // the previous behavior of dropping the new session immediately would have
-        // torn down the QUIC connection backing the new client.
+        // Open a brand-new iroh Connection on the shared Endpoint and run
+        // the alleycat handshake on it. The previous Connection is dropped
+        // only after the new keepalive is installed in the worker.
         let (client, session) =
-            connect_app_server_client(self.params.clone(), self.agent.clone(), self.wire)
+            connect_app_server_client(&self.endpoint, self.params.clone(), self.agent.clone(), self.wire)
                 .await
                 .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        *self.current_session.lock().await = Some(Arc::clone(&session));
+        let keepalive: Arc<dyn SessionKeepalive> = session;
         Ok(Reconnected {
             client,
-            keepalive: Some(session as Arc<dyn Send + Sync>),
+            keepalive: Some(keepalive),
         })
+    }
+
+    async fn notify_network_change(&self) {
+        if self.endpoint.is_closed() {
+            debug!("alleycat notify_network_change: endpoint already closed; skipping");
+            return;
+        }
+        info!(
+            "alleycat notify_network_change: hinting iroh to re-evaluate paths node_id={}",
+            self.params.node_id
+        );
+        self.endpoint.network_change().await;
+    }
+
+    async fn close_current_connection(&self) {
+        let session = self.current_session.lock().await.clone();
+        if let Some(session) = session {
+            info!(
+                "alleycat close_current_connection: abandoning Connection node_id={}",
+                self.params.node_id
+            );
+            session.close();
+        } else {
+            debug!("alleycat close_current_connection: no current session");
+        }
     }
 }
 
+/// Live alleycat session. Owns the iroh `Connection` (cheap-Arc handle)
+/// rather than the `Endpoint` — the endpoint is shared app-wide and
+/// outlives any individual session. Dropping an `AlleycatSession`
+/// implicitly closes the `Connection` (the last Arc handle drops); call
+/// `close().await` first for a graceful shutdown that sends a
+/// CONNECTION_CLOSE frame to the host.
 pub struct AlleycatSession {
-    #[allow(dead_code)]
-    endpoint: Endpoint,
+    connection: Connection,
     pub params: ParsedPairPayload,
     pub agent: String,
     pub wire: AgentWire,
+}
+
+impl AlleycatSession {
+    /// Clone of the underlying iroh `Connection`. Useful for diagnostics
+    /// (`close_reason`, `rtt`) or for spawning per-connection liveness
+    /// probes that race a `Connection::closed()` future.
+    pub fn connection(&self) -> Connection {
+        self.connection.clone()
+    }
+}
+
+impl SessionKeepalive for AlleycatSession {
+    fn close(&self) {
+        // iroh's `Connection::close` is sync (queues the CLOSE frame); the
+        // actual flush happens on the endpoint's IO loop. Calling it on an
+        // already-closed connection is a no-op.
+        debug!(
+            "alleycat session close: sending CONNECTION_CLOSE node_id={}",
+            self.params.node_id
+        );
+        self.connection
+            .close(VarInt::from_u32(0), b"client disconnect");
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -200,8 +291,11 @@ fn normalize_optional_host_name(host_name: Option<String>) -> Option<String> {
         .filter(|name| !name.is_empty())
 }
 
-pub async fn list_agents(params: ParsedPairPayload) -> Result<Vec<AgentInfo>, AlleycatError> {
-    let (_endpoint, _conn, mut send, mut recv) = open_stream(&params).await?;
+pub async fn list_agents(
+    endpoint: &Endpoint,
+    params: ParsedPairPayload,
+) -> Result<Vec<AgentInfo>, AlleycatError> {
+    let (conn, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
     write_json_frame(
         &mut send,
         &Request::ListAgents {
@@ -212,6 +306,9 @@ pub async fn list_agents(params: ParsedPairPayload) -> Result<Vec<AgentInfo>, Al
     .await?;
     let response: Response = read_json_frame(&mut recv).await?;
     validate_response(&response)?;
+    // The probe connection is one-shot — close it gracefully so the host
+    // doesn't have to wait on its idle timeout to drop the entry.
+    conn.close(VarInt::from_u32(0), b"list_agents complete");
     Ok(response
         .agents
         .into_iter()
@@ -225,11 +322,12 @@ pub async fn list_agents(params: ParsedPairPayload) -> Result<Vec<AgentInfo>, Al
 }
 
 pub async fn connect_app_server_client(
+    endpoint: &Endpoint,
     params: ParsedPairPayload,
     agent: String,
     wire: AgentWire,
 ) -> Result<(AppServerClient, Arc<AlleycatSession>), AlleycatError> {
-    let (endpoint, _conn, mut send, mut recv) = open_stream(&params).await?;
+    let (connection, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
     write_json_frame(
         &mut send,
         &Request::Connect {
@@ -263,7 +361,7 @@ pub async fn connect_app_server_client(
             .map_err(|error| AlleycatError::Transport(error.to_string()))?,
     };
     let session = Arc::new(AlleycatSession {
-        endpoint,
+        connection,
         params,
         agent,
         wire,
@@ -271,33 +369,72 @@ pub async fn connect_app_server_client(
     Ok((AppServerClient::Remote(remote), session))
 }
 
-async fn open_stream(
-    params: &ParsedPairPayload,
-) -> Result<(Endpoint, iroh::endpoint::Connection, SendStream, RecvStream), AlleycatError> {
-    // QUIC's effective idle timeout is min(local, remote) — leaving the
-    // phone on iroh's 30s default would cap pi/opencode tunnels at 30s
-    // even though the daemon raised its own to 600s, killing idle agent
-    // connections between user actions. Match the daemon's 600s so the
-    // tunnels stay open until either side actually wants to close them.
-    let idle_timeout = IdleTimeout::try_from(std::time::Duration::from_secs(600))
-        .map_err(|err| AlleycatError::Transport(format!("idle timeout: {err}")))?;
+/// Build the app-wide alleycat iroh `Endpoint`. Called exactly once per
+/// process via `MobileClient::alleycat_endpoint()` — every alleycat
+/// operation thereafter reuses the resulting handle.
+///
+/// `secret_key_bytes` is the persisted-or-fresh device key bytes from
+/// the platform keychain. When `None`, this function generates a fresh
+/// key; the caller (`MobileClient::alleycat_endpoint`) reads back the
+/// actually-used bytes from the returned endpoint and persists them to
+/// the platform keychain so subsequent launches reuse the same
+/// `EndpointId`.
+///
+/// We intentionally do NOT override the QUIC `max_idle_timeout`. iroh's
+/// default `keep_alive_interval` keeps healthy idle connections alive
+/// indefinitely (peer ACKs reset the timer), while the default 30s
+/// connection idle timeout means dead paths — e.g. after iOS suspended
+/// the process and the host's NAT entry expired — surface as an error
+/// within ~30s instead of hanging on the previous 600s override. The
+/// session worker drives a fresh `AlleycatReconnectTransport::reconnect()`
+/// automatically when the connection times out.
+///
+/// We DO override `keep_alive_interval` from iroh's 5s default up to 15s
+/// to reduce cellular radio wakes when the app sits foregrounded but
+/// idle. 15s is still well under typical 30–60s NAT UDP timeouts, and
+/// `default_path_max_idle_timeout` stays at iroh's 15s so dead paths
+/// still surface fast on resume.
+pub async fn bind_alleycat_endpoint(
+    secret_key_bytes: Option<[u8; 32]>,
+) -> Result<Endpoint, AlleycatError> {
     let transport = QuicTransportConfig::builder()
-        .max_idle_timeout(Some(idle_timeout))
+        .keep_alive_interval(Duration::from_secs(15))
         .build();
-    let mut endpoint_builder =
-        Endpoint::builder(iroh::endpoint::presets::N0).transport_config(transport);
+    let secret_key = match secret_key_bytes {
+        Some(bytes) => {
+            info!("alleycat: using persisted device secret key");
+            SecretKey::from_bytes(&bytes)
+        }
+        None => {
+            info!("alleycat: generating fresh device secret key");
+            SecretKey::generate()
+        }
+    };
+    let endpoint_builder = Endpoint::builder(iroh::endpoint::presets::N0)
+        .transport_config(transport)
+        .secret_key(secret_key);
+    // iroh-on-Android can't use the system DNS resolver / system CA
+    // roots from inside a packaged app — fall back to public DNS +
+    // embedded CA roots there. iOS/macOS pick these up natively.
     #[cfg(target_os = "android")]
-    {
-        endpoint_builder = endpoint_builder
-            .dns_resolver(iroh::dns::DnsResolver::with_nameserver(
-                std::net::SocketAddr::from(([8, 8, 8, 8], 53)),
-            ))
-            .ca_roots_config(iroh::tls::CaRootsConfig::embedded());
-    }
-    let endpoint = endpoint_builder
+    let endpoint_builder = endpoint_builder
+        .dns_resolver(iroh::dns::DnsResolver::with_nameserver(
+            std::net::SocketAddr::from(([8, 8, 8, 8], 53)),
+        ))
+        .ca_roots_config(iroh::tls::CaRootsConfig::embedded());
+    info!("alleycat: binding shared iroh endpoint");
+    endpoint_builder
         .bind()
         .await
-        .map_err(|error| AlleycatError::Transport(format!("binding iroh endpoint: {error}")))?;
+        .map_err(|error| AlleycatError::Transport(format!("binding iroh endpoint: {error}")))
+}
+
+/// Open a fresh QUIC connection + bidirectional stream to the alleycat
+/// peer described by `params`, on the supplied (shared) endpoint.
+async fn open_stream_on(
+    endpoint: &Endpoint,
+    params: &ParsedPairPayload,
+) -> Result<(Connection, SendStream, RecvStream), AlleycatError> {
     let id = EndpointId::from_str(&params.node_id)
         .map_err(|error| AlleycatError::InvalidPayload(format!("invalid node_id: {error}")))?;
     let mut addr = EndpointAddr::new(id);
@@ -316,7 +453,7 @@ async fn open_stream(
         .open_bi()
         .await
         .map_err(|error| AlleycatError::Transport(format!("opening iroh stream: {error}")))?;
-    Ok((endpoint, conn, send, recv))
+    Ok((conn, send, recv))
 }
 
 async fn read_json_frame<T, R>(reader: &mut R) -> Result<T, AlleycatError>
@@ -508,21 +645,14 @@ mod tests {
     /// `AlleycatReconnectTransport` must coerce to `Arc<dyn RemoteTransport>`
     /// — that's how the worker's reconnect plumbing receives it. This is a
     /// pure type-check test: it compiles iff the trait impl stays object-safe.
-    #[test]
-    fn alleycat_reconnect_transport_coerces_to_trait_object() {
-        let key = iroh::SecretKey::generate();
-        let params = ParsedPairPayload {
-            version: ALLEYCAT_PROTOCOL_VERSION,
-            node_id: key.public().to_string(),
-            token: "deadbeef".into(),
-            relay: None,
-            host_name: None,
-        };
-        let transport = AlleycatReconnectTransport {
-            params,
-            agent: "codex".into(),
-            wire: AgentWire::Websocket,
-        };
+    /// Building a real Endpoint would require a tokio runtime + network, so
+    /// we lean on the `#[allow(dead_code)]` static-check function below
+    /// instead — `cargo check` exercises the trait bounds without needing
+    /// to instantiate the type at runtime.
+    #[allow(dead_code)]
+    fn alleycat_reconnect_transport_coerces_to_trait_object(
+        transport: AlleycatReconnectTransport,
+    ) {
         let _erased: Arc<dyn RemoteTransport> = Arc::new(transport);
     }
 }

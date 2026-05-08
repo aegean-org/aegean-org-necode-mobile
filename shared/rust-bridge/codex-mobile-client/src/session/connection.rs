@@ -24,7 +24,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
 use crate::logging::{LogLevelName, log_rust};
-use crate::session::remote_transport::{Reconnected, RemoteTransport};
+use crate::session::remote_transport::{Reconnected, RemoteTransport, SessionKeepalive};
 use crate::ssh::{SshBootstrapResult, SshClient};
 use crate::transport::{RpcError, TransportError};
 use crate::types::AgentRuntimeKind;
@@ -345,7 +345,7 @@ pub struct RuntimeRemoteSessionResource {
     pub runtime_kind: AgentRuntimeKind,
     pub client: AppServerClient,
     pub(crate) transport: Option<Arc<dyn RemoteTransport>>,
-    pub(crate) keepalive: Option<Arc<dyn Send + Sync>>,
+    pub(crate) keepalive: Option<Arc<dyn SessionKeepalive>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +442,7 @@ pub struct ServerSession {
     health_rx: watch::Receiver<ConnectionHealth>,
     command_tx: mpsc::Sender<SessionCommand>,
     runtime_command_txs: std::collections::HashMap<AgentRuntimeKind, mpsc::Sender<SessionCommand>>,
+    runtime_transports: Vec<Arc<dyn RemoteTransport>>,
     event_tx: broadcast::Sender<ServerEvent>,
     ipc_stream_client: Option<Arc<ReconnectingIpcClient>>,
     ssh_client: Option<Arc<SshClient>>,
@@ -731,6 +732,7 @@ impl ServerSession {
             health_rx,
             command_tx,
             runtime_command_txs: std::collections::HashMap::new(),
+            runtime_transports: Vec::new(),
             event_tx,
             ipc_stream_client: None,
             ssh_client: None,
@@ -780,6 +782,7 @@ impl ServerSession {
         let (url, args) = remote_connect_args(&config);
         let (event_tx, _) = broadcast::channel::<ServerEvent>(256);
         let mut runtime_command_txs = std::collections::HashMap::new();
+        let mut runtime_transports: Vec<Arc<dyn RemoteTransport>> = Vec::new();
         let mut worker_handles = Vec::new();
         let mut primary_tx = None;
 
@@ -793,6 +796,9 @@ impl ServerSession {
                 primary_tx = Some(command_tx.clone());
             }
             runtime_command_txs.insert(resource.runtime_kind, command_tx);
+            if let Some(transport) = resource.transport.as_ref() {
+                runtime_transports.push(Arc::clone(transport));
+            }
             worker_handles.push(spawn_remote_runtime_worker(
                 resource.runtime_kind,
                 resource.client,
@@ -827,6 +833,7 @@ impl ServerSession {
             health_rx,
             command_tx,
             runtime_command_txs,
+            runtime_transports,
             event_tx,
             ipc_stream_client: extras.ipc_stream_client,
             ssh_client: extras.ssh_client,
@@ -835,6 +842,31 @@ impl ServerSession {
             ipc_stream_bridge_pid: extras.ipc_stream_bridge_pid,
             worker_handle,
         })
+    }
+
+    /// Hint each remote-runtime transport that the host network may have
+    /// changed. iroh-backed transports (alleycat) use this to call
+    /// `Endpoint::network_change()` so QUIC re-evaluates paths instead of
+    /// waiting for the idle timeout. TCP-based transports default to a
+    /// no-op since the OS already surfaces those changes.
+    pub async fn notify_network_change(&self) {
+        for transport in &self.runtime_transports {
+            transport.notify_network_change().await;
+        }
+    }
+
+    /// Force every remote-runtime transport to abandon its current
+    /// underlying connection. Use only when the application has
+    /// out-of-band knowledge the connection is dead (e.g. resumed from a
+    /// long iOS suspension where iroh's `network_change` hint can't
+    /// substitute for closing the connection — see
+    /// `RemoteTransport::close_current_connection`). The worker observes
+    /// the close via `client.next_event()` and rebuilds via the existing
+    /// reconnect path.
+    pub async fn close_current_connections(&self) {
+        for transport in &self.runtime_transports {
+            transport.close_current_connection().await;
+        }
     }
 
     /// Get the server configuration.
@@ -1159,7 +1191,7 @@ pub(crate) async fn connect_remote_client(
 
 async fn reconnect_remote_client(
     client: &mut AppServerClient,
-    keepalive: &mut Option<Arc<dyn Send + Sync>>,
+    keepalive: &mut Option<Arc<dyn SessionKeepalive>>,
     args: &RemoteAppServerConnectArgs,
     websocket_url: &str,
     health_tx: &watch::Sender<ConnectionHealth>,
@@ -1383,7 +1415,7 @@ impl RemoteTransport for SshReconnectTransport {
 fn spawn_remote_runtime_worker(
     runtime_kind: AgentRuntimeKind,
     mut client: AppServerClient,
-    initial_keepalive: Option<Arc<dyn Send + Sync>>,
+    initial_keepalive: Option<Arc<dyn SessionKeepalive>>,
     mut command_rx: mpsc::Receiver<SessionCommand>,
     event_tx: broadcast::Sender<ServerEvent>,
     health_tx: watch::Sender<ConnectionHealth>,
@@ -1392,7 +1424,7 @@ fn spawn_remote_runtime_worker(
     reconnect_transport: Option<Arc<dyn RemoteTransport>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut keepalive: Option<Arc<dyn Send + Sync>> = initial_keepalive;
+        let mut keepalive: Option<Arc<dyn SessionKeepalive>> = initial_keepalive;
         loop {
             tokio::select! {
                 command = command_rx.recv() => {
@@ -1500,8 +1532,15 @@ fn spawn_remote_runtime_worker(
                 }
             }
         }
+        // Send a graceful close to the peer (e.g. iroh `Connection::close`)
+        // before dropping the keepalive Arc. Idempotent on already-errored
+        // connections, and avoids "Aborting ungracefully" log spam from
+        // iroh when the worker exits via `SessionCommand::Shutdown`.
+        if let Some(keepalive) = keepalive.as_ref() {
+            keepalive.close();
+        }
         // Hold the keepalive Arc for the entire worker lifetime so transport-scoped
-        // resources (e.g. an iroh Endpoint) are dropped only after the worker exits.
+        // resources (e.g. an iroh Connection) are dropped only after the worker exits.
         drop(keepalive);
     })
 }
@@ -1639,6 +1678,7 @@ impl ServerSession {
             health_rx,
             command_tx,
             runtime_command_txs: std::collections::HashMap::new(),
+            runtime_transports: Vec::new(),
             event_tx,
             ipc_stream_client: shared_ipc_client,
             ssh_client: None,
@@ -1677,6 +1717,7 @@ impl ServerSession {
             health_rx,
             command_tx,
             runtime_command_txs,
+            runtime_transports: Vec::new(),
             event_tx,
             ipc_stream_client: None,
             ssh_client: None,

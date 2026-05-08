@@ -194,6 +194,26 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         LLog.error("push", "registration failed", error: error)
     }
 
+    func applicationWillTerminate(_ application: UIApplication) {
+        // Best-effort graceful shutdown of the iroh endpoint. iOS only
+        // fires this hook reliably on Catalyst (NSApplicationDelegate)
+        // and on OS-initiated terminations from background — swipe-up-
+        // to-kill from app switcher does NOT fire it. Acceptable: the
+        // cost of skipping is one "Aborting ungracefully" log on iroh's
+        // side and the daemon waiting up to its idle timeout to reap
+        // the final zombie.
+        LLog.info("lifecycle", "applicationWillTerminate — closing alleycat endpoint")
+        let semaphore = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            await self.appRuntime?.shutdownAlleycatEndpoint()
+            semaphore.signal()
+        }
+        // applicationWillTerminate gets ~5s before the OS kills us.
+        // Block briefly on the close handshake so iroh can flush
+        // CONNECTION_CLOSE frames; bail if iroh's drain takes too long.
+        _ = semaphore.wait(timeout: .now() + 2.5)
+    }
+
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         LLog.info(
             "push",

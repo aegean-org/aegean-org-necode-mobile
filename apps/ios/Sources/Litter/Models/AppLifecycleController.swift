@@ -33,6 +33,19 @@ final class AppLifecycleController {
     private var foregroundRecoveryID: UUID?
     private var notificationActivatedThreadKey: ThreadKey?
     private var notificationActivatedAt: Date?
+    /// Wall-clock timestamp of the most recent `appDidEnterBackground`.
+    /// Used to decide whether the existing alleycat `Connection` is
+    /// almost certainly dead by the time we resume — see
+    /// `LONG_RESUME_THRESHOLD` and `on_long_resume`.
+    private var lastBackgroundedAt: Date?
+
+    /// Threshold for triggering proactive `Connection::close()` on
+    /// resume. Tied to iroh's per-path idle timeout (default 15s): if
+    /// we were suspended for longer than that, the existing path is
+    /// almost certainly dead and waiting on iroh's connection-level
+    /// 30s idle timer would make the next user request hang for the
+    /// remainder of that window.
+    private static let longResumeThreshold: TimeInterval = 15
 
     func setDevicePushToken(_ token: Data) {
         devicePushToken = token
@@ -45,6 +58,10 @@ final class AppLifecycleController {
         )
         appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(servers: servers)
+        // Hint iroh-backed sessions about a possible network change before
+        // running reconnect — healthy alleycat sessions can recover via
+        // path migration without paying the full reconnect handshake.
+        await appModel.reconnectController.notifyNetworkChange()
         let results = await appModel.reconnectController.reconnectSavedServers()
         await appModel.refreshSnapshot()
         for result in results where result.needsLocalAuthRestore {
@@ -52,6 +69,11 @@ final class AppLifecycleController {
         }
         await appModel.restoreMissingLocalAuthStateIfNeeded()
         await appModel.refreshSnapshot()
+        // If reconnecting saved alleycat servers triggered the iroh
+        // endpoint bind, the Rust side may have generated a fresh
+        // device secret key. Persist it so the next cold launch reuses
+        // the same `EndpointId`.
+        AppRuntimeController.shared.persistAlleycatSecretKeyIfNeeded()
     }
 
     func markThreadOpenedFromNotification(_ key: ThreadKey) {
@@ -84,6 +106,7 @@ final class AppLifecycleController {
         defer { os_signpost(.end, log: appLifecycleSignpostLog, name: "AppDidEnterBackground", signpostID: signpostID) }
         hasEnteredBackgroundSinceLaunch = true
         hasRecoveredCurrentForegroundSession = false
+        lastBackgroundedAt = Date()
         foregroundRecoveryTask?.cancel()
         foregroundRecoveryTask = nil
         foregroundRecoveryID = nil
@@ -198,6 +221,23 @@ final class AppLifecycleController {
         )
         guard !keys.isEmpty else { return }
 
+        // A push wake means iOS thawed the process specifically because
+        // the host has news for us — but the alleycat Connection has
+        // been frozen since `appDidEnterBackground` (typically minutes),
+        // so it's almost certainly dead. Same logic as `performForegroundRecovery`:
+        // if backgrounded longer than iroh's per-path idle, abandon the
+        // live Connection so the worker rebuilds before any user-visible
+        // request lands.
+        let backgroundDuration = lastBackgroundedAt.map { Date().timeIntervalSince($0) }
+        if let duration = backgroundDuration, duration > Self.longResumeThreshold {
+            LLog.info(
+                "push",
+                "background push wake — abandoning live alleycat connections",
+                fields: ["backgroundDurationSec": Int(duration)]
+            )
+            await appModel.reconnectController.onLongResume()
+        }
+
         await reconnectSavedServers(appModel: appModel)
         let reloadKeys = keys.filter { !shouldTrustLiveThreadState(for: $0, appModel: appModel) }
         if !reloadKeys.isEmpty {
@@ -245,6 +285,13 @@ final class AppLifecycleController {
         if backgroundedTurnKeys.isEmpty {
             deregisterPushProxy()
         }
+
+        // Refresh the suspension marker so the next push wake (or
+        // foreground) measures from the end of this work, not from the
+        // original backgrounding. Otherwise a series of push wakes
+        // during one background session would tear down healthy
+        // connections every time.
+        lastBackgroundedAt = Date()
     }
 
     func requestNotificationPermissionIfNeeded() {
@@ -358,6 +405,25 @@ final class AppLifecycleController {
         )
         appModel.reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
         appModel.reconnectController.syncSavedServers(servers: servers)
+
+        // If we were suspended longer than iroh's per-path idle timeout,
+        // the existing alleycat Connection is almost certainly dead. Kill
+        // it before the user can issue a request — otherwise the worker's
+        // first request would wait the full 30s connection-idle timeout
+        // for iroh to declare the path dead. Fires BEFORE
+        // `onAppBecameActive` so the close lands before the
+        // network-change hint and saved-server reconnect.
+        let backgroundDuration = lastBackgroundedAt.map { Date().timeIntervalSince($0) }
+        if let duration = backgroundDuration, duration > Self.longResumeThreshold {
+            LLog.info(
+                "lifecycle",
+                "long resume — abandoning live alleycat connections",
+                fields: ["backgroundDurationSec": Int(duration)]
+            )
+            await appModel.reconnectController.onLongResume()
+        }
+        lastBackgroundedAt = nil
+
         let results = await appModel.reconnectController.onAppBecameActive()
         await appModel.refreshSnapshot()
         for result in results where result.needsLocalAuthRestore {
@@ -389,6 +455,9 @@ final class AppLifecycleController {
         }
 
         liveActivities.sync(appModel.snapshot)
+        // Capture any freshly-generated alleycat device secret key from
+        // this foreground's reconnect cycle.
+        AppRuntimeController.shared.persistAlleycatSecretKeyIfNeeded()
         LLog.info("lifecycle", "performForegroundRecovery completed")
     }
 
