@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "kittylitter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alleycat",
  "anyhow",
