@@ -218,9 +218,14 @@ struct AlleycatAddServerSheet: View {
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(agent.displayName)
-                                    .litterFont(.subheadline)
-                                    .foregroundColor(agent.available ? LitterTheme.textPrimary : LitterTheme.textMuted)
+                                HStack(spacing: 6) {
+                                    Text(agent.displayName)
+                                        .litterFont(.subheadline)
+                                        .foregroundColor(agent.available ? LitterTheme.textPrimary : LitterTheme.textMuted)
+                                    if AgentRuntimeKind.isBetaAgentName(agent.name, displayName: agent.displayName) {
+                                        BetaBadge()
+                                    }
+                                }
                                 Text(wireLabel(agent.wire))
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textSecondary)
@@ -354,7 +359,11 @@ struct AlleycatAddServerSheet: View {
                 await MainActor.run {
                     guard parsedParams?.nodeId == params.nodeId else { return }
                     agents = loaded
-                    selectedAgentNames = Set(loaded.filter(\.available).map(\.name))
+                    selectedAgentNames = Set(
+                        loaded
+                            .filter { $0.available && !AgentRuntimeKind.isBetaAgentName($0.name, displayName: $0.displayName) }
+                            .map(\.name)
+                    )
                     isLoadingAgents = false
                     agentError = nil
                 }
@@ -466,6 +475,7 @@ struct AlleycatAddServerSheet: View {
             return "jsonl"
         }
     }
+
 }
 
 // MARK: - QR Scanner

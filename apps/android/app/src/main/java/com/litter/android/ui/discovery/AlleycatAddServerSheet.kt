@@ -66,6 +66,8 @@ import com.litter.android.core.bridge.UniffiInit
 import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.common.BetaBadge
+import com.litter.android.ui.common.isBetaAgentName
 import com.sigkitten.litter.android.BuildConfig
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
@@ -126,7 +128,10 @@ fun AlleycatAddServerSheet(
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
                     agents = loaded
-                    selectedAgentNames = loaded.filter { it.available }.map { it.name }.toSet()
+                    selectedAgentNames = loaded
+                        .filter { it.available && !isBetaAgentName(it.name, it.displayName) }
+                        .map { it.name }
+                        .toSet()
                     isLoadingAgents = false
                 }
             } catch (e: Exception) {
@@ -472,12 +477,18 @@ private fun AgentRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = agent.displayName,
-                    color = if (agent.available) LitterTheme.textPrimary else LitterTheme.textMuted,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = agent.displayName,
+                        color = if (agent.available) LitterTheme.textPrimary else LitterTheme.textMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    if (isBetaAgentName(agent.name, agent.displayName)) {
+                        Spacer(Modifier.width(6.dp))
+                        BetaBadge()
+                    }
+                }
                 Text(
                     text = wireLabel(agent.wire),
                     color = LitterTheme.textSecondary,
@@ -496,6 +507,7 @@ private fun AgentRow(
         }
     }
 }
+
 
 @Composable
 private fun SectionHeader(label: String, modifier: Modifier = Modifier) {

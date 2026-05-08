@@ -23,8 +23,8 @@ use crate::types::{
     ThreadKey, ThreadSummaryStatus,
 };
 use crate::types::{
-    AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppVoiceSessionPhase,
-    AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
+    AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppThreadGoal,
+    AppVoiceSessionPhase, AppVoiceTranscriptEntry, AppVoiceTranscriptUpdate,
 };
 
 use super::actions::{
@@ -1507,6 +1507,12 @@ impl AppStoreReducer {
                     }
                 });
             }
+            UiEvent::ThreadGoalUpdated { key, goal, .. } => {
+                self.apply_thread_goal(key, goal.clone());
+            }
+            UiEvent::ThreadGoalCleared { key } => {
+                self.clear_thread_goal(key);
+            }
             UiEvent::ModelRerouted { key, notification } => {
                 let item = make_model_rerouted_item(
                     &notification.turn_id,
@@ -2229,6 +2235,28 @@ impl AppStoreReducer {
         let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
         let thread = snapshot.threads.get_mut(key)?;
         Some(mutate(thread))
+    }
+
+    pub(crate) fn apply_thread_goal(&self, key: &ThreadKey, goal: AppThreadGoal) {
+        if self
+            .mutate_thread_with_result(key, |thread| {
+                thread.goal = Some(goal);
+            })
+            .is_some()
+        {
+            self.emit_thread_metadata_changed(key);
+        }
+    }
+
+    pub(crate) fn clear_thread_goal(&self, key: &ThreadKey) {
+        if self
+            .mutate_thread_with_result(key, |thread| {
+                thread.goal = None;
+            })
+            .is_some()
+        {
+            self.emit_thread_metadata_changed(key);
+        }
     }
 
     pub(crate) fn emit_thread_metadata_changed(&self, key: &ThreadKey) {
@@ -4508,6 +4536,7 @@ mod tests {
         // helper apply_thread_read_response uses, then upsert.
         let upstream_thread = upstream::Thread {
             id: "thread-1".to_string(),
+            session_id: "session-1".to_string(),
             forked_from_id: None,
             preview: "run some tools im testing".to_string(),
             ephemeral: false,
@@ -4520,6 +4549,7 @@ mod tests {
                 .expect("absolute path"),
             cli_version: "0.125.0".to_string(),
             source: upstream::SessionSource::default(),
+            thread_source: None,
             agent_nickname: None,
             agent_role: None,
             git_info: None,
@@ -4531,6 +4561,7 @@ mod tests {
                     id: "server-user-item".to_string(),
                     content: inputs.clone(),
                 }],
+                items_view: upstream::TurnItemsView::Full,
                 error: None,
                 started_at: None,
                 completed_at: None,
@@ -5227,10 +5258,11 @@ mod tests {
         // ItemCompleted for the same (thread, item) drops the buffer.
         reducer.apply_ui_event(&UiEvent::ItemCompleted {
             key: key.clone(),
-            notification: ItemCompletedNotification {
-                thread_id: key.thread_id.clone(),
-                turn_id: "turn-1".to_string(),
-                item: ThreadItem::DynamicToolCall {
+                notification: ItemCompletedNotification {
+                    thread_id: key.thread_id.clone(),
+                    turn_id: "turn-1".to_string(),
+                    completed_at_ms: 0,
+                    item: ThreadItem::DynamicToolCall {
                     id: "item-99".to_string(),
                     tool: "show_widget".to_string(),
                     namespace: None,

@@ -11,6 +11,7 @@ use codex_app_server_protocol::{ServerNotification, ServerRequest};
 use tokio::sync::broadcast;
 use tracing::warn;
 
+use crate::types::AppThreadGoal;
 use crate::types::{
     ApprovalKind, PendingApproval, PendingApprovalSeed, PendingApprovalWithSeed,
     PendingUserInputOption, PendingUserInputQuestion, PendingUserInputRequest, ThreadKey,
@@ -39,6 +40,14 @@ pub(crate) enum UiEvent {
     ThreadStatusChanged {
         key: ThreadKey,
         notification: codex_app_server_protocol::ThreadStatusChangedNotification,
+    },
+    ThreadGoalUpdated {
+        key: ThreadKey,
+        goal: AppThreadGoal,
+        turn_id: Option<String>,
+    },
+    ThreadGoalCleared {
+        key: ThreadKey,
     },
     ModelRerouted {
         key: ThreadKey,
@@ -275,6 +284,18 @@ impl EventProcessor {
                     key,
                     notification: n.clone(),
                 });
+            }
+            ServerNotification::ThreadGoalUpdated(n) => {
+                let key = Self::make_key(server_id, &n.thread_id);
+                self.emit(UiEvent::ThreadGoalUpdated {
+                    key,
+                    goal: n.goal.clone().into(),
+                    turn_id: n.turn_id.clone(),
+                });
+            }
+            ServerNotification::ThreadGoalCleared(n) => {
+                let key = Self::make_key(server_id, &n.thread_id);
+                self.emit(UiEvent::ThreadGoalCleared { key });
             }
             ServerNotification::ModelRerouted(n) => {
                 let key = Self::make_key(server_id, &n.thread_id);
@@ -875,6 +896,7 @@ mod tests {
         proto::Turn {
             id: id.to_string(),
             items: Vec::new(),
+            items_view: proto::TurnItemsView::Full,
             status: proto::TurnStatus::Completed,
             error: None,
             started_at: None,
@@ -940,6 +962,7 @@ mod tests {
         let notification = ServerNotification::ThreadStarted(proto::ThreadStartedNotification {
             thread: proto::Thread {
                 id: "thr_1".to_string(),
+                session_id: "session_1".to_string(),
                 forked_from_id: None,
                 preview: "Preview".to_string(),
                 ephemeral: false,
@@ -951,6 +974,7 @@ mod tests {
                 cwd: test_abs_path("/tmp"),
                 cli_version: "1.0.0".to_string(),
                 source: proto::SessionSource::Cli,
+                thread_source: None,
                 agent_nickname: Some("builder".to_string()),
                 agent_role: Some("worker".to_string()),
                 git_info: None,
@@ -1090,6 +1114,7 @@ mod tests {
             thread_id: "thr_1".to_string(),
             turn_id: "turn_1".to_string(),
             item: make_item("item_1"),
+            started_at_ms: 0,
         });
         let evt = process_and_recv("srv1", &notification).expect("should emit");
         match evt {
@@ -1109,6 +1134,7 @@ mod tests {
             thread_id: "thr_1".to_string(),
             turn_id: "turn_1".to_string(),
             item: make_item("item_2"),
+            completed_at_ms: 0,
         });
         let evt = process_and_recv("srv1", &notification).expect("should emit");
         match evt {
@@ -1268,7 +1294,7 @@ mod tests {
         let notification =
             ServerNotification::ThreadRealtimeStarted(proto::ThreadRealtimeStartedNotification {
                 thread_id: "thr_1".to_string(),
-                session_id: Some("sess_abc".to_string()),
+                realtime_session_id: Some("sess_abc".to_string()),
                 version: codex_protocol::protocol::RealtimeConversationVersion::V2,
             });
         let evt = process_and_recv("srv1", &notification).expect("should emit");
@@ -1276,7 +1302,7 @@ mod tests {
             UiEvent::RealtimeStarted { key, notification } => {
                 assert_eq!(key.thread_id, "thr_1");
                 assert_eq!(notification.thread_id, "thr_1");
-                assert_eq!(notification.session_id.as_deref(), Some("sess_abc"));
+                assert_eq!(notification.realtime_session_id.as_deref(), Some("sess_abc"));
             }
             other => panic!("expected RealtimeStarted, got {other:?}"),
         }
@@ -1518,6 +1544,7 @@ mod tests {
             ServerNotification::ThreadStarted(proto::ThreadStartedNotification {
                 thread: proto::Thread {
                     id: "thr_1".to_string(),
+                    session_id: "session_1".to_string(),
                     forked_from_id: None,
                     preview: String::new(),
                     ephemeral: false,
@@ -1529,6 +1556,7 @@ mod tests {
                     cwd: test_abs_path("/tmp"),
                     cli_version: "1.0.0".to_string(),
                     source: proto::SessionSource::Cli,
+                    thread_source: None,
                     agent_nickname: None,
                     agent_role: None,
                     git_info: None,

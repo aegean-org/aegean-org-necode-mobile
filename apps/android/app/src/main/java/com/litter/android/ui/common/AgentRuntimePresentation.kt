@@ -1,6 +1,17 @@
 package com.litter.android.ui.common
 
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.litter.android.ui.LitterTheme
 import com.sigkitten.litter.android.R
 import uniffi.codex_mobile_client.AgentRuntimeKind
 
@@ -28,3 +39,40 @@ val AgentRuntimeKind.runtimeSortIndex: Int
         AgentRuntimeKind.OPENCODE -> 2
         AgentRuntimeKind.CLAUDE -> 3
     }
+
+val AgentRuntimeKind.isBeta: Boolean
+    get() = when (this) {
+        AgentRuntimeKind.CLAUDE,
+        AgentRuntimeKind.PI,
+        AgentRuntimeKind.OPENCODE -> true
+        AgentRuntimeKind.CODEX -> false
+    }
+
+private val betaAgentNameAliases = setOf(
+    "claude", "claude-code", "claude_code",
+    "pi", "pi.dev", "pidev",
+    "opencode", "open-code", "open_code", "open code",
+)
+
+fun isBetaAgentName(name: String, displayName: String): Boolean =
+    name.lowercase() in betaAgentNameAliases || displayName.lowercase() in betaAgentNameAliases
+
+@Composable
+fun BetaBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .border(
+                width = 0.5.dp,
+                color = LitterTheme.accent.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(3.dp),
+            )
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = "BETA",
+            color = LitterTheme.accent,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}

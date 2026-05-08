@@ -74,6 +74,8 @@ import com.litter.android.state.statusLabel
 import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
+import com.litter.android.ui.common.BetaBadge
+import com.litter.android.ui.common.isBeta
 import com.litter.android.util.LLog
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -1314,7 +1316,9 @@ private fun SSHAgentPickerDialog(
     val availableKinds = remember(context.sessionId) {
         availableSshBridgeKinds(context.availability)
     }
-    var selectedKinds by remember(context.sessionId) { mutableStateOf(availableKinds.toSet()) }
+    var selectedKinds by remember(context.sessionId) {
+        mutableStateOf(availableKinds.filterNot { it.isBeta }.toSet())
+    }
     var isConnecting by remember(context.sessionId) { mutableStateOf(false) }
     var errorMessage by remember(context.sessionId) { mutableStateOf<String?>(null) }
 
@@ -1349,16 +1353,22 @@ private fun SSHAgentPickerDialog(
                             .padding(vertical = 4.dp),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = sshRuntimeLabel(agent.kind),
-                                color = if (agent.status == AgentAvailabilityStatus.AVAILABLE) {
-                                    LitterTheme.textPrimary
-                                } else {
-                                    LitterTheme.textSecondary
-                                },
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = sshRuntimeLabel(agent.kind),
+                                    color = if (agent.status == AgentAvailabilityStatus.AVAILABLE) {
+                                        LitterTheme.textPrimary
+                                    } else {
+                                        LitterTheme.textSecondary
+                                    },
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                if (agent.kind.isBeta) {
+                                    Spacer(Modifier.width(6.dp))
+                                    BetaBadge()
+                                }
+                            }
                             Text(
                                 text = sshAgentStatusLabel(agent),
                                 color = LitterTheme.textSecondary,
@@ -1431,6 +1441,7 @@ private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean = when (kind) {
     AgentRuntimeKind.PI,
     AgentRuntimeKind.OPENCODE -> true
 }
+
 
 private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = when (kind) {
     AgentRuntimeKind.CODEX -> "Codex"

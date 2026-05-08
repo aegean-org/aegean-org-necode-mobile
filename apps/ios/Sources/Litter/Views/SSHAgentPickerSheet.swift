@@ -57,7 +57,9 @@ struct SSHAgentPickerSheet: View {
         self.onConnected = onConnected
         self.onUseCodex = onUseCodex
         self.onCancel = onCancel
-        _selectedKinds = State(initialValue: Set(Self.availableBridgeKinds(in: context.availability)))
+        _selectedKinds = State(initialValue: Set(
+            Self.availableBridgeKinds(in: context.availability).filter { !$0.isBeta }
+        ))
     }
 
     var body: some View {
@@ -125,9 +127,14 @@ struct SSHAgentPickerSheet: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(runtimeDisplayName(agent.kind))
-                                .litterFont(.subheadline)
-                                .foregroundColor(agent.status == .available ? LitterTheme.textPrimary : LitterTheme.textMuted)
+                            HStack(spacing: 6) {
+                                Text(runtimeDisplayName(agent.kind))
+                                    .litterFont(.subheadline)
+                                    .foregroundColor(agent.status == .available ? LitterTheme.textPrimary : LitterTheme.textMuted)
+                                if agent.kind.isBeta {
+                                    BetaBadge()
+                                }
+                            }
                             Text(statusLabel(agent.status, kind: agent.kind))
                                 .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textSecondary)

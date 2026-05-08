@@ -786,6 +786,7 @@ fun ConversationScreen(
                         isThinking = isThinking,
                         activeTaskSummary = activeTaskSummary,
                         queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
+                        goal = thread?.goal,
                         rateLimits = server?.rateLimits,
                         showCollaborationModeChip = pinnedContext?.diffSummary == null,
                         onOpenCollaborationModePicker = { showCollaborationModeSelector = true },

@@ -723,6 +723,7 @@ struct SessionCanvasLine: View {
                     .modifier(MarkdownMatchedTitleFont())
                     .foregroundStyle(isActive ? LitterTheme.accent : LitterTheme.textPrimary)
                     .modifier(SessionShimmerEffect(active: isActive))
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Detail below — gets full width. As zoom grows, additional

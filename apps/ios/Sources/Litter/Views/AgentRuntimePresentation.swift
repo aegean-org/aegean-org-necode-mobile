@@ -59,4 +59,38 @@ extension AgentRuntimeKind {
     var presentationSortIndex: Int {
         Self.presentationOrder.firstIndex(of: self) ?? Int.max
     }
+
+    var isBeta: Bool {
+        switch self {
+        case .claude, .pi, .opencode:
+            return true
+        case .codex:
+            return false
+        }
+    }
+
+    static func isBetaAgentName(_ name: String, displayName: String) -> Bool {
+        let normalized = name.lowercased()
+        let display = displayName.lowercased()
+        let aliases: Set<String> = [
+            "claude", "claude-code", "claude_code",
+            "pi", "pi.dev", "pidev",
+            "opencode", "open-code", "open_code", "open code",
+        ]
+        return aliases.contains(normalized) || aliases.contains(display)
+    }
+}
+
+struct BetaBadge: View {
+    var body: some View {
+        Text("BETA")
+            .litterFont(.caption2)
+            .foregroundColor(LitterTheme.accent)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(LitterTheme.accent.opacity(0.6), lineWidth: 0.5)
+            )
+    }
 }

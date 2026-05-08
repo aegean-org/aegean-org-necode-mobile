@@ -1531,6 +1531,8 @@ private struct ConversationInputBar: View {
                 activeTaskSummary: snapshot.activeTaskSummary,
                 queuedFollowUps: snapshot.queuedFollowUps,
                 pluginMentions: pluginMentionSelections,
+                goal: snapshot.goal,
+                goalActions: makeGoalCardActions(),
                 rateLimits: snapshot.rateLimits,
                 contextPercent: contextPercent(),
                 isTurnActive: isTurnActive,
@@ -2012,6 +2014,8 @@ private struct ConversationInputBar: View {
             Task { await loadSkills() }
         case .review:
             Task { await startReview() }
+        case .goal:
+            Task { await handleGoalCommand(args) }
         case .rename:
             let initialName = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if initialName.isEmpty {
@@ -2051,6 +2055,135 @@ private struct ConversationInputBar: View {
                     target: .uncommittedChanges,
                     delivery: "inline"
                 )
+            )
+        } catch {
+            slashErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleGoalCommand(_ args: String?) async {
+        let raw = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let lower = raw.lowercased()
+        do {
+            switch lower {
+            case "":
+                let goal = try await appModel.client.getThreadGoal(
+                    serverId: snapshot.threadKey.serverId,
+                    params: AppThreadGoalGetRequest(threadId: snapshot.threadKey.threadId)
+                )
+                guard let goal else {
+                    slashErrorMessage = "No goal is set for this thread."
+                    return
+                }
+                slashErrorMessage = goalSummary(goal)
+            case "pause":
+                _ = try await appModel.client.setThreadGoal(
+                    serverId: snapshot.threadKey.serverId,
+                    params: AppThreadGoalSetRequest(
+                        threadId: snapshot.threadKey.threadId,
+                        objective: nil,
+                        status: .paused,
+                        tokenBudget: nil
+                    )
+                )
+            case "resume":
+                _ = try await appModel.client.setThreadGoal(
+                    serverId: snapshot.threadKey.serverId,
+                    params: AppThreadGoalSetRequest(
+                        threadId: snapshot.threadKey.threadId,
+                        objective: nil,
+                        status: .active,
+                        tokenBudget: nil
+                    )
+                )
+            case "clear":
+                _ = try await appModel.client.clearThreadGoal(
+                    serverId: snapshot.threadKey.serverId,
+                    params: AppThreadGoalClearRequest(threadId: snapshot.threadKey.threadId)
+                )
+            default:
+                _ = try await appModel.client.setThreadGoal(
+                    serverId: snapshot.threadKey.serverId,
+                    params: AppThreadGoalSetRequest(
+                        threadId: snapshot.threadKey.threadId,
+                        objective: raw,
+                        status: .active,
+                        tokenBudget: nil
+                    )
+                )
+            }
+        } catch {
+            slashErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func goalSummary(_ goal: AppThreadGoal) -> String {
+        var lines = [
+            "Goal: \(goal.objective)",
+            "Status: \(goalStatusLabel(goal.status))",
+            "Tokens used: \(goal.tokensUsed)"
+        ]
+        if let tokenBudget = goal.tokenBudget {
+            lines.append("Token budget: \(tokenBudget)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func goalStatusLabel(_ status: AppThreadGoalStatus) -> String {
+        switch status {
+        case .active: return "active"
+        case .paused: return "paused"
+        case .budgetLimited: return "limited by budget"
+        case .complete: return "complete"
+        }
+    }
+
+    private func makeGoalCardActions() -> GoalCardActions {
+        GoalCardActions(
+            togglePause: {
+                let next: AppThreadGoalStatus = (snapshot.goal?.status == .paused) ? .active : .paused
+                Task { await applyGoalUpdate(status: next) }
+            },
+            markComplete: {
+                Task { await applyGoalUpdate(status: .complete) }
+            },
+            setObjective: { objective in
+                Task { await applyGoalUpdate(objective: objective) }
+            },
+            setBudget: { value in
+                Task { await applyGoalUpdate(tokenBudget: value) }
+            },
+            clear: {
+                Task { await clearGoal() }
+            }
+        )
+    }
+
+    private func applyGoalUpdate(
+        objective: String? = nil,
+        status: AppThreadGoalStatus? = nil,
+        tokenBudget: Int64? = nil
+    ) async {
+        do {
+            _ = try await appModel.client.setThreadGoal(
+                serverId: snapshot.threadKey.serverId,
+                params: AppThreadGoalSetRequest(
+                    threadId: snapshot.threadKey.threadId,
+                    objective: objective,
+                    status: status,
+                    tokenBudget: tokenBudget
+                )
+            )
+        } catch {
+            slashErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func clearGoal() async {
+        do {
+            _ = try await appModel.client.clearThreadGoal(
+                serverId: snapshot.threadKey.serverId,
+                params: AppThreadGoalClearRequest(threadId: snapshot.threadKey.threadId)
             )
         } catch {
             slashErrorMessage = error.localizedDescription
@@ -2440,6 +2573,7 @@ enum ComposerSlashCommand: CaseIterable {
     case experimental
     case skills
     case review
+    case goal
     case rename
     case new
     case fork
@@ -2453,6 +2587,7 @@ enum ComposerSlashCommand: CaseIterable {
         case .experimental: return "experimental"
         case .skills: return "skills"
         case .review: return "review"
+        case .goal: return "goal"
         case .rename: return "rename"
         case .new: return "new"
         case .fork: return "fork"
@@ -2468,6 +2603,7 @@ enum ComposerSlashCommand: CaseIterable {
         case .experimental: return "toggle experimental features"
         case .skills: return "use skills to improve how Codex performs specific tasks"
         case .review: return "review my current changes and find issues"
+        case .goal: return "set or manage the current thread goal"
         case .rename: return "rename the current thread"
         case .new: return "start a new chat during a conversation"
         case .fork: return "fork the current conversation into a new session"
@@ -2483,6 +2619,7 @@ enum ComposerSlashCommand: CaseIterable {
         case "experimental": self = .experimental
         case "skills": self = .skills
         case "review": self = .review
+        case "goal": self = .goal
         case "rename": self = .rename
         case "new": self = .new
         case "fork": self = .fork

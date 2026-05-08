@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
@@ -94,6 +95,11 @@ import uniffi.codex_mobile_client.ThreadKey
 import uniffi.codex_mobile_client.AppInterruptTurnRequest
 import uniffi.codex_mobile_client.AppQueuedFollowUpKind
 import uniffi.codex_mobile_client.AppQueuedFollowUpPreview
+import uniffi.codex_mobile_client.AppThreadGoal
+import uniffi.codex_mobile_client.AppThreadGoalClearRequest
+import uniffi.codex_mobile_client.AppThreadGoalGetRequest
+import uniffi.codex_mobile_client.AppThreadGoalSetRequest
+import uniffi.codex_mobile_client.AppThreadGoalStatus
 
 /** Slash command definitions matching iOS. */
 internal data class SlashCommand(val name: String, val description: String)
@@ -107,6 +113,7 @@ private val SLASH_COMMANDS = listOf(
     SlashCommand("fork", "Fork this conversation"),
     SlashCommand("rename", "Rename this session"),
     SlashCommand("review", "Start a code review"),
+    SlashCommand("goal", "Set or manage the thread goal"),
     SlashCommand("resume", "Browse sessions"),
     SlashCommand("skills", "List available skills"),
     SlashCommand("permissions", "Change permissions"),
@@ -128,6 +135,7 @@ fun ComposerBar(
     isThinking: Boolean,
     activeTaskSummary: ActiveTaskSummary? = null,
     queuedFollowUps: List<uniffi.codex_mobile_client.AppQueuedFollowUpPreview> = emptyList(),
+    goal: AppThreadGoal? = null,
     rateLimits: uniffi.codex_mobile_client.RateLimitSnapshot? = null,
     showCollaborationModeChip: Boolean = true,
     onOpenCollaborationModePicker: (() -> Unit)? = null,
@@ -214,6 +222,58 @@ fun ComposerBar(
     // Pending user input answers
     var userInputAnswers by remember { mutableStateOf(mapOf<String, String>()) }
 
+    suspend fun handleGoalCommand(args: String?) {
+        val raw = args?.trim().orEmpty()
+        when (raw.lowercase()) {
+            "" -> {
+                val current = appModel.client.getThreadGoal(
+                    threadKey.serverId,
+                    AppThreadGoalGetRequest(threadId = threadKey.threadId),
+                )
+                onSlashError?.invoke(current?.let(::goalSummary) ?: "No goal is set for this thread.")
+            }
+            "pause" -> {
+                appModel.client.setThreadGoal(
+                    threadKey.serverId,
+                    AppThreadGoalSetRequest(
+                        threadId = threadKey.threadId,
+                        objective = null,
+                        status = AppThreadGoalStatus.PAUSED,
+                        tokenBudget = null,
+                    ),
+                )
+            }
+            "resume" -> {
+                appModel.client.setThreadGoal(
+                    threadKey.serverId,
+                    AppThreadGoalSetRequest(
+                        threadId = threadKey.threadId,
+                        objective = null,
+                        status = AppThreadGoalStatus.ACTIVE,
+                        tokenBudget = null,
+                    ),
+                )
+            }
+            "clear" -> {
+                appModel.client.clearThreadGoal(
+                    threadKey.serverId,
+                    AppThreadGoalClearRequest(threadId = threadKey.threadId),
+                )
+            }
+            else -> {
+                appModel.client.setThreadGoal(
+                    threadKey.serverId,
+                    AppThreadGoalSetRequest(
+                        threadId = threadKey.threadId,
+                        objective = raw,
+                        status = AppThreadGoalStatus.ACTIVE,
+                        tokenBudget = null,
+                    ),
+                )
+            }
+        }
+    }
+
     // Only consume edit-message prefill for the intended thread.
     LaunchedEffect(composerPrefillRequest?.requestId, threadKey) {
         val prefill = composerPrefillRequest ?: return@LaunchedEffect
@@ -236,6 +296,13 @@ fun ComposerBar(
             "skills" -> onShowSkillsSheet?.invoke()
             "permissions" -> onShowPermissionsSheet?.invoke()
             "experimental" -> onShowExperimentalSheet?.invoke()
+            "goal" -> scope.launch {
+                try {
+                    handleGoalCommand(args)
+                } catch (e: Exception) {
+                    onSlashError?.invoke(e.message ?: "Failed to update goal")
+                }
+            }
             "fork" -> scope.launch {
                 try {
                     val cwd = appModel.snapshot.value?.threads?.find { it.key == threadKey }?.info?.cwd
@@ -359,6 +426,89 @@ fun ComposerBar(
                 }
                 Spacer(Modifier.weight(1f))
             }
+        }
+
+        goal?.let { current ->
+            val goalActions = remember(current.threadId, current.status) {
+                GoalCardActions(
+                    togglePause = {
+                        scope.launch {
+                            val next = if (current.status == AppThreadGoalStatus.PAUSED) {
+                                AppThreadGoalStatus.ACTIVE
+                            } else {
+                                AppThreadGoalStatus.PAUSED
+                            }
+                            runCatching {
+                                appModel.client.setThreadGoal(
+                                    threadKey.serverId,
+                                    AppThreadGoalSetRequest(
+                                        threadId = threadKey.threadId,
+                                        objective = null,
+                                        status = next,
+                                        tokenBudget = null,
+                                    ),
+                                )
+                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                        }
+                    },
+                    markComplete = {
+                        scope.launch {
+                            runCatching {
+                                appModel.client.setThreadGoal(
+                                    threadKey.serverId,
+                                    AppThreadGoalSetRequest(
+                                        threadId = threadKey.threadId,
+                                        objective = null,
+                                        status = AppThreadGoalStatus.COMPLETE,
+                                        tokenBudget = null,
+                                    ),
+                                )
+                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                        }
+                    },
+                    setObjective = { objective ->
+                        scope.launch {
+                            runCatching {
+                                appModel.client.setThreadGoal(
+                                    threadKey.serverId,
+                                    AppThreadGoalSetRequest(
+                                        threadId = threadKey.threadId,
+                                        objective = objective,
+                                        status = null,
+                                        tokenBudget = null,
+                                    ),
+                                )
+                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                        }
+                    },
+                    setBudget = { budget ->
+                        scope.launch {
+                            runCatching {
+                                appModel.client.setThreadGoal(
+                                    threadKey.serverId,
+                                    AppThreadGoalSetRequest(
+                                        threadId = threadKey.threadId,
+                                        objective = null,
+                                        status = null,
+                                        tokenBudget = budget,
+                                    ),
+                                )
+                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                        }
+                    },
+                    clear = {
+                        scope.launch {
+                            runCatching {
+                                appModel.client.clearThreadGoal(
+                                    threadKey.serverId,
+                                    AppThreadGoalClearRequest(threadId = threadKey.threadId),
+                                )
+                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to clear goal") }
+                        }
+                    },
+                )
+            }
+            GoalPanel(current, goalActions)
         }
 
         activePlanProgress?.let { progress ->
@@ -1306,6 +1456,382 @@ internal fun parseSlashCommandInvocation(text: String): SlashInvocation? {
     val args = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
     return SlashInvocation(command = command, args = args)
 }
+
+private fun goalSummary(goal: AppThreadGoal): String {
+    return buildString {
+        append("Goal: ")
+        append(goal.objective)
+        append("\nStatus: ")
+        append(goalStatusLabel(goal.status))
+        append("\nTokens used: ")
+        append(goal.tokensUsed)
+        goal.tokenBudget?.let {
+            append("\nToken budget: ")
+            append(it)
+        }
+    }
+}
+
+private fun goalStatusLabel(status: AppThreadGoalStatus): String =
+    when (status) {
+        AppThreadGoalStatus.ACTIVE -> "active"
+        AppThreadGoalStatus.PAUSED -> "paused"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "limited by budget"
+        AppThreadGoalStatus.COMPLETE -> "complete"
+    }
+
+data class GoalCardActions(
+    val togglePause: () -> Unit,
+    val markComplete: () -> Unit,
+    val setObjective: (String) -> Unit,
+    val setBudget: (Long?) -> Unit,
+    val clear: () -> Unit,
+) {
+    companion object {
+        val Noop = GoalCardActions(
+            togglePause = {},
+            markComplete = {},
+            setObjective = {},
+            setBudget = {},
+            clear = {},
+        )
+    }
+}
+
+@Composable
+private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
+    val tint = when (goal.status) {
+        AppThreadGoalStatus.ACTIVE -> LitterTheme.accent
+        AppThreadGoalStatus.PAUSED -> LitterTheme.textMuted
+        AppThreadGoalStatus.BUDGET_LIMITED -> LitterTheme.warning
+        AppThreadGoalStatus.COMPLETE -> LitterTheme.success
+    }
+    val statusLabel = when (goal.status) {
+        AppThreadGoalStatus.ACTIVE -> "active"
+        AppThreadGoalStatus.PAUSED -> "paused"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "limited"
+        AppThreadGoalStatus.COMPLETE -> "complete"
+    }
+    val statusGlyph = when (goal.status) {
+        AppThreadGoalStatus.ACTIVE -> "◎"
+        AppThreadGoalStatus.PAUSED -> "❚❚"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "!"
+        AppThreadGoalStatus.COMPLETE -> "✓"
+    }
+    val budgetProgress: Float? = goal.tokenBudget?.takeIf { it > 0 }?.let { budget ->
+        (goal.tokensUsed.toFloat() / budget.toFloat()).coerceIn(0f, 1f)
+    }
+    val budgetLabel = goal.tokenBudget?.takeIf { it > 0 }?.let { budget ->
+        "${formatGoalTokens(goal.tokensUsed)} / ${formatGoalTokens(budget)}"
+    }
+    val progressTint = when {
+        budgetProgress == null -> tint
+        budgetProgress >= 1f -> LitterTheme.danger
+        budgetProgress >= 0.85f -> LitterTheme.warning
+        else -> tint
+    }
+    val budgetTextTint = when {
+        budgetProgress == null -> LitterTheme.textSecondary
+        budgetProgress >= 1f -> LitterTheme.danger
+        budgetProgress >= 0.85f -> LitterTheme.warning
+        else -> LitterTheme.textSecondary
+    }
+    val canTogglePause = goal.status == AppThreadGoalStatus.ACTIVE || goal.status == AppThreadGoalStatus.PAUSED
+
+    var showMenu by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showBudgetDialog by remember { mutableStateOf(false) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(LitterTheme.codeBackground.copy(alpha = 0.92f))
+            .border(1.dp, tint.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = statusGlyph,
+                color = tint,
+                fontSize = LitterTextStyle.caption.scaled,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Goal",
+                color = LitterTheme.textPrimary,
+                fontSize = LitterTextStyle.caption.scaled,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = statusLabel,
+                color = tint,
+                fontSize = 10f.scaled,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = BerkeleyMono,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(tint.copy(alpha = 0.14f))
+                    .border(0.5.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                    .clickable(enabled = canTogglePause) { actions.togglePause() }
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            if (budgetLabel != null) {
+                Text(
+                    text = budgetLabel,
+                    color = budgetTextTint,
+                    fontSize = 10f.scaled,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = BerkeleyMono,
+                )
+            }
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(22.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "Goal actions",
+                        tint = LitterTheme.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit objective", color = LitterTheme.textPrimary) },
+                        onClick = {
+                            showMenu = false
+                            showEditDialog = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Set token budget", color = LitterTheme.textPrimary) },
+                        onClick = {
+                            showMenu = false
+                            showBudgetDialog = true
+                        },
+                    )
+                    if (goal.status != AppThreadGoalStatus.COMPLETE) {
+                        DropdownMenuItem(
+                            text = { Text("Mark complete", color = LitterTheme.textPrimary) },
+                            onClick = {
+                                showMenu = false
+                                actions.markComplete()
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Clear goal", color = LitterTheme.danger) },
+                        onClick = {
+                            showMenu = false
+                            showClearConfirm = true
+                        },
+                    )
+                }
+            }
+        }
+        Text(
+            text = goal.objective,
+            color = LitterTheme.textPrimary,
+            fontSize = LitterTextStyle.caption.scaled,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (budgetProgress != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(LitterTheme.surface.copy(alpha = 0.7f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(fraction = budgetProgress)
+                        .background(progressTint, RoundedCornerShape(2.dp)),
+                )
+            }
+        }
+    }
+
+    if (showEditDialog) {
+        GoalTextInputDialog(
+            title = "Edit Objective",
+            initial = goal.objective,
+            placeholder = "What do you want to accomplish?",
+            singleLine = false,
+            confirmLabel = "Save",
+            onConfirm = { value ->
+                val trimmed = value.trim()
+                if (trimmed.isNotEmpty()) actions.setObjective(trimmed)
+                showEditDialog = false
+            },
+            onDismiss = { showEditDialog = false },
+        )
+    }
+
+    if (showBudgetDialog) {
+        GoalTextInputDialog(
+            title = "Token Budget",
+            initial = goal.tokenBudget?.toString().orEmpty(),
+            placeholder = "e.g. 50000",
+            singleLine = true,
+            keyboardNumeric = true,
+            confirmLabel = "Save",
+            helper = "The agent will pause when the cap is reached.",
+            onConfirm = { value ->
+                val parsed = value.trim().toLongOrNull()
+                if (parsed != null && parsed > 0) actions.setBudget(parsed)
+                showBudgetDialog = false
+            },
+            onDismiss = { showBudgetDialog = false },
+        )
+    }
+
+    if (showClearConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            confirmButton = {
+                Text(
+                    text = "Clear Goal",
+                    color = LitterTheme.danger,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clickable {
+                            showClearConfirm = false
+                            actions.clear()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            },
+            dismissButton = {
+                Text(
+                    text = "Cancel",
+                    color = LitterTheme.textPrimary,
+                    modifier = Modifier
+                        .clickable { showClearConfirm = false }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            },
+            title = {
+                Text("Clear this goal?", color = LitterTheme.textPrimary, fontWeight = FontWeight.SemiBold)
+            },
+            text = {
+                Text(
+                    "Removes the goal from this thread. The agent stops tracking objective progress.",
+                    color = LitterTheme.textSecondary,
+                )
+            },
+            containerColor = LitterTheme.surface,
+        )
+    }
+}
+
+@Composable
+private fun GoalTextInputDialog(
+    title: String,
+    initial: String,
+    placeholder: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+    helper: String? = null,
+    singleLine: Boolean = true,
+    keyboardNumeric: Boolean = false,
+) {
+    var value by remember { mutableStateOf(initial) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Text(
+                text = confirmLabel,
+                color = LitterTheme.accent,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clickable { onConfirm(value) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        },
+        dismissButton = {
+            Text(
+                text = "Cancel",
+                color = LitterTheme.textPrimary,
+                modifier = Modifier
+                    .clickable(onClick = onDismiss)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        },
+        title = {
+            Text(title, color = LitterTheme.textPrimary, fontWeight = FontWeight.SemiBold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    singleLine = singleLine,
+                    textStyle = TextStyle(
+                        color = LitterTheme.textPrimary,
+                        fontSize = LitterTextStyle.body.scaled,
+                        fontFamily = LitterTheme.monoFont,
+                    ),
+                    cursorBrush = SolidColor(LitterTheme.accent),
+                    keyboardOptions = if (keyboardNumeric) {
+                        androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                        )
+                    } else {
+                        androidx.compose.foundation.text.KeyboardOptions.Default
+                    },
+                    decorationBox = { inner ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(LitterTheme.codeBackground, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            if (value.isEmpty()) {
+                                Text(
+                                    text = placeholder,
+                                    color = LitterTheme.textMuted,
+                                    fontSize = LitterTextStyle.body.scaled,
+                                )
+                            }
+                            inner()
+                        }
+                    },
+                )
+                if (helper != null) {
+                    Text(
+                        text = helper,
+                        color = LitterTheme.textSecondary,
+                        fontSize = LitterTextStyle.caption.scaled,
+                    )
+                }
+            }
+        },
+        containerColor = LitterTheme.surface,
+    )
+}
+
+private fun formatGoalTokens(value: Long): String =
+    when {
+        value >= 1_000_000 -> "%.1fM".format(value / 1_000_000.0)
+        value >= 1_000 -> "%.1fk".format(value / 1_000.0)
+        else -> value.toString()
+    }
 
 // ── Rate Limit Badge (matching iOS RateLimitBadgeView) ───────────────────────
 
