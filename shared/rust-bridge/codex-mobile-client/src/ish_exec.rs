@@ -62,7 +62,7 @@ pub(crate) fn run_command(
                 None,
             ));
             let code = match result {
-                Ok(()) => 0,
+                Ok(_) => 0,
                 Err(err) => {
                     eprintln!("[ish-exec] apply_patch error: {err}");
                     if stderr_buf.is_empty() {
