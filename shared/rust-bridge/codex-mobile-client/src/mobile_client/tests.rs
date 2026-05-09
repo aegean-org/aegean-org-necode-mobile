@@ -2374,6 +2374,95 @@ mod mobile_client_tests {
     }
 
     #[tokio::test]
+    async fn duplicate_steer_queued_follow_up_taps_drop_after_first() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-1";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected, true);
+
+        let mut thread = thread_snapshot_with_active_turn(server_id, thread_id, "turn-active");
+        let draft = queued_follow_up_draft_from_inputs(
+            &[upstream::UserInput::Text {
+                text: "follow up".to_string(),
+                text_elements: Vec::new(),
+            }],
+            AppQueuedFollowUpKind::Message,
+        )
+        .expect("draft");
+        let preview_id = draft.preview.id.clone();
+        thread.queued_follow_up_drafts.push(draft);
+        client.app_store.upsert_thread_snapshot(thread);
+
+        let steer_calls = Arc::new(StdMutex::new(Vec::<upstream::ClientRequest>::new()));
+        let request_handler: TestRequestHandler = {
+            let steer_calls = Arc::clone(&steer_calls);
+            Arc::new(move |request| {
+                let request_for_log = request.clone();
+                steer_calls
+                    .lock()
+                    .expect("steer calls lock should not be poisoned")
+                    .push(request_for_log);
+                match request {
+                    upstream::ClientRequest::TurnSteer { .. } => {
+                        Ok(json!({ "turnId": "turn-next" }))
+                    }
+                    other => Err(RpcError::Deserialization(format!(
+                        "unexpected request in test: {}",
+                        other.method()
+                    ))),
+                }
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_handlers(
+            config,
+            None,
+            Some(request_handler),
+            None,
+            None,
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), Arc::clone(&session));
+
+        // First tap: succeeds and sends one TurnSteer.
+        client
+            .steer_queued_follow_up(&key, &preview_id)
+            .await
+            .expect("first steer should succeed");
+
+        // Second tap (e.g. user double-tapped Steer before the UI re-rendered).
+        // Should be dropped without firing another TurnSteer.
+        client
+            .steer_queued_follow_up(&key, &preview_id)
+            .await
+            .expect("duplicate steer should noop");
+
+        // Third tap, just to be thorough.
+        client
+            .steer_queued_follow_up(&key, &preview_id)
+            .await
+            .expect("third steer should noop");
+
+        let captured = steer_calls
+            .lock()
+            .expect("steer calls lock should not be poisoned");
+        assert_eq!(
+            captured.len(),
+            1,
+            "duplicate steer taps should not fan out to multiple TurnSteer calls"
+        );
+    }
+
+    #[tokio::test]
     async fn stale_ipc_delete_queued_follow_up_updates_local_state_and_reconnects() {
         let client = MobileClient::new();
         let server_id = "srv";

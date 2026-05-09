@@ -2595,28 +2595,28 @@ impl MobileClient {
     ) -> Result<(), RpcError> {
         let session = self.get_session(&key.server_id)?;
         let thread = self.snapshot_thread(key)?;
-        let Some(draft) = thread
+        if !thread
             .queued_follow_up_drafts
             .iter()
-            .find(|draft| draft.preview.id == preview_id)
-            .cloned()
-        else {
+            .any(|draft| draft.preview.id == preview_id)
+        {
             return Err(RpcError::Deserialization(format!(
                 "queued follow-up not found: {preview_id}"
             )));
+        }
+
+        // Atomically flip the draft's kind to PendingSteer. If it's already
+        // pending (concurrent/duplicate tap), drop this request so we don't
+        // fire a second steer that would inject another copy of the user
+        // message.
+        let Some((draft, next_drafts)) = self
+            .app_store
+            .try_begin_steer_queued_follow_up(key, preview_id)
+        else {
+            return Ok(());
         };
 
         if server_has_live_ipc(&self.app_store, &key.server_id, &session) {
-            let next_drafts = thread
-                .queued_follow_up_drafts
-                .into_iter()
-                .map(|mut queued| {
-                    if queued.preview.id == preview_id {
-                        queued.preview.kind = AppQueuedFollowUpKind::PendingSteer;
-                    }
-                    queued
-                })
-                .collect::<Vec<_>>();
             let command_id = self.app_store.begin_server_mutating_command(
                 &key.server_id,
                 ServerMutatingCommandKind::SteerQueuedFollowUp,
@@ -2677,13 +2677,6 @@ impl MobileClient {
         let active_turn_id = thread.active_turn_id.ok_or_else(|| {
             RpcError::Deserialization("no active turn available to steer".to_string())
         })?;
-
-        // Mark as pending-steer immediately so the UI reflects the tap.
-        self.app_store.update_thread_follow_up_draft_kind(
-            key,
-            preview_id,
-            AppQueuedFollowUpKind::PendingSteer,
-        );
 
         let direct_command_id = self.app_store.begin_server_mutating_command(
             &key.server_id,

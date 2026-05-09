@@ -1348,6 +1348,7 @@ class AppModel private constructor(context: android.content.Context) {
             reasoningEffort = state.reasoningEffort,
             effectiveApprovalPolicy = state.effectiveApprovalPolicy,
             effectiveSandboxPolicy = state.effectiveSandboxPolicy,
+            queuedFollowUps = state.queuedFollowUps,
             activeTurnId = state.activeTurnId,
             activePlanProgress = state.activePlanProgress,
             pendingPlanImplementationPrompt = state.pendingPlanImplementationPrompt,

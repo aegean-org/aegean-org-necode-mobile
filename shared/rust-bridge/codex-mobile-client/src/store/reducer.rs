@@ -827,26 +827,38 @@ impl AppStoreReducer {
         }
     }
 
-    pub(crate) fn update_thread_follow_up_draft_kind(
+    /// Atomically transitions a queued follow-up draft from `Message` to
+    /// `PendingSteer`. Returns the updated draft and a snapshot of the
+    /// thread's drafts in the new state on success. Returns `None` when the
+    /// draft is missing or already in `PendingSteer`/`RetryingSteer` — used
+    /// to drop duplicate steer taps before they reach the server.
+    pub(crate) fn try_begin_steer_queued_follow_up(
         &self,
         key: &ThreadKey,
         preview_id: &str,
-        kind: super::snapshot::AppQueuedFollowUpKind,
-    ) {
-        if self
+    ) -> Option<(QueuedFollowUpDraft, Vec<QueuedFollowUpDraft>)> {
+        let result = self
             .mutate_thread_with_result(key, |thread| {
-                for draft in &mut thread.queued_follow_up_drafts {
-                    if draft.preview.id == preview_id {
-                        draft.preview.kind = kind;
-                        break;
-                    }
+                let position = thread
+                    .queued_follow_up_drafts
+                    .iter()
+                    .position(|d| d.preview.id == preview_id)?;
+                let current_kind = thread.queued_follow_up_drafts[position].preview.kind;
+                if current_kind != super::snapshot::AppQueuedFollowUpKind::Message {
+                    return None;
                 }
+                thread.queued_follow_up_drafts[position].preview.kind =
+                    super::snapshot::AppQueuedFollowUpKind::PendingSteer;
+                let updated = thread.queued_follow_up_drafts[position].clone();
+                let next = thread.queued_follow_up_drafts.clone();
                 sync_thread_follow_up_projection(thread);
+                Some((updated, next))
             })
-            .is_some()
-        {
+            .flatten();
+        if result.is_some() {
             self.emit_thread_metadata_changed(key);
         }
+        result
     }
 
     pub fn set_thread_follow_up_previews(
