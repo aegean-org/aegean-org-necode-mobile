@@ -94,8 +94,10 @@ targets:
         product: WebRTC
       - target: LitterLiveActivity
         embed: true
-      - target: LitterWatch
-        embed: true
+      # Gated out for App Store submission — re-enable once a Watch
+      # screenshot is uploaded in App Store Connect.
+      # - target: LitterWatch
+      #   embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter

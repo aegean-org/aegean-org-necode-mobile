@@ -105,7 +105,6 @@
 		296F143C0AAB96F9FFBFC2FF /* vitesse-black.json in Resources */ = {isa = PBXBuildFile; fileRef = C7ADFC239B833D53726499FC /* vitesse-black.json */; };
 		29C4BF0A7811B9FA8062D8E3 /* CatalystRuntimeStubs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1172327AFBD0CF0947468A /* CatalystRuntimeStubs.swift */; };
 		2A0D5F4749DADFCD128AE0E2 /* UltrasonicReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97B8D236FEDF8F743D857C5 /* UltrasonicReader.swift */; };
-		2AA2A1B16471F43F1BEC3C7B /* LitterWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = BC1E299971F413437A6180D0 /* LitterWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2AC9CF710AAC599B03215B36 /* ToolCallMessageParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03425A33EF523B27A338F941 /* ToolCallMessageParserTests.swift */; };
 		2B9DD5A54D6958BFE4369B38 /* ConversationComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F91259F006987853B6929F /* ConversationComposerTextView.swift */; };
 		2C1E2164BB03C57BDC4151EA /* kanagawa-lotus.json in Resources */ = {isa = PBXBuildFile; fileRef = D2608C1F271D28BFEFBA5EFB /* kanagawa-lotus.json */; };
@@ -600,13 +599,6 @@
 			remoteGlobalIDString = A3D84F588EDBC1EA550D6691;
 			remoteInfo = Litter;
 		};
-		3A2504B1D85BCBAA74CD64C1 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = B5F70FFC94D335C17162EB35 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 3B991C03E72B1546CAD35698;
-			remoteInfo = LitterWatch;
-		};
 		720894D91C69A207B77509AC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = B5F70FFC94D335C17162EB35 /* Project object */;
@@ -631,17 +623,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		A13463EF26DE307699158028 /* Embed Watch Content */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			dstSubfolderSpec = 16;
-			files = (
-				2AA2A1B16471F43F1BEC3C7B /* LitterWatch.app in Embed Watch Content */,
-			);
-			name = "Embed Watch Content";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		D711EC2924CE758418892776 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1634,13 +1615,11 @@
 				5367EEFD6422750AE9FEF343 /* Resources */,
 				AA7F329456F40E8DD44D56A9 /* Frameworks */,
 				D711EC2924CE758418892776 /* Embed Foundation Extensions */,
-				A13463EF26DE307699158028 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				D9747756413DC5D5FD6BDE37 /* PBXTargetDependency */,
-				690A85D719693BF7C16A6E99 /* PBXTargetDependency */,
 			);
 			name = Litter;
 			packageProductDependencies = (
@@ -2408,11 +2387,6 @@
 			isa = PBXTargetDependency;
 			target = C0C98C6012493B73CDD5AD6E /* LitterWatchComplications */;
 			targetProxy = 720894D91C69A207B77509AC /* PBXContainerItemProxy */;
-		};
-		690A85D719693BF7C16A6E99 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 3B991C03E72B1546CAD35698 /* LitterWatch */;
-			targetProxy = 3A2504B1D85BCBAA74CD64C1 /* PBXContainerItemProxy */;
 		};
 		9E7E6ED488ADBB62F6CFB3AB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
