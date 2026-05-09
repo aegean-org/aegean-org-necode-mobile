@@ -40,6 +40,8 @@ struct ConversationView: View {
     let followScrollToken: Int
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
+    @Binding var composerInputText: String
+    @Binding var composerAttachedImage: UIImage?
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
     var onOpenConversation: ((ThreadKey) -> Void)? = nil
@@ -146,6 +148,8 @@ struct ConversationView: View {
                 ConversationBottomChrome(
                     pinnedContextItems: pinnedContextItems,
                     composer: composer,
+                    composerInputText: $composerInputText,
+                    composerAttachedImage: $composerAttachedImage,
                     onSend: sendMessage,
                     onFileSearch: searchComposerFiles,
                     bottomInset: bottomInset,
@@ -380,6 +384,8 @@ private struct ConversationBottomChrome: View {
     @Environment(AppModel.self) private var appModel
     let pinnedContextItems: [ConversationItem]
     let composer: ConversationComposerSnapshot
+    @Binding var composerInputText: String
+    @Binding var composerAttachedImage: UIImage?
     let onSend: (String, UIImage?, [SkillMentionSelection], [PluginMentionSelection]) -> Void
     let onFileSearch: (String) async throws -> [FileSearchResult]
     var bottomInset: CGFloat = 0
@@ -403,7 +409,9 @@ private struct ConversationBottomChrome: View {
                 showModeChip: !hasPinnedDiff,
                 onOpenModePicker: openCollaborationModePicker,
                 onOpenConversation: onOpenConversation,
-                onResumeSessions: onResumeSessions
+                onResumeSessions: onResumeSessions,
+                inputText: $composerInputText,
+                attachedImage: $composerAttachedImage
             )
             .background(.clear, ignoresSafeAreaEdges: .bottom)
         }
@@ -1354,13 +1362,13 @@ private struct ConversationInputBar: View {
     let onOpenConversation: ((ThreadKey) -> Void)?
     let onResumeSessions: ((String) -> Void)?
 
-    @State private var inputText = ""
+    @Binding var inputText: String
+    @Binding var attachedImage: UIImage?
     @State private var showAttachMenu = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var showFileImporter = false
     @State private var selectedPhoto: PhotosPickerItem?
-    @State private var attachedImage: UIImage?
     @State private var showSlashPopup = false
     @State private var activeSlashToken: ComposerSlashQueryContext?
     @State private var slashSuggestions: [ComposerSlashCommand] = []

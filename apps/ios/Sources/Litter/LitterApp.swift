@@ -400,6 +400,7 @@ struct ContentView: View {
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
 
     private var textScale: CGFloat {
@@ -496,7 +497,24 @@ struct ContentView: View {
             }
         }
         .onChange(of: colorScheme) { _, nextColorScheme in
+            // iOS toggles `colorScheme` while capturing light+dark
+            // app-switcher snapshots on background. Reacting to that
+            // bumps `themeManager.themeVersion`, which the navigation
+            // root uses as `.id(...)` and would tear down every
+            // in-flight @State (composer text, focus, scroll) every
+            // time the user switches apps. Only react when the scene
+            // is actually active — i.e., a real user theme toggle.
+            guard scenePhase == .active else { return }
             themeManager.syncSystemColorScheme(nextColorScheme)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Catch up to any colorScheme change that landed while we
+            // were inactive but represents a real user-driven theme
+            // toggle (e.g. system appearance changed in Settings while
+            // the app was backgrounded).
+            if newPhase == .active {
+                themeManager.syncSystemColorScheme(colorScheme)
+            }
         }
         .onChange(of: appModel.snapshot?.activeThread) { _, _ in
             appState.selectedModel = ""
@@ -1828,6 +1846,7 @@ private struct ConversationDestinationScreen: View {
     var body: some View {
         Group {
             if let conversationThread {
+                @Bindable var bindableScreenModel = screenModel
                 ConversationView(
                     thread: conversationThread,
                     activeThreadKey: resolvedThreadKey,
@@ -1835,6 +1854,8 @@ private struct ConversationDestinationScreen: View {
                     followScrollToken: screenModel.followScrollToken,
                     pinnedContextItems: screenModel.pinnedContextItems,
                     composer: screenModel.composer,
+                    composerInputText: $bindableScreenModel.composerInputText,
+                    composerAttachedImage: $bindableScreenModel.composerAttachedImage,
                     topInset: 0,
                     bottomInset: bottomInset,
                     onOpenConversation: onOpenConversation,
@@ -1944,6 +1965,7 @@ private struct ReplayDestinationScreen: View {
     var body: some View {
         Group {
             if let thread = conversationThread, let key = replayThreadKey {
+                @Bindable var bindableScreenModel = screenModel
                 ConversationView(
                     thread: thread,
                     activeThreadKey: key,
@@ -1951,6 +1973,8 @@ private struct ReplayDestinationScreen: View {
                     followScrollToken: screenModel.followScrollToken,
                     pinnedContextItems: screenModel.pinnedContextItems,
                     composer: screenModel.composer,
+                    composerInputText: $bindableScreenModel.composerInputText,
+                    composerAttachedImage: $bindableScreenModel.composerAttachedImage,
                     topInset: 0,
                     bottomInset: bottomInset,
                     onOpenConversation: nil,

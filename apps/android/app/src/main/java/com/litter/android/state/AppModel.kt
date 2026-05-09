@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -62,6 +63,25 @@ class AppModel private constructor(context: android.content.Context) {
         val threadKey: ThreadKey,
         val text: String,
     )
+
+    /**
+     * Live composer draft (typed-but-unsent text plus any pasted/picked
+     * attachment) for a thread. Cached on `AppModel` so the draft survives
+     * `ComposerBar` recomposition / view-tree teardown when the user
+     * backgrounds the app — otherwise the local `remember { mutableStateOf }`
+     * inside `ComposerBar` is dropped and the user's text disappears.
+     */
+    data class ComposerDraft(
+        val text: String = "",
+        val attachment: ComposerImageAttachment? = null,
+    ) {
+        val isEmpty: Boolean
+            get() = text.isEmpty() && attachment == null
+
+        companion object {
+            val EMPTY = ComposerDraft()
+        }
+    }
 
     companion object {
         private var _instance: AppModel? = null
@@ -180,6 +200,32 @@ class AppModel private constructor(context: android.content.Context) {
         if (_composerPrefillRequest.value?.requestId == requestId) {
             _composerPrefillRequest.value = null
         }
+    }
+
+    // --- Live composer drafts (per-thread typed-but-unsent text + attachment)
+
+    private val _composerDrafts = MutableStateFlow<Map<ThreadKey, ComposerDraft>>(emptyMap())
+    val composerDrafts: StateFlow<Map<ThreadKey, ComposerDraft>> = _composerDrafts.asStateFlow()
+
+    fun composerDraft(threadKey: ThreadKey): ComposerDraft =
+        _composerDrafts.value[threadKey] ?: ComposerDraft.EMPTY
+
+    fun setComposerDraft(threadKey: ThreadKey, draft: ComposerDraft) {
+        _composerDrafts.update { current ->
+            if (draft.isEmpty) {
+                if (threadKey in current) current - threadKey else current
+            } else {
+                current + (threadKey to draft)
+            }
+        }
+    }
+
+    fun updateComposerDraft(threadKey: ThreadKey, transform: (ComposerDraft) -> ComposerDraft) {
+        setComposerDraft(threadKey, transform(composerDraft(threadKey)))
+    }
+
+    fun clearComposerDraft(threadKey: ThreadKey) {
+        setComposerDraft(threadKey, ComposerDraft.EMPTY)
     }
 
     // --- Thinking-indicator minigame -----------------------------------------

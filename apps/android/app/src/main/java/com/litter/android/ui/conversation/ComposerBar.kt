@@ -83,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
+import com.litter.android.state.AppModel
 import com.litter.android.state.ComposerImageAttachment
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.VoiceTranscriptionManager
@@ -163,9 +164,24 @@ fun ComposerBar(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val composerPrefillRequest by appModel.composerPrefillRequest.collectAsState()
-    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    // Hydrate the live composer state from `AppModel`'s per-thread draft so
+    // it survives ComposerBar recomposition / view-tree teardown when the
+    // user backgrounds the app. `remember(threadKey)` re-initializes when
+    // navigating to a different thread; subsequent edits write back.
+    var textFieldValue by remember(threadKey) {
+        val saved = appModel.composerDraft(threadKey).text
+        mutableStateOf(TextFieldValue(saved, selection = TextRange(saved.length)))
+    }
     val text = textFieldValue.text
-    var attachedImage by remember { mutableStateOf<ComposerImageAttachment?>(null) }
+    var attachedImage by remember(threadKey) {
+        mutableStateOf(appModel.composerDraft(threadKey).attachment)
+    }
+    LaunchedEffect(threadKey, text, attachedImage) {
+        appModel.setComposerDraft(
+            threadKey,
+            AppModel.ComposerDraft(text = text, attachment = attachedImage),
+        )
+    }
     var showAttachMenu by remember { mutableStateOf(false) }
     var showExpanded by remember { mutableStateOf(false) }
     val inlineFocusRequester = remember { FocusRequester() }
