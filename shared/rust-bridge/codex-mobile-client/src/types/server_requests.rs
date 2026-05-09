@@ -500,6 +500,7 @@ impl TryFrom<AppListThreadTurnsRequest> for upstream::ThreadTurnsListParams {
             cursor: value.cursor,
             limit: value.limit,
             sort_direction: value.sort_direction.map(Into::into),
+            items_view: None,
         })
     }
 }
@@ -727,7 +728,6 @@ impl From<AppListSkillsRequest> for upstream::SkillsListParams {
         Self {
             cwds: value.cwds.into_iter().map(PathBuf::from).collect(),
             force_reload: value.force_reload,
-            per_cwd_extra_user_roots: None,
         }
     }
 }

@@ -2210,6 +2210,7 @@ impl MobileClient {
             cursor,
             limit,
             sort_direction: Some(upstream::SortDirection::Desc),
+            items_view: None,
         };
         let request = upstream::ClientRequest::ThreadTurnsList {
             request_id: upstream::RequestId::Integer(crate::next_request_id()),
