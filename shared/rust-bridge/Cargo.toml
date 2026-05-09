@@ -52,7 +52,10 @@ shlex = "1"
 
 [profile.release]
 strip = true
-lto = true
+lto = "fat"
+opt-level = "z"
+codegen-units = 1
+panic = "abort"
 
 # Used by the iOS fast lanes (`--fast-device`, `--fast-sim`).
 # `debug = 1` emits line tables only — crashes still resolve to file:line,
