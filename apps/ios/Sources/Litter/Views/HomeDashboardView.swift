@@ -344,22 +344,18 @@ struct HomeDashboardView: View {
         .accessibilityLabel("Zoom")
     }
 
-    /// The sidebar chrome on Catalyst sits inside SwiftUI's
-    /// `NavigationSplitView` sidebar column, which renders Liquid Glass
-    /// automatically. Painting the gradient on top would clobber that
-    /// material, so we punch to `.clear` for that case only. Everywhere
-    /// else the dashboard owns its own gradient backdrop.
+    /// The sidebar chrome on a Mac (Catalyst or iOS-on-Mac) sits inside
+    /// SwiftUI's `NavigationSplitView` sidebar column, which renders
+    /// Liquid Glass automatically. Painting the gradient on top would
+    /// clobber that material, so we punch to `.clear` for that case
+    /// only. Everywhere else the dashboard owns its own gradient backdrop.
     @ViewBuilder
     private var dashboardBackground: some View {
-        #if targetEnvironment(macCatalyst)
-        if chrome == .sidebar {
+        if LitterPlatform.rendersAsMacApp && chrome == .sidebar {
             Color.clear
         } else {
             LitterTheme.backgroundGradient.ignoresSafeArea()
         }
-        #else
-        LitterTheme.backgroundGradient.ignoresSafeArea()
-        #endif
     }
 
     private var canvas: some View {

@@ -29,10 +29,12 @@ struct AlleycatAddServerSheet: View {
     @State private var showScanner = false
     @State private var didRequestInitialScan = false
     @State private var cameraDenied = false
-    #if targetEnvironment(macCatalyst) || DEBUG
+    // pasteJSON / showPaste are used by the Mac paste-JSON UI
+    // (Catalyst + iOS-on-Mac) and the iOS DEBUG disclosure group.
+    // Keep them declared unconditionally so the runtime branch in
+    // `pairingSection` compiles on every platform.
     @State private var pasteJSON: String = ""
     @State private var showPaste: Bool = false
-    #endif
 
     private let alleycat = RustAlleycatBridge.shared
 
@@ -81,7 +83,10 @@ struct AlleycatAddServerSheet: View {
         .onAppear {
             requestInitialScanIfNeeded()
         }
-        #if !targetEnvironment(macCatalyst)
+        // QR scanner cover + camera-denied alert are applied
+        // unconditionally; on Mac builds (Catalyst + iOS-on-Mac) the
+        // pairing section never triggers `requestCameraAndScan`, so
+        // neither presentation ever fires.
         .fullScreenCover(isPresented: $showScanner) {
             QRScannerScreen(
                 onScan: { scanned in
@@ -111,116 +116,127 @@ struct AlleycatAddServerSheet: View {
                 Text("Allow camera access in Settings to scan an Alleycat pairing QR code.")
             }
         )
-        #endif
     }
 
     private func requestInitialScanIfNeeded() {
-        #if targetEnvironment(macCatalyst)
-        return
-        #else
+        guard !LitterPlatform.rendersAsMacApp else { return }
         guard startScanningOnAppear, !didRequestInitialScan, parsedParams == nil else { return }
         didRequestInitialScan = true
         Task { @MainActor in
             await Task.yield()
             requestCameraAndScan()
         }
-        #endif
     }
 
     private var pairingSection: some View {
         Section {
-            #if targetEnvironment(macCatalyst)
-            Text("Run \(Self.pairCommandLabel) on the host you want to connect to, then paste the JSON it prints below.")
-                .litterFont(.caption)
-                .foregroundColor(LitterTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            TextEditor(text: $pasteJSON)
-                .litterFont(.caption)
-                .foregroundColor(LitterTheme.textPrimary)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 110)
-                .overlay(alignment: .topLeading) {
-                    if pasteJSON.isEmpty {
-                        Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
-                            .litterFont(.caption)
-                            .foregroundColor(LitterTheme.textMuted)
-                            .padding(.top, 8)
-                            .padding(.leading, 4)
-                            .allowsHitTesting(false)
-                    }
-                }
-
-            HStack {
-                Button("Paste from Clipboard") {
-                    if let clipboard = UIPasteboard.general.string {
-                        pasteJSON = clipboard
-                    }
-                }
-                .litterFont(.footnote)
-                .foregroundColor(LitterTheme.accent)
-
-                Spacer()
-
-                Button(parsedParams == nil ? "Parse JSON" : "Reparse JSON") {
-                    handleScannedPayload(pasteJSON)
-                }
-                .litterFont(.footnote)
-                .foregroundColor(LitterTheme.accent)
-                .disabled(pasteJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            // Mac (Catalyst + iOS-on-Mac) shows paste-JSON only — the
+            // QR scanner UX is awkward on a desktop-class display, and
+            // the host running `npx kittylitter` already prints the JSON
+            // payload. iOS shows the QR scanner with a DEBUG-only paste
+            // disclosure for testing.
+            if LitterPlatform.rendersAsMacApp {
+                pasteJSONPairingControls
+            } else {
+                qrPairingControls
             }
-            #else
-            Button {
-                requestCameraAndScan()
-            } label: {
-                HStack {
-                    Image(systemName: "qrcode.viewfinder")
-                        .foregroundColor(LitterTheme.accent)
-                    Text(parsedParams == nil ? "Scan Pairing QR" : "Rescan QR")
-                        .litterFont(.subheadline)
-                        .foregroundColor(LitterTheme.accent)
-                }
-            }
-
-            #if DEBUG
-            DisclosureGroup(
-                isExpanded: $showPaste,
-                content: {
-                    TextEditor(text: $pasteJSON)
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textPrimary)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 90)
-                        .overlay(alignment: .topLeading) {
-                            if pasteJSON.isEmpty {
-                                Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
-                                    .litterFont(.caption)
-                                    .foregroundColor(LitterTheme.textMuted)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 4)
-                                    .allowsHitTesting(false)
-                            }
-                        }
-                    Button("Parse JSON") {
-                        handleScannedPayload(pasteJSON)
-                    }
-                    .litterFont(.footnote)
-                    .foregroundColor(LitterTheme.accent)
-                    .disabled(pasteJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                },
-                label: {
-                    Text("Paste JSON (debug)")
-                        .litterFont(.footnote)
-                        .foregroundColor(LitterTheme.textSecondary)
-                }
-            )
-            #endif
-            #endif
         } header: {
             Text("Pairing")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
+    }
+
+    @ViewBuilder
+    private var pasteJSONPairingControls: some View {
+        Text("Run \(Self.pairCommandLabel) on the host you want to connect to, then paste the JSON it prints below.")
+            .litterFont(.caption)
+            .foregroundColor(LitterTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        TextEditor(text: $pasteJSON)
+            .litterFont(.caption)
+            .foregroundColor(LitterTheme.textPrimary)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 110)
+            .overlay(alignment: .topLeading) {
+                if pasteJSON.isEmpty {
+                    Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textMuted)
+                        .padding(.top, 8)
+                        .padding(.leading, 4)
+                        .allowsHitTesting(false)
+                }
+            }
+
+        HStack {
+            Button("Paste from Clipboard") {
+                if let clipboard = UIPasteboard.general.string {
+                    pasteJSON = clipboard
+                }
+            }
+            .litterFont(.footnote)
+            .foregroundColor(LitterTheme.accent)
+
+            Spacer()
+
+            Button(parsedParams == nil ? "Parse JSON" : "Reparse JSON") {
+                handleScannedPayload(pasteJSON)
+            }
+            .litterFont(.footnote)
+            .foregroundColor(LitterTheme.accent)
+            .disabled(pasteJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var qrPairingControls: some View {
+        Button {
+            requestCameraAndScan()
+        } label: {
+            HStack {
+                Image(systemName: "qrcode.viewfinder")
+                    .foregroundColor(LitterTheme.accent)
+                Text(parsedParams == nil ? "Scan Pairing QR" : "Rescan QR")
+                    .litterFont(.subheadline)
+                    .foregroundColor(LitterTheme.accent)
+            }
+        }
+
+        #if DEBUG
+        DisclosureGroup(
+            isExpanded: $showPaste,
+            content: {
+                TextEditor(text: $pasteJSON)
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 90)
+                    .overlay(alignment: .topLeading) {
+                        if pasteJSON.isEmpty {
+                            Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textMuted)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                Button("Parse JSON") {
+                    handleScannedPayload(pasteJSON)
+                }
+                .litterFont(.footnote)
+                .foregroundColor(LitterTheme.accent)
+                .disabled(pasteJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            },
+            label: {
+                Text("Paste JSON (debug)")
+                    .litterFont(.footnote)
+                    .foregroundColor(LitterTheme.textSecondary)
+            }
+        )
+        #endif
     }
 
     private static let pairCommandLabel = "npx kittylitter"

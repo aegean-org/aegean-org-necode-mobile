@@ -992,12 +992,12 @@ final class HomeRowContainer: UIView {
         // pinch. Starts with `effect = nil` (no blur) and scrubs up
         // to a thin material blur as zoom progresses.
         //
-        // Catalyst skips this entirely: UIBlurEffect bridges to
-        // NSVisualEffectView on macOS and does not honor a paused
-        // animator at fractionComplete=0 — it renders the full
-        // material instead of nothing, so the blur sits over every
-        // row obscuring all content. No pinch gesture on Catalyst
-        // anyway, so the whole pipeline is unused there.
+        // Skipped whenever we render as a Mac app (Catalyst OR iOS-on-Mac):
+        // UIBlurEffect bridges to NSVisualEffectView and does not honor a
+        // paused animator at fractionComplete=0 — it renders the full
+        // material instead of nothing, so the blur sits over every row
+        // obscuring all content. No pinch gesture in Mac modes anyway,
+        // so the whole pipeline is unused there.
         //
         // iOS Reduce Transparency has the same practical failure mode:
         // system material can collapse to an opaque fallback over the
@@ -1005,15 +1005,15 @@ final class HomeRowContainer: UIView {
         // safe behavior is no blur overlay at all.
         pinchBlur.isUserInteractionEnabled = false
         pinchBlur.alpha = 1
-        #if !targetEnvironment(macCatalyst)
-        updatePinchBlurAvailability()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(reduceTransparencyDidChange),
-            name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
-            object: nil
-        )
-        #endif
+        if !LitterPlatform.rendersAsMacApp {
+            updatePinchBlurAvailability()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(reduceTransparencyDidChange),
+                name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+                object: nil
+            )
+        }
 
         // Pinch highlight — subtle accent tint over the anchor row
         // while a pinch is live. Fades in on `.began`, tracks the
@@ -1036,17 +1036,16 @@ final class HomeRowContainer: UIView {
         // (running or paused). We hold it paused-active for
         // `fractionComplete` scrubbing, so terminate it explicitly here.
         fadeLink?.invalidate()
-        #if !targetEnvironment(macCatalyst)
-        NotificationCenter.default.removeObserver(
-            self,
-            name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
-            object: nil
-        )
-        tearDownPinchBlurAnimator()
-        #endif
+        if !LitterPlatform.rendersAsMacApp {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+                object: nil
+            )
+            tearDownPinchBlurAnimator()
+        }
     }
 
-    #if !targetEnvironment(macCatalyst)
     @objc private func reduceTransparencyDidChange() {
         updatePinchBlurAvailability()
         setNeedsLayout()
@@ -1079,7 +1078,6 @@ final class HomeRowContainer: UIView {
         animator.finishAnimation(at: .current)
         pinchBlurAnimator = nil
     }
-    #endif
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -1194,10 +1192,9 @@ final class HomeRowContainer: UIView {
     private static let pinchBlurCeiling: CGFloat = 0.5
     private static let pinchBlurExponent: CGFloat = 2.8
     func setPinchBlurProgress(_ progress: CGFloat) {
-        #if targetEnvironment(macCatalyst)
-        // Catalyst doesn't install the pinch-blur view (see init).
-        return
-        #else
+        // Mac modes (Catalyst + iOS-on-Mac) don't install the
+        // pinch-blur view (see init).
+        if LitterPlatform.rendersAsMacApp { return }
         guard !UIAccessibility.isReduceTransparencyEnabled else {
             pinchBlur.removeFromSuperview()
             pinchBlur.effect = nil
@@ -1214,7 +1211,6 @@ final class HomeRowContainer: UIView {
         // blur abruptly vanished.
         let eased = pow(p, Self.pinchBlurExponent) * Self.pinchBlurCeiling
         pinchBlurAnimator.fractionComplete = max(0, min(0.999, eased))
-        #endif
     }
 
     /// No-op kept for the scroll host's `.began` call site; the
@@ -1225,9 +1221,7 @@ final class HomeRowContainer: UIView {
     /// a CADisplayLink-driven tween because UIViewPropertyAnimator's
     /// `fractionComplete` can't be animated with `UIView.animate`.
     func fadeOutPinchBlur(duration: TimeInterval = 0.25) {
-        #if targetEnvironment(macCatalyst)
-        return
-        #else
+        if LitterPlatform.rendersAsMacApp { return }
         guard !UIAccessibility.isReduceTransparencyEnabled,
               let pinchBlurAnimator else {
             fadeLink?.invalidate()
@@ -1252,7 +1246,6 @@ final class HomeRowContainer: UIView {
         }, selector: #selector(PinchBlurFadeTarget.tick))
         link.add(to: .main, forMode: .common)
         fadeLink = link
-        #endif
     }
 
     /// Set the highlight opacity directly (0–1). Used during a live

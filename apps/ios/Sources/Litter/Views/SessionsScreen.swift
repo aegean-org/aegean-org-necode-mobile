@@ -367,9 +367,11 @@ struct SessionsScreen: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .disabled(isStartingNewSession)
-        #if !targetEnvironment(macCatalyst)
-        .keyboardShortcut("n", modifiers: [.command])
-        #endif
+        // Mac builds (Catalyst + iOS-on-Mac) bind Cmd+N at the menu
+        // level via `MacCommands`; the in-view shortcut would either
+        // double-bind (Catalyst) or be the only binding (iOS-on-Mac
+        // doesn't get menus, so we keep it on then).
+        .keyboardShortcut(LitterPlatform.isCatalyst ? nil : KeyboardShortcut("n", modifiers: [.command]))
         .accessibilityIdentifier("sessions.newSessionButton")
         .padding(isRegularSurface ? 12 : 16)
     }
