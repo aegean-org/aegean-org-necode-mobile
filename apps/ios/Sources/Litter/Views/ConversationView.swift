@@ -259,10 +259,28 @@ struct ConversationView: View {
         appModel.snapshot?.resolvedAgentTargetLabel(for: target, serverId: activeThreadKey.serverId)
     }
 
+    /// Resolve the user-message position in the currently-loaded transcript.
+    /// `forkThreadFromMessage` / `editMessage` on the Rust side expect an
+    /// index into `thread.items` filtered to user messages — see
+    /// `rollback_depth_for_turn` in `mobile_client/thread_projection.rs`.
+    /// Recomputing from the live `items` keeps the index correct under
+    /// pagination (older turns can shift positions; cached `sourceTurnIndex`
+    /// from a prior hydrate would be stale).
+    private func loadedUserItemIndex(for item: ConversationItem) -> Int? {
+        var idx = 0
+        for candidate in items {
+            guard candidate.isUserItem else { continue }
+            if candidate.id == item.id { return idx }
+            idx += 1
+        }
+        return nil
+    }
+
     private func editMessage(_ item: ConversationItem) {
         Task {
             do {
-                guard let selectedTurnIndex = item.sourceTurnIndex, item.isUserItem, item.isFromUserTurnBoundary else {
+                guard item.isUserItem, item.isFromUserTurnBoundary,
+                      let selectedTurnIndex = loadedUserItemIndex(for: item) else {
                     throw NSError(
                         domain: "Litter",
                         code: 1020,
@@ -283,7 +301,8 @@ struct ConversationView: View {
     private func forkFromMessage(_ item: ConversationItem) {
         Task {
             do {
-                guard let selectedTurnIndex = item.sourceTurnIndex, item.isUserItem, item.isFromUserTurnBoundary else {
+                guard item.isUserItem, item.isFromUserTurnBoundary,
+                      let selectedTurnIndex = loadedUserItemIndex(for: item) else {
                     throw NSError(
                         domain: "Litter",
                         code: 1016,

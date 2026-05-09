@@ -1869,10 +1869,19 @@ impl MobileClient {
     }
 
     /// Force a fresh `thread/resume` against the server even if a direct
-    /// listener was already attached for the current session, and pull
-    /// down the embedded turn list (`exclude_turns: false`) so
-    /// `reconcile_active_turn` can clear a locally-cached `active_turn_id`
-    /// that finished while the client was disconnected.
+    /// listener was already attached for the current session, and feed
+    /// `reconcile_active_turn` enough turn-status info to clear a
+    /// locally-cached `active_turn_id` whose underlying turn has finished
+    /// while the client was disconnected.
+    ///
+    /// On paginated remotes (`supports_turn_pagination`) the resume runs
+    /// with `exclude_turns: true` and a small follow-up
+    /// `thread/turns/list?limit=5&items_view=notLoaded` query supplies the
+    /// turn skeletons for reconcile — pulling the entire embedded turn
+    /// archive here would OOM mobile clients on long threads. Legacy
+    /// remotes that don't implement `thread/turns/list` still pull the
+    /// embedded turn list (`exclude_turns: false`), since there is no
+    /// other way to learn turn status there.
     ///
     /// Use after a long resume / push wake — the in-flight turn the
     /// client believes is still running may have completed during the
@@ -1995,18 +2004,32 @@ impl MobileClient {
 
         let mut lookup_errors = Vec::new();
         for runtime_kind in runtime_candidates.iter().copied() {
-            // For the authoritative refresh path, force `exclude_turns: false`
-            // so the response carries the embedded turn list. That is the
-            // signal `reconcile_active_turn` needs to clear a stale
-            // `active_turn_id` whose turn has already completed server-side.
-            let exclude_turns = !force_authoritative
-                && self.app_store.server_supports_turn_pagination(server_id);
+            let supports_pagination =
+                self.app_store.server_supports_turn_pagination(server_id);
+            // Paginated servers always exclude turns from the resume
+            // response; we never want to pull the full embedded archive,
+            // even on the authoritative refresh path — for huge threads
+            // that response can be hundreds of MB and OOMs the device.
+            // For the authoritative refresh path on paginated servers we
+            // run a separate small `thread/turns/list` probe below to give
+            // `reconcile_active_turn` the turn-status info it needs to
+            // clear a stale local `active_turn_id`.
+            // Legacy servers that do not implement `thread/turns/list`
+            // still need the embedded turn list, since there is no other
+            // way to learn turn status — so `exclude_turns=false` there.
+            let exclude_turns = supports_pagination;
             match self
                 .resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, exclude_turns)
                 .await
             {
                 Ok(()) => {
                     self.note_thread_runtime(key.clone(), runtime_kind);
+                    if force_authoritative && supports_pagination {
+                        self.reconcile_active_turn_via_turn_list_probe(
+                            server_id, thread_id, &key,
+                        )
+                        .await;
+                    }
                     return Ok(());
                 }
                 Err(error) if should_try_next_runtime_after_thread_lookup_error(&error) => {
@@ -2161,6 +2184,67 @@ impl MobileClient {
         self.app_store.upsert_thread_snapshot(snapshot);
         self.mark_direct_resumed_thread(key.clone());
         Ok(())
+    }
+
+    /// On the authoritative refresh path (`force_refresh_thread_authoritative`)
+    /// for paginated remotes, run a small `thread/turns/list` query that
+    /// returns turn skeletons only (no item bodies). The result is fed into
+    /// `reconcile_active_turn` so a locally-cached `active_turn_id` whose
+    /// underlying turn has already completed server-side gets cleared, even
+    /// though we asked the resume to skip the embedded turn list. Failures
+    /// here are logged and ignored — the worst case is a transient stale
+    /// active-turn indicator until the next streamed event arrives.
+    async fn reconcile_active_turn_via_turn_list_probe(
+        &self,
+        server_id: &str,
+        thread_id: &str,
+        key: &ThreadKey,
+    ) {
+        const PROBE_LIMIT: u32 = 5;
+        let request = upstream::ClientRequest::ThreadTurnsList {
+            request_id: upstream::RequestId::Integer(crate::next_request_id()),
+            params: upstream::ThreadTurnsListParams {
+                thread_id: thread_id.to_string(),
+                cursor: None,
+                limit: Some(PROBE_LIMIT),
+                sort_direction: Some(upstream::SortDirection::Desc),
+                items_view: Some(upstream::TurnItemsView::NotLoaded),
+            },
+        };
+        let response = match self
+            .request_typed_for_server::<upstream::ThreadTurnsListResponse>(server_id, request)
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                if is_method_not_found(&error) {
+                    // Server unexpectedly does not implement
+                    // `thread/turns/list` — flip the capability flag so
+                    // future calls don't re-attempt and skip reconcile.
+                    self.app_store
+                        .set_server_supports_turn_pagination(server_id, false);
+                } else {
+                    warn!(
+                        "force_authoritative: turn-list probe failed server={} thread={} error={}",
+                        server_id, thread_id, error
+                    );
+                }
+                return;
+            }
+        };
+        let Some(existing) = self.app_store.thread_snapshot(key) else {
+            return;
+        };
+        let mut target = existing.clone();
+        // Clear the field on the target so reconcile_active_turn can decide
+        // whether to restore it from `existing` based on the turn list.
+        target.active_turn_id = None;
+        reconcile_active_turn(Some(&existing), &mut target, &response.data);
+        if target.active_turn_id != existing.active_turn_id
+            || target.info.status != existing.info.status
+        {
+            self.app_store.upsert_thread_snapshot(target);
+        }
     }
 
     /// Composite action: page a thread's older turns via `thread/turns/list`

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hasher};
 use std::path::PathBuf;
 use std::sync::RwLock;
 
@@ -49,6 +50,31 @@ const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
 const USER_INPUT_OTHER_OPTION_LABEL: &str = "None of the above";
 const LOCAL_USER_MESSAGE_ITEM_PREFIX: &str = "local-user-message:";
 
+/// Compute a 64-bit fingerprint of a projected `HydratedConversationItem`
+/// suitable for redundant-emit dedup in `emit_thread_item_changed`. Streams
+/// the item's serde representation directly into the hasher so we never
+/// retain a full clone of the item alongside the canonical store copy.
+///
+/// A u64 collision would only cost us a single skipped `ThreadItemChanged`
+/// emit (followed immediately by another differing fingerprint on the next
+/// delta), which is acceptable at our item counts.
+fn item_fingerprint(item: &HydratedConversationItem) -> u64 {
+    struct HashWriter<'a>(&'a mut DefaultHasher);
+    impl std::io::Write for HashWriter<'_> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.write(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut hasher = DefaultHasher::new();
+    serde_json::to_writer(HashWriter(&mut hasher), item)
+        .expect("HydratedConversationItem Serialize impl is infallible");
+    hasher.finish()
+}
+
 fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInfo> {
     let mut indexes_by_kind: HashMap<AgentRuntimeKind, usize> = HashMap::new();
     let mut deduped: Vec<AgentRuntimeInfo> = Vec::new();
@@ -77,7 +103,12 @@ pub struct AppStoreReducer {
             ),
         >,
     >,
-    last_thread_item_upserts: RwLock<HashMap<(ThreadKey, String), HydratedConversationItem>>,
+    /// Per-(thread, item_id) fingerprint of the last emitted projected item,
+    /// used to skip redundant `ThreadItemChanged` emits. Storing a u64 hash
+    /// instead of the item itself avoids a long-lived second copy of every
+    /// item in memory — on a 5k-item streaming thread that doubled the
+    /// canonical `ThreadSnapshot.items` heap footprint.
+    last_thread_item_upserts: RwLock<HashMap<(ThreadKey, String), u64>>,
     /// Per-call-id running buffer of streaming `dynamic_tool_call` argument
     /// JSON. Keyed by `(thread_key, call_id)`. Entries are cleared when the
     /// call completes or fails (via `ItemCompleted` on the matching
@@ -579,6 +610,7 @@ impl AppStoreReducer {
                 preserve_thread_title(&existing.info, &mut thread.info);
                 preserve_thread_preview(&existing.info, &mut thread.info);
                 preserve_thread_created_at(&existing.info, &mut thread.info);
+                preserve_thread_fork_lineage(&existing.info, &mut thread.info);
                 preserve_thread_runtime_state(existing, &mut thread);
                 if thread.agent_runtime_kind == AgentRuntimeKind::Codex
                     && existing.agent_runtime_kind != AgentRuntimeKind::Codex
@@ -2393,21 +2425,22 @@ impl AppStoreReducer {
             let snapshot = self.snapshot.read().expect("app store lock poisoned");
             project_hydrated_item(&snapshot, &key.server_id, &item)
         };
+        let fingerprint = item_fingerprint(&item);
         let cache_key = (key.clone(), item.id.clone());
         {
             let mut cache = self
                 .last_thread_item_upserts
                 .write()
                 .expect("thread item cache lock poisoned");
-            if cache.get(&cache_key).is_some_and(|cached| cached == &item) {
+            if cache.get(&cache_key) == Some(&fingerprint) {
                 return;
             }
-            cache.insert(cache_key, item.clone());
+            cache.insert(cache_key, fingerprint);
         }
         let session_summary = self.compute_session_summary(key);
         self.emit(AppStoreUpdateRecord::ThreadItemChanged {
             key: key.clone(),
-            item: HydratedConversationItem::from(item),
+            item,
             session_summary,
         });
     }
@@ -3210,6 +3243,26 @@ fn preserve_thread_created_at(existing: &ThreadInfo, incoming: &mut ThreadInfo) 
     }
 }
 
+/// Fork lineage and sub-agent parent are immutable for the lifetime of a
+/// thread — once known, they don't change. Older `thread/list` responses
+/// (and some upstream snapshot paths) omit them, so without this guard a
+/// later list-page upsert silently wipes a fork relationship learned via
+/// an earlier `thread/read`. Mirrors `preserve_thread_title`.
+fn preserve_thread_fork_lineage(existing: &ThreadInfo, incoming: &mut ThreadInfo) {
+    let is_blank = |value: &Option<String>| -> bool {
+        value
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+    };
+    if is_blank(&incoming.forked_from_id) && !is_blank(&existing.forked_from_id) {
+        incoming.forked_from_id = existing.forked_from_id.clone();
+    }
+    if is_blank(&incoming.parent_thread_id) && !is_blank(&existing.parent_thread_id) {
+        incoming.parent_thread_id = existing.parent_thread_id.clone();
+    }
+}
+
 fn preserve_queued_follow_ups(source: &ThreadSnapshot, target: &mut ThreadSnapshot) {
     if target.queued_follow_ups.is_empty() {
         target.queued_follow_ups = source.queued_follow_ups.clone();
@@ -3386,6 +3439,7 @@ mod tests {
             agent_nickname: None,
             agent_role: None,
             parent_thread_id: None,
+            forked_from_id: None,
             agent_status: None,
             created_at: None,
             updated_at: None,

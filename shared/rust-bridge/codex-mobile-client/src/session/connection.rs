@@ -1557,7 +1557,11 @@ fn route_app_server_event(
 ) {
     match event {
         AppServerEvent::ServerNotification(notification) => {
-            info!("remote event notification {:?}", notification);
+            // Log only the variant kind (via strum Display) — formatting the
+            // full `{:?}` body is a per-event allocation in the hundreds of KB
+            // for hot variants like `TurnDiffUpdated` and was contributing to
+            // memory pressure during streaming.
+            info!("remote event notification {}", notification);
             let _ = event_tx.send(ServerEvent::Notification {
                 runtime_kind,
                 notification: notification.clone(),

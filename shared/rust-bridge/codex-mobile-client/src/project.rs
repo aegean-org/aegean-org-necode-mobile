@@ -104,6 +104,7 @@ mod tests {
             model: "".into(),
             model_provider: "".into(),
             parent_thread_id: None,
+            forked_from_id: None,
             agent_nickname: None,
             agent_role: None,
             agent_display_label: None,
@@ -122,6 +123,7 @@ mod tests {
             last_turn_end_ms: None,
             stats: None,
             token_usage: None,
+            goal: None,
         }
     }
 

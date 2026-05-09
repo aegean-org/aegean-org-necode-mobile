@@ -407,7 +407,13 @@ pub struct AppSessionSummary {
     pub cwd: String,
     pub model: String,
     pub model_provider: String,
+    /// Sub-agent parent thread id. `None` for fork lineage; see
+    /// `forked_from_id` for that.
     pub parent_thread_id: Option<String>,
+    /// Source thread id when this thread was created by `forkThread` /
+    /// `forkThreadFromMessage`. Independent from `parent_thread_id`, which
+    /// is sub-agent-only.
+    pub forked_from_id: Option<String>,
     pub agent_nickname: Option<String>,
     pub agent_role: Option<String>,
     pub agent_display_label: Option<String>,
@@ -438,6 +444,7 @@ pub struct AppSessionSummary {
     // Stats (None when thread has no hydrated items)
     pub stats: Option<AppConversationStats>,
     pub token_usage: Option<AppTokenUsage>,
+    pub goal: Option<AppThreadGoal>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -663,6 +670,7 @@ pub(crate) fn empty_session_summary(key: ThreadKey) -> AppSessionSummary {
         model: String::new(),
         model_provider: String::new(),
         parent_thread_id: None,
+        forked_from_id: None,
         agent_nickname: None,
         agent_role: None,
         agent_display_label: None,
@@ -681,6 +689,7 @@ pub(crate) fn empty_session_summary(key: ThreadKey) -> AppSessionSummary {
         last_turn_end_ms: None,
         stats: None,
         token_usage: None,
+        goal: None,
     }
 }
 
@@ -703,13 +712,15 @@ pub(crate) fn app_session_summary(
             })
             .unwrap_or_else(|| "Untitled session".to_string())
     };
-    let parent_thread_id = thread
-        .info
-        .parent_thread_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    let sanitize_id = |value: &Option<String>| -> Option<String> {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let parent_thread_id = sanitize_id(&thread.info.parent_thread_id);
+    let forked_from_id = sanitize_id(&thread.info.forked_from_id);
     let has_agent_label = thread
         .info
         .agent_nickname
@@ -720,7 +731,11 @@ pub(crate) fn app_session_summary(
             .agent_role
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty());
-    let is_fork = parent_thread_id.is_some();
+    // Sub-agent: spawned by another thread (parent_thread_id) and tagged
+    // with an agent label. Fork: created via forkThread / forkThreadFromMessage
+    // (forked_from_id). The two are mutually exclusive in practice.
+    let is_subagent = parent_thread_id.is_some() && has_agent_label;
+    let is_fork = forked_from_id.is_some();
 
     // Derive conversation activity from hydrated items (if any).
     let activity = extract_conversation_activity(&thread.items);
@@ -745,6 +760,7 @@ pub(crate) fn app_session_summary(
             .unwrap_or_default(),
         model_provider: thread.info.model_provider.clone().unwrap_or_default(),
         parent_thread_id,
+        forked_from_id,
         agent_nickname: thread.info.agent_nickname.clone(),
         agent_role: thread.info.agent_role.clone(),
         agent_display_label: agent_display_label(
@@ -761,7 +777,7 @@ pub(crate) fn app_session_summary(
         updated_at: thread.info.updated_at,
         has_active_turn: thread_has_active_turn(thread),
         is_resumed: thread.is_resumed,
-        is_subagent: is_fork && has_agent_label,
+        is_subagent,
         is_fork,
         last_response_preview: activity.last_response,
         last_response_turn_id: activity.last_response_turn_id,
@@ -776,6 +792,7 @@ pub(crate) fn app_session_summary(
             Some(activity.stats)
         },
         token_usage: thread_token_usage(thread),
+        goal: thread.goal.clone(),
     }
 }
 
@@ -1500,6 +1517,7 @@ mod tests {
                 agent_nickname: None,
                 agent_role: None,
                 parent_thread_id: None,
+                forked_from_id: None,
                 agent_status: None,
                 created_at: None,
                 status: ThreadSummaryStatus::Idle,
@@ -1576,6 +1594,7 @@ mod tests {
                 agent_nickname: None,
                 agent_role: None,
                 parent_thread_id: None,
+                forked_from_id: None,
                 agent_status: None,
                 created_at: None,
                 status: ThreadSummaryStatus::Active,
@@ -1604,6 +1623,7 @@ mod tests {
                     agent_nickname: None,
                     agent_role: None,
                     parent_thread_id: None,
+                    forked_from_id: None,
                     agent_status: None,
                     created_at: None,
                     status: ThreadSummaryStatus::Idle,
@@ -1635,6 +1655,7 @@ mod tests {
                     agent_nickname: None,
                     agent_role: None,
                     parent_thread_id: None,
+                    forked_from_id: None,
                     agent_status: None,
                     created_at: None,
                     status: ThreadSummaryStatus::Idle,
@@ -1688,6 +1709,7 @@ mod tests {
                 agent_nickname: None,
                 agent_role: None,
                 parent_thread_id: None,
+                forked_from_id: None,
                 agent_status: None,
                 created_at: None,
                 status: ThreadSummaryStatus::Active,
@@ -1753,6 +1775,7 @@ mod tests {
                 agent_nickname: None,
                 agent_role: None,
                 parent_thread_id: None,
+                forked_from_id: None,
                 agent_status: None,
                 created_at: None,
                 status: ThreadSummaryStatus::Idle,
@@ -1820,6 +1843,7 @@ mod tests {
                 agent_nickname: None,
                 agent_role: None,
                 parent_thread_id: None,
+                forked_from_id: None,
                 agent_status: None,
                 created_at: None,
                 status: ThreadSummaryStatus::Active,
@@ -1929,6 +1953,7 @@ mod tests {
                 agent_nickname: None,
                 agent_role: None,
                 parent_thread_id: None,
+                forked_from_id: None,
                 agent_status: None,
                 created_at: None,
                 status: ThreadSummaryStatus::Idle,
@@ -2028,6 +2053,7 @@ mod tests {
             agent_nickname: None,
             agent_role: None,
             parent_thread_id: None,
+            forked_from_id: None,
             agent_status: None,
             created_at: None,
             updated_at: None,

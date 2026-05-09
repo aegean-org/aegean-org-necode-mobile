@@ -298,24 +298,47 @@ final class AppModel {
         return key
     }
 
-    /// Force a fresh `thread/resume` (with `excludeTurns: false`) so the
-    /// store reconciles `active_turn_id` against the server's authoritative
-    /// turn list. Use after a long resume / push wake — the in-flight turn
-    /// the local snapshot shows as running may have completed during the
-    /// background window with no `TurnCompleted` event delivered.
+    /// Force a fresh resume so the store reconciles `active_turn_id`
+    /// against the server's authoritative view. Use after a long resume /
+    /// push wake — the in-flight turn the local snapshot shows as running
+    /// may have completed during the background window with no
+    /// `TurnCompleted` event delivered.
+    ///
+    /// On v0.125+ remotes this runs `thread/resume` with
+    /// `excludeTurns: true` and then a tiny `thread/turns/list` probe
+    /// (`limit: 5`, `itemsView: notLoaded`) — turn skeletons only — to feed
+    /// `reconcile_active_turn`. Pulling the full embedded turn list here
+    /// would OOM on long threads. Legacy remotes that don't implement
+    /// `thread/turns/list` still get the embedded turn list via
+    /// `excludeTurns: false`, since there is no other way to learn turn
+    /// status there.
     func forceRefreshThreadAuthoritative(key: ThreadKey) async throws {
         try await store.forceRefreshThreadAuthoritative(key: key)
     }
 
     func refreshThreadIncludingTurns(key: ThreadKey) async throws -> ThreadKey {
         do {
+            // 1. Refresh thread metadata only — title, status, model,
+            //    active_turn_id, etc. The full historical turn list is
+            //    append-only on the server, so we don't need to re-pull it
+            //    here. Sending `include_turns: true` would have the server
+            //    reconstruct the entire rollout in one response, which is
+            //    unbounded and OOMs the device on long threads.
             let nextKey = try await client.readThread(
                 serverId: key.serverId,
                 params: AppReadThreadRequest(
                     threadId: key.threadId,
-                    includeTurns: true
+                    includeTurns: false
                 )
             )
+            // 2. Reload the most-recent N turns via the paginated path. On
+            //    v0.125+ remotes this hits `thread/turns/list` (bounded by
+            //    `initialTurnPageSize`). On older remotes that don't
+            //    implement `thread/turns/list`, the Rust client transparently
+            //    falls back to `thread/resume(excludeTurns: false)` which
+            //    pulls the embedded turn list — preserving the prior
+            //    reload-button behavior for legacy servers.
+            await loadInitialTurns(threadId: nextKey)
             if let threadSnapshot = try await store.threadSnapshot(key: nextKey) {
                 applyThreadSnapshot(threadSnapshot)
             } else {

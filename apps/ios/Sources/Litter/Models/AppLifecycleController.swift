@@ -233,10 +233,13 @@ final class AppLifecycleController {
         // idle has plausibly killed the path silently.
         await reconnectSavedServers(appModel: appModel)
         // refreshTrackedThreads uses the force-authoritative path so the
-        // server's response carries the embedded turn list — the only
-        // way `reconcile_active_turn` can clear an `active_turn_id` for
-        // a turn that completed during the background freeze (no
-        // `TurnCompleted` event was ever delivered to this client). The
+        // store reconciles `active_turn_id` against the server's view —
+        // the only way to clear a stale `active_turn_id` for a turn that
+        // completed during the background freeze (no `TurnCompleted`
+        // event was ever delivered to this client). On paginated remotes
+        // the resume runs with `excludeTurns: true` and a tiny
+        // `thread/turns/list` probe drives the reconcile; on legacy
+        // remotes the resume falls back to the embedded turn list. The
         // RPC also re-attaches the new `ConnectionId` to the per-thread
         // subscription set so subsequent live events route correctly.
         let reloadKeys = keys.filter { !shouldTrustLiveThreadState(for: $0, appModel: appModel) }
@@ -451,11 +454,12 @@ final class AppLifecycleController {
             // Force authoritative refresh: a turn that completed during a
             // long iOS suspension fired `TurnCompleted` while no client
             // connection was attached, so the local snapshot still shows
-            // the turn as in-progress. Without `exclude_turns: false` the
-            // resume returns no turn list and `reconcile_active_turn`
-            // can't clear the stale `active_turn_id` — leaving the user
-            // staring at a "thinking" spinner whose `turn/interrupt`
-            // attempts get rejected with "no active turn to interrupt".
+            // the turn as in-progress. The force-authoritative resume
+            // either pulls back a turn-status list — embedded on legacy
+            // remotes, via a tiny `thread/turns/list?items_view=notLoaded`
+            // probe on paginated remotes — and feeds it to
+            // `reconcile_active_turn`, which clears the stale
+            // `active_turn_id` so the "thinking" spinner doesn't hang.
             await refreshTrackedThreads(
                 appModel: appModel,
                 keys: Array(reloadKeys),
@@ -561,9 +565,10 @@ final class AppLifecycleController {
         // were dropped. The regular `reloadThread` short-circuits via
         // the direct-resume marker, so we'd keep showing the stale
         // active turn until the user manually refreshes. Force-
-        // authoritative bypasses both short-circuits and pulls back
-        // `exclude_turns: false`, which is what `reconcile_active_turn`
-        // needs to clear a stale `active_turn_id`.
+        // authoritative bypasses both short-circuits and feeds
+        // `reconcile_active_turn` from a turn-status list (embedded on
+        // legacy remotes; via a small `thread/turns/list` probe on
+        // paginated remotes — see `forceRefreshThreadAuthoritative`).
         if forceAuthoritative {
             LLog.info(
                 "lifecycle",

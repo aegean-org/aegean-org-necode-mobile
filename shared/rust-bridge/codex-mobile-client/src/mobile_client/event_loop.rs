@@ -107,8 +107,12 @@ impl MobileClient {
                                 ssh_client.abort_forward_port(tunnel.local_port).await;
                             }
                         }
+                        // Log the variant kind only — full `{:?}` bodies on
+                        // hot variants (TurnDiffUpdated, AgentMessageDelta,
+                        // CommandExecutionOutputDelta) allocate hundreds of
+                        // KB per event during streaming.
                         debug!(
-                            "event reader server_id={} notification={:?}",
+                            "event reader server_id={} notification={}",
                             server_id, notification
                         );
                         recorder.record_notification(&server_id, &notification);
@@ -125,9 +129,11 @@ impl MobileClient {
                         method,
                         params,
                     }) => {
+                        // Log only the method name — full params JSON can be
+                        // unbounded (e.g. large diffs / outputs).
                         debug!(
-                            "event reader server_id={} legacy_method={} params={}",
-                            server_id, method, params
+                            "event reader server_id={} legacy_method={}",
+                            server_id, method
                         );
                         processor.process_legacy_notification(&server_id, &method, &params);
                     }

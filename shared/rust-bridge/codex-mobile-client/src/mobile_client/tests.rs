@@ -44,6 +44,7 @@ mod mobile_client_tests {
             agent_nickname: None,
             agent_role: None,
             parent_thread_id: None,
+            forked_from_id: None,
             agent_status: None,
             created_at: Some(1),
             updated_at: Some(2),

@@ -1392,6 +1392,7 @@ private struct HomeNavigationView: View {
             },
             onSendReply: sendQuickReply,
             onCancelThread: cancelThread,
+            onForkThread: forkSessionFromHome,
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
@@ -1432,6 +1433,7 @@ private struct HomeNavigationView: View {
             },
             onSendReply: sendQuickReply,
             onCancelThread: cancelThread,
+            onForkThread: forkSessionFromHome,
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
@@ -1612,6 +1614,33 @@ private struct HomeNavigationView: View {
             params: AppArchiveThreadRequest(threadId: key.threadId)
         )
         await appModel.refreshThreadSnapshot(key: key)
+    }
+
+    /// Long-press → "Fork" on a home session card. Head-of-thread fork:
+    /// duplicates the full thread server-side (no rollback) and navigates
+    /// to the new copy. Mirrors `ConversationInfoView.forkConversation`.
+    @MainActor
+    private func forkSessionFromHome(_ session: HomeDashboardRecentSession) async {
+        let threadKey = session.key
+        do {
+            let sourceKey = await appModel.hydrateThreadPermissions(for: threadKey, appState: appState) ?? threadKey
+            let source = appModel.snapshot?.threadSnapshot(for: sourceKey)
+            let newKey = try await appModel.client.forkThread(
+                serverId: sourceKey.serverId,
+                params: AppThreadLaunchConfig(
+                    model: source?.model,
+                    approvalPolicy: appState.launchApprovalPolicy(for: sourceKey),
+                    sandbox: appState.launchSandboxMode(for: sourceKey),
+                    developerInstructions: nil,
+                    persistExtendedHistory: true
+                ).threadForkRequest(threadId: sourceKey.threadId, cwdOverride: source?.info.cwd)
+            )
+            appModel.store.setActiveThread(key: newKey)
+            await appModel.refreshThreadSnapshot(key: newKey)
+            openConversation(newKey)
+        } catch {
+            actionErrorMessage = error.localizedDescription
+        }
     }
 
     @MainActor

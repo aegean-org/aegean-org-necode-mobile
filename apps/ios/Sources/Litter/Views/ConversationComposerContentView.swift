@@ -476,6 +476,10 @@ private struct ConversationComposerGoalRowView: View {
             if let progress = budgetProgress {
                 budgetGauge(progress: progress)
             }
+
+            if hasUsageMetrics {
+                usageMetricsRow
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -713,6 +717,52 @@ private struct ConversationComposerGoalRowView: View {
             return String(format: "%.1fk", Double(value) / 1_000.0)
         }
         return "\(value)"
+    }
+
+    private var hasUsageMetrics: Bool {
+        goal.tokensUsed > 0 || goal.timeUsedSeconds > 0
+    }
+
+    private var usageMetricsRow: some View {
+        HStack(spacing: 6) {
+            if goal.tokensUsed > 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "circle.hexagongrid")
+                        .litterMonoFont(size: 9, weight: .semibold)
+                    Text(formatTokens(goal.tokensUsed))
+                        .litterMonoFont(size: 10, weight: .semibold)
+                }
+                .foregroundColor(LitterTheme.textSecondary)
+            }
+            if goal.tokensUsed > 0 && goal.timeUsedSeconds > 0 {
+                Text("·")
+                    .litterMonoFont(size: 10, weight: .semibold)
+                    .foregroundColor(LitterTheme.textMuted.opacity(0.6))
+            }
+            if goal.timeUsedSeconds > 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "clock")
+                        .litterMonoFont(size: 9, weight: .semibold)
+                    Text(formatSeconds(goal.timeUsedSeconds))
+                        .litterMonoFont(size: 10, weight: .semibold)
+                }
+                .foregroundColor(LitterTheme.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func formatSeconds(_ seconds: Int64) -> String {
+        if seconds < 60 { return "\(seconds)s" }
+        let totalSeconds = Int(seconds)
+        let minutes = totalSeconds / 60
+        let remainSecs = totalSeconds % 60
+        if totalSeconds < 3600 {
+            return remainSecs == 0 ? "\(minutes)m" : "\(minutes)m \(remainSecs)s"
+        }
+        let hours = totalSeconds / 3600
+        let remainMins = (totalSeconds % 3600) / 60
+        return remainMins == 0 ? "\(hours)h" : "\(hours)h \(remainMins)m"
     }
 }
 

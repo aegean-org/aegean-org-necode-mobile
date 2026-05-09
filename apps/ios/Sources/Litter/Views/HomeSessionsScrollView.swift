@@ -21,6 +21,7 @@ struct HomeSessionsScrollView: UIViewRepresentable {
         var onUnpin: (ThreadKey) -> Void
         var onCancelTurn: (HomeDashboardRecentSession) -> Void
         var onDelete: (HomeDashboardRecentSession) -> Void
+        var onFork: (HomeDashboardRecentSession) -> Void
     }
 
     let sessions: [HomeDashboardRecentSession]
@@ -1309,7 +1310,8 @@ final class HomeRowContainer: UIView {
             onPin: { callbacks.onPin(sessionSnapshot.key) },
             onUnpin: { callbacks.onUnpin(sessionSnapshot.key) },
             onCancelTurn: { callbacks.onCancelTurn(sessionSnapshot) },
-            onDelete: { callbacks.onDelete(sessionSnapshot) }
+            onDelete: { callbacks.onDelete(sessionSnapshot) },
+            onFork: { callbacks.onFork(sessionSnapshot) }
         )
         .environment(\.textScale, textScale)
         hostingController.rootView = AnyView(content)
@@ -1488,6 +1490,7 @@ struct HomeSessionRowContent: View {
     let onUnpin: () -> Void
     let onCancelTurn: () -> Void
     let onDelete: () -> Void
+    let onFork: () -> Void
 
     var body: some View {
         SessionCanvasLine(
@@ -1503,6 +1506,10 @@ struct HomeSessionRowContent: View {
             Button { onReply() } label: {
                 Label("Reply", systemImage: "arrowshape.turn.up.left")
             }
+            Button { onFork() } label: {
+                Label("Fork", systemImage: "arrow.triangle.branch")
+            }
+            .disabled(session.hasTurnActive)
             if session.hasTurnActive {
                 Button(role: .destructive) { onCancelTurn() } label: {
                     Label("Cancel Turn", systemImage: "stop.circle")

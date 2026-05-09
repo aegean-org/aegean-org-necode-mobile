@@ -318,6 +318,7 @@ enum LitterPreviewData {
                 agentNickname: agentNickname,
                 agentRole: agentRole,
                 parentThreadId: parentThreadId,
+                forkedFromId: nil,
                 agentStatus: nil,
                 createdAt: nil,
                 updatedAt: Int64(updatedAt.timeIntervalSince1970)
@@ -393,6 +394,7 @@ enum LitterPreviewData {
                 model: thread.model ?? "",
                 modelProvider: thread.info.modelProvider ?? "",
                 parentThreadId: thread.info.parentThreadId,
+                forkedFromId: thread.info.forkedFromId,
                 agentNickname: thread.info.agentNickname,
                 agentRole: thread.info.agentRole,
                 agentDisplayLabel: AgentLabelFormatter.format(
@@ -405,7 +407,7 @@ enum LitterPreviewData {
                 hasActiveTurn: thread.hasActiveTurn,
                 isResumed: false,
                 isSubagent: thread.info.parentThreadId != nil,
-                isFork: thread.info.parentThreadId != nil,
+                isFork: thread.info.forkedFromId != nil,
                 lastResponsePreview: nil,
                 lastResponseTurnId: nil,
                 lastUserMessage: nil,
@@ -414,7 +416,8 @@ enum LitterPreviewData {
                 lastTurnStartMs: nil,
                 lastTurnEndMs: nil,
                 stats: nil,
-                tokenUsage: nil
+                tokenUsage: nil,
+                goal: nil
             )
         }
 

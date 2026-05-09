@@ -56,6 +56,10 @@ struct HomeDashboardView: View {
     /// Cancels the active turn on the given thread. Caller looks up the
     /// thread's `activeTurnId` and calls `appModel.client.interruptTurn`.
     var onCancelThread: (@MainActor (ThreadKey) async -> Void)? = nil
+    /// Long-press → "Fork" on a home session card. Caller forks the
+    /// thread server-side (head fork, no rollback) and navigates to the
+    /// new thread.
+    var onForkThread: (@MainActor (HomeDashboardRecentSession) async -> Void)? = nil
     var onInputModeChange: ((HomeInputMode) -> Void)? = nil
 
     @State private var deleteTargetThread: HomeDashboardRecentSession?
@@ -565,7 +569,10 @@ struct HomeDashboardView: View {
                             cancellingKeys.insert(hydrationId(session.key))
                             Task { await onCancelThread?(session.key) }
                         },
-                        onDelete: { session in deleteTargetThread = session }
+                        onDelete: { session in deleteTargetThread = session },
+                        onFork: { session in
+                            Task { await onForkThread?(session) }
+                        }
                     )
                 )
                 // Extend the scroll view edge-to-edge so content can
@@ -714,13 +721,29 @@ struct SessionCanvasLine: View {
             .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 0) {
-                // Title — always solo on its own line at every zoom level.
-                FormattedText(text: session.sessionTitle, lineLimit: zoomLevel >= 4 ? 4 : 2)
-                    .modifier(MarkdownMatchedTitleFont())
-                    .foregroundStyle(isActive ? LitterTheme.accent : LitterTheme.textPrimary)
-                    .modifier(SessionShimmerEffect(active: isActive))
-                    .fixedSize(horizontal: false, vertical: true)
+                // Lineage breadcrumb (zoom 4 only). Always present in the
+                // tree so zoom transitions just animate its height; matches
+                // the visibleWhen pattern used for the rest of the layers.
+                lineageBreadcrumb
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .visibleWhen(zoomLevel >= 4 && (session.lineage?.ancestors.isEmpty == false))
+
+                // Title — always solo on its own line at every zoom level.
+                // Fork rune (when this thread is part of a multi-branch
+                // lineage) trails the title text. Single chip, single
+                // number — sized for SCAN density at zoom 1.
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    FormattedText(text: session.sessionTitle, lineLimit: zoomLevel >= 4 ? 4 : 2)
+                        .modifier(MarkdownMatchedTitleFont())
+                        .foregroundStyle(isActive ? LitterTheme.accent : LitterTheme.textPrimary)
+                        .modifier(SessionShimmerEffect(active: isActive))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let lineage = session.lineage, lineage.hasMultipleBranches {
+                        forkRune(lineage: lineage)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Detail below — gets full width. As zoom grows, additional
                 // rows are revealed by the container's layout animation.
@@ -745,6 +768,9 @@ struct SessionCanvasLine: View {
                     modelBadgeLine
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .visibleWhen(zoomLevel >= 2)
+                    goalLine
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .visibleWhen(zoomLevel >= 2 && session.goal != nil)
                     userMessageLine
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .visibleWhen(zoomLevel >= 3)
@@ -754,6 +780,9 @@ struct SessionCanvasLine: View {
                     responsePreview
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .visibleWhen(zoomLevel >= 3)
+                    siblingPillsRow
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .visibleWhen(zoomLevel >= 4 && (session.lineage?.hasMultipleBranches == true))
                     Text(PathDisplay.display(session.cwd, isLocal: session.isLocal))
                         .litterMonoFont(size: 10, weight: .regular)
                         .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
@@ -897,7 +926,13 @@ struct SessionCanvasLine: View {
                     Text(m)
                         .foregroundStyle(LitterTheme.textSecondary.opacity(0.7))
                 }
-                if session.isFork {
+                if let lineage = session.lineage, lineage.hasMultipleBranches {
+                    Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
+                    branchChip(lineage: lineage)
+                } else if session.isFork {
+                    // Fallback when we know it's a fork but the lineage
+                    // hasn't been assembled (e.g. parent thread isn't
+                    // loaded). Keep the prior single-word warning.
                     Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
                     Text("fork")
                         .foregroundStyle(LitterTheme.warning.opacity(0.8))
@@ -918,6 +953,77 @@ struct SessionCanvasLine: View {
         }
         .litterMonoFont(size: 10, weight: .regular)
         .padding(.top, 1)
+    }
+
+    // MARK: - Zoom 2+: goal line
+
+    /// Single-line goal row with status pill, objective, and usage chips
+    /// (tokens + elapsed seconds). Mirrors the in-conversation goal card
+    /// without the gauge — the home card stays scan-friendly.
+    @ViewBuilder
+    private var goalLine: some View {
+        if let goal = session.goal {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(goalStatusTint(goal.status))
+                    .frame(width: 5, height: 5)
+                Text(goal.objective)
+                    .foregroundStyle(LitterTheme.textSecondary.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 6)
+                if goal.tokensUsed > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "circle.hexagongrid")
+                            .litterFont(size: 8)
+                        Text(formatGoalTokens(goal.tokensUsed))
+                    }
+                    .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                }
+                if goal.timeUsedSeconds > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "clock")
+                            .litterFont(size: 8)
+                        Text(formatGoalSeconds(goal.timeUsedSeconds))
+                    }
+                    .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
+                }
+            }
+            .litterMonoFont(size: 10, weight: .regular)
+            .padding(.top, 1)
+        }
+    }
+
+    private func goalStatusTint(_ status: AppThreadGoalStatus) -> Color {
+        switch status {
+        case .active: return LitterTheme.accent
+        case .paused: return LitterTheme.textMuted
+        case .budgetLimited: return LitterTheme.warning
+        case .complete: return LitterTheme.success
+        }
+    }
+
+    private func formatGoalTokens(_ value: Int64) -> String {
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", Double(value) / 1_000_000.0)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fk", Double(value) / 1_000.0)
+        }
+        return "\(value)"
+    }
+
+    private func formatGoalSeconds(_ seconds: Int64) -> String {
+        if seconds < 60 { return "\(seconds)s" }
+        let total = Int(seconds)
+        let minutes = total / 60
+        let remainSecs = total % 60
+        if total < 3600 {
+            return remainSecs == 0 ? "\(minutes)m" : "\(minutes)m \(remainSecs)s"
+        }
+        let hours = total / 3600
+        let remainMins = (total % 3600) / 60
+        return remainMins == 0 ? "\(hours)h" : "\(hours)h \(remainMins)m"
     }
 
     /// Compact stat chips appended to the right end of `modelBadgeLine` so
@@ -1142,6 +1248,110 @@ struct SessionCanvasLine: View {
 
     private var statusIndicator: some View {
         StatusDot(state: dotState)
+    }
+
+    // MARK: - Fork lineage affordances
+
+    /// Compact rune that trails the title at every zoom level. Single chip,
+    /// single number — `2/3` reads as "branch 2 of 3 in this lineage".
+    @ViewBuilder
+    private func forkRune(lineage: ThreadLineage) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "arrow.triangle.branch")
+                .litterFont(size: 8, weight: .semibold)
+                .foregroundStyle(LitterTheme.textSecondary.opacity(0.85))
+            Text("\(lineage.branchIndex)/\(lineage.branchTotal)")
+                .litterMonoFont(size: 9, weight: .semibold)
+                .foregroundStyle(LitterTheme.accent)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .overlay(
+            Capsule()
+                .stroke(LitterTheme.border.opacity(0.6), lineWidth: 1)
+        )
+        .clipShape(Capsule())
+        .accessibilityLabel("Branch \(lineage.branchIndex) of \(lineage.branchTotal)")
+    }
+
+    /// Inline meta-line replacement for the old `fork` warning text. Carries
+    /// the same numeric info as the rune but reads as a chip in line with
+    /// the server/model spans at zoom 2+.
+    @ViewBuilder
+    private func branchChip(lineage: ThreadLineage) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "arrow.triangle.branch")
+                .litterFont(size: 7, weight: .semibold)
+            Text("branch \(lineage.branchIndex)/\(lineage.branchTotal)")
+        }
+        .foregroundStyle(LitterTheme.accent.opacity(0.85))
+    }
+
+    /// Zoom-4 lineage breadcrumb. Renders ancestors root → ... → parent so
+    /// the user knows where in the fork tree they are. Self is rendered as
+    /// the title beneath, so we don't repeat it here.
+    @ViewBuilder
+    private var lineageBreadcrumb: some View {
+        if let lineage = session.lineage, !lineage.ancestors.isEmpty {
+            HStack(spacing: 0) {
+                ForEach(Array(lineage.ancestors.enumerated()), id: \.offset) { idx, ancestor in
+                    if idx > 0 {
+                        Text(" › ")
+                            .foregroundStyle(LitterTheme.textMuted.opacity(0.55))
+                    }
+                    Text(ancestor.title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(LitterTheme.textMuted.opacity(0.85))
+                }
+                Text(" ›")
+                    .foregroundStyle(LitterTheme.textMuted.opacity(0.55))
+                Spacer(minLength: 0)
+            }
+            .litterMonoFont(size: 9, weight: .regular)
+            .padding(.bottom, 2)
+        }
+    }
+
+    /// Zoom-4 sibling pills. Each pill is a branch in the lineage; the one
+    /// matching `session.key` is highlighted. The pills double as branch
+    /// pickers when wired up by the host.
+    @ViewBuilder
+    private var siblingPillsRow: some View {
+        if let lineage = session.lineage, lineage.hasMultipleBranches {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(lineage.members, id: \.key) { member in
+                        siblingPill(member: member, isCurrent: member.key == session.key)
+                    }
+                }
+            }
+            .padding(.top, 6)
+        }
+    }
+
+    @ViewBuilder
+    private func siblingPill(member: ThreadLineageMember, isCurrent: Bool) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(isCurrent ? LitterTheme.accent : LitterTheme.textMuted.opacity(0.5))
+                .frame(width: 5, height: 5)
+            Text(member.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .litterFont(size: 10, weight: isCurrent ? .semibold : .regular)
+        .foregroundStyle(isCurrent ? LitterTheme.accent : LitterTheme.textSecondary.opacity(0.85))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(isCurrent ? LitterTheme.accent.opacity(0.12) : LitterTheme.surface.opacity(0.6))
+        )
+        .overlay(
+            Capsule()
+                .stroke(isCurrent ? LitterTheme.accent.opacity(0.6) : LitterTheme.border.opacity(0.6), lineWidth: 1)
+        )
     }
 }
 

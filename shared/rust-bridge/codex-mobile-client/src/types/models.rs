@@ -113,8 +113,13 @@ pub struct ThreadInfo {
     pub agent_nickname: Option<String>,
     /// Agent role for subagent threads.
     pub agent_role: Option<String>,
-    /// Parent thread id for spawned/forked threads when known.
+    /// Parent thread id for sub-agent–spawned threads. Sub-agent only — for
+    /// user-initiated forks see `forked_from_id`.
     pub parent_thread_id: Option<String>,
+    /// Source thread id when this thread was created via
+    /// `forkThread` / `forkThreadFromMessage`. Distinct from
+    /// `parent_thread_id`, which is sub-agent–only.
+    pub forked_from_id: Option<String>,
     /// Best-effort subagent lifecycle status string.
     pub agent_status: Option<String>,
     /// Unix timestamp (seconds) when the thread was created.
@@ -190,6 +195,11 @@ impl From<upstream::Thread> for ThreadInfo {
                 None,
             ),
         };
+        // Fork lineage is distinct from sub-agent parentage: `forked_from_id`
+        // is set by upstream `forkThread`/`forkThreadFromMessage`, never by
+        // sub-agent spawns. Carry it through as its own field so mobile
+        // can render fork affordances without conflating with sub-agents.
+        let forked_from_id = thread.forked_from_id.clone();
 
         Self {
             id: thread.id,
@@ -210,6 +220,7 @@ impl From<upstream::Thread> for ThreadInfo {
             agent_nickname,
             agent_role,
             parent_thread_id,
+            forked_from_id,
             agent_status: None,
             created_at: Some(normalize_epoch_seconds(thread.created_at)),
             updated_at: Some(normalize_epoch_seconds(thread.updated_at)),
@@ -1497,6 +1508,7 @@ mod tests {
             agent_nickname: None,
             agent_role: None,
             parent_thread_id: None,
+            forked_from_id: None,
             agent_status: None,
             created_at: Some(1700000000),
             updated_at: Some(1700001000),
@@ -1519,6 +1531,7 @@ mod tests {
             agent_nickname: None,
             agent_role: None,
             parent_thread_id: None,
+            forked_from_id: None,
             agent_status: None,
             cwd: None,
             created_at: None,
@@ -1566,6 +1579,7 @@ mod tests {
             agent_nickname: None,
             agent_role: None,
             parent_thread_id: None,
+            forked_from_id: None,
             agent_status: None,
             created_at: Some(1000),
             updated_at: Some(2000),
