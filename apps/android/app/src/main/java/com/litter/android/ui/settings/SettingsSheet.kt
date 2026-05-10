@@ -82,6 +82,8 @@ import com.litter.android.state.OpenAIApiKeyStore
 import com.litter.android.state.PetOverlayController
 import com.litter.android.state.SavedServer
 import com.litter.android.state.SavedServerStore
+import com.litter.android.state.SshAuthMethod
+import com.litter.android.state.SshCredentialStore
 import com.litter.android.state.connectionModeLabel
 import com.litter.android.state.isConnected
 import com.litter.android.state.isIpcConnected
@@ -99,6 +101,7 @@ import com.litter.android.ui.WallpaperManager
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LitterThemeIndexEntry
 import com.litter.android.ui.LitterThemeManager
+import com.litter.android.ui.discovery.SSHLoginDialog
 import com.litter.android.util.LLog
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.Account
@@ -185,6 +188,7 @@ private fun SettingsTopLevel(
     }
 
     var editTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
+    var sshReconnectTarget by remember { mutableStateOf<SavedServer?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -388,8 +392,71 @@ private fun SettingsTopLevel(
             server = server,
             onDismiss = { editTarget = null },
             onSave = { editTarget = null },
+            onTriggerSshReconnect = { saved ->
+                editTarget = null
+                sshReconnectTarget = saved
+            },
         )
     }
+
+    sshReconnectTarget?.let { saved ->
+        val sshCredentialStore = remember(context) { SshCredentialStore(context.applicationContext) }
+        val sshPort = saved.resolvedSshPort
+        SSHLoginDialog(
+            server = saved,
+            initialCredential = sshCredentialStore.load(saved.hostname, sshPort),
+            onDismiss = { sshReconnectTarget = null },
+            onConnect = { credential, rememberCredentials ->
+                try {
+                    if (rememberCredentials) {
+                        sshCredentialStore.save(saved.hostname, sshPort, credential)
+                    } else {
+                        sshCredentialStore.delete(saved.hostname, sshPort)
+                    }
+
+                    appModel.serverBridge.disconnectServer(saved.id)
+
+                    when (credential.method) {
+                        SshAuthMethod.PASSWORD -> appModel.serverBridge.startRemoteOverSshConnect(
+                            serverId = saved.id,
+                            displayName = saved.name,
+                            host = saved.hostname,
+                            port = sshPort.toUShort(),
+                            username = credential.username,
+                            password = credential.password,
+                            privateKeyPem = null,
+                            passphrase = null,
+                            unlockMacosKeychain = credential.unlockMacosKeychain,
+                            acceptUnknownHost = true,
+                            workingDir = null,
+                            ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
+                        )
+                        SshAuthMethod.KEY -> appModel.serverBridge.startRemoteOverSshConnect(
+                            serverId = saved.id,
+                            displayName = saved.name,
+                            host = saved.hostname,
+                            port = sshPort.toUShort(),
+                            username = credential.username,
+                            password = null,
+                            privateKeyPem = credential.privateKey,
+                            passphrase = credential.passphrase,
+                            unlockMacosKeychain = false,
+                            acceptUnknownHost = true,
+                            workingDir = null,
+                            ipcSocketPathOverride = ExperimentalFeatures.ipcSocketPathOverride(),
+                        )
+                    }
+                    appModel.refreshSnapshot()
+                    sshReconnectTarget = null
+                    null
+                } catch (e: Exception) {
+                    LLog.e("SettingsSheet", "SSH reconnect failed: ${e.message}", e)
+                    e.message ?: "SSH reconnect failed"
+                }
+            },
+        )
+    }
+
 }
 
 @Composable
@@ -491,6 +558,7 @@ private fun ServerEditSheet(
     server: AppServerSnapshot,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
+    onTriggerSshReconnect: (SavedServer) -> Unit,
 ) {
     val context = LocalContext.current
     val appModel = LocalAppModel.current
@@ -844,6 +912,12 @@ private fun ServerEditSheet(
                                         val saved = validateAndBuild()
                                         if (saved != null) {
                                             persist(saved)
+                                            // SSH mode requires interactive credentials, mirroring iOS:
+                                            // hand off to the parent which will open SSHLoginDialog.
+                                            if (connectionMode == ServerConnectionMode.SSH && !server.isLocal) {
+                                                onTriggerSshReconnect(saved)
+                                                return@Button
+                                            }
                                             scope.launch {
                                                 isReconnecting = true
                                                 try {

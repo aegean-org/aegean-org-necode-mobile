@@ -1113,7 +1113,7 @@ private fun RenameServerDialog(
 }
 
 @Composable
-private fun SSHLoginDialog(
+internal fun SSHLoginDialog(
     server: SavedServer,
     initialCredential: SavedSshCredential?,
     onDismiss: () -> Unit,
