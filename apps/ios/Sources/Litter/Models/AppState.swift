@@ -82,6 +82,7 @@ final class AppState {
         case .pi: return "pi"
         case .opencode: return "opencode"
         case .claude: return "claude"
+        case .droid: return "droid"
         }
     }
 
@@ -91,6 +92,7 @@ final class AppState {
         case "pi": return .pi
         case "opencode": return .opencode
         case "claude": return .claude
+        case "droid", "factory", "factory-droid", "factory_droid", "factory droid": return .droid
         default: return nil
         }
     }

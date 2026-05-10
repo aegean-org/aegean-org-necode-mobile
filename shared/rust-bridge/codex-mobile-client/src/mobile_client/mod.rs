@@ -418,6 +418,9 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
         "anthropic" => Some(AgentRuntimeKind::Claude),
         "opencode" | "open-code" | "open_code" | "open code" => Some(AgentRuntimeKind::Opencode),
         "pi" | "pi.dev" | "pidev" | "pi dev" => Some(AgentRuntimeKind::Pi),
+        "droid" | "factory" | "factory-droid" | "factory_droid" | "factory droid" => {
+            Some(AgentRuntimeKind::Droid)
+        }
         "codex" => Some(AgentRuntimeKind::Codex),
         // Match patterns like `anthropic/claude-opus-4-7` or
         // `claude-3-5-sonnet` — i.e. a `claude` token anywhere in the
@@ -444,6 +447,9 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
         {
             Some(AgentRuntimeKind::Pi)
         }
+        _ if normalized.starts_with("factory/") || normalized.starts_with("droid/") => {
+            Some(AgentRuntimeKind::Droid)
+        }
         _ => None,
     }
 }
@@ -452,6 +458,42 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
 pub(crate) struct ResolvedModelSelection {
     pub model: String,
     pub runtime_kind: AgentRuntimeKind,
+}
+
+fn alleycat_runtime_agent_names(
+    runtime_agents: &[(AgentRuntimeKind, AlleycatAgentInfo)],
+) -> String {
+    runtime_agents
+        .iter()
+        .map(|(_, agent)| agent.name.clone())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn missing_runtime_kinds(
+    existing_runtime_kinds: &[AgentRuntimeKind],
+    requested_runtime_kinds: &HashSet<AgentRuntimeKind>,
+) -> Vec<AgentRuntimeKind> {
+    let existing = existing_runtime_kinds
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let mut missing = requested_runtime_kinds
+        .iter()
+        .copied()
+        .filter(|kind| !existing.contains(kind))
+        .collect::<Vec<_>>();
+    missing.sort();
+    missing
+}
+
+fn alleycat_requested_runtime_kinds(
+    runtime_agents: &[(AgentRuntimeKind, AlleycatAgentInfo)],
+) -> HashSet<AgentRuntimeKind> {
+    runtime_agents
+        .iter()
+        .map(|(runtime_kind, _)| *runtime_kind)
+        .collect()
 }
 
 impl MobileClient {
@@ -523,9 +565,7 @@ impl MobileClient {
             Err(error) => *error.into_inner(),
         };
         self.alleycat_endpoint
-            .get_or_try_init(|| async {
-                crate::alleycat::bind_alleycat_endpoint(secret_key).await
-            })
+            .get_or_try_init(|| async { crate::alleycat::bind_alleycat_endpoint(secret_key).await })
             .await
             .cloned()
     }
@@ -1124,6 +1164,8 @@ impl MobileClient {
         } else {
             requested_agents
         };
+        let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
+        let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
         let visible_server_id = format!("alleycat:{}", params.node_id);
         let server_id = if server_id.starts_with(&visible_server_id) {
             visible_server_id
@@ -1147,15 +1189,22 @@ impl MobileClient {
                 crate::session::connection::ConnectionHealth::Connected
             ) {
                 let runtime_kinds = existing.runtime_kinds();
+                let missing = missing_runtime_kinds(&runtime_kinds, &requested_runtime_kinds);
+                if missing.is_empty() {
+                    info!(
+                        "MobileClient: connect_remote_over_alleycat short-circuit; healthy session exists server_id={} runtimes={:?}",
+                        server_id, runtime_kinds,
+                    );
+                    return Ok(AlleycatConnectOutcome {
+                        server_id,
+                        node_id: params.node_id.clone(),
+                        agent_name: requested_agent_names,
+                    });
+                }
                 info!(
-                    "MobileClient: connect_remote_over_alleycat short-circuit; healthy session exists server_id={} runtimes={:?}",
-                    server_id, runtime_kinds,
+                    "MobileClient: connect_remote_over_alleycat rebuilding healthy session server_id={} existing_runtimes={:?} missing_selected_runtimes={:?}",
+                    server_id, runtime_kinds, missing,
                 );
-                return Ok(AlleycatConnectOutcome {
-                    server_id,
-                    node_id: params.node_id.clone(),
-                    agent_name: agent_name.clone(),
-                });
             }
         }
 
@@ -1628,8 +1677,7 @@ impl MobileClient {
     /// the idle timeout. TCP-based sessions default to a no-op since the
     /// kernel already surfaces those changes.
     pub async fn notify_network_change(&self) {
-        let sessions: Vec<Arc<ServerSession>> =
-            self.sessions_read().values().cloned().collect();
+        let sessions: Vec<Arc<ServerSession>> = self.sessions_read().values().cloned().collect();
         for session in sessions {
             session.notify_network_change().await;
         }
@@ -1649,8 +1697,7 @@ impl MobileClient {
     /// would only refresh the endpoint's discovery layer — not the
     /// connection-level path). See `ReconnectController::on_long_resume`.
     pub async fn abandon_alleycat_connections(&self) {
-        let sessions: Vec<Arc<ServerSession>> =
-            self.sessions_read().values().cloned().collect();
+        let sessions: Vec<Arc<ServerSession>> = self.sessions_read().values().cloned().collect();
         for session in sessions {
             // Direct-resume markers are scoped to a live `ConnectionId`. Once
             // we close the underlying Connection, any subsequent
@@ -1968,9 +2015,10 @@ impl MobileClient {
                 // Otherwise (thread truly empty AND pagination off), we
                 // need to refresh because the previous resume returned
                 // nothing usable.
-                let thread_has_loaded_turns = self.app_store.thread_snapshot(&key).is_some_and(
-                    |thread| !thread.items.is_empty() || thread.initial_turns_loaded,
-                );
+                let thread_has_loaded_turns = self
+                    .app_store
+                    .thread_snapshot(&key)
+                    .is_some_and(|thread| !thread.items.is_empty() || thread.initial_turns_loaded);
                 let pagination_supported =
                     self.app_store.server_supports_turn_pagination(server_id);
                 if thread_has_loaded_turns || pagination_supported {
@@ -2004,8 +2052,7 @@ impl MobileClient {
 
         let mut lookup_errors = Vec::new();
         for runtime_kind in runtime_candidates.iter().copied() {
-            let supports_pagination =
-                self.app_store.server_supports_turn_pagination(server_id);
+            let supports_pagination = self.app_store.server_supports_turn_pagination(server_id);
             // Paginated servers always exclude turns from the resume
             // response; we never want to pull the full embedded archive,
             // even on the authoritative refresh path — for huge threads
@@ -2025,10 +2072,8 @@ impl MobileClient {
                 Ok(()) => {
                     self.note_thread_runtime(key.clone(), runtime_kind);
                     if force_authoritative && supports_pagination {
-                        self.reconcile_active_turn_via_turn_list_probe(
-                            server_id, thread_id, &key,
-                        )
-                        .await;
+                        self.reconcile_active_turn_via_turn_list_probe(server_id, thread_id, &key)
+                            .await;
                     }
                     return Ok(());
                 }
@@ -3498,10 +3543,7 @@ pub(super) fn run_connect_warmup(
 ///      ends up routing through `thread/resume`, which calls
 ///      `try_add_connection_to_thread` server-side and replays any
 ///      in-flight requests for the new connection.
-pub(super) fn run_post_reconnect_resubscribe(
-    app_store: Arc<AppStoreReducer>,
-    server_id: String,
-) {
+pub(super) fn run_post_reconnect_resubscribe(app_store: Arc<AppStoreReducer>, server_id: String) {
     MobileClient::spawn_detached(async move {
         let Some(client) = crate::ffi::shared::shared_mobile_client_if_initialized() else {
             return;

@@ -50,6 +50,7 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
         "pi" | "pi.dev" | "pidev" => Some(AgentRuntimeKind::Pi),
         "opencode" | "open-code" | "open_code" => Some(AgentRuntimeKind::Opencode),
         "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
+        "droid" | "factory" | "factory-droid" | "factory_droid" => Some(AgentRuntimeKind::Droid),
         _ if display_name == "codex" => Some(AgentRuntimeKind::Codex),
         _ if display_name == "pi" || display_name == "pi.dev" => Some(AgentRuntimeKind::Pi),
         _ if display_name == "opencode" || display_name == "open code" => {
@@ -57,6 +58,12 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
         }
         _ if display_name == "claude" || display_name == "claude code" => {
             Some(AgentRuntimeKind::Claude)
+        }
+        _ if display_name == "droid"
+            || display_name == "factory"
+            || display_name == "factory droid" =>
+        {
+            Some(AgentRuntimeKind::Droid)
         }
         _ => None,
     }
@@ -122,10 +129,14 @@ impl RemoteTransport for AlleycatReconnectTransport {
         // Open a brand-new iroh Connection on the shared Endpoint and run
         // the alleycat handshake on it. The previous Connection is dropped
         // only after the new keepalive is installed in the worker.
-        let (client, session) =
-            connect_app_server_client(&self.endpoint, self.params.clone(), self.agent.clone(), self.wire)
-                .await
-                .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        let (client, session) = connect_app_server_client(
+            &self.endpoint,
+            self.params.clone(),
+            self.agent.clone(),
+            self.wire,
+        )
+        .await
+        .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
         *self.current_session.lock().await = Some(Arc::clone(&session));
         let keepalive: Arc<dyn SessionKeepalive> = session;
         Ok(Reconnected {
@@ -635,6 +646,10 @@ mod tests {
             agent_runtime_kind("claude-code", "Claude"),
             Some(AgentRuntimeKind::Claude)
         );
+        assert_eq!(
+            agent_runtime_kind("factory-droid", "Factory Droid"),
+            Some(AgentRuntimeKind::Droid)
+        );
     }
 
     #[test]
@@ -650,9 +665,7 @@ mod tests {
     /// instead — `cargo check` exercises the trait bounds without needing
     /// to instantiate the type at runtime.
     #[allow(dead_code)]
-    fn alleycat_reconnect_transport_coerces_to_trait_object(
-        transport: AlleycatReconnectTransport,
-    ) {
+    fn alleycat_reconnect_transport_coerces_to_trait_object(transport: AlleycatReconnectTransport) {
         let _erased: Arc<dyn RemoteTransport> = Arc::new(transport);
     }
 }

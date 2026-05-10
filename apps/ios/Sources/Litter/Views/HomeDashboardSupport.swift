@@ -284,7 +284,7 @@ enum HomeDashboardSupport {
 
     private static func savedAgentRuntimes(for saved: SavedServer) -> [AgentRuntimeInfo] {
         let kinds: [AgentRuntimeKind]
-        if saved.alleycatAgentWire == "ssh-bridge" {
+        if saved.alleycatAgentWire == "ssh-bridge" || saved.alleycatNodeId != nil {
             kinds = parseRuntimeKinds(saved.alleycatAgentName)
         } else {
             kinds = [.codex]
@@ -312,6 +312,8 @@ enum HomeDashboardSupport {
                     return .pi
                 case "opencode":
                     return .opencode
+                case "droid", "factory", "factory-droid", "factory_droid", "factory droid":
+                    return .droid
                 default:
                     return nil
                 }

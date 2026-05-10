@@ -219,6 +219,7 @@ private fun agentRuntimeDisplayLabel(kind: AgentRuntimeKind): String = when (kin
     AgentRuntimeKind.PI -> "Pi"
     AgentRuntimeKind.OPENCODE -> "opencode"
     AgentRuntimeKind.CLAUDE -> "Claude"
+    AgentRuntimeKind.DROID -> "Droid"
 }
 
 val AppThreadSnapshot.displayTitle: String

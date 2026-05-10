@@ -608,6 +608,44 @@ mod mobile_client_tests {
     }
 
     #[test]
+    fn alleycat_short_circuit_detects_missing_selected_runtime() {
+        let requested = vec![
+            (
+                AgentRuntimeKind::Codex,
+                AlleycatAgentInfo {
+                    name: "codex".to_string(),
+                    display_name: "Codex".to_string(),
+                    wire: AlleycatAgentWire::Websocket,
+                    available: true,
+                },
+            ),
+            (
+                AgentRuntimeKind::Droid,
+                AlleycatAgentInfo {
+                    name: "droid".to_string(),
+                    display_name: "Droid".to_string(),
+                    wire: AlleycatAgentWire::Jsonl,
+                    available: true,
+                },
+            ),
+        ];
+        let requested_kinds = alleycat_requested_runtime_kinds(&requested);
+
+        assert_eq!(alleycat_runtime_agent_names(&requested), "codex,droid");
+        assert_eq!(
+            missing_runtime_kinds(&[AgentRuntimeKind::Codex], &requested_kinds),
+            vec![AgentRuntimeKind::Droid]
+        );
+        assert!(
+            missing_runtime_kinds(
+                &[AgentRuntimeKind::Codex, AgentRuntimeKind::Droid],
+                &requested_kinds
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
     fn thread_runtime_infers_claude_from_existing_thread_model() {
         let client = MobileClient::new();
         let key = ThreadKey {
@@ -648,6 +686,8 @@ mod mobile_client_tests {
             ("open code", AgentRuntimeKind::Opencode),
             ("pi", AgentRuntimeKind::Pi),
             ("pi.dev", AgentRuntimeKind::Pi),
+            ("factory", AgentRuntimeKind::Droid),
+            ("factory droid", AgentRuntimeKind::Droid),
         ] {
             let client = MobileClient::new();
             let key = ThreadKey {
@@ -670,6 +710,7 @@ mod mobile_client_tests {
         for (model, expected_runtime) in [
             ("opencode/qwen3-coder", AgentRuntimeKind::Opencode),
             ("pi.dev/default", AgentRuntimeKind::Pi),
+            ("factory/droid", AgentRuntimeKind::Droid),
         ] {
             let client = MobileClient::new();
             let key = ThreadKey {

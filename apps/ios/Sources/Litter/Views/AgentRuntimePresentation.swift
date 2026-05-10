@@ -6,6 +6,7 @@ extension AgentRuntimeKind {
         .pi,
         .opencode,
         .claude,
+        .droid,
     ]
 
     var displayLabel: String {
@@ -18,6 +19,8 @@ extension AgentRuntimeKind {
             return "opencode"
         case .claude:
             return "Claude"
+        case .droid:
+            return "Droid"
         }
     }
 
@@ -25,6 +28,8 @@ extension AgentRuntimeKind {
         switch self {
         case .opencode:
             return "Opencode"
+        case .droid:
+            return "Factory Droid"
         default:
             return displayLabel
         }
@@ -40,6 +45,8 @@ extension AgentRuntimeKind {
             return "agent_opencode"
         case .claude:
             return "agent_claude"
+        case .droid:
+            return "agent_droid"
         }
     }
 
@@ -53,6 +60,8 @@ extension AgentRuntimeKind {
             return "chevron.left.forwardslash.chevron.right"
         case .claude:
             return "sparkle"
+        case .droid:
+            return "gearshape"
         }
     }
 
@@ -62,7 +71,7 @@ extension AgentRuntimeKind {
 
     var isBeta: Bool {
         switch self {
-        case .claude, .pi, .opencode:
+        case .claude, .pi, .opencode, .droid:
             return true
         case .codex:
             return false
@@ -76,6 +85,7 @@ extension AgentRuntimeKind {
             "claude", "claude-code", "claude_code",
             "pi", "pi.dev", "pidev",
             "opencode", "open-code", "open_code", "open code",
+            "droid", "factory", "factory-droid", "factory_droid", "factory droid",
         ]
         return aliases.contains(normalized) || aliases.contains(display)
     }

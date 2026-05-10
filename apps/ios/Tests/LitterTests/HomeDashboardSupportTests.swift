@@ -203,6 +203,38 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertEqual(result.first?.sessionTitle, "Renamed thread")
     }
 
+    func testOfflineAlleycatServerShowsSavedDroidRuntime() {
+        let saved = SavedServer(
+            id: "alleycat:node-abc",
+            name: "Factory Host",
+            hostname: "node-abc",
+            port: 0,
+            codexPorts: [],
+            sshPort: nil,
+            source: .manual,
+            hasCodexServer: true,
+            wakeMAC: nil,
+            preferredConnectionMode: nil,
+            preferredCodexPort: nil,
+            sshPortForwardingEnabled: nil,
+            websocketURL: nil,
+            rememberedByUser: true,
+            alleycatNodeId: "node-abc",
+            alleycatRelay: nil,
+            alleycatAgentName: "codex,droid",
+            alleycatAgentWire: "jsonl"
+        )
+
+        let result = HomeDashboardSupport.sortedConnectedServers(
+            from: [],
+            savedServers: [saved],
+            activeServerId: nil
+        )
+
+        XCTAssertEqual(result.first?.sourceLabel, "alleycat")
+        XCTAssertEqual(result.first?.agentRuntimes.map(\.kind), [.codex, .droid])
+    }
+
     func testHomeDashboardModelIgnoresThreadChangesWhileInactiveAndRefreshesOnReactivate() async {
         let appModel = AppModel()
         let model = HomeDashboardModel()

@@ -16,6 +16,11 @@ endif
 ROOT := $(shell pwd)
 STAMPS := $(ROOT)/.build-stamps
 RUST_DIR := $(ROOT)/shared/rust-bridge
+KITTYLITTER_DIR := $(ROOT)/services/kittylitter
+ALLEYCAT_DEV_DIR ?= $(HOME)/dev/alleycat
+KITTYLITTER_DEV_DIR := $(STAMPS)/kittylitter-dev
+KITTYLITTER_DEV_MANIFEST := $(KITTYLITTER_DEV_DIR)/Cargo.toml
+KITTYLITTER_VERSION := $(shell awk -F'"' '/^version = / { print $$2; exit }' $(KITTYLITTER_DIR)/Cargo.toml)
 SUBMODULE_DIR := $(ROOT)/shared/third_party/codex
 IOS_DIR := $(ROOT)/apps/ios
 IOS_SCRIPTS := $(IOS_DIR)/scripts
@@ -132,6 +137,14 @@ endif
 PACKAGE_CARGO_ENV := CARGO_INCREMENTAL=0
 
 DEV_CARGO_ENV := env -u CARGO_INCREMENTAL
+KITTYLITTER_CARGO_ENV := $(DEV_CARGO_ENV)
+ifeq ($(firstword $(MAKECMDGOALS)),kittylitter)
+  KITTYLITTER_GOAL_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  .PHONY: $(KITTYLITTER_GOAL_ARGS)
+  $(KITTYLITTER_GOAL_ARGS):
+	@:
+endif
+KITTYLITTER_ARGS := $(strip $(KITTYLITTER_GOAL_ARGS) $(ARGS))
 
 PATCH_FILES := \
 	$(PATCHES_DIR)/ios-exec-hook.patch \
@@ -180,7 +193,7 @@ $(shell mkdir -p $(STAMPS))
 	test test-rust test-ios test-android \
 	ios-release-prep mac-release-prep testflight mac-testflight mac-direct-dist appstore-release play-upload play-release \
 	clean clean-rust clean-ios clean-android \
-	rebuild-bindings tui tui-run help
+	rebuild-bindings kittylitter kittylitter-restart tui tui-run help
 
 all: ios android
 
@@ -731,6 +744,61 @@ screenshots-ios:
 screenshots-android:
 	@echo "── Capturing Android screenshots ──"
 	cd $(ANDROID_DIR) && bundle exec fastlane screenshots
+
+$(KITTYLITTER_DEV_MANIFEST): $(KITTYLITTER_DIR)/Cargo.toml $(KITTYLITTER_DIR)/src/main.rs
+	@if [ ! -f "$(ALLEYCAT_DEV_DIR)/crates/alleycat/Cargo.toml" ]; then \
+		echo "error: ALLEYCAT_DEV_DIR=$(ALLEYCAT_DEV_DIR) does not look like an alleycat checkout"; \
+		echo "override with: make kittylitter ALLEYCAT_DEV_DIR=/path/to/alleycat"; \
+		exit 1; \
+	fi
+	@mkdir -p "$(KITTYLITTER_DEV_DIR)/src"
+	@printf '%s\n' \
+		'[workspace]' \
+		'' \
+		'[package]' \
+		'name = "kittylitter-dev"' \
+		'version = "$(KITTYLITTER_VERSION)"' \
+		'edition = "2024"' \
+		'publish = false' \
+		'' \
+		'[[bin]]' \
+		'name = "kittylitter"' \
+		'path = "src/main.rs"' \
+		'' \
+		'[dependencies]' \
+		'alleycat = { path = "$(ALLEYCAT_DEV_DIR)/crates/alleycat" }' \
+		'anyhow = "1"' \
+		> "$(KITTYLITTER_DEV_MANIFEST)"
+	@printf '%s\n' \
+		'fn main() -> anyhow::Result<()> {' \
+		'    alleycat::App {' \
+		'        binary_name: "kittylitter",' \
+		'        qualifier: "com",' \
+		'        organization: "sigkitten",' \
+		'        application: "kittylitter",' \
+		'        label: "com.sigkitten.kittylitter",' \
+		'        version: env!("CARGO_PKG_VERSION"),' \
+		'    }' \
+		'    .run()' \
+		'}' \
+		> "$(KITTYLITTER_DEV_DIR)/src/main.rs"
+
+kittylitter: $(KITTYLITTER_DEV_MANIFEST)
+	@echo "── Running kittylitter $(KITTYLITTER_ARGS) via $(ALLEYCAT_DEV_DIR) ──"
+	@cd $(ROOT) && $(KITTYLITTER_CARGO_ENV) cargo run --manifest-path "$(KITTYLITTER_DEV_MANIFEST)" --bin kittylitter -- $(KITTYLITTER_ARGS)
+
+kittylitter-restart: $(KITTYLITTER_DEV_MANIFEST)
+	@echo "── Building kittylitter via $(ALLEYCAT_DEV_DIR) ──"
+	@cd $(ROOT) && $(KITTYLITTER_CARGO_ENV) cargo build --manifest-path "$(KITTYLITTER_DEV_MANIFEST)" --bin kittylitter
+	@echo "── Restarting installed kittylitter daemon ──"
+	@cd $(ROOT) && $(KITTYLITTER_CARGO_ENV) cargo run --manifest-path "$(KITTYLITTER_DEV_MANIFEST)" --bin kittylitter -- stop >/dev/null 2>&1 || true
+	@if launchctl print "gui/$$(id -u)/com.sigkitten.kittylitter" >/dev/null 2>&1; then \
+		launchctl kickstart -k "gui/$$(id -u)/com.sigkitten.kittylitter"; \
+		sleep 3; \
+		cd "$(ROOT)" && $(KITTYLITTER_CARGO_ENV) cargo run --manifest-path "$(KITTYLITTER_DEV_MANIFEST)" --bin kittylitter -- agents list; \
+	else \
+		echo "kittylitter autostart is not installed; start it with: make kittylitter serve"; \
+	fi
 
 tui:
 	@echo "── Building codex-tui ──"

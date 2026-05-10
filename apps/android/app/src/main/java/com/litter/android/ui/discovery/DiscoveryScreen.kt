@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -741,8 +744,15 @@ fun DiscoveryScreen(
         ) {
             androidx.compose.foundation.layout.Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(LitterTheme.background),
+                    // Without fillMaxHeight the Dialog Box wraps content,
+                    // and the inner Column's `verticalScroll` has no height
+                    // bound to scroll within — so long forms (especially
+                    // when many agents are listed) get clipped offscreen
+                    // with no way to reach the Connect button.
+                    .fillMaxSize()
+                    .background(LitterTheme.background)
+                    .systemBarsPadding()
+                    .imePadding(),
             ) {
                 AlleycatAddServerSheet(
                     onDismiss = { showAlleycatSheet = false },
@@ -1440,6 +1450,7 @@ private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean = when (kind) {
     AgentRuntimeKind.CLAUDE,
     AgentRuntimeKind.PI,
     AgentRuntimeKind.OPENCODE -> true
+    AgentRuntimeKind.DROID -> false
 }
 
 
@@ -1448,6 +1459,7 @@ private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = when (kind) {
     AgentRuntimeKind.PI -> "Pi"
     AgentRuntimeKind.OPENCODE -> "OpenCode"
     AgentRuntimeKind.CLAUDE -> "Claude"
+    AgentRuntimeKind.DROID -> "Droid"
 }
 
 private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = when (kind) {
@@ -1455,6 +1467,7 @@ private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = when (kind) {
     AgentRuntimeKind.PI -> 1
     AgentRuntimeKind.OPENCODE -> 2
     AgentRuntimeKind.CODEX -> 3
+    AgentRuntimeKind.DROID -> 4
 }
 
 private fun sshAgentStatusLabel(agent: RemoteAgentAvailability): String = when (agent.status) {

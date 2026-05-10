@@ -120,8 +120,8 @@ fun ConversationTimelineItem(
     isLiveTurn: Boolean = false,
     isStreamingMessage: Boolean = false,
     onStreamingSnapshotRendered: (() -> Unit)? = null,
-    onEditMessage: ((UInt) -> Unit)? = null,
-    onForkFromMessage: ((UInt) -> Unit)? = null,
+    onEditMessage: ((String) -> Unit)? = null,
+    onForkFromMessage: ((String) -> Unit)? = null,
     onOpenSavedApp: ((String) -> Unit)? = null,
     onWidgetPrompt: ((String) -> Unit)? = null,
 ) {
@@ -138,7 +138,7 @@ fun ConversationTimelineItem(
     when (val content = item.content) {
         is HydratedConversationItemContent.User -> UserMessageRow(
             data = content.v1,
-            turnIndex = item.sourceTurnIndex ?: 0u,
+            itemId = item.id,
             onEdit = onEditMessage,
             onFork = onForkFromMessage,
         )
@@ -262,9 +262,9 @@ private fun HydratedConversationItemContent.shouldAutoFollowRenderedContent(): B
 @Composable
 private fun UserMessageRow(
     data: uniffi.codex_mobile_client.HydratedUserMessageData,
-    turnIndex: UInt,
-    onEdit: ((UInt) -> Unit)?,
-    onFork: ((UInt) -> Unit)?,
+    itemId: String,
+    onEdit: ((String) -> Unit)?,
+    onFork: ((String) -> Unit)?,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -329,13 +329,13 @@ private fun UserMessageRow(
                 if (onEdit != null) {
                     DropdownMenuItem(
                         text = { Text("Edit Message") },
-                        onClick = { showMenu = false; onEdit(turnIndex) },
+                        onClick = { showMenu = false; onEdit(itemId) },
                     )
                 }
                 if (onFork != null) {
                     DropdownMenuItem(
                         text = { Text("Fork From Here") },
-                        onClick = { showMenu = false; onFork(turnIndex) },
+                        onClick = { showMenu = false; onFork(itemId) },
                     )
                 }
                 DropdownMenuItem(

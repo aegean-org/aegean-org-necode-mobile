@@ -795,13 +795,37 @@ class AppModel private constructor(context: android.content.Context) {
 
     suspend fun refreshThreadIncludingTurns(key: ThreadKey): ThreadKey {
         try {
+            // 1. Refresh thread metadata only — title, status, model,
+            //    active_turn_id, etc. The full historical turn list is
+            //    append-only on the server, so we don't need to re-pull it
+            //    here. Sending `includeTurns = true` would have the server
+            //    reconstruct the entire rollout in one response, which is
+            //    unbounded and OOMs the device on long threads.
             val nextKey = client.readThread(
                 key.serverId,
                 AppReadThreadRequest(
                     threadId = key.threadId,
-                    includeTurns = true,
+                    includeTurns = false,
                 ),
             )
+            // 2. Reload the most-recent N turns via the paginated path. On
+            //    v0.125+ remotes this hits `thread/turns/list`; on older
+            //    remotes that don't implement it, the Rust client falls back
+            //    to `thread/resume(excludeTurns: false)` and pulls the
+            //    embedded turn list — preserving the prior reload behavior
+            //    for legacy servers.
+            try {
+                store.loadThreadTurnsPage(nextKey, null, INITIAL_TURN_PAGE_LIMIT)
+            } catch (e: Exception) {
+                LLog.w(
+                    "Pagination",
+                    "refreshThreadIncludingTurns: initial-turn page load failed",
+                    fields = mapOf(
+                        "threadId" to nextKey.threadId,
+                        "error" to (e.message ?: e.toString()),
+                    ),
+                )
+            }
             val threadSnapshot = store.threadSnapshot(nextKey)
             if (threadSnapshot != null) {
                 applyThreadSnapshot(threadSnapshot)

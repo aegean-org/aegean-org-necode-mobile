@@ -394,7 +394,8 @@ private struct SplashCarouselText: View {
         .init(label: "codex", assetName: "agent_codex"),
         .init(label: "opencode", assetName: "agent_opencode"),
         .init(label: "pi", assetName: "agent_pi"),
-        .init(label: "claude", assetName: "agent_claude")
+        .init(label: "claude", assetName: "agent_claude"),
+        .init(label: "droid", assetName: "agent_droid")
     ]
 
     var body: some View {

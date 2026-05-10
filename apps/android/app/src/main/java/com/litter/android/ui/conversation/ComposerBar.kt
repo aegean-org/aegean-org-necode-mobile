@@ -1750,6 +1750,57 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                 }
             }
         }
+
+        // Usage chips (tokens used + elapsed time). Visible whenever the goal
+        // has any usage — including when no budget is set, so the user can
+        // still see what the goal has consumed. Mirrors iOS
+        // `ConversationComposerContentView.usageMetricsRow`.
+        val hasUsage = goal.tokensUsed > 0 || goal.timeUsedSeconds > 0
+        if (hasUsage) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (goal.tokensUsed > 0) {
+                    Text(
+                        text = "T ${formatGoalTokens(goal.tokensUsed)}",
+                        color = LitterTheme.textSecondary,
+                        fontSize = 10f.scaled,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = BerkeleyMono,
+                    )
+                }
+                if (goal.tokensUsed > 0 && goal.timeUsedSeconds > 0) {
+                    Text(
+                        text = "·",
+                        color = LitterTheme.textMuted.copy(alpha = 0.6f),
+                        fontSize = 10f.scaled,
+                        fontFamily = BerkeleyMono,
+                    )
+                }
+                if (goal.timeUsedSeconds > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = LitterTheme.textSecondary,
+                            modifier = Modifier.size(10.dp),
+                        )
+                        Text(
+                            text = formatGoalSeconds(goal.timeUsedSeconds),
+                            color = LitterTheme.textSecondary,
+                            fontSize = 10f.scaled,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = BerkeleyMono,
+                        )
+                    }
+                }
+                Spacer(Modifier.weight(1f, fill = false))
+            }
+        }
     }
 
     if (showEditDialog) {
@@ -1918,6 +1969,19 @@ private fun formatGoalTokens(value: Long): String =
         value >= 1_000 -> "%.1fk".format(value / 1_000.0)
         else -> value.toString()
     }
+
+private fun formatGoalSeconds(seconds: Long): String {
+    if (seconds < 60) return "${seconds}s"
+    val total = seconds.toInt()
+    val minutes = total / 60
+    val remainSecs = total % 60
+    if (total < 3600) {
+        return if (remainSecs == 0) "${minutes}m" else "${minutes}m ${remainSecs}s"
+    }
+    val hours = total / 3600
+    val remainMins = (total % 3600) / 60
+    return if (remainMins == 0) "${hours}h" else "${hours}h ${remainMins}m"
+}
 
 // ── Rate Limit Badge (matching iOS RateLimitBadgeView) ───────────────────────
 

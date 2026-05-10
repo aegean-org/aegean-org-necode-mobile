@@ -558,26 +558,38 @@ fun ConversationScreen(
                                                     } else {
                                                         null
                                                     },
-                                                    onEditMessage = { turnIndex ->
-                                                        scope.launch {
-                                                            val prefill = appModel.store.editMessage(threadKey, turnIndex)
-                                                            appModel.queueComposerPrefill(threadKey, prefill)
+                                                    onEditMessage = { messageId ->
+                                                        // Resolve the user-message position in the
+                                                        // currently-loaded transcript. The Rust
+                                                        // `editMessage` / `forkThreadFromMessage` APIs
+                                                        // expect an index into `thread.items` filtered
+                                                        // to user messages — recomputing here keeps
+                                                        // the index correct under pagination, where a
+                                                        // cached `sourceTurnIndex` from a prior hydrate
+                                                        // would be stale.
+                                                        loadedUserItemIndex(items, messageId)?.let { turnIndex ->
+                                                            scope.launch {
+                                                                val prefill = appModel.store.editMessage(threadKey, turnIndex)
+                                                                appModel.queueComposerPrefill(threadKey, prefill)
+                                                            }
                                                         }
                                                     },
-                                                    onForkFromMessage = { turnIndex ->
-                                                        scope.launch {
-                                                            try {
-                                                                val newKey = appModel.store.forkThreadFromMessage(
-                                                                    threadKey,
-                                                                    turnIndex,
-                                                                    appModel.launchState.forkThreadFromMessageRequest(
-                                                                        cwdOverride = thread.info.cwd,
-                                                                        threadKey = threadKey,
-                                                                    ),
-                                                                )
-                                                                appModel.store.setActiveThread(newKey)
-                                                                appModel.refreshThreadSnapshot(newKey)
-                                                            } catch (_: Exception) {}
+                                                    onForkFromMessage = { messageId ->
+                                                        loadedUserItemIndex(items, messageId)?.let { turnIndex ->
+                                                            scope.launch {
+                                                                try {
+                                                                    val newKey = appModel.store.forkThreadFromMessage(
+                                                                        threadKey,
+                                                                        turnIndex,
+                                                                        appModel.launchState.forkThreadFromMessageRequest(
+                                                                            cwdOverride = thread.info.cwd,
+                                                                            threadKey = threadKey,
+                                                                        ),
+                                                                    )
+                                                                    appModel.store.setActiveThread(newKey)
+                                                                    appModel.refreshThreadSnapshot(newKey)
+                                                                } catch (_: Exception) {}
+                                                            }
                                                         }
                                                     },
                                                     onOpenSavedApp = onOpenSavedApp,
@@ -1499,6 +1511,28 @@ private fun SessionDiffSectionHeader(
             fontWeight = FontWeight.Bold,
         )
     }
+}
+
+/**
+ * Resolve the user-message position in the currently-loaded transcript.
+ * `forkThreadFromMessage` / `editMessage` on the Rust side expect an index
+ * into the thread's items filtered to user messages — see
+ * `rollback_depth_for_turn` in `mobile_client/thread_projection.rs`.
+ * Recomputing from the live `items` keeps the index correct under
+ * pagination (older turns can shift positions; a cached `sourceTurnIndex`
+ * from a prior hydrate would be stale).
+ */
+private fun loadedUserItemIndex(
+    items: List<uniffi.codex_mobile_client.HydratedConversationItem>,
+    messageId: String,
+): UInt? {
+    var idx = 0u
+    for (candidate in items) {
+        if (candidate.content !is HydratedConversationItemContent.User) continue
+        if (candidate.id == messageId) return idx
+        idx++
+    }
+    return null
 }
 
 private fun lastUserAndAssistantText(

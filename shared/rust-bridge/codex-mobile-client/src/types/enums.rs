@@ -11,6 +11,7 @@ pub enum AgentRuntimeKind {
     Pi,
     Opencode,
     Claude,
+    Droid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]

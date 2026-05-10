@@ -3250,10 +3250,7 @@ fn preserve_thread_created_at(existing: &ThreadInfo, incoming: &mut ThreadInfo) 
 /// an earlier `thread/read`. Mirrors `preserve_thread_title`.
 fn preserve_thread_fork_lineage(existing: &ThreadInfo, incoming: &mut ThreadInfo) {
     let is_blank = |value: &Option<String>| -> bool {
-        value
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(str::is_empty)
+        value.as_deref().map(str::trim).is_none_or(str::is_empty)
     };
     if is_blank(&incoming.forked_from_id) && !is_blank(&existing.forked_from_id) {
         incoming.forked_from_id = existing.forked_from_id.clone();
@@ -5385,11 +5382,11 @@ mod tests {
         // ItemCompleted for the same (thread, item) drops the buffer.
         reducer.apply_ui_event(&UiEvent::ItemCompleted {
             key: key.clone(),
-                notification: ItemCompletedNotification {
-                    thread_id: key.thread_id.clone(),
-                    turn_id: "turn-1".to_string(),
-                    completed_at_ms: 0,
-                    item: ThreadItem::DynamicToolCall {
+            notification: ItemCompletedNotification {
+                thread_id: key.thread_id.clone(),
+                turn_id: "turn-1".to_string(),
+                completed_at_ms: 0,
+                item: ThreadItem::DynamicToolCall {
                     id: "item-99".to_string(),
                     tool: "show_widget".to_string(),
                     namespace: None,

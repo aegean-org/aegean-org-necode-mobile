@@ -117,6 +117,8 @@ extension AppThreadSnapshot {
             return "opencode"
         case "pi", "pi.dev", "pidev":
             return "Pi"
+        case "droid", "factory", "factory-droid", "factory_droid", "factory droid":
+            return "Droid"
         case "openai", "codex":
             return "Codex"
         default:
@@ -137,6 +139,8 @@ extension AppThreadSnapshot {
             return "opencode"
         case .claude:
             return "Claude"
+        case .droid:
+            return "Droid"
         }
     }
 }

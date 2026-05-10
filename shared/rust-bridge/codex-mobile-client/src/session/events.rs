@@ -1302,7 +1302,10 @@ mod tests {
             UiEvent::RealtimeStarted { key, notification } => {
                 assert_eq!(key.thread_id, "thr_1");
                 assert_eq!(notification.thread_id, "thr_1");
-                assert_eq!(notification.realtime_session_id.as_deref(), Some("sess_abc"));
+                assert_eq!(
+                    notification.realtime_session_id.as_deref(),
+                    Some("sess_abc")
+                );
             }
             other => panic!("expected RealtimeStarted, got {other:?}"),
         }

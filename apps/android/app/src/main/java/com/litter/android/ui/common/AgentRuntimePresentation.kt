@@ -21,6 +21,7 @@ val AgentRuntimeKind.runtimeLabel: String
         AgentRuntimeKind.PI -> "Pi"
         AgentRuntimeKind.OPENCODE -> "opencode"
         AgentRuntimeKind.CLAUDE -> "Claude"
+        AgentRuntimeKind.DROID -> "Droid"
     }
 
 @get:DrawableRes
@@ -30,6 +31,7 @@ val AgentRuntimeKind.runtimeDrawable: Int
         AgentRuntimeKind.PI -> R.drawable.agent_pi
         AgentRuntimeKind.OPENCODE -> R.drawable.agent_opencode
         AgentRuntimeKind.CLAUDE -> R.drawable.agent_claude
+        AgentRuntimeKind.DROID -> R.drawable.agent_droid
     }
 
 val AgentRuntimeKind.runtimeSortIndex: Int
@@ -38,13 +40,15 @@ val AgentRuntimeKind.runtimeSortIndex: Int
         AgentRuntimeKind.PI -> 1
         AgentRuntimeKind.OPENCODE -> 2
         AgentRuntimeKind.CLAUDE -> 3
+        AgentRuntimeKind.DROID -> 4
     }
 
 val AgentRuntimeKind.isBeta: Boolean
     get() = when (this) {
         AgentRuntimeKind.CLAUDE,
         AgentRuntimeKind.PI,
-        AgentRuntimeKind.OPENCODE -> true
+        AgentRuntimeKind.OPENCODE,
+        AgentRuntimeKind.DROID -> true
         AgentRuntimeKind.CODEX -> false
     }
 
@@ -52,6 +56,7 @@ private val betaAgentNameAliases = setOf(
     "claude", "claude-code", "claude_code",
     "pi", "pi.dev", "pidev",
     "opencode", "open-code", "open_code", "open code",
+    "droid", "factory", "factory-droid", "factory_droid", "factory droid",
 )
 
 fun isBetaAgentName(name: String, displayName: String): Boolean =

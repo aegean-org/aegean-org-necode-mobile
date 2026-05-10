@@ -1773,10 +1773,7 @@ mod tests {
         }))
         .expect("thread/resume response should deserialize typed enums");
 
-        assert_eq!(
-            response.service_tier,
-            Some("fast".to_string())
-        );
+        assert_eq!(response.service_tier, Some("fast".to_string()));
         assert_eq!(
             response.reasoning_effort,
             Some(codex_protocol::openai_models::ReasoningEffort::Medium)

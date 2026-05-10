@@ -248,6 +248,8 @@ private func isBridgeKind(_ kind: AgentRuntimeKind) -> Bool {
     switch kind {
     case .codex, .claude, .pi, .opencode:
         return true
+    case .droid:
+        return false
     }
 }
 
@@ -257,6 +259,7 @@ private func runtimeDisplayName(_ kind: AgentRuntimeKind) -> String {
     case .pi: return "Pi"
     case .opencode: return "OpenCode"
     case .claude: return "Claude"
+    case .droid: return "Droid"
     }
 }
 
@@ -266,6 +269,7 @@ private func runtimeSortRank(_ kind: AgentRuntimeKind) -> Int {
     case .pi: return 1
     case .opencode: return 2
     case .codex: return 3
+    case .droid: return 4
     }
 }
 
