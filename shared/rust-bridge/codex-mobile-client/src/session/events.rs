@@ -70,6 +70,15 @@ pub(crate) enum UiEvent {
         key: ThreadKey,
         notification: codex_app_server_protocol::TurnPlanUpdatedNotification,
     },
+    /// Progressive patch updates streamed by upstream while a FileChange
+    /// item is still applying. Without handling this, diff stats and the
+    /// Edit tool-log entry don't appear until ItemCompleted lands at the
+    /// end of the patch — see `reducer.rs::UiEvent::FileChangePatchUpdated`
+    /// for the upsert path.
+    FileChangePatchUpdated {
+        key: ThreadKey,
+        notification: codex_app_server_protocol::FileChangePatchUpdatedNotification,
+    },
     ItemStarted {
         key: ThreadKey,
         notification: codex_app_server_protocol::ItemStartedNotification,
@@ -323,6 +332,13 @@ impl EventProcessor {
             ServerNotification::TurnDiffUpdated(n) => {
                 let key = Self::make_key(server_id, &n.thread_id);
                 self.emit(UiEvent::TurnDiffUpdated {
+                    key,
+                    notification: n.clone(),
+                });
+            }
+            ServerNotification::FileChangePatchUpdated(n) => {
+                let key = Self::make_key(server_id, &n.thread_id);
+                self.emit(UiEvent::FileChangePatchUpdated {
                     key,
                     notification: n.clone(),
                 });

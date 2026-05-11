@@ -1903,6 +1903,26 @@ impl AppStoreReducer {
                     self.emit_thread_item_changed(key, item);
                 }
             }
+            UiEvent::FileChangePatchUpdated { key, notification } => {
+                // Synthesize the in-flight FileChange item from the
+                // progressive notification (codex emits these as a patch
+                // is being applied; the canonical ItemCompleted lands at
+                // the end). Going through the normal `apply_item_update`
+                // path keeps fingerprint dedupe + `emit_thread_item_changed`
+                // behaviour identical to a real ItemStarted, so home-row
+                // diff stats + Edit log entries climb in real time.
+                let upstream_item = upstream::ThreadItem::FileChange {
+                    id: notification.item_id.clone(),
+                    changes: notification.changes.clone(),
+                    status: upstream::PatchApplyStatus::InProgress,
+                };
+                if let Some(item) = conversation_item_from_upstream_with_turn(
+                    upstream_item,
+                    Some(&notification.turn_id),
+                ) {
+                    self.apply_item_update(key, item);
+                }
+            }
             UiEvent::McpToolCallProgress { key, notification } => {
                 let result = self
                     .mutate_thread_with_result(key, |thread| {
