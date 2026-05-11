@@ -222,6 +222,19 @@ final class VoiceRuntimeController: VoiceActions {
                 dynamicTools: appModel.localGenerativeUiToolSpecs(for: serverId)
             )
         )
+        do {
+            try await appModel.renameThread(
+                serverId: serverId,
+                threadId: key.threadId,
+                title: "realtime session"
+            )
+        } catch {
+            LLog.warn(
+                "voice",
+                "failed to name realtime session thread",
+                fields: ["error": String(describing: error)]
+            )
+        }
         SavedThreadsStore.add(.init(threadKey: key))
         appModel.store.setActiveThread(key: key)
         setPersistedLocalVoiceThreadId(key.threadId)

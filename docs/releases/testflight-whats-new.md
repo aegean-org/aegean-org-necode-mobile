@@ -1,5 +1,6 @@
 Summary
 
+- Added a Real Time voice fallback to use the API key when both OAuth and API-key auth are configured.
 - Fixed the conversation composer hiding Send behind Cancel while a turn is active.
 - Fixed a CarPlay voice crash when reopening or resuming an active voice session.
 - Improved Real Time voice failure handling so unexpected session closes show the actual error instead of silently ending.
@@ -14,6 +15,7 @@ Summary
 
 What to test
 
+- Real Time auth fallback: configure both ChatGPT OAuth and an OpenAI API key, start a Real Time voice session, and confirm it can connect using the API key fallback when OAuth realtime auth is unavailable.
 - Active-turn composer: start a conversation turn, type into the composer while the turn is still active, and confirm the outer action changes to Send instead of staying as Cancel. Clear the text and confirm Cancel returns.
 - CarPlay voice: connect through CarPlay, start a voice session, resume a recent voice session, and tap back into the active session. Confirm the Now Playing view opens without crashing or duplicating.
 - Real Time voice: start a Real Time voice session and confirm normal sessions keep listening/responding. If the session ends unexpectedly, confirm the screen shows a specific error below the status text instead of only "Session Ended".

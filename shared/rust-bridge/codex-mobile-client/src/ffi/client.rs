@@ -711,13 +711,28 @@ impl AppClient {
         params: types::AppStartRealtimeSessionRequest,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
+            let thread_id = params.thread_id.clone();
             let params = convert_params::<_, upstream::ThreadRealtimeStartParams>(params)?;
-            let _: upstream::ThreadRealtimeStartResponse = rpc(
+            let response: Result<upstream::ThreadRealtimeStartResponse, ClientError> = rpc(
                 c.as_ref(),
                 &server_id,
-                req!(server_id, ThreadRealtimeStart, params),
+                req!(server_id, ThreadRealtimeStart, params.clone()),
             )
-            .await?;
+            .await;
+            if let Err(error) = response {
+                if !is_stale_thread_error(&error.to_string()) {
+                    return Err(error);
+                }
+                c.force_refresh_thread_authoritative(&server_id, &thread_id)
+                    .await
+                    .map_err(|recover_error| ClientError::Rpc(recover_error.to_string()))?;
+                let _: upstream::ThreadRealtimeStartResponse = rpc(
+                    c.as_ref(),
+                    &server_id,
+                    req!(server_id, ThreadRealtimeStart, params),
+                )
+                .await?;
+            }
             Ok(())
         })
     }
