@@ -1948,10 +1948,14 @@ final class AppModel {
                         serverId: currentKey.serverId,
                         params: AppListThreadsRequest(
                             cursor: nil,
-                            limit: nil,
+                            limit: 80,
+                            sortKey: .updatedAt,
+                            sortDirection: .desc,
                             archived: nil,
                             cwd: nil,
-                            searchTerm: nil
+                            searchTerm: nil,
+                            useStateDbOnly: false,
+                            runtimeKinds: nil
                         )
                     )
                 } catch {

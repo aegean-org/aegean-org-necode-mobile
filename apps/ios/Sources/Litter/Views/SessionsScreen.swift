@@ -7,6 +7,8 @@ private let sessionsScreenSignpostLog = OSLog(
 )
 
 struct SessionsScreen: View {
+    private static let sessionListPageLimit: UInt32 = 80
+
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
     @Environment(ConversationWarmupCoordinator.self) private var conversationWarmup
@@ -30,6 +32,7 @@ struct SessionsScreen: View {
     @State private var pendingActiveSessionScroll = false
     @State private var sessionSearchDebounceTask: Task<Void, Never>?
     @State private var hasLoadedInitialSessions = false
+    @State private var isSessionLoadInFlight = false
     private let autoLoadSessions: Bool
     private let onOpenConversation: (ThreadKey) -> Void
     private let onInfo: (() -> Void)?
@@ -287,7 +290,7 @@ struct SessionsScreen: View {
     }
 
     private var connectedServerIds: [String] {
-        connectedServerOptions.map(\.id)
+        connectedServerOptions.map(\.id).sorted()
     }
 
     private var trimmedSessionSearchQuery: String {
@@ -1135,16 +1138,26 @@ struct SessionsScreen: View {
             isLoading = false
             return
         }
+        guard !isSessionLoadInFlight else {
+            return
+        }
+        isSessionLoadInFlight = true
+        defer { isSessionLoadInFlight = false }
+
         isLoading = true
         for serverId in connectedServerIds {
             _ = try? await appModel.client.listThreads(
                 serverId: serverId,
                 params: AppListThreadsRequest(
                     cursor: nil,
-                    limit: nil,
+                    limit: Self.sessionListPageLimit,
+                    sortKey: .updatedAt,
+                    sortDirection: .desc,
                     archived: nil,
                     cwd: nil,
-                    searchTerm: nil
+                    searchTerm: nil,
+                    useStateDbOnly: false,
+                    runtimeKinds: nil
                 )
             )
         }
