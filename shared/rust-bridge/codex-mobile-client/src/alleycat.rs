@@ -234,6 +234,11 @@ enum Request {
         v: u32,
         token: String,
     },
+    RestartAgent {
+        v: u32,
+        token: String,
+        agent: String,
+    },
     Connect {
         v: u32,
         token: String,
@@ -330,6 +335,27 @@ pub async fn list_agents(
             available: agent.available,
         })
         .collect())
+}
+
+pub async fn restart_agent(
+    endpoint: &Endpoint,
+    params: ParsedPairPayload,
+    agent: String,
+) -> Result<(), AlleycatError> {
+    let (conn, mut send, mut recv) = open_stream_on(endpoint, &params).await?;
+    write_json_frame(
+        &mut send,
+        &Request::RestartAgent {
+            v: ALLEYCAT_PROTOCOL_VERSION,
+            token: params.token.clone(),
+            agent,
+        },
+    )
+    .await?;
+    let response: Response = read_json_frame(&mut recv).await?;
+    validate_response(&response)?;
+    conn.close(VarInt::from_u32(0), b"restart_agent complete");
+    Ok(())
 }
 
 pub async fn connect_app_server_client(

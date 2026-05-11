@@ -113,6 +113,7 @@ pub struct MobileClient {
     /// point and the install-prompt response can live on different bridges.
     pub(crate) ssh_bootstrap_flows:
         Arc<tokio::sync::Mutex<HashMap<String, ManagedSshBootstrapFlow>>>,
+    alleycat_restart_targets: Arc<StdMutex<HashMap<String, AlleycatRestartTarget>>>,
 }
 
 /// State for a single in-flight guided SSH connect. The connect task installs a
@@ -120,6 +121,11 @@ pub struct MobileClient {
 /// awaits the FFI install-prompt response to fire it.
 pub struct ManagedSshBootstrapFlow {
     pub install_decision: Option<tokio::sync::oneshot::Sender<bool>>,
+}
+
+#[derive(Debug, Clone)]
+struct AlleycatRestartTarget {
+    params: crate::alleycat::ParsedPairPayload,
 }
 
 /// A waiter registered by `update_saved_app` to receive the next
@@ -523,6 +529,7 @@ impl MobileClient {
             alleycat_endpoint: Arc::new(tokio::sync::OnceCell::new()),
             alleycat_secret_key: Arc::new(StdMutex::new(None)),
             ssh_bootstrap_flows: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            alleycat_restart_targets: Arc::new(StdMutex::new(HashMap::new())),
         }
     }
 
@@ -1217,6 +1224,24 @@ impl MobileClient {
             is_local: false,
             tls: false,
         };
+        match self.alleycat_restart_targets.lock() {
+            Ok(mut guard) => {
+                guard.insert(
+                    server_id.clone(),
+                    AlleycatRestartTarget {
+                        params: params.clone(),
+                    },
+                );
+            }
+            Err(error) => {
+                error.into_inner().insert(
+                    server_id.clone(),
+                    AlleycatRestartTarget {
+                        params: params.clone(),
+                    },
+                );
+            }
+        }
         self.app_store
             .upsert_server(&config, ServerHealthSnapshot::Connecting, true);
         self.replace_existing_session(server_id.as_str()).await;
@@ -1741,6 +1766,14 @@ impl MobileClient {
     pub fn disconnect_server(&self, server_id: &str) {
         let session = self.sessions_write().remove(server_id);
         self.clear_direct_resume_markers_for_server(server_id);
+        match self.alleycat_restart_targets.lock() {
+            Ok(mut guard) => {
+                guard.remove(server_id);
+            }
+            Err(error) => {
+                error.into_inner().remove(server_id);
+            }
+        }
         self.app_store.remove_server(server_id);
 
         let inner = Arc::clone(&self.oauth_callback_tunnels);
@@ -1756,6 +1789,19 @@ impl MobileClient {
 
     pub async fn restart_app_server(&self, server_id: &str) -> Result<(), TransportError> {
         self.clear_oauth_callback_tunnel(server_id).await;
+        let alleycat_restart_target = match self.alleycat_restart_targets.lock() {
+            Ok(guard) => guard.get(server_id).cloned(),
+            Err(error) => error.into_inner().get(server_id).cloned(),
+        };
+        if let Some(target) = alleycat_restart_target {
+            let endpoint = self
+                .alleycat_endpoint()
+                .await
+                .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+            crate::alleycat::restart_agent(&endpoint, target.params, "codex".to_string())
+                .await
+                .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        }
         let session = self.sessions_write().remove(server_id);
         self.clear_direct_resume_markers_for_server(server_id);
         self.app_store.remove_server(server_id);
