@@ -262,6 +262,25 @@ pub(crate) struct PendingApprovalKey {
     pub request_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct PendingUserInputKey {
+    pub server_id: String,
+    pub request_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PendingUserInputResponseKind {
+    ToolRequestUserInput,
+    McpServerElicitation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PendingUserInputSeed {
+    pub request_id: codex_app_server_protocol::RequestId,
+    pub response_kind: PendingUserInputResponseKind,
+    pub raw_params: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[derive(uniffi::Record)]

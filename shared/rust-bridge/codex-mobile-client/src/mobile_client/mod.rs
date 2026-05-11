@@ -31,7 +31,8 @@ use crate::transport::{RpcError, TransportError};
 use crate::types::{
     AgentRuntimeInfo, AgentRuntimeKind, AppCollaborationModePreset, AppModeKind,
     ApprovalDecisionValue, PendingApproval, PendingApprovalSeed, PendingApprovalWithSeed,
-    PendingUserInputAnswer, PendingUserInputRequest, ThreadInfo, ThreadKey, ThreadSummaryStatus,
+    PendingUserInputAnswer, PendingUserInputRequest, PendingUserInputResponseKind,
+    PendingUserInputSeed, ThreadInfo, ThreadKey, ThreadSummaryStatus,
 };
 use codex_app_server_protocol as upstream;
 use codex_ipc::{
@@ -159,6 +160,14 @@ pub struct AlleycatConnectOutcome {
 const USER_INPUT_NOTE_PREFIX: &str = "user_note: ";
 const USER_INPUT_OTHER_OPTION_LABEL: &str = "None of the above";
 const USER_INPUT_RECONCILE_DELAYS_MS: [u64; 3] = [150, 800, 2500];
+const MCP_APPROVAL_FIELD_ID: &str = "__approval";
+const MCP_URL_ACTION_FIELD_ID: &str = "__url_action";
+const MCP_APPROVAL_ACCEPT_ONCE_LABEL: &str = "Allow";
+const MCP_APPROVAL_ACCEPT_SESSION_LABEL: &str = "Allow for this session";
+const MCP_APPROVAL_ACCEPT_ALWAYS_LABEL: &str = "Always allow";
+const MCP_APPROVAL_DECLINE_LABEL: &str = "Deny";
+const MCP_APPROVAL_CANCEL_LABEL: &str = "Cancel";
+const MCP_URL_FINISHED_LABEL: &str = "I finished";
 
 fn ipc_command_error_clears_server_ipc_state(error: &IpcError) -> bool {
     matches!(
@@ -406,6 +415,214 @@ fn normalize_pending_user_input_answer_entries(
     let mut normalized = selected_options;
     normalized.push(format!("{USER_INPUT_NOTE_PREFIX}{}", note_parts.join("\n")));
     normalized
+}
+
+fn pending_user_input_first_answer<'a>(
+    answers: &'a [PendingUserInputAnswer],
+    question_id: &str,
+) -> Option<&'a str> {
+    answers
+        .iter()
+        .find(|answer| answer.question_id == question_id)
+        .and_then(|answer| {
+            answer
+                .answers
+                .iter()
+                .find_map(|entry| non_empty_trimmed(entry))
+        })
+}
+
+fn mcp_elicitation_response_json(
+    seed: &PendingUserInputSeed,
+    answers: &[PendingUserInputAnswer],
+) -> Result<serde_json::Value, RpcError> {
+    let params: upstream::McpServerElicitationRequestParams =
+        serde_json::from_value(seed.raw_params.clone()).map_err(|error| {
+            RpcError::Deserialization(format!("deserialize MCP elicitation params: {error}"))
+        })?;
+    let response = match &params.request {
+        upstream::McpServerElicitationRequest::Form {
+            requested_schema, ..
+        } if requested_schema.properties.is_empty() => {
+            let (action, meta) = mcp_approval_action_response(answers);
+            upstream::McpServerElicitationRequestResponse {
+                action,
+                content: None,
+                meta,
+            }
+        }
+        upstream::McpServerElicitationRequest::Form {
+            requested_schema, ..
+        } => {
+            let mut content = serde_json::Map::new();
+            for (id, schema) in &requested_schema.properties {
+                if let Some(value) = mcp_elicitation_answer_value(schema, id, answers) {
+                    content.insert(id.clone(), value);
+                }
+            }
+            upstream::McpServerElicitationRequestResponse {
+                action: upstream::McpServerElicitationAction::Accept,
+                content: Some(serde_json::Value::Object(content)),
+                meta: None,
+            }
+        }
+        upstream::McpServerElicitationRequest::Url { .. } => {
+            let answer = pending_user_input_first_answer(answers, MCP_URL_ACTION_FIELD_ID);
+            let action = match answer {
+                Some(MCP_URL_FINISHED_LABEL) => upstream::McpServerElicitationAction::Accept,
+                Some(MCP_APPROVAL_CANCEL_LABEL) => upstream::McpServerElicitationAction::Cancel,
+                _ => upstream::McpServerElicitationAction::Cancel,
+            };
+            upstream::McpServerElicitationRequestResponse {
+                action,
+                content: None,
+                meta: None,
+            }
+        }
+    };
+    serde_json::to_value(response)
+        .map_err(|error| RpcError::Deserialization(format!("serialize MCP response: {error}")))
+}
+
+fn mcp_approval_action_response(
+    answers: &[PendingUserInputAnswer],
+) -> (
+    upstream::McpServerElicitationAction,
+    Option<serde_json::Value>,
+) {
+    match pending_user_input_first_answer(answers, MCP_APPROVAL_FIELD_ID) {
+        Some(MCP_APPROVAL_ACCEPT_SESSION_LABEL) => (
+            upstream::McpServerElicitationAction::Accept,
+            Some(serde_json::json!({
+                codex_protocol::mcp_approval_meta::PERSIST_KEY:
+                    codex_protocol::mcp_approval_meta::PERSIST_SESSION,
+            })),
+        ),
+        Some(MCP_APPROVAL_ACCEPT_ALWAYS_LABEL) => (
+            upstream::McpServerElicitationAction::Accept,
+            Some(serde_json::json!({
+                codex_protocol::mcp_approval_meta::PERSIST_KEY:
+                    codex_protocol::mcp_approval_meta::PERSIST_ALWAYS,
+            })),
+        ),
+        Some(MCP_APPROVAL_DECLINE_LABEL) => (upstream::McpServerElicitationAction::Decline, None),
+        Some(MCP_APPROVAL_CANCEL_LABEL) => (upstream::McpServerElicitationAction::Cancel, None),
+        Some(MCP_APPROVAL_ACCEPT_ONCE_LABEL) => {
+            (upstream::McpServerElicitationAction::Accept, None)
+        }
+        _ => (upstream::McpServerElicitationAction::Cancel, None),
+    }
+}
+
+fn mcp_elicitation_answer_value(
+    schema: &upstream::McpElicitationPrimitiveSchema,
+    question_id: &str,
+    answers: &[PendingUserInputAnswer],
+) -> Option<serde_json::Value> {
+    match schema {
+        upstream::McpElicitationPrimitiveSchema::String(_) => {
+            pending_user_input_first_answer(answers, question_id)
+                .map(|value| serde_json::Value::String(value.to_string()))
+        }
+        upstream::McpElicitationPrimitiveSchema::Number(schema) => {
+            let answer = pending_user_input_first_answer(answers, question_id)?;
+            match schema.type_ {
+                upstream::McpElicitationNumberType::Integer => answer
+                    .parse::<i64>()
+                    .ok()
+                    .map(|value| serde_json::Value::Number(value.into())),
+                upstream::McpElicitationNumberType::Number => answer
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(serde_json::Value::Number),
+            }
+        }
+        upstream::McpElicitationPrimitiveSchema::Boolean(_) => {
+            let answer = pending_user_input_first_answer(answers, question_id)?;
+            parse_bool_answer(answer).map(serde_json::Value::Bool)
+        }
+        upstream::McpElicitationPrimitiveSchema::Enum(schema) => {
+            mcp_enum_answer_value(schema, question_id, answers)
+        }
+    }
+}
+
+fn parse_bool_answer(answer: &str) -> Option<bool> {
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "true" | "yes" | "y" | "1" | "allow" => Some(true),
+        "false" | "no" | "n" | "0" | "deny" => Some(false),
+        _ => None,
+    }
+}
+
+fn mcp_enum_answer_value(
+    schema: &upstream::McpElicitationEnumSchema,
+    question_id: &str,
+    answers: &[PendingUserInputAnswer],
+) -> Option<serde_json::Value> {
+    match schema {
+        upstream::McpElicitationEnumSchema::Legacy(schema) => {
+            let answer = pending_user_input_first_answer(answers, question_id)?;
+            let enum_names = schema.enum_names.clone().unwrap_or_default();
+            schema.enum_.iter().enumerate().find_map(|(index, value)| {
+                let label = enum_names.get(index).unwrap_or(value);
+                (answer == label || answer == value)
+                    .then(|| serde_json::Value::String(value.clone()))
+            })
+        }
+        upstream::McpElicitationEnumSchema::SingleSelect(schema) => {
+            let answer = pending_user_input_first_answer(answers, question_id)?;
+            match schema {
+                upstream::McpElicitationSingleSelectEnumSchema::Untitled(schema) => schema
+                    .enum_
+                    .iter()
+                    .find(|value| answer == value.as_str())
+                    .map(|value| serde_json::Value::String(value.clone())),
+                upstream::McpElicitationSingleSelectEnumSchema::Titled(schema) => schema
+                    .one_of
+                    .iter()
+                    .find(|entry| answer == entry.title || answer == entry.const_)
+                    .map(|entry| serde_json::Value::String(entry.const_.clone())),
+            }
+        }
+        upstream::McpElicitationEnumSchema::MultiSelect(schema) => {
+            let raw_answers = answers
+                .iter()
+                .find(|answer| answer.question_id == question_id)?
+                .answers
+                .iter()
+                .filter_map(|answer| non_empty_trimmed(answer))
+                .collect::<Vec<_>>();
+            let values = match schema {
+                upstream::McpElicitationMultiSelectEnumSchema::Untitled(schema) => raw_answers
+                    .into_iter()
+                    .filter_map(|answer| {
+                        schema
+                            .items
+                            .enum_
+                            .iter()
+                            .find(|value| answer == value.as_str())
+                            .cloned()
+                    })
+                    .map(serde_json::Value::String)
+                    .collect::<Vec<_>>(),
+                upstream::McpElicitationMultiSelectEnumSchema::Titled(schema) => raw_answers
+                    .into_iter()
+                    .filter_map(|answer| {
+                        schema
+                            .items
+                            .any_of
+                            .iter()
+                            .find(|entry| answer == entry.title || answer == entry.const_)
+                            .map(|entry| entry.const_.clone())
+                    })
+                    .map(serde_json::Value::String)
+                    .collect::<Vec<_>>(),
+            };
+            Some(serde_json::Value::Array(values))
+        }
+    }
 }
 
 fn non_empty_trimmed(value: &str) -> Option<&str> {
@@ -3198,9 +3415,45 @@ impl MobileClient {
         answers: Vec<PendingUserInputAnswer>,
     ) -> Result<(), RpcError> {
         let request = self.pending_user_input(request_id)?;
+        let seed = self
+            .app_store
+            .pending_user_input_seed(&request.server_id, &request.id);
         let normalized_answers = normalize_pending_user_input_answers(&request, &answers);
         let answered_inputs = normalized_answers.clone();
         let session = self.get_session(&request.server_id)?;
+        if let Some(seed) = seed.as_ref()
+            && matches!(
+                seed.response_kind,
+                PendingUserInputResponseKind::McpServerElicitation
+            )
+        {
+            let direct_command_id = self.app_store.begin_server_mutating_command(
+                &request.server_id,
+                ServerMutatingCommandKind::UserInputResponse,
+                &request.thread_id,
+                ServerMutatingCommandRoute::Direct,
+            );
+            let response_json = mcp_elicitation_response_json(seed, &answers)?;
+            let response_request_id = server_request_id_json(seed.request_id.clone());
+            session.respond(response_request_id, response_json).await?;
+            self.app_store.finish_server_mutating_command_success(
+                &request.server_id,
+                &direct_command_id,
+                ServerMutatingCommandRoute::Direct,
+            );
+            debug!(
+                "MobileClient: MCP elicitation response sent for server={} request_id={}",
+                request.server_id, request_id
+            );
+            self.app_store
+                .resolve_pending_user_input_with_response(request_id, answered_inputs);
+            self.spawn_post_user_input_reconcile(
+                request.server_id.clone(),
+                request.thread_id.clone(),
+                Arc::clone(&session),
+            );
+            return Ok(());
+        }
         if server_has_live_ipc(&self.app_store, &request.server_id, &session) {
             let request_server_id = request.server_id.clone();
             let submission_id = ipc_pending_user_input_submission_id(&request).to_string();
@@ -3293,7 +3546,17 @@ impl MobileClient {
         let response_json = serde_json::to_value(response).map_err(|e| {
             RpcError::Deserialization(format!("serialize user input response: {e}"))
         })?;
-        let response_request_id = server_request_id_json(fallback_server_request_id(&request.id));
+        let response_request_id = server_request_id_json(
+            seed.as_ref()
+                .filter(|seed| {
+                    matches!(
+                        seed.response_kind,
+                        PendingUserInputResponseKind::ToolRequestUserInput
+                    )
+                })
+                .map(|seed| seed.request_id.clone())
+                .unwrap_or_else(|| fallback_server_request_id(&request.id)),
+        );
         session.respond(response_request_id, response_json).await?;
         self.app_store.finish_server_mutating_command_success(
             &request.server_id,

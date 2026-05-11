@@ -1852,7 +1852,7 @@ private struct ConversationDestinationScreen: View {
         guard let snapshot = appModel.snapshot else { return [] }
         let key = resolvedThreadKey
         return snapshot.pendingUserInputs.filter {
-            $0.serverId == key.serverId && $0.threadId == key.threadId
+            $0.isRelevant(to: key)
         }
     }
 

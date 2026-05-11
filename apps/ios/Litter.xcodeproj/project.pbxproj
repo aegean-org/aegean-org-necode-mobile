@@ -256,6 +256,7 @@
 		6E5AE2344005411B8D8A0BF8 /* poimandres.json in Resources */ = {isa = PBXBuildFile; fileRef = 6F877B8FA83A8228C4515FB4 /* poimandres.json */; };
 		6EF7AFD103A68CDEA1A94612 /* HomeDashboardSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018779F7529B6CAAC3A2B896 /* HomeDashboardSupportTests.swift */; };
 		6F9DC3769AABC5641DFD46DA /* material-theme.json in Resources */ = {isa = PBXBuildFile; fileRef = ACA6050F3A6D566E963B09A7 /* material-theme.json */; };
+		6FBA78C9A03BA409D4B04827 /* PendingUserInputRequest+ThreadMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03A1EEEAE225FB324930D3AA /* PendingUserInputRequest+ThreadMatching.swift */; };
 		7008C0C79F55B5441642BDED /* MacPairingHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DC320BD7E1525386BCF44F /* MacPairingHost.swift */; };
 		701B70DCBE0DB40B9B978B5C /* SavedAppUpdateOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58307B7673850139031D023 /* SavedAppUpdateOverlay.swift */; };
 		70835F6848317358DA94F963 /* AppearanceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D216CEBFB1B4B71CFC2C0F8 /* AppearanceSettingsView.swift */; };
@@ -300,6 +301,7 @@
 		82E7F97F0BBB0EB0FE1B4362 /* AgentLabelFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02ED53258B9C053AB7035CD1 /* AgentLabelFormatter.swift */; };
 		8307121CA65B93FFB0CE7F9D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CFDCB6C4655E3D2D76B41B /* AppState.swift */; };
 		83B5C99E5AEC4D413A79F05D /* gruvbox-light-medium.json in Resources */ = {isa = PBXBuildFile; fileRef = 22CBBA9F8B0545510F2AF720 /* gruvbox-light-medium.json */; };
+		83C098D7F44E8D08D68A6474 /* PendingUserInputRequest+ThreadMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03A1EEEAE225FB324930D3AA /* PendingUserInputRequest+ThreadMatching.swift */; };
 		8441369C5E7DF61BD94662F1 /* theme-manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 1B837FC06EA87B15E27613A8 /* theme-manifest.json */; };
 		8445E0A9CDF58E2E9A509018 /* CodeBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEDF2E1FEDF741D69062FDDD /* CodeBlockView.swift */; };
 		84803F278D0422D9DD37246D /* ConversationComposerExpandedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24AB3A174A5148143DFE1BFA /* ConversationComposerExpandedView.swift */; };
@@ -654,6 +656,7 @@
 		02ED53258B9C053AB7035CD1 /* AgentLabelFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLabelFormatter.swift; sourceTree = "<group>"; };
 		03425A33EF523B27A338F941 /* ToolCallMessageParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallMessageParserTests.swift; sourceTree = "<group>"; };
 		034CE02FECF86AB9EC0842D0 /* DiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryView.swift; sourceTree = "<group>"; };
+		03A1EEEAE225FB324930D3AA /* PendingUserInputRequest+ThreadMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PendingUserInputRequest+ThreadMatching.swift"; sourceTree = "<group>"; };
 		075CAE1122242626CE33A93F /* ConversationComposerEntryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationComposerEntryRowView.swift; sourceTree = "<group>"; };
 		07BA4EAACA2BC4A8FDE63A18 /* SavedAppsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedAppsStore.swift; sourceTree = "<group>"; };
 		0AB0858848FDF680B63C2432 /* ToolCallModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallModels.swift; sourceTree = "<group>"; };
@@ -1386,6 +1389,7 @@
 				9985C47F86DE72FA41043EE3 /* PairBLEAdvertiser.swift */,
 				478418E5A888D2A8494C9725 /* PairBLEScanner.swift */,
 				66961A8B9B89E5B34B6C5A93 /* PathDisplay.swift */,
+				03A1EEEAE225FB324930D3AA /* PendingUserInputRequest+ThreadMatching.swift */,
 				6F1E4E5FE7D1B8A474671CA4 /* PetOverlayController.swift */,
 				1145D1C6621EAFEACB35671A /* ProximityHaptics.swift */,
 				17B9830779CEF4EA2F95D85E /* PushProxyClient.swift */,
@@ -2143,6 +2147,7 @@
 				7D8DF3D3DF1A25C402708CD2 /* PairBLEAdvertiser.swift in Sources */,
 				24CD21A5C1581CA35D81E655 /* PairBLEScanner.swift in Sources */,
 				AC6C9D0FDC2E41C449EB9588 /* PathDisplay.swift in Sources */,
+				6FBA78C9A03BA409D4B04827 /* PendingUserInputRequest+ThreadMatching.swift in Sources */,
 				D7DA2792851B4BBB8405254B /* PetOverlayController.swift in Sources */,
 				319C2B181B9713B97F53A071 /* PetSettingsView.swift in Sources */,
 				7CEC143C214EE595AB7B4714 /* PetSpriteView.swift in Sources */,
@@ -2315,6 +2320,7 @@
 				6A0C312B5A565E7D8194F224 /* PairBLEAdvertiser.swift in Sources */,
 				97715C1B8B9FF369686FE9B3 /* PairBLEScanner.swift in Sources */,
 				B696926BA0B2FD5CB3374502 /* PathDisplay.swift in Sources */,
+				83C098D7F44E8D08D68A6474 /* PendingUserInputRequest+ThreadMatching.swift in Sources */,
 				444D506B5A87706F0561AF19 /* PetOverlayController.swift in Sources */,
 				88D410DEA96DA18A8D8BD729 /* PetSettingsView.swift in Sources */,
 				2D55E0EA12B02EB7072FBCC0 /* PetSpriteView.swift in Sources */,

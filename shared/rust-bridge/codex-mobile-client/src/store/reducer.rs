@@ -20,8 +20,8 @@ use crate::session::connection::ServerConfig;
 use crate::session::events::UiEvent;
 use crate::types::{
     AgentRuntimeInfo, AgentRuntimeKind, PendingApproval, PendingApprovalKey, PendingApprovalSeed,
-    PendingApprovalWithSeed, PendingUserInputAnswer, PendingUserInputRequest, ThreadInfo,
-    ThreadKey, ThreadSummaryStatus,
+    PendingApprovalWithSeed, PendingUserInputAnswer, PendingUserInputKey, PendingUserInputRequest,
+    PendingUserInputSeed, ThreadInfo, ThreadKey, ThreadSummaryStatus,
 };
 use crate::types::{
     AppModeKind, AppOperationStatus, AppPlanProgressSnapshot, AppPlanStep, AppThreadGoal,
@@ -287,6 +287,9 @@ impl AppStoreReducer {
             snapshot
                 .pending_user_inputs
                 .retain(|request| request.server_id != server_id);
+            snapshot
+                .pending_user_input_seeds
+                .retain(|key, _| key.server_id != server_id);
             if snapshot
                 .voice_session
                 .active_thread
@@ -424,6 +427,17 @@ impl AppStoreReducer {
             if snapshot.pending_user_inputs.len() != pending_user_inputs_before {
                 pending_user_inputs = Some(snapshot.pending_user_inputs.clone());
             }
+            let remaining_user_input_keys = snapshot
+                .pending_user_inputs
+                .iter()
+                .map(|request| PendingUserInputKey {
+                    server_id: request.server_id.clone(),
+                    request_id: request.id.clone(),
+                })
+                .collect::<HashSet<_>>();
+            snapshot
+                .pending_user_input_seeds
+                .retain(|key, _| remaining_user_input_keys.contains(key));
             // See `finalize_thread_list_sync`: we do NOT tear down an
             // active voice session just because the thread/list page
             // happens to omit the voice thread. The thread may simply
@@ -534,6 +548,17 @@ impl AppStoreReducer {
             if snapshot.pending_user_inputs.len() != pending_user_inputs_before {
                 pending_user_inputs = Some(snapshot.pending_user_inputs.clone());
             }
+            let remaining_user_input_keys = snapshot
+                .pending_user_inputs
+                .iter()
+                .map(|request| PendingUserInputKey {
+                    server_id: request.server_id.clone(),
+                    request_id: request.id.clone(),
+                })
+                .collect::<HashSet<_>>();
+            snapshot
+                .pending_user_input_seeds
+                .retain(|key, _| remaining_user_input_keys.contains(key));
             // Intentionally do NOT clear voice_session here based on
             // list-sync output. A list_threads RPC may omit a brand-new
             // voice thread (e.g. the one realtime voice is running on
@@ -946,6 +971,17 @@ impl AppStoreReducer {
             snapshot.pending_user_inputs.retain(|request| {
                 !(request.server_id == key.server_id && request.thread_id == key.thread_id)
             });
+            let remaining_user_input_keys = snapshot
+                .pending_user_inputs
+                .iter()
+                .map(|request| PendingUserInputKey {
+                    server_id: request.server_id.clone(),
+                    request_id: request.id.clone(),
+                })
+                .collect::<HashSet<_>>();
+            snapshot
+                .pending_user_input_seeds
+                .retain(|key, _| remaining_user_input_keys.contains(key));
             agent_directory_version = current_agent_directory_version(&snapshot);
         }
         self.clear_thread_update_caches(key);
@@ -1034,6 +1070,17 @@ impl AppStoreReducer {
                 false
             } else {
                 snapshot.pending_user_inputs = requests.clone();
+                let remaining_keys = snapshot
+                    .pending_user_inputs
+                    .iter()
+                    .map(|request| PendingUserInputKey {
+                        server_id: request.server_id.clone(),
+                        request_id: request.id.clone(),
+                    })
+                    .collect::<HashSet<_>>();
+                snapshot
+                    .pending_user_input_seeds
+                    .retain(|key, _| remaining_keys.contains(key));
                 true
             }
         };
@@ -1072,12 +1119,31 @@ impl AppStoreReducer {
             .cloned()
     }
 
+    pub(crate) fn pending_user_input_seed(
+        &self,
+        server_id: &str,
+        request_id: &str,
+    ) -> Option<PendingUserInputSeed> {
+        self.snapshot
+            .read()
+            .expect("app store lock poisoned")
+            .pending_user_input_seeds
+            .get(&PendingUserInputKey {
+                server_id: server_id.to_string(),
+                request_id: request_id.to_string(),
+            })
+            .cloned()
+    }
+
     pub fn resolve_pending_user_input(&self, request_id: &str) {
         let requests = {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             snapshot
                 .pending_user_inputs
                 .retain(|request| request.id != request_id);
+            snapshot
+                .pending_user_input_seeds
+                .retain(|key, _| key.request_id != request_id);
             snapshot.pending_user_inputs.clone()
         };
         self.emit(AppStoreUpdateRecord::PendingUserInputsChanged { requests });
@@ -1117,6 +1183,9 @@ impl AppStoreReducer {
             snapshot
                 .pending_user_inputs
                 .retain(|request| request.id != request_id);
+            snapshot
+                .pending_user_input_seeds
+                .retain(|key, _| key.request_id != request_id);
             (snapshot.pending_user_inputs.clone(), thread_key)
         };
         self.emit(AppStoreUpdateRecord::PendingUserInputsChanged { requests });
@@ -2205,13 +2274,22 @@ impl AppStoreReducer {
                     }
                 }
             }
-            UiEvent::UserInputRequested { request } => {
+            UiEvent::UserInputRequested { request, seed } => {
                 let requests = {
                     let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
                     snapshot
                         .pending_user_inputs
                         .retain(|existing| existing.id != request.id);
                     snapshot.pending_user_inputs.push(request.clone());
+                    let key = PendingUserInputKey {
+                        server_id: request.server_id.clone(),
+                        request_id: request.id.clone(),
+                    };
+                    if let Some(seed) = seed {
+                        snapshot.pending_user_input_seeds.insert(key, seed.clone());
+                    } else {
+                        snapshot.pending_user_input_seeds.remove(&key);
+                    }
                     snapshot.pending_user_inputs.clone()
                 };
                 self.emit(AppStoreUpdateRecord::PendingUserInputsChanged { requests });

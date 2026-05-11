@@ -83,6 +83,7 @@ import com.litter.android.ui.rememberStickyFollowTail
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.AppRenameThreadRequest
+import uniffi.codex_mobile_client.PendingUserInputRequest
 import uniffi.codex_mobile_client.ThreadKey
 
 /**
@@ -281,7 +282,8 @@ fun ConversationScreen(
     val dismissedUserInputs = com.litter.android.ui.LocalDismissedUserInputs.current
     val pendingInput = remember(snapshot, threadKey, dismissedUserInputs.ids) {
         snapshot?.pendingUserInputs?.firstOrNull {
-            it.threadId == threadKey.threadId && !dismissedUserInputs.isDismissed(it.id)
+            it.isRelevantToThread(threadKey) &&
+                !dismissedUserInputs.isDismissed(it.id)
         }
     }
 
@@ -1063,6 +1065,13 @@ fun ConversationScreen(
             )
         }
     }
+}
+
+private fun PendingUserInputRequest.isRelevantToThread(threadKey: ThreadKey): Boolean {
+    if (serverId != threadKey.serverId) return false
+
+    val requestThreadId = threadId.trim()
+    return requestThreadId.isEmpty() || requestThreadId == threadKey.threadId
 }
 
 private fun fallbackCollaborationModePresets(): List<uniffi.codex_mobile_client.AppCollaborationModePreset> =

@@ -334,7 +334,7 @@ final class AppLifecycleController {
                 $0.serverId == key.serverId && $0.threadId == key.threadId
             })
             let hasPendingUserInput = snapshot.pendingUserInputs.contains(where: {
-                $0.serverId == key.serverId && $0.threadId == key.threadId
+                $0.isRelevant(to: key)
             })
             let hasRecentLiveUpdate = trustedLiveKeys.contains(key)
             let remainsTracked = hasActiveTurn || hasPendingApproval || hasPendingUserInput || hasRecentLiveUpdate
