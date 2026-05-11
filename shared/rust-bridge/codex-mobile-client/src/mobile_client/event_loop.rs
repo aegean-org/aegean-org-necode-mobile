@@ -116,7 +116,11 @@ impl MobileClient {
                             server_id, notification
                         );
                         recorder.record_notification(&server_id, &notification);
-                        processor.process_notification(&server_id, &notification);
+                        processor.process_notification(
+                            &server_id,
+                            runtime_kind.clone(),
+                            &notification,
+                        );
                         note_notification_runtime(
                             &app_store,
                             &server_id,

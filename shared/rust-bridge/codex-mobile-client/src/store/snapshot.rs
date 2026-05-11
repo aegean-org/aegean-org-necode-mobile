@@ -222,6 +222,7 @@ pub struct ServerSnapshot {
     pub account: Option<Account>,
     pub requires_openai_auth: bool,
     pub rate_limits: Option<RateLimitSnapshot>,
+    pub rate_limits_by_runtime: HashMap<AgentRuntimeKind, RateLimitSnapshot>,
     pub available_models: Option<Vec<ModelInfo>>,
     pub agent_runtimes: Vec<AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,

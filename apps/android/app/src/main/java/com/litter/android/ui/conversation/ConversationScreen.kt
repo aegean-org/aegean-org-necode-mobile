@@ -806,7 +806,9 @@ fun ConversationScreen(
                         activeTaskSummary = activeTaskSummary,
                         queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
                         goal = thread?.goal,
-                        rateLimits = server?.rateLimits,
+                        rateLimits = thread?.agentRuntimeKind?.let { runtimeKind ->
+                            server?.rateLimitsByRuntime?.firstOrNull { it.runtimeKind == runtimeKind }?.rateLimits
+                        },
                         showCollaborationModeChip = pinnedContext?.diffSummary == null,
                         onOpenCollaborationModePicker = { showCollaborationModeSelector = true },
                         onToggleModelSelector = { showModelSelector = !showModelSelector },

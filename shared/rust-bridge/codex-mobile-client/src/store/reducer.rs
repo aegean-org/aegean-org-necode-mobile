@@ -182,6 +182,7 @@ impl AppStoreReducer {
                 existing_account,
                 requires_openai_auth,
                 existing_rate_limits,
+                existing_rate_limits_by_runtime,
                 existing_available_models,
                 existing_agent_runtimes,
                 existing_supports_ipc,
@@ -196,6 +197,7 @@ impl AppStoreReducer {
                     existing.account.clone(),
                     existing.requires_openai_auth,
                     existing.rate_limits.clone(),
+                    existing.rate_limits_by_runtime.clone(),
                     existing.available_models.clone(),
                     existing.agent_runtimes.clone(),
                     existing.supports_ipc,
@@ -211,6 +213,7 @@ impl AppStoreReducer {
                     None,
                     false,
                     None,
+                    HashMap::new(),
                     None,
                     vec![AgentRuntimeInfo {
                         kind: "codex".to_string(),
@@ -241,6 +244,7 @@ impl AppStoreReducer {
                     account: existing_account,
                     requires_openai_auth,
                     rate_limits: existing_rate_limits,
+                    rate_limits_by_runtime: existing_rate_limits_by_runtime,
                     available_models: existing_available_models,
                     agent_runtimes: existing_agent_runtimes,
                     connection_progress: existing_connection_progress,
@@ -1215,11 +1219,22 @@ impl AppStoreReducer {
     pub fn update_server_rate_limits(
         &self,
         server_id: &str,
+        runtime_kind: AgentRuntimeKind,
         rate_limits: Option<crate::types::RateLimitSnapshot>,
     ) {
         {
             let mut snapshot = self.snapshot.write().expect("app store lock poisoned");
             if let Some(server) = snapshot.servers.get_mut(server_id) {
+                match rate_limits.clone() {
+                    Some(snapshot_value) => {
+                        server
+                            .rate_limits_by_runtime
+                            .insert(runtime_kind, snapshot_value);
+                    }
+                    None => {
+                        server.rate_limits_by_runtime.remove(&runtime_kind);
+                    }
+                }
                 server.rate_limits = rate_limits;
             }
         }
@@ -2063,10 +2078,11 @@ impl AppStoreReducer {
             }
             UiEvent::AccountRateLimitsUpdated {
                 server_id,
+                runtime_kind,
                 notification,
             } => {
                 let rate_limits = notification.rate_limits.clone().into();
-                self.update_server_rate_limits(server_id, Some(rate_limits));
+                self.update_server_rate_limits(server_id, runtime_kind.clone(), Some(rate_limits));
             }
             UiEvent::ConnectionStateChanged { server_id, health } => {
                 {
