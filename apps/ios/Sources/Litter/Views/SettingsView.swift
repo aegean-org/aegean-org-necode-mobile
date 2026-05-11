@@ -361,6 +361,15 @@ struct SettingsView: View {
 
     private func reconnectServer(using configuration: SettingsServerConnectionConfiguration) {
         let server = configuration.discoveredServer
+
+        // For SSH we keep the existing connection alive until the user actually
+        // submits credentials, so a cancelled credential sheet does not leave
+        // them disconnected.
+        if case .ssh = configuration.connectionMode {
+            activeServerSheet = .sshReconnect(server)
+            return
+        }
+
         Task {
             await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh)
             appModel.serverBridge.disconnectServer(serverId: server.id)
@@ -391,7 +400,7 @@ struct SettingsView: View {
                     )
                     await appModel.refreshSnapshot()
                 case .ssh:
-                    activeServerSheet = .sshReconnect(server)
+                    break
                 }
             } catch {
                 serverEditError = error.localizedDescription
@@ -404,6 +413,9 @@ struct SettingsView: View {
         host: String,
         credentials: SSHCredentials
     ) async {
+        await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh)
+        appModel.serverBridge.disconnectServer(serverId: server.id)
+
         do {
             _ = try await startRemoteOverSSH(
                 serverId: server.id,

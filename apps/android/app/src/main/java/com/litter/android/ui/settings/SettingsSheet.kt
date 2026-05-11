@@ -89,6 +89,7 @@ import com.litter.android.state.isConnected
 import com.litter.android.state.isIpcConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
+import com.litter.android.state.toRecord
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterAppearanceMode
 import com.litter.android.ui.LitterColorThemeType
@@ -628,11 +629,16 @@ private fun ServerEditSheet(
                     return null
                 }
                 val resolvedSSHPort = sshPort.trim().toIntOrNull()
-                if (resolvedSSHPort == null || resolvedSSHPort <= 0) {
+                if (resolvedSSHPort == null || resolvedSSHPort !in 1..65535) {
                     validationError = "SSH port must be a valid number."
                     return null
                 }
-                val resolvedWakeMAC = SavedServer.normalizeWakeMac(wakeMAC.trim())
+                val wakeInput = wakeMAC.trim()
+                val resolvedWakeMAC = SavedServer.normalizeWakeMac(wakeInput)
+                if (wakeInput.isNotEmpty() && resolvedWakeMAC == null) {
+                    validationError = "Wake MAC must look like aa:bb:cc:dd:ee:ff."
+                    return null
+                }
                 SavedServer(
                     id = server.serverId,
                     name = name,
@@ -657,7 +663,7 @@ private fun ServerEditSheet(
                     return null
                 }
                 val resolvedCodexPort = codexPort.trim().toIntOrNull()
-                if (resolvedCodexPort == null || resolvedCodexPort <= 0) {
+                if (resolvedCodexPort == null || resolvedCodexPort !in 1..65535) {
                     validationError = "Codex port must be a valid number."
                     return null
                 }
