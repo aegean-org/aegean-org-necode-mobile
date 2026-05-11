@@ -45,6 +45,7 @@ update_shared() {
     alleycat-opencode-bridge
   do
     cargo update \
+      --quiet \
       --manifest-path "$REPO_DIR/shared/rust-bridge/Cargo.toml" \
       -p "$package" \
       --precise "$ALLEYCAT_MAIN_SHA"
@@ -54,6 +55,7 @@ update_shared() {
 update_kittylitter() {
   echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   cargo update \
+    --quiet \
     --manifest-path "$REPO_DIR/services/kittylitter/Cargo.toml" \
     -p alleycat \
     --precise "$ALLEYCAT_MAIN_SHA"

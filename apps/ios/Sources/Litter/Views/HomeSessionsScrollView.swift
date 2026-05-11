@@ -40,6 +40,8 @@ struct HomeSessionsScrollView: UIViewRepresentable {
     /// Appearance settings. Pass this in from the caller with
     /// `@Environment(\.textScale) private var textScale`.
     @Environment(\.textScale) private var textScale
+    @Environment(ThemeManager.self) private var themeManager
+    @Environment(WallpaperManager.self) private var wallpaperManager
 
     func makeUIView(context: Context) -> HomeSessionsScrollUIView {
         HomeSessionsScrollUIView()
@@ -65,6 +67,8 @@ struct HomeSessionsScrollView: UIViewRepresentable {
             topInset: topInset,
             bottomInset: bottomInset,
             textScale: textScale,
+            themeManager: themeManager,
+            wallpaperManager: wallpaperManager,
             callbacks: callbacks
         )
     }
@@ -280,6 +284,8 @@ final class HomeSessionsScrollUIView: UIView {
         topInset: CGFloat,
         bottomInset: CGFloat,
         textScale: CGFloat,
+        themeManager: ThemeManager,
+        wallpaperManager: WallpaperManager,
         callbacks: HomeSessionsScrollView.Callbacks
     ) {
         let zoomChanged = self.zoomLevel != zoomLevel && !isPinching
@@ -350,12 +356,15 @@ final class HomeSessionsScrollUIView: UIView {
                 pinned: pinned,
                 displayZoom: displayZoom,
                 textScale: textScale,
+                themeManager: themeManager,
+                wallpaperManager: wallpaperManager,
                 callbacks: callbacks
             )
         }
 
         let layoutAnimated = zoomChanged || textScaleChanged
         relayout(animated: layoutAnimated)
+        updatePageBackgroundVisibility()
 
         // Just landed on the page-fit zoom from a different one — bring
         // the scroll position to the nearest page boundary so the user
@@ -422,12 +431,27 @@ final class HomeSessionsScrollUIView: UIView {
                 self.catFooterHostingController.view.frame = footerFrame
                 self.contentView.frame = CGRect(origin: .zero, size: newContentSize)
                 self.scrollView.contentSize = newContentSize
+                self.updatePageBackgroundVisibility()
+            } completion: { _ in
+                self.updatePageBackgroundVisibility()
             }
         } else {
             for (container, frame) in frames { container.frame = frame }
             catFooterHostingController.view.frame = footerFrame
             contentView.frame = CGRect(origin: .zero, size: newContentSize)
             scrollView.contentSize = newContentSize
+            updatePageBackgroundVisibility()
+        }
+    }
+
+    fileprivate func updatePageBackgroundVisibility() {
+        let canShowPageBackground = zoomLevel == 4 && !isPinching
+        let visibleRect = scrollView.convert(scrollView.bounds, to: contentView)
+            .insetBy(dx: 0, dy: -1)
+        for key in order {
+            guard let container = containers[key] else { continue }
+            let isVisible = canShowPageBackground && visibleRect.intersects(container.frame)
+            container.setPageBackgroundVisible(isVisible)
         }
     }
 
@@ -712,6 +736,7 @@ final class HomeSessionsScrollUIView: UIView {
             // left the rows with slightly taller natural sizes than
             // needed at the snapped zoom.
             self.relayout(animated: false)
+            self.updatePageBackgroundVisibility()
         }
 
         // Vignette + anchor highlight fade out together — slightly
@@ -803,6 +828,10 @@ extension HomeSessionsScrollUIView: UIGestureRecognizerDelegate {
 // coordinates, then translate back to the raw `contentOffset.y` the
 // scroll view will animate to.
 extension HomeSessionsScrollUIView: UIScrollViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updatePageBackgroundVisibility()
+    }
+
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView,
         withVelocity velocity: CGPoint,
@@ -1047,6 +1076,7 @@ struct AlphaAnimatedImageView: UIViewRepresentable {
 
 final class HomeRowContainer: UIView {
     private let hostingController: UIHostingController<AnyView>
+    private let backgroundHostingController: UIHostingController<AnyView>
     /// Clipping window for the hosted SwiftUI view. At zoom 4 the
     /// SwiftUI content can be naturally taller than the available
     /// screen-fit space (long response previews). The hosting view's
@@ -1098,6 +1128,9 @@ final class HomeRowContainer: UIView {
     private var cachedNaturalHeight: CGFloat?
     private var cachedMeasureWidth: CGFloat = 0
     private var textScale: CGFloat = 1.0
+    private var themeManager: ThemeManager?
+    private var wallpaperManager: WallpaperManager?
+    private var pageBackgroundVisible = false
     private var fadeLink: CADisplayLink?
     /// Highest `setPinchBlurProgress` value observed during the current
     /// pinch. When progress dips below this, we're on the way back and
@@ -1133,9 +1166,15 @@ final class HomeRowContainer: UIView {
     init(scrollHost: HomeSessionsScrollUIView) {
         self.scrollHost = scrollHost
         self.hostingController = UIHostingController(rootView: AnyView(EmptyView()))
+        self.backgroundHostingController = UIHostingController(rootView: AnyView(EmptyView()))
         super.init(frame: .zero)
         clipsToBounds = true
         backgroundColor = .clear
+
+        backgroundHostingController.view.backgroundColor = .clear
+        backgroundHostingController.view.isUserInteractionEnabled = false
+        backgroundHostingController.view.isHidden = true
+        addSubview(backgroundHostingController.view)
 
         // Actions background — tinted view that fills the row behind the
         // content, crossfading between leading (reply) / trailing (hide).
@@ -1255,6 +1294,7 @@ final class HomeRowContainer: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        backgroundHostingController.view.frame = bounds
         actionsBackground.frame = bounds
         pinchBlur.frame = bounds
         pinchHighlight.frame = bounds.insetBy(dx: 4, dy: 2)
@@ -1344,6 +1384,8 @@ final class HomeRowContainer: UIView {
         pinned: Bool,
         displayZoom: Int,
         textScale: CGFloat,
+        themeManager: ThemeManager,
+        wallpaperManager: WallpaperManager,
         callbacks: HomeSessionsScrollView.Callbacks
     ) {
         let sessionChanged = self.session != session
@@ -1353,6 +1395,8 @@ final class HomeRowContainer: UIView {
             self.pinned != pinned
         let zoomChanged = self.displayZoom != displayZoom
         let textScaleChanged = abs(self.textScale - textScale) > 0.001
+        let environmentChanged = self.themeManager !== themeManager ||
+            self.wallpaperManager !== wallpaperManager
         self.session = session
         self.isOpening = isOpening
         self.isHydrating = isHydrating
@@ -1360,6 +1404,8 @@ final class HomeRowContainer: UIView {
         self.pinned = pinned
         self.displayZoom = displayZoom
         self.textScale = textScale
+        self.themeManager = themeManager
+        self.wallpaperManager = wallpaperManager
         self.callbacks = callbacks
 
         if sessionChanged || textScaleChanged {
@@ -1369,6 +1415,9 @@ final class HomeRowContainer: UIView {
         if sessionChanged || stateChanged || zoomChanged || textScaleChanged {
             refreshRootView()
             setNeedsLayout()
+        }
+        if sessionChanged || zoomChanged || environmentChanged {
+            refreshPageBackgroundView()
         }
     }
 
@@ -1461,6 +1510,7 @@ final class HomeRowContainer: UIView {
         guard displayZoom != z else { return }
         displayZoom = z
         refreshRootView()
+        refreshPageBackgroundView()
         // Re-measure host height for the new displayZoom (cached per zoom).
         setNeedsLayout()
         layoutIfNeeded()
@@ -1506,6 +1556,30 @@ final class HomeRowContainer: UIView {
         )
         .environment(\.textScale, textScale)
         hostingController.rootView = AnyView(content)
+    }
+
+    func setPageBackgroundVisible(_ visible: Bool) {
+        guard pageBackgroundVisible != visible else { return }
+        pageBackgroundVisible = visible
+        refreshPageBackgroundView()
+    }
+
+    private func refreshPageBackgroundView() {
+        guard displayZoom == 4,
+              pageBackgroundVisible,
+              let session,
+              let themeManager,
+              let wallpaperManager else {
+            backgroundHostingController.rootView = AnyView(EmptyView())
+            backgroundHostingController.view.isHidden = true
+            return
+        }
+
+        let background = ChatWallpaperBackground(threadKey: session.key)
+            .environment(themeManager)
+            .environment(wallpaperManager)
+        backgroundHostingController.rootView = AnyView(background)
+        backgroundHostingController.view.isHidden = false
     }
 
     // MARK: - Measurement
