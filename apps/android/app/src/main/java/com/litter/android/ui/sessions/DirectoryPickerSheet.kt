@@ -26,13 +26,16 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -87,6 +90,8 @@ fun DirectoryPickerSheet(
     var searchQuery by remember(selectedServerId) { mutableStateOf("") }
     var showServerMenu by remember { mutableStateOf(false) }
     var showRecentsMenu by remember { mutableStateOf(false) }
+    var showGoToPathDialog by remember { mutableStateOf(false) }
+    var pathInput by remember { mutableStateOf("") }
 
     fun refreshRecentEntries(serverId: String) {
         recentEntries = recentStore.listForServer(serverId, limit = 8)
@@ -221,6 +226,17 @@ fun DirectoryPickerSheet(
         scope.launch { listDirectory(selectedServerId, nextPath) }
     }
 
+    fun navigateToInputPath() {
+        val target = com.litter.android.state.PathDisplay
+            .expand(pathInput, isLocalServer(selectedServerId), context)
+            .trim()
+        pathInput = ""
+        showGoToPathDialog = false
+        if (target.isNotEmpty()) {
+            scope.launch { listDirectory(selectedServerId, target) }
+        }
+    }
+
     val selectedServer = remember(servers, selectedServerId) {
         servers.firstOrNull { it.id == selectedServerId }
     }
@@ -244,6 +260,37 @@ fun DirectoryPickerSheet(
         searchQuery = ""
         refreshRecentEntries(selectedServerId)
         loadInitialPath(selectedServerId)
+    }
+
+    if (showGoToPathDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showGoToPathDialog = false
+                pathInput = ""
+            },
+            title = { Text("Go to Path") },
+            text = {
+                OutlinedTextField(
+                    value = pathInput,
+                    onValueChange = { pathInput = it },
+                    singleLine = true,
+                    placeholder = { Text("D:\\Projects or /home/me/project") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { navigateToInputPath() }) {
+                    Text("Go")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showGoToPathDialog = false
+                    pathInput = ""
+                }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 
     Column(
@@ -352,6 +399,24 @@ fun DirectoryPickerSheet(
                         modifier = Modifier
                             .background(LitterTheme.surface, RoundedCornerShape(8.dp))
                             .clickable(enabled = canGoUp) { navigateUp() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+                item {
+                    Text(
+                        text = "Go to Path",
+                        color = LitterTheme.accent,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .background(LitterTheme.surface, RoundedCornerShape(8.dp))
+                            .clickable {
+                                pathInput = com.litter.android.state.PathDisplay.display(
+                                    currentPath,
+                                    isLocalServer(selectedServerId),
+                                    context,
+                                )
+                                showGoToPathDialog = true
+                            }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }

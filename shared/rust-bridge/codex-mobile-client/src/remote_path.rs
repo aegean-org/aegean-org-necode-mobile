@@ -21,7 +21,7 @@ impl RemotePath {
         let p = path.trim();
         let bytes = p.as_bytes();
         if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-            Self::Windows(p.to_string())
+            Self::Windows(normalize_windows_path(p))
         } else {
             Self::Posix(p.to_string())
         }
@@ -151,6 +151,16 @@ impl RemotePath {
     }
 }
 
+fn normalize_windows_path(path: &str) -> String {
+    let normalized = path.replace('/', "\\");
+    let bytes = normalized.as_bytes();
+    if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        format!("{normalized}\\")
+    } else {
+        normalized
+    }
+}
+
 /// Parse the stdout of a directory listing command into sorted directory names.
 pub fn parse_directory_listing(stdout: &str, is_windows: bool) -> Vec<String> {
     let mut dirs: Vec<String> = if is_windows {
@@ -196,6 +206,19 @@ mod tests {
         assert!(RemotePath::parse(r"C:\Users\npace").is_windows());
         assert!(RemotePath::parse("D:").is_windows());
         assert!(RemotePath::parse(r"C:\").is_windows());
+    }
+
+    #[test]
+    fn parse_windows_normalizes_forward_slashes() {
+        assert_eq!(
+            RemotePath::parse("D:/Projects/kitty").as_str(),
+            r"D:\Projects\kitty"
+        );
+    }
+
+    #[test]
+    fn parse_windows_drive_only_normalizes_to_root() {
+        assert_eq!(RemotePath::parse("D:").as_str(), r"D:\");
     }
 
     #[test]
@@ -272,6 +295,14 @@ mod tests {
         assert_eq!(RemotePath::parse(r"C:\").parent().as_str(), r"C:\");
     }
 
+    #[test]
+    fn parent_windows_forward_slashes() {
+        assert_eq!(
+            RemotePath::parse("D:/Projects/kitty").parent().as_str(),
+            r"D:\Projects"
+        );
+    }
+
     // -- segments --
 
     #[test]
@@ -303,6 +334,19 @@ mod tests {
                 (r"C:\".to_string(), r"C:\".to_string()),
                 ("Users".to_string(), r"C:\Users".to_string()),
                 ("npace".to_string(), r"C:\Users\npace".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn segments_windows_forward_slashes() {
+        let segs = RemotePath::parse("D:/Projects/kitty").segments();
+        assert_eq!(
+            segs,
+            vec![
+                (r"D:\".to_string(), r"D:\".to_string()),
+                ("Projects".to_string(), r"D:\Projects".to_string()),
+                ("kitty".to_string(), r"D:\Projects\kitty".to_string()),
             ]
         );
     }

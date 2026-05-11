@@ -101,6 +101,7 @@ class AppModel private constructor(context: android.content.Context) {
          */
         const val INITIAL_TURN_PAGE_LIMIT: UInt = 5u
         const val OLDER_TURN_PAGE_LIMIT: UInt = 5u
+        private const val SESSION_LIST_PAGE_LIMIT: UInt = 80u
     }
 
     // --- Rust bridges (singletons behind the scenes) -------------------------
@@ -460,10 +461,14 @@ class AppModel private constructor(context: android.content.Context) {
                         serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = null,
+                            limit = SESSION_LIST_PAGE_LIMIT,
+                            sortKey = AppThreadSortKey.UPDATED_AT,
+                            sortDirection = AppSortDirection.DESC,
                             archived = null,
                             cwd = null,
                             searchTerm = null,
+                            useStateDbOnly = false,
+                            runtimeKinds = null,
                         ),
                     )
                 }
@@ -969,10 +974,14 @@ class AppModel private constructor(context: android.content.Context) {
                         currentKey.serverId,
                         AppListThreadsRequest(
                             cursor = null,
-                            limit = null,
+                            limit = SESSION_LIST_PAGE_LIMIT,
+                            sortKey = AppThreadSortKey.UPDATED_AT,
+                            sortDirection = AppSortDirection.DESC,
                             archived = null,
                             cwd = null,
                             searchTerm = null,
+                            useStateDbOnly = false,
+                            runtimeKinds = null,
                         ),
                     )
                 } catch (e: Exception) {
