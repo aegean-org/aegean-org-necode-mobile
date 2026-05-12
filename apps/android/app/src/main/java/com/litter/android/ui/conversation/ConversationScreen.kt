@@ -1172,6 +1172,7 @@ private fun collaborationModeEffortLabel(
         uniffi.codex_mobile_client.ReasoningEffort.MEDIUM -> "Medium"
         uniffi.codex_mobile_client.ReasoningEffort.HIGH -> "High"
         uniffi.codex_mobile_client.ReasoningEffort.X_HIGH -> "XHigh"
+        uniffi.codex_mobile_client.ReasoningEffort.MAX -> "Max"
     }
 
 private data class PinnedContextData(

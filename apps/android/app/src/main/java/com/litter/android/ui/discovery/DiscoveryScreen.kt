@@ -1450,6 +1450,7 @@ private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean = when (kind) {
     AgentRuntimeKind.CLAUDE,
     AgentRuntimeKind.PI,
     AgentRuntimeKind.OPENCODE -> true
+    AgentRuntimeKind.AMP,
     AgentRuntimeKind.DROID -> false
 }
 
@@ -1457,6 +1458,7 @@ private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean = when (kind) {
 private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = when (kind) {
     AgentRuntimeKind.CODEX -> "Codex"
     AgentRuntimeKind.PI -> "Pi"
+    AgentRuntimeKind.AMP -> "Amp"
     AgentRuntimeKind.OPENCODE -> "OpenCode"
     AgentRuntimeKind.CLAUDE -> "Claude"
     AgentRuntimeKind.DROID -> "Droid"
@@ -1467,7 +1469,8 @@ private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = when (kind) {
     AgentRuntimeKind.PI -> 1
     AgentRuntimeKind.OPENCODE -> 2
     AgentRuntimeKind.CODEX -> 3
-    AgentRuntimeKind.DROID -> 4
+    AgentRuntimeKind.AMP -> 4
+    AgentRuntimeKind.DROID -> 5
 }
 
 private fun sshAgentStatusLabel(agent: RemoteAgentAvailability): String = when (agent.status) {

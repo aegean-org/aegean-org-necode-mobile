@@ -393,6 +393,7 @@ private struct SplashCarouselText: View {
     private let providers: [CarouselProvider] = [
         .init(label: "codex", assetName: "agent_codex"),
         .init(label: "opencode", assetName: "agent_opencode"),
+        .init(label: "amp", assetName: "agent_amp"),
         .init(label: "pi", assetName: "agent_pi"),
         .init(label: "claude", assetName: "agent_claude"),
         .init(label: "droid", assetName: "agent_droid")

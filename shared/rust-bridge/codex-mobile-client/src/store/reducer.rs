@@ -1611,7 +1611,16 @@ impl AppStoreReducer {
                     &notification.thread_id,
                     notification.status.clone(),
                 );
+                let status = info.status.clone();
                 self.upsert_or_merge_thread(key.clone(), info, |thread| {
+                    if matches!(
+                        status,
+                        ThreadSummaryStatus::Idle | ThreadSummaryStatus::SystemError
+                    ) {
+                        thread.active_turn_id = None;
+                        thread.active_plan_progress = None;
+                        thread.info.status = status.clone();
+                    }
                     if thread.info.parent_thread_id.is_some() {
                         thread.info.agent_status = match thread.info.status {
                             ThreadSummaryStatus::Active => Some("running".to_string()),
@@ -2595,6 +2604,7 @@ impl AppStoreReducer {
                 .iter()
                 .find(|existing| existing.id == item.id)
                 .cloned();
+            let item = merge_reasoning_item_with_existing(existing.as_ref(), item);
             let active_turn_id = thread.active_turn_id.as_deref();
             let removed_overlay_ids = thread
                 .local_overlay_items
@@ -2875,6 +2885,42 @@ fn upsert_item(
     } else {
         thread.items.push(item);
     }
+}
+
+fn merge_reasoning_item_with_existing(
+    existing: Option<&HydratedConversationItem>,
+    mut item: HydratedConversationItem,
+) -> HydratedConversationItem {
+    let Some(existing) = existing else {
+        return item;
+    };
+    let (
+        HydratedConversationItemContent::Reasoning(existing_reasoning),
+        HydratedConversationItemContent::Reasoning(incoming_reasoning),
+    ) = (&existing.content, &mut item.content)
+    else {
+        return item;
+    };
+
+    if incoming_reasoning
+        .summary
+        .iter()
+        .all(|part| part.trim().is_empty())
+        && incoming_reasoning
+            .content
+            .iter()
+            .all(|part| part.trim().is_empty())
+        && existing_reasoning
+            .summary
+            .iter()
+            .chain(existing_reasoning.content.iter())
+            .any(|part| !part.trim().is_empty())
+    {
+        incoming_reasoning.summary = existing_reasoning.summary.clone();
+        incoming_reasoning.content = existing_reasoning.content.clone();
+    }
+
+    item
 }
 
 fn append_assistant_delta(thread: &mut ThreadSnapshot, item_id: &str, delta: &str) -> bool {
@@ -3958,6 +4004,92 @@ mod tests {
             }
             other => panic!("expected reasoning item, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn completed_empty_reasoning_item_preserves_streamed_placeholder_content() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.active_turn_id = Some("turn-1".to_string());
+        reducer.upsert_thread_snapshot(thread);
+        let mut receiver = reducer.subscribe();
+        assert!(drain_updates(&mut receiver).is_empty());
+
+        reducer.apply_ui_event(&UiEvent::ReasoningDelta {
+            key: key.clone(),
+            item_id: "reasoning-1".to_string(),
+            delta: "streamed reasoning".to_string(),
+        });
+        assert!(!drain_updates(&mut receiver).is_empty());
+
+        reducer.apply_ui_event(&UiEvent::ItemCompleted {
+            key: key.clone(),
+            notification: upstream::ItemCompletedNotification {
+                item: upstream::ThreadItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Vec::new(),
+                },
+                thread_id: key.thread_id.clone(),
+                turn_id: "turn-1".to_string(),
+                completed_at_ms: 0,
+            },
+        });
+
+        let snapshot = reducer.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread exists");
+        let item = thread
+            .items
+            .iter()
+            .find(|item| item.id == "reasoning-1")
+            .unwrap();
+        match &item.content {
+            HydratedConversationItemContent::Reasoning(data) => {
+                assert_eq!(data.content, vec!["streamed reasoning".to_string()]);
+            }
+            other => panic!("expected reasoning item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_status_changed_idle_clears_active_turn() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.active_turn_id = Some("turn-1".to_string());
+        thread.info.status = ThreadSummaryStatus::Active;
+        reducer.upsert_thread_snapshot(thread);
+        let mut receiver = reducer.subscribe();
+        assert!(drain_updates(&mut receiver).is_empty());
+
+        reducer.apply_ui_event(&UiEvent::ThreadStatusChanged {
+            key: key.clone(),
+            notification: upstream::ThreadStatusChangedNotification {
+                thread_id: key.thread_id.clone(),
+                status: upstream::ThreadStatus::Idle,
+            },
+        });
+
+        let snapshot = reducer.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread exists");
+        assert_eq!(thread.active_turn_id, None);
+        assert_eq!(thread.info.status, ThreadSummaryStatus::Idle);
+
+        let updates = drain_updates(&mut receiver);
+        assert!(updates.iter().any(|update| matches!(
+            update,
+            AppStoreUpdateRecord::ThreadMetadataChanged { state, .. }
+                if state.key == key
+                    && state.active_turn_id.is_none()
+                    && state.info.status == ThreadSummaryStatus::Idle
+        )));
     }
 
     #[test]

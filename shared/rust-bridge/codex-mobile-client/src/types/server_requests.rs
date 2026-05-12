@@ -75,6 +75,10 @@ pub(crate) fn reasoning_effort_into_upstream(value: ReasoningEffort) -> CoreReas
         ReasoningEffort::Medium => CoreReasoningEffort::Medium,
         ReasoningEffort::High => CoreReasoningEffort::High,
         ReasoningEffort::XHigh => CoreReasoningEffort::XHigh,
+        // The committed codex submodule does not expose a Max effort. Keep the
+        // mobile value for runtime-specific UI, but degrade to the strongest
+        // upstream effort available for Codex requests.
+        ReasoningEffort::Max => CoreReasoningEffort::XHigh,
     }
 }
 

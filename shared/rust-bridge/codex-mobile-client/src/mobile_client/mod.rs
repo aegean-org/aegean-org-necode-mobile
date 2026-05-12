@@ -639,6 +639,7 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
     match normalized.as_str() {
         "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
         "anthropic" => Some(AgentRuntimeKind::Claude),
+        "amp" | "ampcode" | "amp-code" | "amp_code" | "amp code" => Some(AgentRuntimeKind::Amp),
         "opencode" | "open-code" | "open_code" | "open code" => Some(AgentRuntimeKind::Opencode),
         "pi" | "pi.dev" | "pidev" | "pi dev" => Some(AgentRuntimeKind::Pi),
         "droid" | "factory" | "factory-droid" | "factory_droid" | "factory droid" => {
@@ -663,6 +664,15 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
             || normalized.contains("open code") =>
         {
             Some(AgentRuntimeKind::Opencode)
+        }
+        _ if normalized.starts_with("amp/")
+            || normalized.starts_with("amp:")
+            || normalized.starts_with("amp-")
+            || normalized.contains("ampcode")
+            || normalized.contains("amp-code")
+            || normalized.contains("amp_code") =>
+        {
+            Some(AgentRuntimeKind::Amp)
         }
         _ if normalized.starts_with("pi.dev")
             || normalized.starts_with("pidev")
@@ -2335,8 +2345,13 @@ impl MobileClient {
                 Ok(()) => {
                     self.note_thread_runtime(key.clone(), runtime_kind);
                     if force_authoritative && supports_pagination {
-                        self.reconcile_active_turn_via_turn_list_probe(server_id, thread_id, &key)
-                            .await;
+                        self.reconcile_active_turn_via_turn_list_probe(
+                            server_id,
+                            thread_id,
+                            &key,
+                            runtime_kind,
+                        )
+                        .await;
                     }
                     return Ok(());
                 }
@@ -2456,7 +2471,7 @@ impl MobileClient {
         // full embedded turn history. Flip the capability flag so
         // future code paths (load_thread_turns_page) short-circuit
         // and the UI keeps relying on embedded turns.
-        if !server_honored_exclude_turns {
+        if exclude_turns && !server_honored_exclude_turns {
             self.app_store
                 .set_server_supports_turn_pagination(server_id, false);
         }
@@ -2507,6 +2522,7 @@ impl MobileClient {
         server_id: &str,
         thread_id: &str,
         key: &ThreadKey,
+        runtime_kind: AgentRuntimeKind,
     ) {
         const PROBE_LIMIT: u32 = 5;
         let request = upstream::ClientRequest::ThreadTurnsList {
@@ -2520,17 +2536,33 @@ impl MobileClient {
             },
         };
         let response = match self
-            .request_typed_for_server::<upstream::ThreadTurnsListResponse>(server_id, request)
+            .request_typed_for_server_runtime::<upstream::ThreadTurnsListResponse>(
+                server_id,
+                runtime_kind,
+                request,
+            )
             .await
         {
             Ok(response) => response,
             Err(error) => {
                 if is_method_not_found(&error) {
-                    // Server unexpectedly does not implement
-                    // `thread/turns/list` — flip the capability flag so
-                    // future calls don't re-attempt and skip reconcile.
-                    self.app_store
-                        .set_server_supports_turn_pagination(server_id, false);
+                    // Some non-Codex runtimes can resume a thread but do not
+                    // implement the lightweight turn-list probe. Fall back to
+                    // one embedded-turn resume so reconcile_active_turn can
+                    // still clear a stale active turn after mobile reconnects.
+                    if runtime_kind == AgentRuntimeKind::Codex {
+                        self.app_store
+                            .set_server_supports_turn_pagination(server_id, false);
+                    }
+                    if let Err(fallback_error) = self
+                        .resume_thread_for_runtime(server_id, thread_id, key, runtime_kind, false)
+                        .await
+                    {
+                        warn!(
+                            "force_authoritative: embedded resume fallback failed server={} thread={} runtime={:?} error={}",
+                            server_id, thread_id, runtime_kind, fallback_error
+                        );
+                    }
                 } else {
                     warn!(
                         "force_authoritative: turn-list probe failed server={} thread={} error={}",
@@ -2573,11 +2605,11 @@ impl MobileClient {
         cursor: Option<String>,
         limit: Option<u32>,
     ) -> Result<crate::types::AppLoadThreadTurnsOutcome, RpcError> {
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
         if !self.app_store.server_supports_turn_pagination(server_id) {
-            let key = ThreadKey {
-                server_id: server_id.to_string(),
-                thread_id: thread_id.to_string(),
-            };
             let needs_embedded_resume = self
                 .app_store
                 .thread_snapshot(&key)
@@ -2608,8 +2640,13 @@ impl MobileClient {
             request_id: upstream::RequestId::Integer(crate::next_request_id()),
             params,
         };
+        let runtime_kind = self.runtime_for_thread(&key);
         match self
-            .request_typed_for_server::<upstream::ThreadTurnsListResponse>(server_id, request)
+            .request_typed_for_server_runtime::<upstream::ThreadTurnsListResponse>(
+                server_id,
+                runtime_kind,
+                request,
+            )
             .await
         {
             Ok(response) => {
@@ -2628,13 +2665,10 @@ impl MobileClient {
                 })
             }
             Err(error) if is_method_not_found(&error) => {
-                self.app_store
-                    .set_server_supports_turn_pagination(server_id, false);
-                let key = ThreadKey {
-                    server_id: server_id.to_string(),
-                    thread_id: thread_id.to_string(),
-                };
-                let runtime_kind = self.runtime_for_thread(&key);
+                if runtime_kind == AgentRuntimeKind::Codex {
+                    self.app_store
+                        .set_server_supports_turn_pagination(server_id, false);
+                }
                 self.resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, false)
                     .await
                     .map_err(RpcError::Deserialization)?;

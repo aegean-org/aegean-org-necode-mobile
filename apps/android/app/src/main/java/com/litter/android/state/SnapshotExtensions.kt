@@ -170,6 +170,10 @@ val ThreadSummaryStatus.isActiveStatus: Boolean
 val AppThreadSnapshot.hasActiveTurn: Boolean
     get() = activeTurnId?.trim()?.isNotEmpty() == true || info.status.isActiveStatus
 
+val AppThreadSnapshot.ampReasoningEffortLocked: Boolean
+    get() = agentRuntimeKind == AgentRuntimeKind.AMP &&
+        (hydratedConversationItems.isNotEmpty() || activeTurnId?.trim()?.isNotEmpty() == true)
+
 val AppThreadSnapshot.resolvedModel: String
     get() = model?.trim()?.takeIf { it.isNotEmpty() }
         ?: info.model?.trim()?.takeIf { it.isNotEmpty() }
@@ -201,12 +205,20 @@ private fun modelProviderDisplayLabel(provider: String?): String? {
 
     return when (val normalized = trimmed.lowercase()) {
         "anthropic", "claude", "claude-code", "claude_code" -> "Claude"
+        "amp", "ampcode", "amp-code", "amp_code", "amp code" -> "Amp"
         "opencode", "open-code", "open_code" -> "opencode"
         "pi", "pi.dev", "pidev" -> "Pi"
         "openai", "codex" -> "Codex"
         else -> {
             if (normalized.startsWith("claude") || normalized.contains("anthropic")) {
                 "Claude"
+            } else if (
+                normalized.startsWith("amp") ||
+                normalized.contains("ampcode") ||
+                normalized.contains("amp-code") ||
+                normalized.contains("amp_code")
+            ) {
+                "Amp"
             } else {
                 trimmed
             }
@@ -217,6 +229,7 @@ private fun modelProviderDisplayLabel(provider: String?): String? {
 private fun agentRuntimeDisplayLabel(kind: AgentRuntimeKind): String = when (kind) {
     AgentRuntimeKind.CODEX -> "Codex"
     AgentRuntimeKind.PI -> "Pi"
+    AgentRuntimeKind.AMP -> "Amp"
     AgentRuntimeKind.OPENCODE -> "opencode"
     AgentRuntimeKind.CLAUDE -> "Claude"
     AgentRuntimeKind.DROID -> "Droid"

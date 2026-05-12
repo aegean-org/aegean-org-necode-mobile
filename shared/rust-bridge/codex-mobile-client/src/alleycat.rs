@@ -48,11 +48,13 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
     match candidate {
         "codex" => Some(AgentRuntimeKind::Codex),
         "pi" | "pi.dev" | "pidev" => Some(AgentRuntimeKind::Pi),
+        "amp" | "ampcode" | "amp-code" | "amp_code" => Some(AgentRuntimeKind::Amp),
         "opencode" | "open-code" | "open_code" => Some(AgentRuntimeKind::Opencode),
         "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
         "droid" | "factory" | "factory-droid" | "factory_droid" => Some(AgentRuntimeKind::Droid),
         _ if display_name == "codex" => Some(AgentRuntimeKind::Codex),
         _ if display_name == "pi" || display_name == "pi.dev" => Some(AgentRuntimeKind::Pi),
+        _ if display_name == "amp" || display_name == "amp code" => Some(AgentRuntimeKind::Amp),
         _ if display_name == "opencode" || display_name == "open code" => {
             Some(AgentRuntimeKind::Opencode)
         }
@@ -263,7 +265,7 @@ struct AgentInfoWire {
     available: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum AgentWireWire {
     Websocket,
@@ -665,6 +667,10 @@ mod tests {
             Some(AgentRuntimeKind::Pi)
         );
         assert_eq!(
+            agent_runtime_kind("amp", "Amp"),
+            Some(AgentRuntimeKind::Amp)
+        );
+        assert_eq!(
             agent_runtime_kind("open-code", "opencode"),
             Some(AgentRuntimeKind::Opencode)
         );
@@ -681,6 +687,22 @@ mod tests {
     #[test]
     fn agent_runtime_kind_ignores_unknown_agents() {
         assert_eq!(agent_runtime_kind("custom", "Custom"), None);
+    }
+
+    #[test]
+    fn response_decodes_amp_jsonl_agent() {
+        let response: Response = serde_json::from_str(
+            r#"{"v":1,"ok":true,"agents":[{"name":"amp","display_name":"Amp","wire":"jsonl","available":true}]}"#,
+        )
+        .expect("decode response");
+        let agent = response.agents.first().expect("agent");
+
+        assert_eq!(
+            agent_runtime_kind(&agent.name, &agent.display_name),
+            Some(AgentRuntimeKind::Amp)
+        );
+        assert!(agent.available);
+        assert_eq!(AgentWire::from(agent.wire), AgentWire::Jsonl);
     }
 
     /// `AlleycatReconnectTransport` must coerce to `Arc<dyn RemoteTransport>`

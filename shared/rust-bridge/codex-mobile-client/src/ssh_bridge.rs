@@ -310,6 +310,11 @@ pub async fn connect_app_server_client_via_ssh(
                 "Droid is only available through Alleycat pairing".to_string(),
             ));
         }
+        AgentRuntimeKind::Amp => {
+            return Err(SshBridgeError::BridgeStartupFailed(
+                "Amp is only available through Alleycat pairing".to_string(),
+            ));
+        }
         AgentRuntimeKind::Codex => return Err(SshBridgeError::UseExistingCodexPath),
     };
     connect_bridge_stream(bridge, kind).await
@@ -879,6 +884,7 @@ pub fn runtime_label(kind: AgentRuntimeKind) -> &'static str {
     match kind {
         AgentRuntimeKind::Codex => "codex",
         AgentRuntimeKind::Pi => "pi",
+        AgentRuntimeKind::Amp => "amp",
         AgentRuntimeKind::Opencode => "opencode",
         AgentRuntimeKind::Claude => "claude",
         AgentRuntimeKind::Droid => "droid",
@@ -889,6 +895,7 @@ fn runtime_display_name(kind: AgentRuntimeKind) -> &'static str {
     match kind {
         AgentRuntimeKind::Codex => "Codex",
         AgentRuntimeKind::Pi => "Pi",
+        AgentRuntimeKind::Amp => "Amp",
         AgentRuntimeKind::Opencode => "OpenCode",
         AgentRuntimeKind::Claude => "Claude",
         AgentRuntimeKind::Droid => "Droid",

@@ -628,17 +628,30 @@ mod mobile_client_tests {
                     available: true,
                 },
             ),
+            (
+                AgentRuntimeKind::Amp,
+                AlleycatAgentInfo {
+                    name: "amp".to_string(),
+                    display_name: "Amp".to_string(),
+                    wire: AlleycatAgentWire::Jsonl,
+                    available: true,
+                },
+            ),
         ];
         let requested_kinds = alleycat_requested_runtime_kinds(&requested);
 
-        assert_eq!(alleycat_runtime_agent_names(&requested), "codex,droid");
+        assert_eq!(alleycat_runtime_agent_names(&requested), "codex,droid,amp");
         assert_eq!(
             missing_runtime_kinds(&[AgentRuntimeKind::Codex], &requested_kinds),
-            vec![AgentRuntimeKind::Droid]
+            vec![AgentRuntimeKind::Amp, AgentRuntimeKind::Droid]
         );
         assert!(
             missing_runtime_kinds(
-                &[AgentRuntimeKind::Codex, AgentRuntimeKind::Droid],
+                &[
+                    AgentRuntimeKind::Codex,
+                    AgentRuntimeKind::Droid,
+                    AgentRuntimeKind::Amp
+                ],
                 &requested_kinds
             )
             .is_empty()
@@ -684,6 +697,8 @@ mod mobile_client_tests {
         for (provider, expected_runtime) in [
             ("opencode", AgentRuntimeKind::Opencode),
             ("open code", AgentRuntimeKind::Opencode),
+            ("amp", AgentRuntimeKind::Amp),
+            ("amp code", AgentRuntimeKind::Amp),
             ("pi", AgentRuntimeKind::Pi),
             ("pi.dev", AgentRuntimeKind::Pi),
             ("factory", AgentRuntimeKind::Droid),
@@ -709,6 +724,7 @@ mod mobile_client_tests {
     fn thread_runtime_infers_non_codex_from_existing_thread_model_prefix() {
         for (model, expected_runtime) in [
             ("opencode/qwen3-coder", AgentRuntimeKind::Opencode),
+            ("amp/smart", AgentRuntimeKind::Amp),
             ("pi.dev/default", AgentRuntimeKind::Pi),
             ("factory/droid", AgentRuntimeKind::Droid),
         ] {
@@ -1317,6 +1333,135 @@ mod mobile_client_tests {
         assert_eq!(snapshot.items.len(), 1);
         assert!(snapshot.initial_turns_loaded);
         assert!(!client.app_store.server_supports_turn_pagination(server_id));
+    }
+
+    #[tokio::test]
+    async fn force_refresh_thread_authoritative_falls_back_to_embedded_resume_for_amp_probe_miss() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let thread_id = "thread-amp";
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: thread_id.to_string(),
+        };
+        let config = make_server_config(server_id);
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected, true);
+
+        let mut thread = thread_snapshot_with_active_turn(server_id, thread_id, "turn-active");
+        thread.agent_runtime_kind = AgentRuntimeKind::Amp;
+        thread.model = Some("amp/smart".to_string());
+        thread.info.model_provider = Some("amp".to_string());
+        client.app_store.upsert_thread_snapshot(thread);
+        client.note_thread_runtime(key.clone(), AgentRuntimeKind::Amp);
+
+        let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let amp_handler: TestRequestHandler = {
+            let requests = Arc::clone(&requests);
+            Arc::new(move |request| match request {
+                upstream::ClientRequest::ThreadResume { params, .. } => {
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push(format!("amp:thread/resume:{}", params.exclude_turns));
+                    let turns = if params.exclude_turns {
+                        json!([])
+                    } else {
+                        json!([{
+                            "id": "turn-active",
+                            "items": [],
+                            "itemsView": "full",
+                            "status": "completed",
+                            "error": null,
+                            "startedAt": null,
+                            "completedAt": 2,
+                            "durationMs": 1
+                        }])
+                    };
+                    serde_json::to_value(json!({
+                        "thread": {
+                            "id": thread_id,
+                            "preview": "Amp reasoning",
+                            "ephemeral": false,
+                            "modelProvider": "amp",
+                            "createdAt": 1,
+                            "updatedAt": 2,
+                            "status": { "type": "idle" },
+                            "path": "/tmp/thread",
+                            "cwd": "/tmp/thread",
+                            "cliVersion": "1.0.0",
+                            "source": "cli",
+                            "agentNickname": null,
+                            "agentRole": null,
+                            "gitInfo": null,
+                            "name": "thread",
+                            "turns": turns
+                        },
+                        "model": "amp/smart",
+                        "modelProvider": "amp",
+                        "cwd": "/tmp/thread",
+                        "approvalPolicy": "never",
+                        "approvalsReviewer": "user",
+                        "sandbox": { "type": "dangerFullAccess" },
+                        "reasoningEffort": null
+                    }))
+                    .map_err(|error| RpcError::Deserialization(error.to_string()))
+                }
+                upstream::ClientRequest::ThreadTurnsList { .. } => {
+                    requests
+                        .lock()
+                        .expect("request log lock should not be poisoned")
+                        .push("amp:thread/turns/list".to_string());
+                    Err(RpcError::Deserialization(
+                        "server error -32601: method `thread/turns/list` is not implemented"
+                            .to_string(),
+                    ))
+                }
+                other => Err(RpcError::Deserialization(format!(
+                    "unexpected request in test: {}",
+                    other.method()
+                ))),
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config,
+            vec![(AgentRuntimeKind::Amp, amp_handler)],
+        ));
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), session);
+
+        client
+            .force_refresh_thread_authoritative(server_id, thread_id)
+            .await
+            .expect("force refresh should fall back through embedded resume");
+
+        let requests = requests
+            .lock()
+            .expect("request log lock should not be poisoned");
+        assert_eq!(
+            requests.as_slice(),
+            [
+                "amp:thread/resume:true",
+                "amp:thread/turns/list",
+                "amp:thread/resume:false"
+            ]
+        );
+        drop(requests);
+
+        let snapshot = client
+            .app_store
+            .snapshot()
+            .threads
+            .get(&key)
+            .cloned()
+            .expect("thread snapshot after force refresh");
+        assert_eq!(snapshot.active_turn_id, None);
+        assert_eq!(snapshot.info.status, ThreadSummaryStatus::Idle);
+        assert!(client.app_store.server_supports_turn_pagination(server_id));
     }
 
     #[tokio::test]

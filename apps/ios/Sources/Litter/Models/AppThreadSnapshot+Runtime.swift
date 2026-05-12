@@ -36,6 +36,10 @@ extension AppThreadSnapshot {
         return false
     }
 
+    var ampReasoningEffortLocked: Bool {
+        agentRuntimeKind == .amp && (!hydratedConversationItems.isEmpty || activeTurnId != nil)
+    }
+
     var resolvedModel: String {
         let direct = model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !direct.isEmpty { return direct }
@@ -115,6 +119,8 @@ extension AppThreadSnapshot {
             return "Claude"
         case "opencode", "open-code", "open_code":
             return "opencode"
+        case "amp", "ampcode", "amp-code", "amp_code", "amp code":
+            return "Amp"
         case "pi", "pi.dev", "pidev":
             return "Pi"
         case "droid", "factory", "factory-droid", "factory_droid", "factory droid":
@@ -124,6 +130,12 @@ extension AppThreadSnapshot {
         default:
             if normalized.hasPrefix("claude") || normalized.contains("anthropic") {
                 return "Claude"
+            }
+            if normalized.hasPrefix("amp")
+                || normalized.contains("ampcode")
+                || normalized.contains("amp-code")
+                || normalized.contains("amp_code") {
+                return "Amp"
             }
             return provider?.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -135,6 +147,8 @@ extension AppThreadSnapshot {
             return "Codex"
         case .pi:
             return "Pi"
+        case .amp:
+            return "Amp"
         case .opencode:
             return "opencode"
         case .claude:

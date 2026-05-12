@@ -4,6 +4,7 @@ extension AgentRuntimeKind {
     static let presentationOrder: [AgentRuntimeKind] = [
         .codex,
         .pi,
+        .amp,
         .opencode,
         .claude,
         .droid,
@@ -15,6 +16,8 @@ extension AgentRuntimeKind {
             return "Codex"
         case .pi:
             return "Pi"
+        case .amp:
+            return "Amp"
         case .opencode:
             return "opencode"
         case .claude:
@@ -30,6 +33,8 @@ extension AgentRuntimeKind {
             return "Opencode"
         case .droid:
             return "Factory Droid"
+        case .amp:
+            return "Amp"
         default:
             return displayLabel
         }
@@ -41,6 +46,8 @@ extension AgentRuntimeKind {
             return "agent_codex"
         case .pi:
             return "agent_pi"
+        case .amp:
+            return "agent_amp"
         case .opencode:
             return "agent_opencode"
         case .claude:
@@ -56,6 +63,8 @@ extension AgentRuntimeKind {
             return "terminal"
         case .pi:
             return "circle.hexagongrid"
+        case .amp:
+            return "bolt"
         case .opencode:
             return "chevron.left.forwardslash.chevron.right"
         case .claude:
@@ -71,7 +80,7 @@ extension AgentRuntimeKind {
 
     var isBeta: Bool {
         switch self {
-        case .claude, .pi, .opencode, .droid:
+        case .claude, .pi, .amp, .opencode, .droid:
             return true
         case .codex:
             return false
@@ -84,6 +93,7 @@ extension AgentRuntimeKind {
         let aliases: Set<String> = [
             "claude", "claude-code", "claude_code",
             "pi", "pi.dev", "pidev",
+            "amp", "ampcode", "amp-code", "amp_code", "amp code",
             "opencode", "open-code", "open_code", "open code",
             "droid", "factory", "factory-droid", "factory_droid", "factory droid",
         ]

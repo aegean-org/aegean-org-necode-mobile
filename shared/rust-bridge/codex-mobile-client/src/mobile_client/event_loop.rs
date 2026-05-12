@@ -1749,10 +1749,10 @@ fn apply_bridge_event(app_store: &AppStoreReducer, server_id: &str, event: Bridg
                 delta: n.delta,
             }
         }
-        ServerNotification::ThreadStatusChanged(_) => {
-            // Thread status is handled by TurnStarted/TurnCompleted
-            return;
-        }
+        ServerNotification::ThreadStatusChanged(n) => UiEvent::ThreadStatusChanged {
+            key,
+            notification: n,
+        },
         ServerNotification::ServerRequestResolved(_) => {
             // Handled via sync_ipc_thread_requests_from_projection
             return;

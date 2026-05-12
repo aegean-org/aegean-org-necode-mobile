@@ -80,6 +80,7 @@ final class AppState {
         switch kind {
         case .codex: return "codex"
         case .pi: return "pi"
+        case .amp: return "amp"
         case .opencode: return "opencode"
         case .claude: return "claude"
         case .droid: return "droid"
@@ -90,6 +91,7 @@ final class AppState {
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "codex": return .codex
         case "pi": return .pi
+        case "amp", "ampcode", "amp-code", "amp_code", "amp code": return .amp
         case "opencode": return .opencode
         case "claude": return .claude
         case "droid", "factory", "factory-droid", "factory_droid", "factory droid": return .droid

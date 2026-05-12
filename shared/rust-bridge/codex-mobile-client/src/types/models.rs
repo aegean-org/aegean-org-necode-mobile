@@ -745,6 +745,7 @@ pub enum ReasoningEffort {
     Medium,
     High,
     XHigh,
+    Max,
 }
 
 impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
@@ -756,6 +757,11 @@ impl From<codex_protocol::openai_models::ReasoningEffort> for ReasoningEffort {
             codex_protocol::openai_models::ReasoningEffort::Medium => Self::Medium,
             codex_protocol::openai_models::ReasoningEffort::High => Self::High,
             codex_protocol::openai_models::ReasoningEffort::XHigh => Self::XHigh,
+            // Newer/local codex checkouts may expose Max before the pinned
+            // submodule advances. Do not name that upstream variant here, so
+            // clean checkouts at the committed gitlink still compile.
+            #[allow(unreachable_patterns)]
+            _ => Self::Max,
         }
     }
 }

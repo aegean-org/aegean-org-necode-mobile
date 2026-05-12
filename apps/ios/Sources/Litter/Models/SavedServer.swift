@@ -313,6 +313,8 @@ struct SavedServer: Codable, Identifiable, Equatable {
             return "claude"
         case .pi:
             return "pi"
+        case .amp:
+            return "amp"
         case .opencode:
             return "opencode"
         case .droid:

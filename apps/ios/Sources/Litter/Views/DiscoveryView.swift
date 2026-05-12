@@ -978,7 +978,7 @@ struct DiscoveryView: View {
                 switch $0.kind {
                 case .claude, .pi, .opencode:
                     return $0.status == .available
-                case .codex, .droid:
+                case .codex, .amp, .droid:
                     return false
                 }
             }

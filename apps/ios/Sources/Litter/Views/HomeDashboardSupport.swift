@@ -310,6 +310,8 @@ enum HomeDashboardSupport {
                     return .claude
                 case "pi":
                     return .pi
+                case "amp", "ampcode", "amp-code", "amp_code", "amp code":
+                    return .amp
                 case "opencode":
                     return .opencode
                 case "droid", "factory", "factory-droid", "factory_droid", "factory droid":

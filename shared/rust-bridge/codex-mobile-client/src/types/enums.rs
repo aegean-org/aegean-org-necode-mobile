@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub enum AgentRuntimeKind {
     Codex,
     Pi,
+    Amp,
     Opencode,
     Claude,
     Droid,

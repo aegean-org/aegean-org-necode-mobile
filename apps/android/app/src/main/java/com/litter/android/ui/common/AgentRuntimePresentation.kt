@@ -19,6 +19,7 @@ val AgentRuntimeKind.runtimeLabel: String
     get() = when (this) {
         AgentRuntimeKind.CODEX -> "Codex"
         AgentRuntimeKind.PI -> "Pi"
+        AgentRuntimeKind.AMP -> "Amp"
         AgentRuntimeKind.OPENCODE -> "opencode"
         AgentRuntimeKind.CLAUDE -> "Claude"
         AgentRuntimeKind.DROID -> "Droid"
@@ -29,6 +30,7 @@ val AgentRuntimeKind.runtimeDrawable: Int
     get() = when (this) {
         AgentRuntimeKind.CODEX -> R.drawable.agent_codex
         AgentRuntimeKind.PI -> R.drawable.agent_pi
+        AgentRuntimeKind.AMP -> R.drawable.agent_amp
         AgentRuntimeKind.OPENCODE -> R.drawable.agent_opencode
         AgentRuntimeKind.CLAUDE -> R.drawable.agent_claude
         AgentRuntimeKind.DROID -> R.drawable.agent_droid
@@ -38,15 +40,17 @@ val AgentRuntimeKind.runtimeSortIndex: Int
     get() = when (this) {
         AgentRuntimeKind.CODEX -> 0
         AgentRuntimeKind.PI -> 1
-        AgentRuntimeKind.OPENCODE -> 2
-        AgentRuntimeKind.CLAUDE -> 3
-        AgentRuntimeKind.DROID -> 4
+        AgentRuntimeKind.AMP -> 2
+        AgentRuntimeKind.OPENCODE -> 3
+        AgentRuntimeKind.CLAUDE -> 4
+        AgentRuntimeKind.DROID -> 5
     }
 
 val AgentRuntimeKind.isBeta: Boolean
     get() = when (this) {
         AgentRuntimeKind.CLAUDE,
         AgentRuntimeKind.PI,
+        AgentRuntimeKind.AMP,
         AgentRuntimeKind.OPENCODE,
         AgentRuntimeKind.DROID -> true
         AgentRuntimeKind.CODEX -> false
@@ -55,6 +59,7 @@ val AgentRuntimeKind.isBeta: Boolean
 private val betaAgentNameAliases = setOf(
     "claude", "claude-code", "claude_code",
     "pi", "pi.dev", "pidev",
+    "amp", "ampcode", "amp-code", "amp_code", "amp code",
     "opencode", "open-code", "open_code", "open code",
     "droid", "factory", "factory-droid", "factory_droid", "factory droid",
 )

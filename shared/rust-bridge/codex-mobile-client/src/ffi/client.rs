@@ -50,6 +50,134 @@ macro_rules! req {
     };
 }
 
+const AMP_VISIBLE_MODES: [&str; 3] = ["smart", "rush", "deep"];
+
+fn normalize_amp_mode_name(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches("amp/")
+        .trim_start_matches("amp:")
+        .to_ascii_lowercase()
+}
+
+fn amp_mode_description(mode: &str) -> &'static str {
+    match mode {
+        "smart" => "Balanced Amp mode for everyday coding tasks.",
+        "rush" => "Faster Amp mode for quick edits and short answers.",
+        "deep" => "Deeper Amp mode for complex implementation and debugging.",
+        _ => "Amp agent mode.",
+    }
+}
+
+fn amp_mode_reasoning_efforts(
+    mode: &str,
+) -> (Vec<types::ReasoningEffortOption>, types::ReasoningEffort) {
+    let efforts = match mode {
+        "smart" => vec![
+            types::ReasoningEffort::High,
+            types::ReasoningEffort::XHigh,
+            types::ReasoningEffort::Max,
+        ],
+        "deep" => vec![
+            types::ReasoningEffort::Low,
+            types::ReasoningEffort::Medium,
+            types::ReasoningEffort::XHigh,
+        ],
+        _ => Vec::new(),
+    };
+    let default = match mode {
+        "smart" => types::ReasoningEffort::High,
+        "deep" => types::ReasoningEffort::Medium,
+        _ => types::ReasoningEffort::None,
+    };
+    (
+        efforts
+            .into_iter()
+            .map(|reasoning_effort| types::ReasoningEffortOption {
+                reasoning_effort,
+                description: String::new(),
+            })
+            .collect(),
+        default,
+    )
+}
+
+fn amp_mode_models() -> Vec<types::ModelInfo> {
+    AMP_VISIBLE_MODES
+        .into_iter()
+        .map(|mode| {
+            let (supported_reasoning_efforts, default_reasoning_effort) =
+                amp_mode_reasoning_efforts(mode);
+            types::ModelInfo {
+                id: mode.to_string(),
+                model: mode.to_string(),
+                upgrade: None,
+                upgrade_model: None,
+                upgrade_copy: None,
+                model_link: None,
+                migration_markdown: None,
+                availability_nux_message: None,
+                display_name: mode.to_string(),
+                description: amp_mode_description(mode).to_string(),
+                hidden: false,
+                supported_reasoning_efforts,
+                default_reasoning_effort,
+                input_modalities: vec![types::InputModality::Text],
+                supports_personality: false,
+                is_default: mode == "smart",
+                agent_runtime_kind: types::AgentRuntimeKind::Amp,
+            }
+        })
+        .collect()
+}
+
+fn append_missing_amp_mode_models(models: &mut Vec<types::ModelInfo>) {
+    for mode in amp_mode_models() {
+        let mode_name = mode.id.clone();
+        let prefixed_mode = format!("amp/{mode_name}");
+        let exists = models.iter().any(|existing| {
+            if existing.agent_runtime_kind != types::AgentRuntimeKind::Amp {
+                return false;
+            }
+            let id = existing.id.trim().to_ascii_lowercase();
+            let model = existing.model.trim().to_ascii_lowercase();
+            id == mode_name || id == prefixed_mode || model == mode_name || model == prefixed_mode
+        });
+        if !exists {
+            models.push(mode);
+        }
+    }
+}
+
+fn normalize_model_info_for_runtime(
+    model_info: &mut types::ModelInfo,
+    runtime_kind: types::AgentRuntimeKind,
+) -> bool {
+    model_info.agent_runtime_kind = runtime_kind;
+    if runtime_kind == types::AgentRuntimeKind::Amp {
+        let id_mode = normalize_amp_mode_name(&model_info.id);
+        let mode = if id_mode.is_empty() {
+            normalize_amp_mode_name(&model_info.model)
+        } else {
+            id_mode
+        };
+        if !AMP_VISIBLE_MODES.contains(&mode.as_str()) {
+            return false;
+        }
+        let (supported_reasoning_efforts, default_reasoning_effort) =
+            amp_mode_reasoning_efforts(&mode);
+        model_info.id = mode.clone();
+        model_info.model = mode.clone();
+        model_info.display_name = mode.clone();
+        model_info.description = amp_mode_description(&mode).to_string();
+        model_info.hidden = false;
+        model_info.supported_reasoning_efforts = supported_reasoning_efforts;
+        model_info.default_reasoning_effort = default_reasoning_effort;
+        model_info.is_default = mode == "smart";
+    }
+    true
+}
+
 fn apply_thread_goal_to_store(
     client: &MobileClient,
     key: &types::ThreadKey,
@@ -850,16 +978,31 @@ impl AppClient {
             for runtime_kind in runtime_kinds {
                 let mut request_params = params.clone();
                 loop {
-                    let page: upstream::ModelListResponse = rpc_runtime(
+                    let page: upstream::ModelListResponse = match rpc_runtime(
                         c.as_ref(),
                         &server_id,
                         runtime_kind,
                         req!(server_id, ModelList, request_params.clone()),
                     )
-                    .await?;
+                    .await
+                    {
+                        Ok(page) => page,
+                        Err(error) if runtime_kind == types::AgentRuntimeKind::Amp => {
+                            tracing::warn!(
+                                "model/list failed for Amp runtime on server {}: {}; using built-in Amp modes",
+                                server_id,
+                                error
+                            );
+                            append_missing_amp_mode_models(&mut models);
+                            break;
+                        }
+                        Err(error) => return Err(error),
+                    };
                     for model in page.data {
                         let mut model_info = types::ModelInfo::from(model);
-                        model_info.agent_runtime_kind = runtime_kind;
+                        if !normalize_model_info_for_runtime(&mut model_info, runtime_kind) {
+                            continue;
+                        }
                         let dedupe_key = (runtime_kind, model_info.id.clone());
                         if seen_model_ids.insert(dedupe_key) {
                             models.push(model_info);
@@ -869,6 +1012,9 @@ impl AppClient {
                         break;
                     };
                     request_params.cursor = Some(next_cursor);
+                }
+                if runtime_kind == types::AgentRuntimeKind::Amp {
+                    append_missing_amp_mode_models(&mut models);
                 }
             }
             c.app_store.update_server_models(&server_id, Some(models));
@@ -2705,6 +2851,7 @@ fn inherited_settings_for_origin(
             "medium" => Some(ReasoningEffort::Medium),
             "high" => Some(ReasoningEffort::High),
             "xhigh" | "x-high" => Some(ReasoningEffort::XHigh),
+            "max" => Some(ReasoningEffort::Max),
             _ => None,
         }
     });
@@ -2743,12 +2890,14 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageViewSource, choose_saved_app_update_server_id, image_read_command,
-        is_mobile_hidden_skill, normalized_image_path, splice_generative_ui_preamble,
+        ImageViewSource, append_missing_amp_mode_models, choose_saved_app_update_server_id,
+        image_read_command, is_mobile_hidden_skill, normalize_model_info_for_runtime,
+        normalized_image_path, splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
     use crate::types::models::{AbsolutePath, AppDynamicToolSpec, SkillMetadata, SkillScope};
+    use crate::types::{AgentRuntimeKind, ModelInfo, ReasoningEffort, ReasoningEffortOption};
     use crate::widget_guidelines::GENERATIVE_UI_PREAMBLE;
     use std::collections::HashMap;
 
@@ -2803,6 +2952,28 @@ mod tests {
         }
     }
 
+    fn test_model(id: &str, runtime_kind: AgentRuntimeKind) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            model: id.to_string(),
+            upgrade: None,
+            upgrade_model: None,
+            upgrade_copy: None,
+            model_link: None,
+            migration_markdown: None,
+            availability_nux_message: None,
+            display_name: id.to_string(),
+            description: String::new(),
+            hidden: false,
+            supported_reasoning_efforts: Vec::new(),
+            default_reasoning_effort: ReasoningEffort::Medium,
+            input_modalities: Vec::new(),
+            supports_personality: false,
+            is_default: false,
+            agent_runtime_kind: runtime_kind,
+        }
+    }
+
     fn app_snapshot_with_servers(servers: Vec<ServerSnapshot>) -> AppSnapshot {
         AppSnapshot {
             servers: servers
@@ -2811,6 +2982,89 @@ mod tests {
                 .collect::<HashMap<_, _>>(),
             ..AppSnapshot::default()
         }
+    }
+
+    #[test]
+    fn amp_mode_fallback_adds_builtin_modes() {
+        let mut models = vec![test_model("gpt-5.2", AgentRuntimeKind::Codex)];
+
+        append_missing_amp_mode_models(&mut models);
+
+        let amp_ids = models
+            .iter()
+            .filter(|model| model.agent_runtime_kind == AgentRuntimeKind::Amp)
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(amp_ids, vec!["smart", "rush", "deep"]);
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model.id == "smart")
+                .map(|model| model.is_default),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn amp_mode_fallback_preserves_advertised_modes() {
+        let mut models = vec![test_model("smart", AgentRuntimeKind::Amp)];
+
+        append_missing_amp_mode_models(&mut models);
+        append_missing_amp_mode_models(&mut models);
+
+        let smart_count = models
+            .iter()
+            .filter(|model| {
+                model.agent_runtime_kind == AgentRuntimeKind::Amp
+                    && (model.id == "smart" || model.id == "amp/smart")
+            })
+            .count();
+        assert_eq!(smart_count, 1);
+        assert!(models.iter().any(|model| model.id == "rush"));
+        assert!(models.iter().any(|model| model.id == "deep"));
+        assert!(!models.iter().any(|model| model.id == "large"));
+    }
+
+    #[test]
+    fn amp_model_normalization_uses_amp_mode_efforts() {
+        let mut model = test_model("amp/smart", AgentRuntimeKind::Codex);
+        model.supported_reasoning_efforts = vec![ReasoningEffortOption {
+            reasoning_effort: ReasoningEffort::Low,
+            description: "High".to_string(),
+        }];
+        model.default_reasoning_effort = ReasoningEffort::Low;
+
+        assert!(normalize_model_info_for_runtime(
+            &mut model,
+            AgentRuntimeKind::Amp
+        ));
+
+        assert_eq!(model.agent_runtime_kind, AgentRuntimeKind::Amp);
+        assert_eq!(model.id, "smart");
+        assert_eq!(model.display_name, "smart");
+        assert_eq!(
+            model
+                .supported_reasoning_efforts
+                .iter()
+                .map(|option| option.reasoning_effort.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                ReasoningEffort::High,
+                ReasoningEffort::XHigh,
+                ReasoningEffort::Max
+            ]
+        );
+        assert_eq!(model.default_reasoning_effort, ReasoningEffort::High);
+    }
+
+    #[test]
+    fn amp_model_normalization_filters_hidden_large_mode() {
+        let mut model = test_model("large", AgentRuntimeKind::Codex);
+
+        assert!(!normalize_model_info_for_runtime(
+            &mut model,
+            AgentRuntimeKind::Amp
+        ));
     }
 
     #[test]
