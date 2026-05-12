@@ -389,7 +389,7 @@ mod mobile_client_tests {
                 info.status = ThreadSummaryStatus::Active;
                 info
             },
-            agent_runtime_kind: AgentRuntimeKind::Codex,
+            agent_runtime_kind: "codex".to_string(),
             collaboration_mode: AppModeKind::Plan,
             model: Some("gpt-5".to_string()),
             reasoning_effort: Some("high".to_string()),
@@ -470,7 +470,7 @@ mod mobile_client_tests {
                 thread_id: "thread-1".to_string(),
             },
             info: make_thread_info("thread-1"),
-            agent_runtime_kind: AgentRuntimeKind::Codex,
+            agent_runtime_kind: "codex".to_string(),
             collaboration_mode: AppModeKind::Default,
             model: None,
             reasoning_effort: None,
@@ -513,13 +513,13 @@ mod mobile_client_tests {
             Some(vec![make_model_info(
                 "claude-sonnet-4.5",
                 "claude-sonnet-4.5",
-                AgentRuntimeKind::Claude,
+                "claude".to_string(),
             )]),
         );
 
         assert_eq!(
             client.runtime_for_thread_start("srv", None, Some("claude-sonnet-4.5")),
-            AgentRuntimeKind::Claude
+            "claude".to_string()
         );
     }
 
@@ -537,12 +537,12 @@ mod mobile_client_tests {
                 make_model_info(
                     "claude-sonnet-4.6",
                     "claude-sonnet-4.6",
-                    AgentRuntimeKind::Pi,
+                    "pi".to_string(),
                 ),
                 make_model_info(
                     "claude-sonnet-4.6",
                     "claude-sonnet-4.6",
-                    AgentRuntimeKind::Claude,
+                    "claude".to_string(),
                 ),
             ]),
         );
@@ -550,10 +550,10 @@ mod mobile_client_tests {
         assert_eq!(
             client.runtime_for_thread_start(
                 "srv",
-                Some(AgentRuntimeKind::Pi),
+                Some("pi".to_string()),
                 Some("claude-sonnet-4.6"),
             ),
-            AgentRuntimeKind::Pi
+            "pi".to_string()
         );
     }
 
@@ -570,12 +570,12 @@ mod mobile_client_tests {
             Some(vec![make_model_info(
                 "anthropic/claude-sonnet-4.6",
                 "claude-sonnet-4.6",
-                AgentRuntimeKind::Pi,
+                "pi".to_string(),
             )]),
         );
 
         let mut model = Some("claude-sonnet-4.6".to_string());
-        client.normalize_thread_model_for_runtime("srv", AgentRuntimeKind::Pi, &mut model);
+        client.normalize_thread_model_for_runtime("srv", "pi".to_string(), &mut model);
 
         assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-4.6"));
     }
@@ -593,17 +593,17 @@ mod mobile_client_tests {
             Some(vec![make_model_info(
                 "claude-sonnet-4.5",
                 "claude-sonnet-4.5",
-                AgentRuntimeKind::Claude,
+                "claude".to_string(),
             )]),
         );
 
         assert_eq!(
             client.runtime_for_thread_start(
                 "srv",
-                Some(AgentRuntimeKind::Opencode),
+                Some("opencode".to_string()),
                 Some("claude-sonnet-4.5"),
             ),
-            AgentRuntimeKind::Opencode
+            "opencode".to_string()
         );
     }
 
@@ -611,7 +611,7 @@ mod mobile_client_tests {
     fn alleycat_short_circuit_detects_missing_selected_runtime() {
         let requested = vec![
             (
-                AgentRuntimeKind::Codex,
+                "codex".to_string(),
                 AlleycatAgentInfo {
                     name: "codex".to_string(),
                     display_name: "Codex".to_string(),
@@ -620,7 +620,7 @@ mod mobile_client_tests {
                 },
             ),
             (
-                AgentRuntimeKind::Droid,
+                "droid".to_string(),
                 AlleycatAgentInfo {
                     name: "droid".to_string(),
                     display_name: "Droid".to_string(),
@@ -629,7 +629,7 @@ mod mobile_client_tests {
                 },
             ),
             (
-                AgentRuntimeKind::Amp,
+                "amp".to_string(),
                 AlleycatAgentInfo {
                     name: "amp".to_string(),
                     display_name: "Amp".to_string(),
@@ -642,15 +642,15 @@ mod mobile_client_tests {
 
         assert_eq!(alleycat_runtime_agent_names(&requested), "codex,droid,amp");
         assert_eq!(
-            missing_runtime_kinds(&[AgentRuntimeKind::Codex], &requested_kinds),
-            vec![AgentRuntimeKind::Amp, AgentRuntimeKind::Droid]
+            missing_runtime_kinds(&["codex".to_string()], &requested_kinds),
+            vec!["amp".to_string(), "droid".to_string()]
         );
         assert!(
             missing_runtime_kinds(
                 &[
-                    AgentRuntimeKind::Codex,
-                    AgentRuntimeKind::Droid,
-                    AgentRuntimeKind::Amp
+                    "codex".to_string(),
+                    "droid".to_string(),
+                    "amp".to_string()
                 ],
                 &requested_kinds
             )
@@ -671,9 +671,9 @@ mod mobile_client_tests {
         client
             .app_store
             .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
-        client.note_thread_runtime(key.clone(), AgentRuntimeKind::Codex);
+        client.note_thread_runtime(key.clone(), "codex".to_string());
 
-        assert_eq!(client.runtime_for_thread(&key), AgentRuntimeKind::Claude);
+        assert_eq!(client.runtime_for_thread(&key), "claude".to_string());
     }
 
     #[test]
@@ -689,20 +689,20 @@ mod mobile_client_tests {
             .app_store
             .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
 
-        assert_eq!(client.runtime_for_thread(&key), AgentRuntimeKind::Claude);
+        assert_eq!(client.runtime_for_thread(&key), "claude".to_string());
     }
 
     #[test]
     fn thread_runtime_infers_non_codex_from_existing_thread_model_provider() {
         for (provider, expected_runtime) in [
-            ("opencode", AgentRuntimeKind::Opencode),
-            ("open code", AgentRuntimeKind::Opencode),
-            ("amp", AgentRuntimeKind::Amp),
-            ("amp code", AgentRuntimeKind::Amp),
-            ("pi", AgentRuntimeKind::Pi),
-            ("pi.dev", AgentRuntimeKind::Pi),
-            ("factory", AgentRuntimeKind::Droid),
-            ("factory droid", AgentRuntimeKind::Droid),
+            ("opencode", "opencode".to_string()),
+            ("open code", "opencode".to_string()),
+            ("amp", "amp".to_string()),
+            ("amp code", "amp".to_string()),
+            ("pi", "pi".to_string()),
+            ("pi.dev", "pi".to_string()),
+            ("factory", "droid".to_string()),
+            ("factory droid", "droid".to_string()),
         ] {
             let client = MobileClient::new();
             let key = ThreadKey {
@@ -714,7 +714,7 @@ mod mobile_client_tests {
             client
                 .app_store
                 .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
-            client.note_thread_runtime(key.clone(), AgentRuntimeKind::Codex);
+            client.note_thread_runtime(key.clone(), "codex".to_string());
 
             assert_eq!(client.runtime_for_thread(&key), expected_runtime);
         }
@@ -723,10 +723,10 @@ mod mobile_client_tests {
     #[test]
     fn thread_runtime_infers_non_codex_from_existing_thread_model_prefix() {
         for (model, expected_runtime) in [
-            ("opencode/qwen3-coder", AgentRuntimeKind::Opencode),
-            ("amp/smart", AgentRuntimeKind::Amp),
-            ("pi.dev/default", AgentRuntimeKind::Pi),
-            ("factory/droid", AgentRuntimeKind::Droid),
+            ("opencode/qwen3-coder", "opencode".to_string()),
+            ("amp/smart", "amp".to_string()),
+            ("pi.dev/default", "pi".to_string()),
+            ("factory/droid", "droid".to_string()),
         ] {
             let client = MobileClient::new();
             let key = ThreadKey {
@@ -739,7 +739,7 @@ mod mobile_client_tests {
             client
                 .app_store
                 .upsert_thread_snapshot(ThreadSnapshot::from_info(&key.server_id, info));
-            client.note_thread_runtime(key.clone(), AgentRuntimeKind::Codex);
+            client.note_thread_runtime(key.clone(), "codex".to_string());
 
             assert_eq!(client.runtime_for_thread(&key), expected_runtime);
         }
@@ -1047,8 +1047,8 @@ mod mobile_client_tests {
         let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
             config,
             vec![
-                (AgentRuntimeKind::Codex, codex_handler),
-                (AgentRuntimeKind::Claude, claude_handler),
+                ("codex".to_string(), codex_handler),
+                ("claude".to_string(), claude_handler),
             ],
         ));
         client
@@ -1084,8 +1084,8 @@ mod mobile_client_tests {
             .cloned()
             .expect("thread snapshot should exist after runtime fallback");
         assert!(snapshot.is_resumed);
-        assert_eq!(snapshot.agent_runtime_kind, AgentRuntimeKind::Claude);
-        assert_eq!(client.runtime_for_thread(&key), AgentRuntimeKind::Claude);
+        assert_eq!(snapshot.agent_runtime_kind, "claude".to_string());
+        assert_eq!(client.runtime_for_thread(&key), "claude".to_string());
     }
 
     #[tokio::test]
@@ -1350,11 +1350,11 @@ mod mobile_client_tests {
             .upsert_server(&config, ServerHealthSnapshot::Connected, true);
 
         let mut thread = thread_snapshot_with_active_turn(server_id, thread_id, "turn-active");
-        thread.agent_runtime_kind = AgentRuntimeKind::Amp;
+        thread.agent_runtime_kind = "amp".to_string();
         thread.model = Some("amp/smart".to_string());
         thread.info.model_provider = Some("amp".to_string());
         client.app_store.upsert_thread_snapshot(thread);
-        client.note_thread_runtime(key.clone(), AgentRuntimeKind::Amp);
+        client.note_thread_runtime(key.clone(), "amp".to_string());
 
         let requests = Arc::new(StdMutex::new(Vec::<String>::new()));
         let amp_handler: TestRequestHandler = {
@@ -1426,7 +1426,7 @@ mod mobile_client_tests {
         };
         let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
             config,
-            vec![(AgentRuntimeKind::Amp, amp_handler)],
+            vec![("amp".to_string(), amp_handler)],
         ));
         client
             .sessions

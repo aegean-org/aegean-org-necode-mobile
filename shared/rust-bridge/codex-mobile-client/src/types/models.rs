@@ -18,7 +18,7 @@ use crate::RpcClientError;
 const MAX_REASONABLE_EPOCH_SECONDS: i64 = 10_000_000_000;
 
 fn default_agent_runtime_kind() -> AgentRuntimeKind {
-    AgentRuntimeKind::Codex
+    "codex".to_owned()
 }
 
 fn normalize_epoch_seconds(timestamp: i64) -> i64 {
@@ -1242,7 +1242,7 @@ impl From<upstream::Model> for ModelInfo {
             input_modalities: value.input_modalities.into_iter().map(Into::into).collect(),
             supports_personality: value.supports_personality,
             is_default: value.is_default,
-            agent_runtime_kind: AgentRuntimeKind::Codex,
+            agent_runtime_kind: "codex".to_string(),
         }
     }
 }

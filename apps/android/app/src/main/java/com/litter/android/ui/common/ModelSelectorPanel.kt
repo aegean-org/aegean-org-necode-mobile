@@ -57,7 +57,7 @@ import com.litter.android.ui.scaled
 import uniffi.codex_mobile_client.AppModeKind
 import uniffi.codex_mobile_client.AppThreadPermissionPreset
 import uniffi.codex_mobile_client.AppThreadSnapshot
-import uniffi.codex_mobile_client.AgentRuntimeKind
+import com.litter.android.ui.common.AgentRuntimeKind
 import uniffi.codex_mobile_client.ModelInfo
 import uniffi.codex_mobile_client.ReasoningEffort
 import uniffi.codex_mobile_client.threadPermissionPreset
@@ -111,18 +111,18 @@ fun ModelSelectorPanel(
     var selectedRuntimeFilterName by rememberSaveable { mutableStateOf<String?>(null) }
     var initializedRuntimeFilter by rememberSaveable { mutableStateOf(false) }
     val selectedRuntimeFilter = runtimeBuckets.firstOrNull {
-        it.kind.name == selectedRuntimeFilterName
+        it.kind == selectedRuntimeFilterName
     }?.kind
 
     LaunchedEffect(selectedRuntime, runtimeBuckets) {
         if (!initializedRuntimeFilter) {
             if (selectedRuntime != null && runtimeBuckets.any { it.kind == selectedRuntime }) {
-                selectedRuntimeFilterName = selectedRuntime.name
+                selectedRuntimeFilterName = selectedRuntime
             }
             initializedRuntimeFilter = true
         } else if (
             selectedRuntimeFilterName != null &&
-            runtimeBuckets.none { it.kind.name == selectedRuntimeFilterName }
+            runtimeBuckets.none { it.kind == selectedRuntimeFilterName }
         ) {
             selectedRuntimeFilterName = null
         }
@@ -146,7 +146,7 @@ fun ModelSelectorPanel(
                 ?: visibleModels.firstOrNull()
         }
     }
-    val selectedModelIsAmp = selectedModelDefinition?.agentRuntimeKind == AgentRuntimeKind.AMP
+    val selectedModelIsAmp = selectedModelDefinition?.agentRuntimeKind == "amp"
     val ampEffortLocked = selectedModelIsAmp && thread?.ampReasoningEffortLocked == true
     val supportedEfforts = remember(selectedModelDefinition, ampEffortLocked) {
         if (ampEffortLocked) {
@@ -223,12 +223,12 @@ fun ModelSelectorPanel(
                         onClick = { selectedRuntimeFilterName = null },
                     )
                 }
-                items(runtimeBuckets, key = { it.kind.name }) { bucket ->
+                items(runtimeBuckets, key = { it.kind }) { bucket ->
                     RuntimeFilterChip(
                         label = bucket.kind.runtimeLabel,
                         count = bucket.count,
                         selected = selectedRuntimeFilter == bucket.kind,
-                        onClick = { selectedRuntimeFilterName = bucket.kind.name },
+                        onClick = { selectedRuntimeFilterName = bucket.kind },
                         leadingIcon = { ModelRuntimeIcon(bucket.kind) },
                     )
                 }
@@ -282,7 +282,7 @@ fun ModelSelectorPanel(
                 .heightIn(max = 320.dp)
                 .padding(vertical = 4.dp),
         ) {
-            items(filteredModels, key = { "${it.agentRuntimeKind.name}:${it.id}" }) { model ->
+            items(filteredModels, key = { "${it.agentRuntimeKind}:${it.id}" }) { model ->
                 val isSelected = model.matchesModelSelection(selectedModel, selectedRuntime)
                 ModelOptionRow(
                     model = model,
@@ -293,7 +293,7 @@ fun ModelSelectorPanel(
                             agentRuntimeKind = model.agentRuntimeKind,
                         )
                         appModel.launchState.updateReasoningEffort(
-                            if (ampEffortLocked && model.agentRuntimeKind == AgentRuntimeKind.AMP) {
+                            if (ampEffortLocked && model.agentRuntimeKind == "amp") {
                                 null
                             } else {
                                 model.defaultReasoningEffortSelection()
@@ -474,14 +474,14 @@ private fun ModelInfo.ampModeName(): String =
         }
 
 internal fun ModelInfo.modelPickerDisplayName(): String =
-    if (agentRuntimeKind == AgentRuntimeKind.AMP) {
+    if (agentRuntimeKind == "amp") {
         ampModeName().ifEmpty { displayName.ifBlank { id } }
     } else {
         displayName.ifBlank { id }
     }
 
 private fun ModelInfo.isVisibleModelOption(): Boolean =
-    agentRuntimeKind != AgentRuntimeKind.AMP || ampModeName() in AmpVisibleModes
+    agentRuntimeKind != "amp" || ampModeName() in AmpVisibleModes
 
 private data class RuntimeModelBucket(
     val kind: AgentRuntimeKind,
@@ -504,7 +504,7 @@ private class ModelSearchIndex(models: List<ModelInfo>) {
                 append('\n')
                 append(model.model)
                 append('\n')
-                append(model.agentRuntimeKind.name)
+                append(model.agentRuntimeKind)
                 append('\n')
                 append(model.modelPickerDisplayName())
                 append('\n')
@@ -590,7 +590,7 @@ private fun ModelOptionRow(
         .takeIf { it.isNotBlank() }
         ?: model.model.takeIf { it.isNotBlank() && it != title && it != model.id }
     val runtimeLabel = model.agentRuntimeKind.runtimeLabel
-        .takeUnless { model.agentRuntimeKind == AgentRuntimeKind.AMP }
+        .takeUnless { model.agentRuntimeKind == "amp" }
 
     Row(
         modifier = Modifier
@@ -650,9 +650,5 @@ private fun ModelOptionRow(
 
 @Composable
 private fun ModelRuntimeIcon(kind: AgentRuntimeKind) {
-    Image(
-        painter = painterResource(kind.runtimeDrawable),
-        contentDescription = kind.runtimeLabel,
-        modifier = Modifier.size(16.dp),
-    )
+    AgentIconView(kind = kind, sizeDp = 16)
 }

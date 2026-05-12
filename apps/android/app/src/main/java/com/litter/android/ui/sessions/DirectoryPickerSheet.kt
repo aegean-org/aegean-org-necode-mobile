@@ -92,6 +92,7 @@ fun DirectoryPickerSheet(
     var showRecentsMenu by remember { mutableStateOf(false) }
     var showGoToPathDialog by remember { mutableStateOf(false) }
     var pathInput by remember { mutableStateOf("") }
+    var remoteHomePath by remember(selectedServerId) { mutableStateOf("") }
 
     fun refreshRecentEntries(serverId: String) {
         recentEntries = recentStore.listForServer(serverId, limit = 8)
@@ -187,6 +188,7 @@ fun DirectoryPickerSheet(
         currentPath = ""
         val home = resolveHome(serverId)
         if (serverId != selectedServerId) return
+        remoteHomePath = home
         currentPath = home
         listDirectory(serverId, home)
     }
@@ -228,7 +230,12 @@ fun DirectoryPickerSheet(
 
     fun navigateToInputPath() {
         val target = com.litter.android.state.PathDisplay
-            .expand(pathInput, isLocalServer(selectedServerId), context)
+            .expand(
+                pathInput,
+                isLocalServer(selectedServerId),
+                context,
+                remoteHome = remoteHomePath,
+            )
             .trim()
         pathInput = ""
         showGoToPathDialog = false
@@ -414,6 +421,7 @@ fun DirectoryPickerSheet(
                                     currentPath,
                                     isLocalServer(selectedServerId),
                                     context,
+                                    remoteHome = remoteHomePath,
                                 )
                                 showGoToPathDialog = true
                             }

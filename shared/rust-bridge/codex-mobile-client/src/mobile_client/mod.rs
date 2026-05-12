@@ -72,6 +72,7 @@ pub struct MobileClient {
     pub(crate) sessions: Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
     pub(crate) event_processor: Arc<EventProcessor>,
     pub app_store: Arc<AppStoreReducer>,
+    pub agent_metadata: Arc<crate::store::AgentMetadataStore>,
     pub(crate) discovery: RwLock<DiscoveryService>,
     oauth_callback_tunnels: Arc<Mutex<HashMap<String, OAuthCallbackTunnel>>>,
     pub(crate) recorder: Arc<crate::recorder::MessageRecorder>,
@@ -637,33 +638,33 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
 fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "claude" | "claude-code" | "claude_code" => Some(AgentRuntimeKind::Claude),
-        "anthropic" => Some(AgentRuntimeKind::Claude),
-        "amp" | "ampcode" | "amp-code" | "amp_code" | "amp code" => Some(AgentRuntimeKind::Amp),
-        "opencode" | "open-code" | "open_code" | "open code" => Some(AgentRuntimeKind::Opencode),
-        "pi" | "pi.dev" | "pidev" | "pi dev" => Some(AgentRuntimeKind::Pi),
+        "claude" | "claude-code" | "claude_code" => Some("claude".to_string()),
+        "anthropic" => Some("claude".to_string()),
+        "amp" | "ampcode" | "amp-code" | "amp_code" | "amp code" => Some("amp".to_string()),
+        "opencode" | "open-code" | "open_code" | "open code" => Some("opencode".to_string()),
+        "pi" | "pi.dev" | "pidev" | "pi dev" => Some("pi".to_string()),
         "droid" | "factory" | "factory-droid" | "factory_droid" | "factory droid" => {
-            Some(AgentRuntimeKind::Droid)
+            Some("droid".to_string())
         }
-        "codex" => Some(AgentRuntimeKind::Codex),
+        "codex" => Some("codex".to_string()),
         // Match patterns like `anthropic/claude-opus-4-7` or
         // `claude-3-5-sonnet` — i.e. a `claude` token anywhere in the
         // hint, after stripping a leading provider prefix. We treat
         // `<segment>/claude...` as Claude even if the leading segment
         // is `anthropic`.
-        _ if normalized.starts_with("claude") => Some(AgentRuntimeKind::Claude),
+        _ if normalized.starts_with("claude") => Some("claude".to_string()),
         _ if normalized
             .split('/')
             .any(|segment| segment.starts_with("claude")) =>
         {
-            Some(AgentRuntimeKind::Claude)
+            Some("claude".to_string())
         }
         _ if normalized.contains("opencode")
             || normalized.contains("open-code")
             || normalized.contains("open_code")
             || normalized.contains("open code") =>
         {
-            Some(AgentRuntimeKind::Opencode)
+            Some("opencode".to_string())
         }
         _ if normalized.starts_with("amp/")
             || normalized.starts_with("amp:")
@@ -672,16 +673,16 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
             || normalized.contains("amp-code")
             || normalized.contains("amp_code") =>
         {
-            Some(AgentRuntimeKind::Amp)
+            Some("amp".to_string())
         }
         _ if normalized.starts_with("pi.dev")
             || normalized.starts_with("pidev")
             || normalized.starts_with("pi/") =>
         {
-            Some(AgentRuntimeKind::Pi)
+            Some("pi".to_string())
         }
         _ if normalized.starts_with("factory/") || normalized.starts_with("droid/") => {
-            Some(AgentRuntimeKind::Droid)
+            Some("droid".to_string())
         }
         _ => None,
     }
@@ -709,11 +710,11 @@ fn missing_runtime_kinds(
 ) -> Vec<AgentRuntimeKind> {
     let existing = existing_runtime_kinds
         .iter()
-        .copied()
+        .cloned()
         .collect::<HashSet<_>>();
     let mut missing = requested_runtime_kinds
         .iter()
-        .copied()
+        .cloned()
         .filter(|kind| !existing.contains(kind))
         .collect::<Vec<_>>();
     missing.sort();
@@ -725,7 +726,7 @@ fn alleycat_requested_runtime_kinds(
 ) -> HashSet<AgentRuntimeKind> {
     runtime_agents
         .iter()
-        .map(|(runtime_kind, _)| *runtime_kind)
+        .map(|(runtime_kind, _)| runtime_kind.clone())
         .collect()
 }
 
@@ -745,6 +746,7 @@ impl MobileClient {
             sessions,
             event_processor,
             app_store,
+            agent_metadata: crate::store::AgentMetadataStore::new(),
             discovery: RwLock::new(DiscoveryService::new(DiscoveryConfig::default())),
             oauth_callback_tunnels: Arc::new(Mutex::new(HashMap::new())),
             recorder: Arc::new(crate::recorder::MessageRecorder::new()),
@@ -850,20 +852,20 @@ impl MobileClient {
 
     pub(crate) fn note_thread_runtime(&self, key: ThreadKey, runtime_kind: AgentRuntimeKind) {
         self.thread_runtime_routes()
-            .insert(key.clone(), runtime_kind);
+            .insert(key.clone(), runtime_kind.clone());
         self.app_store.set_thread_agent_runtime(&key, runtime_kind);
     }
 
     pub(crate) fn runtime_for_thread(&self, key: &ThreadKey) -> AgentRuntimeKind {
-        let routed_runtime = self.thread_runtime_routes().get(key).copied();
-        if let Some(runtime_kind) = routed_runtime
-            && runtime_kind != AgentRuntimeKind::Codex
+        let routed_runtime = self.thread_runtime_routes().get(key).cloned();
+        if let Some(runtime_kind) = routed_runtime.clone()
+            && runtime_kind != "codex"
         {
             return runtime_kind;
         }
 
         if let Some(thread) = self.app_store.thread_snapshot(key) {
-            if thread.agent_runtime_kind != AgentRuntimeKind::Codex {
+            if thread.agent_runtime_kind != "codex" {
                 return thread.agent_runtime_kind;
             }
             if let Some(runtime_kind) = self.non_codex_runtime_for_thread_metadata(key, &thread) {
@@ -871,7 +873,7 @@ impl MobileClient {
             }
         }
 
-        routed_runtime.unwrap_or(AgentRuntimeKind::Codex)
+        routed_runtime.unwrap_or_else(|| "codex".to_string())
     }
 
     pub(crate) fn runtime_for_thread_start(
@@ -893,7 +895,7 @@ impl MobileClient {
             }
         }
 
-        AgentRuntimeKind::Codex
+        "codex".to_string()
     }
 
     pub(crate) fn resolve_model_selection(
@@ -911,7 +913,7 @@ impl MobileClient {
         if let Some(candidate) = exact {
             return Some(ResolvedModelSelection {
                 model: candidate.id.clone(),
-                runtime_kind: candidate.agent_runtime_kind,
+                runtime_kind: candidate.agent_runtime_kind.clone(),
             });
         }
 
@@ -921,7 +923,7 @@ impl MobileClient {
         {
             return Some(ResolvedModelSelection {
                 model: candidate.id.clone(),
-                runtime_kind: candidate.agent_runtime_kind,
+                runtime_kind: candidate.agent_runtime_kind.clone(),
             });
         }
 
@@ -1009,7 +1011,7 @@ impl MobileClient {
                 .runtime_for_selected_model(&key.server_id, model)
                 .or_else(|| runtime_for_model_hint(model));
             if let Some(runtime_kind) = runtime_kind
-                && runtime_kind != AgentRuntimeKind::Codex
+                && runtime_kind != "codex".to_string()
             {
                 return Some(runtime_kind);
             }
@@ -1020,7 +1022,7 @@ impl MobileClient {
             .model_provider
             .as_deref()
             .and_then(runtime_for_model_hint)
-            .filter(|runtime_kind| *runtime_kind != AgentRuntimeKind::Codex)
+            .filter(|runtime_kind| *runtime_kind != "codex".to_string())
         {
             return Some(runtime_kind);
         }
@@ -1337,9 +1339,20 @@ impl MobileClient {
             .alleycat_endpoint()
             .await
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
-        crate::alleycat::list_agents(&endpoint, params)
+        let agents = crate::alleycat::list_agents(&endpoint, params)
             .await
-            .map_err(|error| TransportError::ConnectionFailed(error.to_string()))
+            .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
+        // Cache metadata so platforms can render labels/icons/capability
+        // flags from anywhere in the app, not just at probe time.
+        self.agent_metadata.upsert_all(agents.iter().map(|agent| {
+            crate::store::AppAgentMetadata {
+                name: agent.name.clone(),
+                display_name: agent.display_name.clone(),
+                presentation: agent.presentation.clone().map(Into::into),
+                capabilities: agent.capabilities.clone().map(Into::into),
+            }
+        }));
+        Ok(agents)
     }
 
     pub async fn connect_remote_over_alleycat(
@@ -1371,7 +1384,7 @@ impl MobileClient {
                 }
                 let runtime_kind =
                     crate::alleycat::agent_runtime_kind(&agent.name, &agent.display_name)?;
-                if !seen_runtime_kinds.insert(runtime_kind) {
+                if !seen_runtime_kinds.insert(runtime_kind.clone()) {
                     return None;
                 }
                 (agent.available).then_some((runtime_kind, agent))
@@ -1387,12 +1400,14 @@ impl MobileClient {
             }
             vec![(
                 crate::alleycat::agent_runtime_kind(&agent_name, &agent_name)
-                    .unwrap_or(AgentRuntimeKind::Codex),
+                    .unwrap_or("codex".to_string()),
                 AlleycatAgentInfo {
                     name: agent_name.clone(),
                     display_name: display_name.clone(),
                     wire,
                     available: true,
+                    presentation: None,
+                    capabilities: None,
                 },
             )]
         } else {
@@ -1516,7 +1531,7 @@ impl MobileClient {
                 .register_initial_session(Arc::clone(&alleycat_session))
                 .await;
             runtime_infos.push(AgentRuntimeInfo {
-                kind: runtime_kind,
+                kind: runtime_kind.clone(),
                 name: agent.name.clone(),
                 display_name: agent.display_name.clone(),
                 available: true,
@@ -1545,7 +1560,7 @@ impl MobileClient {
             server_id,
             runtime_resources
                 .iter()
-                .map(|r| r.runtime_kind)
+                .map(|r| r.runtime_kind.clone())
                 .collect::<Vec<_>>()
         );
         let session = match ServerSession::connect_remote_multiplexed(
@@ -1635,7 +1650,7 @@ impl MobileClient {
             server_id,
             runtime_resources
                 .iter()
-                .map(|resource| resource.runtime_kind)
+                .map(|resource| resource.runtime_kind.clone())
                 .collect::<Vec<_>>(),
             runtime_infos
         );
@@ -1865,7 +1880,7 @@ impl MobileClient {
         let trait_transport: Arc<dyn crate::session::remote_transport::RemoteTransport> =
             Arc::new(ssh_reconnect_transport);
         let resource = RuntimeRemoteSessionResource {
-            runtime_kind: crate::types::AgentRuntimeKind::Codex,
+            runtime_kind: "codex".to_string(),
             client: initial_client,
             transport: Some(trait_transport),
             keepalive: None,
@@ -1911,7 +1926,7 @@ impl MobileClient {
                 .unwrap_or("<none>")
         );
         let codex_runtime_info = AgentRuntimeInfo {
-            kind: crate::types::AgentRuntimeKind::Codex,
+            kind: "codex".to_string(),
             name: "codex".to_string(),
             display_name: "Codex".to_string(),
             available: true,
@@ -2319,12 +2334,12 @@ impl MobileClient {
                 runtime_candidates.push(runtime_kind);
             }
         }
-        if !runtime_candidates.contains(&AgentRuntimeKind::Codex) {
-            runtime_candidates.push(AgentRuntimeKind::Codex);
+        if !runtime_candidates.contains(&"codex".to_string()) {
+            runtime_candidates.push("codex".to_string());
         }
 
         let mut lookup_errors = Vec::new();
-        for runtime_kind in runtime_candidates.iter().copied() {
+        for runtime_kind in runtime_candidates.iter().cloned() {
             let supports_pagination = self.app_store.server_supports_turn_pagination(server_id);
             // Paginated servers always exclude turns from the resume
             // response; we never want to pull the full embedded archive,
@@ -2339,11 +2354,17 @@ impl MobileClient {
             // way to learn turn status — so `exclude_turns=false` there.
             let exclude_turns = supports_pagination;
             match self
-                .resume_thread_for_runtime(server_id, thread_id, &key, runtime_kind, exclude_turns)
+                .resume_thread_for_runtime(
+                    server_id,
+                    thread_id,
+                    &key,
+                    runtime_kind.clone(),
+                    exclude_turns,
+                )
                 .await
             {
                 Ok(()) => {
-                    self.note_thread_runtime(key.clone(), runtime_kind);
+                    self.note_thread_runtime(key.clone(), runtime_kind.clone());
                     if force_authoritative && supports_pagination {
                         self.reconcile_active_turn_via_turn_list_probe(
                             server_id,
@@ -2367,13 +2388,17 @@ impl MobileClient {
                         "external_resume_thread: resume failed, falling back to metadata-only thread/read runtime={:?} server={} thread={} error={}",
                         runtime_kind, server_id, thread_id, error
                     );
-                    self.read_thread_metadata_only_for_runtime(server_id, thread_id, runtime_kind)
-                        .await
-                        .map_err(|fallback_error| {
-                            RpcError::Deserialization(format!(
-                                "{error}; metadata fallback failed: {fallback_error}"
-                            ))
-                        })?;
+                    self.read_thread_metadata_only_for_runtime(
+                        server_id,
+                        thread_id,
+                        runtime_kind.clone(),
+                    )
+                    .await
+                    .map_err(|fallback_error| {
+                        RpcError::Deserialization(format!(
+                            "{error}; metadata fallback failed: {fallback_error}"
+                        ))
+                    })?;
                     self.note_thread_runtime(key.clone(), runtime_kind);
                     return Ok(());
                 }
@@ -2383,7 +2408,7 @@ impl MobileClient {
 
         for (runtime_kind, resume_error) in lookup_errors {
             match self
-                .read_thread_metadata_only_for_runtime(server_id, thread_id, runtime_kind)
+                .read_thread_metadata_only_for_runtime(server_id, thread_id, runtime_kind.clone())
                 .await
             {
                 Ok(()) => {
@@ -2440,7 +2465,7 @@ impl MobileClient {
         let response = self
             .request_typed_for_server_runtime::<upstream::ThreadResumeResponse>(
                 server_id,
-                runtime_kind,
+                runtime_kind.clone(),
                 resume_request,
             )
             .await?;
@@ -2486,7 +2511,7 @@ impl MobileClient {
             Some(response.approval_policy.into()),
             Some(response.sandbox.into()),
         )?;
-        snapshot.agent_runtime_kind = runtime_kind;
+        snapshot.agent_runtime_kind = runtime_kind.clone();
         // Preserve existing store items when the server returned empty turns
         // (paginated path); mark initial_turns_loaded so the UI spinner knows
         // to wait for load_thread_turns_page.
@@ -2538,7 +2563,7 @@ impl MobileClient {
         let response = match self
             .request_typed_for_server_runtime::<upstream::ThreadTurnsListResponse>(
                 server_id,
-                runtime_kind,
+                runtime_kind.clone(),
                 request,
             )
             .await
@@ -2550,12 +2575,18 @@ impl MobileClient {
                     // implement the lightweight turn-list probe. Fall back to
                     // one embedded-turn resume so reconcile_active_turn can
                     // still clear a stale active turn after mobile reconnects.
-                    if runtime_kind == AgentRuntimeKind::Codex {
+                    if runtime_kind == "codex" {
                         self.app_store
                             .set_server_supports_turn_pagination(server_id, false);
                     }
                     if let Err(fallback_error) = self
-                        .resume_thread_for_runtime(server_id, thread_id, key, runtime_kind, false)
+                        .resume_thread_for_runtime(
+                            server_id,
+                            thread_id,
+                            key,
+                            runtime_kind.clone(),
+                            false,
+                        )
                         .await
                     {
                         warn!(
@@ -2644,7 +2675,7 @@ impl MobileClient {
         match self
             .request_typed_for_server_runtime::<upstream::ThreadTurnsListResponse>(
                 server_id,
-                runtime_kind,
+                runtime_kind.clone(),
                 request,
             )
             .await
@@ -2665,7 +2696,7 @@ impl MobileClient {
                 })
             }
             Err(error) if is_method_not_found(&error) => {
-                if runtime_kind == AgentRuntimeKind::Codex {
+                if runtime_kind == "codex".to_string() {
                     self.app_store
                         .set_server_supports_turn_pagination(server_id, false);
                 }

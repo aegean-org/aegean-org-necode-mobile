@@ -547,7 +547,12 @@ struct SessionsScreen: View {
     }
 
     private func runtimeKindIcon(_ kind: AgentRuntimeKind) -> String {
-        kind.systemImageName
+        // The filter pill renders an SF Symbol; the alleycat manifest
+        // ships a PNG, not an SF Symbol name, so we use a generic
+        // fallback here. Richer rendering of the actual agent icon
+        // happens via `AgentIconView` everywhere else in the app.
+        _ = kind
+        return "person.fill"
     }
 
     private var sessionSearchBar: some View {

@@ -323,7 +323,7 @@ impl ThreadSnapshot {
         };
         Self {
             key,
-            agent_runtime_kind: AgentRuntimeKind::Codex,
+            agent_runtime_kind: "codex".to_string(),
             collaboration_mode: AppModeKind::Default,
             model: info.model.clone(),
             info,

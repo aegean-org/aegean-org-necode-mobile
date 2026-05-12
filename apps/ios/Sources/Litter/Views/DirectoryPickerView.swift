@@ -86,6 +86,7 @@ private final class DirectoryPickerSheetModel {
     var errorMessage: String?
     var showHiddenDirectories = false
     var searchQuery = ""
+    var homePath = ""
 
     @ObservationIgnored private var lastLoadedServerId = ""
 
@@ -179,6 +180,7 @@ private final class DirectoryPickerSheetModel {
             allEntries = []
             errorMessage = DirectoryPickerStrings.noServerSelected
             currentPath = ""
+            homePath = ""
             return
         }
 
@@ -186,9 +188,11 @@ private final class DirectoryPickerSheetModel {
         errorMessage = nil
         allEntries = []
         currentPath = ""
+        homePath = ""
 
         let home = await resolveHome(for: targetServerId, appModel: appModel, isLocalServer: isLocalServer)
         guard targetServerId == selectedServerId else { return }
+        homePath = home
         currentPath = home
         await listDirectory(for: targetServerId, path: home, appModel: appModel, isLocalServer: isLocalServer)
     }
@@ -512,7 +516,11 @@ struct DirectoryPickerView: View {
                 .autocorrectionDisabled(true)
             Button(DirectoryPickerStrings.cancel, role: .cancel) { pathInput = "" }
             Button(DirectoryPickerStrings.go) {
-                let target = PathDisplay.expand(pathInput, isLocal: selectedServerIsLocal)
+                let target = PathDisplay.expand(
+                    pathInput,
+                    isLocal: selectedServerIsLocal,
+                    remoteHome: model.homePath
+                )
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 pathInput = ""
                 guard !target.isEmpty else { return }
@@ -624,7 +632,11 @@ struct DirectoryPickerView: View {
                     .disabled(!model.canNavigateUp)
 
                     Button {
-                        pathInput = PathDisplay.display(model.currentPath, isLocal: selectedServerIsLocal)
+                        if selectedServerIsLocal {
+                            pathInput = PathDisplay.display(model.currentPath, isLocal: true)
+                        } else {
+                            pathInput = model.currentPath
+                        }
                         showGoToPathAlert = true
                     } label: {
                         Label(DirectoryPickerStrings.goToPath, systemImage: "arrow.right.to.line")

@@ -478,31 +478,45 @@ private func defaultReasoningEffortSelection(for model: ModelInfo) -> String {
     model.supportedReasoningEfforts.isEmpty ? "" : model.defaultReasoningEffort.wireValue
 }
 
-private let ampVisibleModeNames: Set<String> = ["smart", "rush", "deep"]
-
-private func normalizedAmpModeName(_ value: String) -> String {
-    value
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-        .replacingOccurrences(of: #"^amp[/\\:]"#, with: "", options: .regularExpression)
+/// Allowlist of model "mode" names the runtime advertises (e.g. Amp's
+/// `smart` / `rush` / `deep`). Pulled from `capabilities.visible_modes`
+/// in the alleycat manifest so the rule is per-agent, not Amp-hardcoded.
+private func visibleModeNames(for kind: AgentRuntimeKind) -> Set<String>? {
+    kind.metadata?.capabilities?.visibleModes.map(Set.init)
 }
 
-private func ampModeName(for model: ModelInfo) -> String {
-    let idMode = normalizedAmpModeName(model.id)
+/// Strip the optional agent-name prefix (`<kind>/` or `<kind>:`) the
+/// remote sometimes adds when reporting modes, so the bare mode name
+/// matches the allowlist.
+private func normalizedModeName(_ value: String, kind: AgentRuntimeKind) -> String {
+    var out = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let prefixes = ["\(kind)/", "\(kind):", "\(kind)\\"]
+    for prefix in prefixes where out.hasPrefix(prefix) {
+        out = String(out.dropFirst(prefix.count))
+    }
+    return out
+}
+
+private func modeName(for model: ModelInfo) -> String {
+    let kind = model.agentRuntimeKind
+    let idMode = normalizedModeName(model.id, kind: kind)
     if !idMode.isEmpty { return idMode }
-    return normalizedAmpModeName(model.model)
+    return normalizedModeName(model.model, kind: kind)
 }
 
 func modelPickerDisplayName(_ model: ModelInfo) -> String {
-    if model.agentRuntimeKind == .amp {
-        let mode = ampModeName(for: model)
+    if visibleModeNames(for: model.agentRuntimeKind) != nil {
+        let mode = modeName(for: model)
         if !mode.isEmpty { return mode }
     }
     return model.displayName.isEmpty ? model.id : model.displayName
 }
 
 private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
-    model.agentRuntimeKind != .amp || ampVisibleModeNames.contains(ampModeName(for: model))
+    guard let modes = visibleModeNames(for: model.agentRuntimeKind) else {
+        return true
+    }
+    return modes.contains(modeName(for: model))
 }
 
 struct InlineModelSelectorView: View {
@@ -586,7 +600,10 @@ struct InlineModelSelectorView: View {
 
     var body: some View {
         let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
-        let selectedModelIsAmp = currentModel?.agentRuntimeKind == .amp
+        let selectedModelIsAmp: Bool = {
+            guard let model = currentModel else { return false }
+            return visibleModeNames(for: model.agentRuntimeKind) != nil
+        }()
         let effectiveReasoningEfforts = isReasoningEffortLocked ? [] : (currentModel?.supportedReasoningEfforts ?? [])
 
         VStack(spacing: 0) {
@@ -616,7 +633,7 @@ struct InlineModelSelectorView: View {
                         Button {
                             selectedModel = model.id
                             selectedAgentRuntimeKind = model.agentRuntimeKind
-                            if isReasoningEffortLocked && model.agentRuntimeKind == .amp {
+                            if isReasoningEffortLocked && visibleModeNames(for: model.agentRuntimeKind) != nil {
                                 reasoningEffort = ""
                             } else {
                                 reasoningEffort = defaultReasoningEffortSelection(for: model)
@@ -913,7 +930,10 @@ struct ModelSelectorSheet: View {
 
     var body: some View {
         let visibleModels = activeModelSearchIndex.results(matching: modelSearchQuery)
-        let selectedModelIsAmp = currentModel?.agentRuntimeKind == .amp
+        let selectedModelIsAmp: Bool = {
+            guard let model = currentModel else { return false }
+            return visibleModeNames(for: model.agentRuntimeKind) != nil
+        }()
         let effectiveReasoningEfforts = isReasoningEffortLocked ? [] : (currentModel?.supportedReasoningEfforts ?? [])
 
         ScrollView {
@@ -941,7 +961,8 @@ struct ModelSelectorSheet: View {
                     Button {
                         selectedModel = model.id
                         selectedAgentRuntimeKind = model.agentRuntimeKind
-                        if isReasoningEffortLocked && model.agentRuntimeKind == .amp {
+                        let usesModes = visibleModeNames(for: model.agentRuntimeKind) != nil
+                        if isReasoningEffortLocked && usesModes {
                             reasoningEffort = ""
                         } else {
                             reasoningEffort = defaultReasoningEffortSelection(for: model)
@@ -1176,10 +1197,7 @@ private struct RuntimeFilterPill: View {
         Button(action: onTap) {
             HStack(spacing: 5) {
                 if let kind {
-                    Image(kind.assetName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 12, height: 12)
+                    AgentIconView(kind: kind, size: 12)
                 }
                 Text("\(label) \(count)")
                     .lineLimit(1)
@@ -1251,19 +1269,7 @@ private struct ModelRuntimeIcon: View {
     let kind: AgentRuntimeKind
 
     var body: some View {
-        Image(kind.assetName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 16, height: 16)
-            .padding(kind == .codex ? 0 : 2)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(kind == .codex ? Color.clear : Color.black.opacity(0.8))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(kind == .codex ? Color.clear : LitterTheme.textPrimary.opacity(0.3), lineWidth: 0.5)
-            )
+        AgentIconView(kind: kind, size: 20)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .accessibilityLabel(kind.displayLabel)
     }

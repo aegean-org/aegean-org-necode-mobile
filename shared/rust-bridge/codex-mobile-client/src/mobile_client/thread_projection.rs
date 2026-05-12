@@ -700,19 +700,24 @@ pub(super) async fn refresh_thread_list_from_app_server(
     for runtime_kind in runtime_kinds {
         let mut cursor = None;
         loop {
-            let response =
-                match request_thread_list_page_for_runtime(&session, runtime_kind, cursor).await {
-                    Ok(response) => response,
-                    Err(error) => {
-                        warn!(
-                            "thread/list failed for runtime {:?} on server {}: {}",
-                            runtime_kind, server_id, error
-                        );
-                        break;
-                    }
-                };
+            let response = match request_thread_list_page_for_runtime(
+                &session,
+                runtime_kind.clone(),
+                cursor,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    warn!(
+                        "thread/list failed for runtime {:?} on server {}: {}",
+                        runtime_kind, server_id, error
+                    );
+                    break;
+                }
+            };
             let page = thread_list_page_to_thread_infos(response.data, &mut incoming_ids);
-            app_store.upsert_thread_list_page_for_runtime(server_id, runtime_kind, &page);
+            app_store.upsert_thread_list_page_for_runtime(server_id, runtime_kind.clone(), &page);
 
             let Some(next_cursor) = response.next_cursor else {
                 break;

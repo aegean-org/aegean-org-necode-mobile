@@ -84,7 +84,7 @@ fn dedupe_agent_runtimes(runtimes: Vec<AgentRuntimeInfo>) -> Vec<AgentRuntimeInf
                 deduped[index] = runtime;
             }
         } else {
-            indexes_by_kind.insert(runtime.kind, deduped.len());
+            indexes_by_kind.insert(runtime.kind.clone(), deduped.len());
             deduped.push(runtime);
         }
     }
@@ -213,7 +213,7 @@ impl AppStoreReducer {
                     None,
                     None,
                     vec![AgentRuntimeInfo {
-                        kind: AgentRuntimeKind::Codex,
+                        kind: "codex".to_string(),
                         name: "codex".to_string(),
                         display_name: "Codex".to_string(),
                         available: true,
@@ -314,7 +314,7 @@ impl AppStoreReducer {
     }
 
     pub fn sync_thread_list(&self, server_id: &str, threads: &[ThreadInfo]) {
-        self.sync_thread_list_for_runtime(server_id, AgentRuntimeKind::Codex, threads);
+        self.sync_thread_list_for_runtime(server_id, "codex".to_string(), threads);
     }
 
     pub fn sync_thread_list_for_runtime(
@@ -373,12 +373,12 @@ impl AppStoreReducer {
                         updated_thread_keys.push(key.clone());
                     }
                     if entry.agent_runtime_kind != runtime_kind {
-                        entry.agent_runtime_kind = runtime_kind;
+                        entry.agent_runtime_kind = runtime_kind.clone();
                         updated_thread_keys.push(key);
                     }
                 } else {
                     let mut thread = ThreadSnapshot::from_info(server_id, info.clone());
-                    thread.agent_runtime_kind = runtime_kind;
+                    thread.agent_runtime_kind = runtime_kind.clone();
                     snapshot.threads.insert(key.clone(), thread);
                     upserted_thread_keys.push(key);
                 }
@@ -470,7 +470,7 @@ impl AppStoreReducer {
     }
 
     pub fn upsert_thread_list_page(&self, server_id: &str, threads: &[ThreadInfo]) {
-        self.upsert_thread_list_page_for_runtime(server_id, AgentRuntimeKind::Codex, threads);
+        self.upsert_thread_list_page_for_runtime(server_id, "codex".to_string(), threads);
     }
 
     pub fn upsert_thread_list_page_for_runtime(
@@ -481,7 +481,7 @@ impl AppStoreReducer {
     ) {
         for info in threads {
             let mut snapshot = ThreadSnapshot::from_info(server_id, info.clone());
-            snapshot.agent_runtime_kind = runtime_kind;
+            snapshot.agent_runtime_kind = runtime_kind.clone();
             self.upsert_thread_snapshot(snapshot);
         }
     }
@@ -637,10 +637,10 @@ impl AppStoreReducer {
                 preserve_thread_created_at(&existing.info, &mut thread.info);
                 preserve_thread_fork_lineage(&existing.info, &mut thread.info);
                 preserve_thread_runtime_state(existing, &mut thread);
-                if thread.agent_runtime_kind == AgentRuntimeKind::Codex
-                    && existing.agent_runtime_kind != AgentRuntimeKind::Codex
+                if thread.agent_runtime_kind == "codex"
+                    && existing.agent_runtime_kind != "codex"
                 {
-                    thread.agent_runtime_kind = existing.agent_runtime_kind;
+                    thread.agent_runtime_kind = existing.agent_runtime_kind.clone();
                 }
                 thread.is_resumed = thread.is_resumed || existing.is_resumed;
                 preserve_local_overlay_items(existing, &mut thread);
@@ -3621,7 +3621,7 @@ mod tests {
 
         reducer.sync_thread_list_for_runtime(
             "srv",
-            AgentRuntimeKind::Pi,
+            "pi".to_string(),
             &[make_thread_info("thread-1")],
         );
 
@@ -3631,7 +3631,7 @@ mod tests {
         };
         assert_eq!(
             reducer.thread_snapshot(&key).unwrap().agent_runtime_kind,
-            AgentRuntimeKind::Pi
+            "pi".to_string()
         );
     }
 
@@ -3644,7 +3644,7 @@ mod tests {
         reducer.update_server_agent_runtimes(
             "srv",
             vec![AgentRuntimeInfo {
-                kind: AgentRuntimeKind::Opencode,
+                kind: "opencode".to_string(),
                 name: "opencode".to_string(),
                 display_name: "opencode".to_string(),
                 available: true,
@@ -3654,7 +3654,7 @@ mod tests {
         let snapshot = reducer.snapshot();
         let server = snapshot.servers.get("srv").unwrap();
         assert_eq!(server.agent_runtimes.len(), 1);
-        assert_eq!(server.agent_runtimes[0].kind, AgentRuntimeKind::Opencode);
+        assert_eq!(server.agent_runtimes[0].kind, "opencode".to_string());
     }
 
     #[test]

@@ -11,7 +11,8 @@ import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.AppConnectionStepKind
 import uniffi.codex_mobile_client.AppConnectionStepSnapshot
 import uniffi.codex_mobile_client.AppConnectionStepState
-import uniffi.codex_mobile_client.AgentRuntimeKind
+import com.litter.android.ui.common.AgentRuntimeKind
+import com.litter.android.ui.common.runtimeLabel
 import uniffi.codex_mobile_client.ThreadSummaryStatus
 
 /** Accent green matching iOS theme. */
@@ -171,7 +172,7 @@ val AppThreadSnapshot.hasActiveTurn: Boolean
     get() = activeTurnId?.trim()?.isNotEmpty() == true || info.status.isActiveStatus
 
 val AppThreadSnapshot.ampReasoningEffortLocked: Boolean
-    get() = agentRuntimeKind == AgentRuntimeKind.AMP &&
+    get() = agentRuntimeKind == "amp" &&
         (hydratedConversationItems.isNotEmpty() || activeTurnId?.trim()?.isNotEmpty() == true)
 
 val AppThreadSnapshot.resolvedModel: String
@@ -226,14 +227,7 @@ private fun modelProviderDisplayLabel(provider: String?): String? {
     }
 }
 
-private fun agentRuntimeDisplayLabel(kind: AgentRuntimeKind): String = when (kind) {
-    AgentRuntimeKind.CODEX -> "Codex"
-    AgentRuntimeKind.PI -> "Pi"
-    AgentRuntimeKind.AMP -> "Amp"
-    AgentRuntimeKind.OPENCODE -> "opencode"
-    AgentRuntimeKind.CLAUDE -> "Claude"
-    AgentRuntimeKind.DROID -> "Droid"
-}
+private fun agentRuntimeDisplayLabel(kind: AgentRuntimeKind): String = kind.runtimeLabel
 
 val AppThreadSnapshot.displayTitle: String
     get() = info.preview?.takeIf { it.isNotBlank() }

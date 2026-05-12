@@ -125,7 +125,7 @@ fn amp_mode_models() -> Vec<types::ModelInfo> {
                 input_modalities: vec![types::InputModality::Text],
                 supports_personality: false,
                 is_default: mode == "smart",
-                agent_runtime_kind: types::AgentRuntimeKind::Amp,
+                agent_runtime_kind: "amp".to_string(),
             }
         })
         .collect()
@@ -136,7 +136,7 @@ fn append_missing_amp_mode_models(models: &mut Vec<types::ModelInfo>) {
         let mode_name = mode.id.clone();
         let prefixed_mode = format!("amp/{mode_name}");
         let exists = models.iter().any(|existing| {
-            if existing.agent_runtime_kind != types::AgentRuntimeKind::Amp {
+            if existing.agent_runtime_kind != "amp".to_string() {
                 return false;
             }
             let id = existing.id.trim().to_ascii_lowercase();
@@ -153,8 +153,9 @@ fn normalize_model_info_for_runtime(
     model_info: &mut types::ModelInfo,
     runtime_kind: types::AgentRuntimeKind,
 ) -> bool {
+    let is_amp = runtime_kind == "amp";
     model_info.agent_runtime_kind = runtime_kind;
-    if runtime_kind == types::AgentRuntimeKind::Amp {
+    if is_amp {
         let id_mode = normalize_amp_mode_name(&model_info.id);
         let mode = if id_mode.is_empty() {
             normalize_amp_mode_name(&model_info.model)
@@ -204,7 +205,7 @@ async fn hydrate_thread_goal_if_available(
     let response: Result<upstream::ThreadGoalGetResponse, ClientError> = rpc_runtime(
         client,
         server_id,
-        types::AgentRuntimeKind::Codex,
+        "codex".to_string(),
         req!(
             server_id,
             ThreadGoalGet,
@@ -301,6 +302,27 @@ impl AppClient {
         }
     }
 
+    // ── Agent metadata cache ─────────────────────────────────────────────
+    //
+    // Populated whenever `list_alleycat_agents` succeeds against any
+    // server. Platforms read from here to render agent labels, icons,
+    // BETA badges, sort order, and capability-driven UI (e.g. Amp's
+    // reasoning-effort lock) without baking knowledge of specific
+    // agents into Swift / Kotlin.
+
+    /// Look up the cached metadata for a single agent by `name`. Returns
+    /// `None` when no probe has populated it yet (cold start) or when
+    /// the alleycat host doesn't ship that agent.
+    pub fn agent_metadata(&self, name: String) -> Option<crate::store::AppAgentMetadata> {
+        self.inner.agent_metadata.get(&name)
+    }
+
+    /// All cached agents in presentation-sort order. Empty list on
+    /// cold start.
+    pub fn all_agent_metadata(&self) -> Vec<crate::store::AppAgentMetadata> {
+        self.inner.agent_metadata.all_sorted()
+    }
+
     // ── Thread lifecycle ─────────────────────────────────────────────────
 
     pub async fn start_thread(
@@ -316,7 +338,7 @@ impl AppClient {
             let mut params = params;
             let runtime_kind = c.runtime_for_thread_start(
                 &server_id,
-                params.agent_runtime_kind,
+                params.agent_runtime_kind.clone(),
                 params.model.as_deref(),
             );
             params.developer_instructions =
@@ -332,7 +354,7 @@ impl AppClient {
             let response: upstream::ThreadStartResponse = rpc_runtime(
                 c.as_ref(),
                 &server_id,
-                runtime_kind,
+                runtime_kind.clone(),
                 req!(server_id, ThreadStart, params),
             )
             .await?;
@@ -517,7 +539,7 @@ impl AppClient {
             let response: upstream::ThreadGoalGetResponse = rpc_runtime(
                 c.as_ref(),
                 &server_id,
-                types::AgentRuntimeKind::Codex,
+                "codex".to_string(),
                 req!(server_id, ThreadGoalGet, params.into()),
             )
             .await?;
@@ -539,7 +561,7 @@ impl AppClient {
             let response: upstream::ThreadGoalSetResponse = rpc_runtime(
                 c.as_ref(),
                 &server_id,
-                types::AgentRuntimeKind::Codex,
+                "codex".to_string(),
                 req!(server_id, ThreadGoalSet, params.into()),
             )
             .await?;
@@ -563,7 +585,7 @@ impl AppClient {
             let response: upstream::ThreadGoalClearResponse = rpc_runtime(
                 c.as_ref(),
                 &server_id,
-                types::AgentRuntimeKind::Codex,
+                "codex".to_string(),
                 req!(server_id, ThreadGoalClear, params.into()),
             )
             .await?;
@@ -614,16 +636,13 @@ impl AppClient {
                 Some(requested) if !requested.is_empty() => requested
                     .into_iter()
                     .filter(|kind| {
-                        *kind == types::AgentRuntimeKind::Codex
-                            || available_runtime_kinds.contains(kind)
+                        *kind == "codex".to_string() || available_runtime_kinds.contains(kind)
                     })
                     .collect::<Vec<_>>(),
                 _ => available_runtime_kinds,
             };
-            if !has_requested_runtime_kinds
-                && !runtime_kinds.contains(&types::AgentRuntimeKind::Codex)
-            {
-                runtime_kinds.push(types::AgentRuntimeKind::Codex);
+            if !has_requested_runtime_kinds && !runtime_kinds.contains(&"codex".to_string()) {
+                runtime_kinds.push("codex".to_string());
             }
             runtime_kinds.sort();
             runtime_kinds.dedup();
@@ -645,7 +664,7 @@ impl AppClient {
             let mut codex_visited = false;
             let mut tasks = Vec::new();
             for runtime_kind in runtime_kinds {
-                if runtime_kind == types::AgentRuntimeKind::Codex {
+                if runtime_kind == "codex".to_string() {
                     if codex_visited {
                         continue;
                     }
@@ -676,7 +695,7 @@ impl AppClient {
                                 rpc_runtime::<upstream::ThreadListResponse>(
                                     client.as_ref(),
                                     &server_id,
-                                    runtime_kind,
+                                    runtime_kind.clone(),
                                     req!(server_id, ThreadList, request_params.clone()),
                                 ),
                             )
@@ -709,7 +728,7 @@ impl AppClient {
                         );
                         let page = client.upsert_thread_list_page_for_runtime(
                             &server_id,
-                            runtime_kind,
+                            runtime_kind.clone(),
                             &response.data,
                         );
                         ids.extend(page.into_iter().map(|thread| thread.id));
@@ -738,7 +757,7 @@ impl AppClient {
                 server_id,
                 results
                     .iter()
-                    .map(|(runtime, ids, completed)| (*runtime, ids.len(), *completed))
+                    .map(|(runtime, ids, completed)| (runtime.clone(), ids.len(), *completed))
                     .collect::<Vec<_>>()
             );
             // Only prune if every runtime finished cleanly. A partial
@@ -981,13 +1000,13 @@ impl AppClient {
                     let page: upstream::ModelListResponse = match rpc_runtime(
                         c.as_ref(),
                         &server_id,
-                        runtime_kind,
+                        runtime_kind.clone(),
                         req!(server_id, ModelList, request_params.clone()),
                     )
                     .await
                     {
                         Ok(page) => page,
-                        Err(error) if runtime_kind == types::AgentRuntimeKind::Amp => {
+                        Err(error) if runtime_kind == "amp" => {
                             tracing::warn!(
                                 "model/list failed for Amp runtime on server {}: {}; using built-in Amp modes",
                                 server_id,
@@ -1000,10 +1019,11 @@ impl AppClient {
                     };
                     for model in page.data {
                         let mut model_info = types::ModelInfo::from(model);
-                        if !normalize_model_info_for_runtime(&mut model_info, runtime_kind) {
+                        if !normalize_model_info_for_runtime(&mut model_info, runtime_kind.clone())
+                        {
                             continue;
                         }
-                        let dedupe_key = (runtime_kind, model_info.id.clone());
+                        let dedupe_key = (runtime_kind.clone(), model_info.id.clone());
                         if seen_model_ids.insert(dedupe_key) {
                             models.push(model_info);
                         }
@@ -1013,7 +1033,7 @@ impl AppClient {
                     };
                     request_params.cursor = Some(next_cursor);
                 }
-                if runtime_kind == types::AgentRuntimeKind::Amp {
+                if runtime_kind == "amp" {
                     append_missing_amp_mode_models(&mut models);
                 }
             }
@@ -1385,7 +1405,7 @@ impl AppClient {
                 if p.is_empty() {
                     "/".to_string()
                 } else {
-                    p.to_string()
+                    crate::remote_path::normalize_thread_cwd(p).unwrap_or_else(|| p.to_string())
                 }
             };
             let rp = crate::remote_path::RemotePath::parse(&requested_path);
@@ -1426,7 +1446,8 @@ impl AppClient {
         path: String,
     ) -> Result<(), ClientError> {
         blocking_async!(self.rt, self.inner, |c| {
-            let requested_path = path.trim().to_string();
+            let requested_path = crate::remote_path::normalize_thread_cwd(path.trim())
+                .unwrap_or_else(|| path.trim().to_string());
             if requested_path.is_empty() {
                 return Err(ClientError::Rpc("path is empty".to_string()));
             }
@@ -1739,7 +1760,9 @@ pub(crate) async fn exec_command_simple(
         disable_output_cap: false,
         disable_timeout: false,
         timeout_ms: None,
-        cwd: cwd.map(std::path::PathBuf::from),
+        cwd: cwd
+            .and_then(crate::remote_path::normalize_thread_cwd)
+            .map(std::path::PathBuf::from),
         env: None,
         size: None,
         sandbox_policy: Some(upstream::SandboxPolicy::DangerFullAccess),
@@ -1863,7 +1886,10 @@ async fn exec_command_simple_owned(
         disable_output_cap: false,
         disable_timeout: false,
         timeout_ms: Some(15_000),
-        cwd: cwd.map(std::path::PathBuf::from),
+        cwd: cwd
+            .as_deref()
+            .and_then(crate::remote_path::normalize_thread_cwd)
+            .map(std::path::PathBuf::from),
         env: None,
         size: None,
         sandbox_policy: None,
@@ -1982,7 +2008,7 @@ fn ensure_pet_runtime_available(client: &MobileClient, server_id: &str) -> Resul
         .get_session(server_id)
         .map_err(|error| ClientError::Rpc(error.to_string()))?
         .runtime_kinds();
-    if runtime_kinds.contains(&types::AgentRuntimeKind::Codex) {
+    if runtime_kinds.contains(&"codex".to_string()) {
         return Ok(());
     }
     Err(ClientError::Rpc(
@@ -2986,13 +3012,13 @@ mod tests {
 
     #[test]
     fn amp_mode_fallback_adds_builtin_modes() {
-        let mut models = vec![test_model("gpt-5.2", AgentRuntimeKind::Codex)];
+        let mut models = vec![test_model("gpt-5.2", "codex".to_string())];
 
         append_missing_amp_mode_models(&mut models);
 
         let amp_ids = models
             .iter()
-            .filter(|model| model.agent_runtime_kind == AgentRuntimeKind::Amp)
+            .filter(|model| model.agent_runtime_kind == "amp".to_string())
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(amp_ids, vec!["smart", "rush", "deep"]);
@@ -3007,7 +3033,7 @@ mod tests {
 
     #[test]
     fn amp_mode_fallback_preserves_advertised_modes() {
-        let mut models = vec![test_model("smart", AgentRuntimeKind::Amp)];
+        let mut models = vec![test_model("smart", "amp".to_string())];
 
         append_missing_amp_mode_models(&mut models);
         append_missing_amp_mode_models(&mut models);
@@ -3015,7 +3041,7 @@ mod tests {
         let smart_count = models
             .iter()
             .filter(|model| {
-                model.agent_runtime_kind == AgentRuntimeKind::Amp
+                model.agent_runtime_kind == "amp".to_string()
                     && (model.id == "smart" || model.id == "amp/smart")
             })
             .count();
@@ -3027,7 +3053,7 @@ mod tests {
 
     #[test]
     fn amp_model_normalization_uses_amp_mode_efforts() {
-        let mut model = test_model("amp/smart", AgentRuntimeKind::Codex);
+        let mut model = test_model("amp/smart", "codex".to_string());
         model.supported_reasoning_efforts = vec![ReasoningEffortOption {
             reasoning_effort: ReasoningEffort::Low,
             description: "High".to_string(),
@@ -3036,10 +3062,10 @@ mod tests {
 
         assert!(normalize_model_info_for_runtime(
             &mut model,
-            AgentRuntimeKind::Amp
+            "amp".to_string()
         ));
 
-        assert_eq!(model.agent_runtime_kind, AgentRuntimeKind::Amp);
+        assert_eq!(model.agent_runtime_kind, "amp".to_string());
         assert_eq!(model.id, "smart");
         assert_eq!(model.display_name, "smart");
         assert_eq!(
@@ -3059,11 +3085,11 @@ mod tests {
 
     #[test]
     fn amp_model_normalization_filters_hidden_large_mode() {
-        let mut model = test_model("large", AgentRuntimeKind::Codex);
+        let mut model = test_model("large", "codex".to_string());
 
         assert!(!normalize_model_info_for_runtime(
             &mut model,
-            AgentRuntimeKind::Amp
+            "amp".to_string()
         ));
     }
 

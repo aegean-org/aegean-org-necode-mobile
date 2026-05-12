@@ -1749,19 +1749,7 @@ private struct HomeRuntimeIcon: View {
     let kind: AgentRuntimeKind
 
     var body: some View {
-        Image(kind.assetName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 12, height: 12)
-            .padding(kind == .codex ? 0 : 1.5)
-            .background(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(kind == .codex ? Color.clear : Color.black.opacity(0.82))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .stroke(kind == .codex ? Color.clear : LitterTheme.textPrimary.opacity(0.25), lineWidth: 0.5)
-            )
+        AgentIconView(kind: kind, size: 15)
             .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
             .accessibilityLabel(kind.displayLabel)
     }
