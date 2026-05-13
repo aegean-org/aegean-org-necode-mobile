@@ -1,3 +1,4 @@
+import AVKit
 import ImageIO
 import SwiftUI
 import UIKit
@@ -22,6 +23,7 @@ struct HomeSessionsScrollView: UIViewRepresentable {
         var onCancelTurn: (HomeDashboardRecentSession) -> Void
         var onDelete: (HomeDashboardRecentSession) -> Void
         var onFork: (HomeDashboardRecentSession) -> Void
+        var onShowPiP: (HomeDashboardRecentSession) -> Void
     }
 
     let sessions: [HomeDashboardRecentSession]
@@ -1552,7 +1554,8 @@ final class HomeRowContainer: UIView {
             onUnpin: { callbacks.onUnpin(sessionSnapshot.key) },
             onCancelTurn: { callbacks.onCancelTurn(sessionSnapshot) },
             onDelete: { callbacks.onDelete(sessionSnapshot) },
-            onFork: { callbacks.onFork(sessionSnapshot) }
+            onFork: { callbacks.onFork(sessionSnapshot) },
+            onShowPiP: { callbacks.onShowPiP(sessionSnapshot) }
         )
         .environment(\.textScale, textScale)
         hostingController.rootView = AnyView(content)
@@ -1756,6 +1759,7 @@ struct HomeSessionRowContent: View {
     let onCancelTurn: () -> Void
     let onDelete: () -> Void
     let onFork: () -> Void
+    let onShowPiP: () -> Void
 
     var body: some View {
         SessionCanvasLine(
@@ -1787,6 +1791,11 @@ struct HomeSessionRowContent: View {
                     pinned ? "Remove from Home" : "Pin to Home",
                     systemImage: pinned ? "minus.circle" : "pin"
                 )
+            }
+            if AVPictureInPictureController.isPictureInPictureSupported() {
+                Button { onShowPiP() } label: {
+                    Label("Show in Picture in Picture", systemImage: "pip")
+                }
             }
             Button { onHide() } label: {
                 Label("Hide from Home", systemImage: "eye.slash")

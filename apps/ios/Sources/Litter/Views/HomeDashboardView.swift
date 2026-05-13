@@ -573,6 +573,9 @@ struct HomeDashboardView: View {
                         onDelete: { session in deleteTargetThread = session },
                         onFork: { session in
                             Task { await onForkThread?(session) }
+                        },
+                        onShowPiP: { session in
+                            StreamingPiPController.shared.start(for: session.key)
                         }
                     )
                 )
