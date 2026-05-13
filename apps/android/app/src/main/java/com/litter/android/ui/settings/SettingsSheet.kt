@@ -928,12 +928,12 @@ private fun ServerEditSheet(
                                                 isReconnecting = true
                                                 try {
                                                     reconnect(saved.id)
+                                                    onSave()
                                                 } catch (e: Exception) {
                                                     validationError = e.message
                                                 } finally {
                                                     isReconnecting = false
                                                 }
-                                                onSave()
                                             }
                                         }
                                     },
