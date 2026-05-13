@@ -7,6 +7,9 @@ struct SettingsView: View {
     @Environment(\.textScale) private var textScale
     @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
     @AppStorage("collapseTurns") private var collapseTurns = false
+    @AppStorage(ConversationDisplayPreferenceKey.reasoning) private var reasoningDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
+    @AppStorage(ConversationDisplayPreferenceKey.commands) private var commandDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
+    @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @State private var showAddServer = false
 
     private var localServer: AppServerSnapshot? {
@@ -104,10 +107,61 @@ struct SettingsView: View {
             }
             .tint(LitterTheme.accent)
             .listRowBackground(LitterTheme.surface.opacity(0.6))
+
+            transcriptDisplayPicker(
+                title: "Internal Thinking",
+                subtitle: "Reasoning and analysis blocks",
+                systemImage: "brain.head.profile",
+                selection: $reasoningDisplayMode
+            )
+
+            transcriptDisplayPicker(
+                title: "Commands",
+                subtitle: "Shell commands and command output",
+                systemImage: "terminal",
+                selection: $commandDisplayMode
+            )
+
+            transcriptDisplayPicker(
+                title: "Tools",
+                subtitle: "MCP, web, image, and file-change cards",
+                systemImage: "wrench.and.screwdriver",
+                selection: $toolDisplayMode
+            )
         } header: {
             Text("Conversation")
                 .foregroundColor(LitterTheme.textSecondary)
         }
+    }
+
+    private func transcriptDisplayPicker(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        selection: Binding<String>
+    ) -> some View {
+        Picker(selection: selection) {
+            ForEach(ConversationDetailDisplayMode.allCases) { mode in
+                Text(mode.displayName).tag(mode.rawValue)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .foregroundColor(LitterTheme.accent)
+                    .frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .litterFont(.subheadline)
+                        .foregroundColor(LitterTheme.textPrimary)
+                    Text(subtitle)
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+            }
+        }
+        .pickerStyle(.menu)
+        .tint(LitterTheme.accent)
+        .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
     // MARK: - Font Section

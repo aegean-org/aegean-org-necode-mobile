@@ -18,6 +18,11 @@ enum AgentRuntimeMetadataProvider {
 }
 
 extension AgentRuntimeKind {
+    static let claude: AgentRuntimeKind = "claude"
+    static let codex: AgentRuntimeKind = "codex"
+    static let droid: AgentRuntimeKind = "droid"
+    static let opencode: AgentRuntimeKind = "opencode"
+
     /// Presentation order surfaced by `AgentMetadataStore` (sorted by
     /// each agent's `presentation.sort_order` from the alleycat
     /// manifest). Empty when no probe has populated the cache yet —
