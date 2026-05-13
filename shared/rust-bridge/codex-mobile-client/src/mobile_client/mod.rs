@@ -18,7 +18,7 @@ use crate::session::connection::{
     SshReconnectTransport,
 };
 use crate::session::events::{EventProcessor, UiEvent};
-use crate::ssh::{SshBootstrapResult, SshClient, SshCredentials};
+use crate::ssh::{SshBootstrapResult, SshBootstrapTransport, SshClient, SshCredentials};
 use crate::store::snapshot::{
     IpcFailureClassification, ServerMutatingCommandKind, ServerMutatingCommandRoute,
     ServerTransportAuthority,
@@ -109,21 +109,16 @@ pub struct MobileClient {
     /// launch reuses the same `EndpointId` (faster relay re-association,
     /// stable peer identity).
     alleycat_secret_key: Arc<StdMutex<Option<[u8; 32]>>>,
-    /// In-flight guided-SSH-connect flows, keyed by server_id. Hosts the
-    /// `install_decision` oneshot that the FFI install-prompt response feeds
-    /// into. Held on `MobileClient` (not `SshBridge`) so the connect entry
-    /// point and the install-prompt response can live on different bridges.
+    /// In-flight guided-SSH-connect flows, keyed by server_id. Held on
+    /// `MobileClient` so repeated connect attempts can reuse the same
+    /// bootstrap task.
     pub(crate) ssh_bootstrap_flows:
         Arc<tokio::sync::Mutex<HashMap<String, ManagedSshBootstrapFlow>>>,
     alleycat_restart_targets: Arc<StdMutex<HashMap<String, AlleycatRestartTarget>>>,
 }
 
-/// State for a single in-flight guided SSH connect. The connect task installs a
-/// `oneshot::Sender<bool>` once it discovers Codex is missing on the remote and
-/// awaits the FFI install-prompt response to fire it.
-pub struct ManagedSshBootstrapFlow {
-    pub install_decision: Option<tokio::sync::oneshot::Sender<bool>>,
-}
+/// State for a single in-flight guided SSH connect.
+pub struct ManagedSshBootstrapFlow {}
 
 #[derive(Debug, Clone)]
 struct AlleycatRestartTarget {
@@ -1344,14 +1339,13 @@ impl MobileClient {
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
         // Cache metadata so platforms can render labels/icons/capability
         // flags from anywhere in the app, not just at probe time.
-        self.agent_metadata.upsert_all(agents.iter().map(|agent| {
-            crate::store::AppAgentMetadata {
+        self.agent_metadata
+            .upsert_all(agents.iter().map(|agent| crate::store::AppAgentMetadata {
                 name: agent.name.clone(),
                 display_name: agent.display_name.clone(),
                 presentation: agent.presentation.clone().map(Into::into),
                 capabilities: agent.capabilities.clone().map(Into::into),
-            }
-        }));
+            }));
         Ok(agents)
     }
 
@@ -1589,14 +1583,28 @@ impl MobileClient {
 
         self.attach_remote_session(&server_id, session, runtime_infos.clone());
 
-        Ok(AlleycatConnectOutcome {
-            server_id,
-            node_id: params.node_id,
-            agent_name: runtime_infos
+        // Preserve the user's *intent* in the saved-server record rather
+        // than only the agents that successfully attached on this call.
+        // If a transient failure drops one runtime (e.g. devin's ACP
+        // child hits a stale session lock once), the next reconnect
+        // should still try every agent the user originally picked, not
+        // silently shrink to the survivors. Falls back to the connected
+        // set if the user didn't explicitly select anything (legacy
+        // single-agent callers).
+        let persisted_agents = if !requested_agent_names.is_empty() {
+            requested_agent_names
+        } else {
+            runtime_infos
                 .iter()
                 .map(|runtime| runtime.name.clone())
                 .collect::<Vec<_>>()
-                .join(","),
+                .join(",")
+        };
+
+        Ok(AlleycatConnectOutcome {
+            server_id,
+            node_id: params.node_id,
+            agent_name: persisted_agents,
         })
     }
 
@@ -1819,19 +1827,27 @@ impl MobileClient {
             ipc_socket_path_override.as_deref().unwrap_or("<none>")
         );
 
-        config.port = bootstrap.server_port;
-        config.websocket_url = Some(format!("ws://127.0.0.1:{}", bootstrap.tunnel_local_port));
+        match bootstrap.transport {
+            SshBootstrapTransport::AppServerProxy => {
+                config.port = 0;
+                config.websocket_url = Some(format!("app-server-proxy://{}", config.server_id));
+            }
+            SshBootstrapTransport::WebSocketTunnel => {
+                config.port = bootstrap.server_port;
+                config.websocket_url =
+                    Some(format!("ws://127.0.0.1:{}", bootstrap.tunnel_local_port));
+            }
+        }
         config.is_local = false;
         config.tls = false;
         let ssh_pid = Arc::new(StdMutex::new(bootstrap.pid));
-        let ssh_reconnect_transport = SshReconnectTransport {
-            ssh_client: Arc::clone(&ssh_client),
-            local_port: bootstrap.tunnel_local_port,
-            remote_port: Arc::new(StdMutex::new(bootstrap.server_port)),
-            prefer_ipv6: config.host.contains(':'),
+        let ssh_reconnect_transport = SshReconnectTransport::from_bootstrap(
+            Arc::clone(&ssh_client),
+            &bootstrap,
             working_dir,
-            ssh_pid: Some(Arc::clone(&ssh_pid)),
-        };
+            config.host.contains(':'),
+            Arc::clone(&ssh_pid),
+        );
 
         let ipc_enabled = ipc_socket_path_override
             .as_deref()
@@ -1856,19 +1872,30 @@ impl MobileClient {
                 .is_some_and(|client| client.is_connected())
         );
 
-        // Eagerly establish the WebSocket-over-SSH-tunnel client now that the
-        // forward is up. Surfacing connect errors here matches the eager-connect
-        // semantics used by `connect_remote_over_alleycat` and the multi-runtime
-        // SSH-bridges path, so `connect_remote_multiplexed` only sees populated
-        // clients.
+        // Eagerly establish the Codex client now that the SSH bootstrap is up.
+        // Surfacing connect errors here matches the eager-connect semantics used
+        // by `connect_remote_over_alleycat` and the multi-runtime SSH-bridges
+        // path, so `connect_remote_multiplexed` only sees populated clients.
         let (_, connect_args) = crate::session::connection::remote_connect_args(&config);
-        let initial_client = match crate::session::connection::connect_remote_client(&connect_args)
-            .await
-        {
+        let initial_connect = match bootstrap.transport {
+            SshBootstrapTransport::AppServerProxy => {
+                crate::session::connection::connect_remote_client_over_app_server_proxy(
+                    &ssh_client,
+                    &connect_args,
+                    &bootstrap.codex_path,
+                    bootstrap.shell,
+                )
+                .await
+            }
+            SshBootstrapTransport::WebSocketTunnel => {
+                crate::session::connection::connect_remote_client(&connect_args).await
+            }
+        };
+        let initial_client = match initial_connect {
             Ok(client) => client,
             Err(error) => {
                 warn!(
-                    "MobileClient: remote ssh websocket connect failed server_id={} host={} error={}",
+                    "MobileClient: remote ssh codex connect failed server_id={} host={} error={}",
                     server_id,
                     ssh_credentials.host.as_str(),
                     error

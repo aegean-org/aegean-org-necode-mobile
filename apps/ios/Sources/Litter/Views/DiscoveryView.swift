@@ -232,48 +232,6 @@ struct DiscoveryView: View {
         } message: {
             Text("Enter a new name for this server.")
         }
-        .alert(
-            "Install Codex?",
-            isPresented: pendingInstallPresented,
-            presenting: pendingInstallServerSnapshot
-        ) { snapshot in
-            Button("Install") {
-                Task {
-                    LLog.trace(
-                        "discovery",
-                        "responding to install prompt",
-                        fields: [
-                            "serverId": snapshot.serverId,
-                            "install": true,
-                            "detail": snapshot.connectionProgressDetail ?? ""
-                        ]
-                    )
-                    _ = try? await appModel.ssh.sshRespondToInstallPrompt(
-                        serverId: snapshot.serverId,
-                        install: true
-                    )
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                Task {
-                    LLog.trace(
-                        "discovery",
-                        "responding to install prompt",
-                        fields: [
-                            "serverId": snapshot.serverId,
-                            "install": false,
-                            "detail": snapshot.connectionProgressDetail ?? ""
-                        ]
-                    )
-                    _ = try? await appModel.ssh.sshRespondToInstallPrompt(
-                        serverId: snapshot.serverId,
-                        install: false
-                    )
-                }
-            }
-        } message: { snapshot in
-            Text(snapshot.connectionProgressDetail ?? "Codex was not found on the remote host. Install the latest stable release into ~/.litter?")
-        }
     }
 
     // MARK: - Chooser
@@ -1376,17 +1334,6 @@ struct DiscoveryView: View {
                     connectionChoiceServer = nil
                 }
             }
-        )
-    }
-
-    private var pendingInstallServerSnapshot: AppServerSnapshot? {
-        appModel.snapshot?.servers.first(where: { $0.connectionProgress?.pendingInstall == true })
-    }
-
-    private var pendingInstallPresented: Binding<Bool> {
-        Binding(
-            get: { pendingInstallServerSnapshot != nil },
-            set: { _ in }
         )
     }
 

@@ -20,6 +20,7 @@ enum AgentRuntimeMetadataProvider {
 extension AgentRuntimeKind {
     static let claude: AgentRuntimeKind = "claude"
     static let codex: AgentRuntimeKind = "codex"
+    static let devin: AgentRuntimeKind = "devin"
     static let droid: AgentRuntimeKind = "droid"
     static let opencode: AgentRuntimeKind = "opencode"
 

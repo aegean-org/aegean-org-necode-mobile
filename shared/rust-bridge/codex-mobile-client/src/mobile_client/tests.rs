@@ -534,11 +534,7 @@ mod mobile_client_tests {
         client.app_store.update_server_models(
             "srv",
             Some(vec![
-                make_model_info(
-                    "claude-sonnet-4.6",
-                    "claude-sonnet-4.6",
-                    "pi".to_string(),
-                ),
+                make_model_info("claude-sonnet-4.6", "claude-sonnet-4.6", "pi".to_string()),
                 make_model_info(
                     "claude-sonnet-4.6",
                     "claude-sonnet-4.6",
@@ -647,11 +643,7 @@ mod mobile_client_tests {
         );
         assert!(
             missing_runtime_kinds(
-                &[
-                    "codex".to_string(),
-                    "droid".to_string(),
-                    "amp".to_string()
-                ],
+                &["codex".to_string(), "droid".to_string(), "amp".to_string()],
                 &requested_kinds
             )
             .is_empty()
