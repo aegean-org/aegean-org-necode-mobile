@@ -78,6 +78,7 @@
 		1EA8B49CBF1C15347F3A221D /* ServerPillRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98A952845B6690CEC61680E /* ServerPillRow.swift */; };
 		1FE369FFE3EBD593E13DF33F /* dark-plus-B1yOZ-Hy.json in Resources */ = {isa = PBXBuildFile; fileRef = 9A59EFF7219CFC315A13C34D /* dark-plus-B1yOZ-Hy.json */; };
 		200625E357DD536744735D21 /* AppsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7A57CD59F1F3C8300A9ECE /* AppsListView.swift */; };
+		2069AFB53272955792833B7C /* ConversationDisplayUITestHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DD020815AD85C874D0DFEB /* ConversationDisplayUITestHarnessView.swift */; };
 		2079821AAFA0AB0D5D4E429C /* BerkeleyMono-Oblique.otf in Resources */ = {isa = PBXBuildFile; fileRef = ACD06DF72574CDDF16E1E41B /* BerkeleyMono-Oblique.otf */; };
 		20949942F84F8EFDAADF2F75 /* ComputerUseToolCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32A00D8BD24DF9E3C4F5EA2C /* ComputerUseToolCallView.swift */; };
 		20AB59324F9B55851C0D567D /* lobster-dark-dxSKfHK-.json in Resources */ = {isa = PBXBuildFile; fileRef = 64A9C3848F4142EF67DD23D3 /* lobster-dark-dxSKfHK-.json */; };
@@ -200,6 +201,7 @@
 		52C9C8C4692470EC7B2CC9E5 /* DynamicTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4874A6712A57F780064DB0E /* DynamicTools.swift */; };
 		5342E9DEE1FB318F01E27F7E /* ChatTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 125E05AE5CC346C8D2ED2FED /* ChatTypes.swift */; };
 		535331FCBDF1337FABF60189 /* SessionsTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F1AA9A960B33D4BF4DEA49 /* SessionsTypes.swift */; };
+		536D80B942E8F4E7A5C4D0C8 /* ConversationDisplayUITestHarnessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DD020815AD85C874D0DFEB /* ConversationDisplayUITestHarnessView.swift */; };
 		5380A526444F33B701903335 /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFE934B56ED67FA473EA25A /* MacCommands.swift */; };
 		559D9CFDF4AAC8C5E5FC4452 /* StreamingRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */; };
 		55C3EEE366FD3ABE9BCFA271 /* ConversationScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */; };
@@ -1000,6 +1002,7 @@
 		F3474B8EA8D3148C94A7583F /* AppStatePermissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStatePermissionTests.swift; sourceTree = "<group>"; };
 		F503F51C28F35CF80376D9FD /* CloudKVSBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKVSBridge.swift; sourceTree = "<group>"; };
 		F5CAE8D1301B5643D9510273 /* HomeAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeAnchor.swift; sourceTree = "<group>"; };
+		F6DD020815AD85C874D0DFEB /* ConversationDisplayUITestHarnessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDisplayUITestHarnessView.swift; sourceTree = "<group>"; };
 		F7B0CCBCA4896FF05C5CEDDC /* LitterWatchShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LitterWatchShortcuts.swift; sourceTree = "<group>"; };
 		F834CA5079226BE75FF8DC9E /* usgc-highk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "usgc-highk.json"; sourceTree = "<group>"; };
 		F8A12810E0889BDD245C2379 /* VoiceCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCallView.swift; sourceTree = "<group>"; };
@@ -1471,6 +1474,7 @@
 				ED83627330437842851BBC07 /* ConversationComposerModalCoordinator.swift */,
 				25F1267B79425E5A42068216 /* ConversationComposerPopupOverlayView.swift */,
 				75F91259F006987853B6929F /* ConversationComposerTextView.swift */,
+				F6DD020815AD85C874D0DFEB /* ConversationDisplayUITestHarnessView.swift */,
 				73215C881883BBD745011412 /* ConversationInfoView.swift */,
 				BE81AFDF90E8ED46203AF90C /* ConversationOptionsSheet.swift */,
 				C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */,
@@ -2113,6 +2117,7 @@
 				A6FF1F7811A4B6626BD440F5 /* ConversationComposerModalCoordinator.swift in Sources */,
 				F8FA54A11D223E760DD20173 /* ConversationComposerPopupOverlayView.swift in Sources */,
 				2B9DD5A54D6958BFE4369B38 /* ConversationComposerTextView.swift in Sources */,
+				536D80B942E8F4E7A5C4D0C8 /* ConversationDisplayUITestHarnessView.swift in Sources */,
 				F8591B754C9A672031DC87D4 /* ConversationInfoView.swift in Sources */,
 				E010B8AEEBFF38A28018121D /* ConversationItem.swift in Sources */,
 				B1A9E717B758EA0236262500 /* ConversationOptionsSheet.swift in Sources */,
@@ -2296,6 +2301,7 @@
 				150F9E7AC8934D8CB833123B /* ConversationComposerModalCoordinator.swift in Sources */,
 				EC0E8F1D7EEFB3766BF4F7C7 /* ConversationComposerPopupOverlayView.swift in Sources */,
 				D3E787742DD8E385535CD033 /* ConversationComposerTextView.swift in Sources */,
+				2069AFB53272955792833B7C /* ConversationDisplayUITestHarnessView.swift in Sources */,
 				4EE9B243F412CF5364E3FCA6 /* ConversationInfoView.swift in Sources */,
 				F6FB99D609C05B4F1DE81875 /* ConversationItem.swift in Sources */,
 				2130D006C3D67861E5488F0C /* ConversationOptionsSheet.swift in Sources */,

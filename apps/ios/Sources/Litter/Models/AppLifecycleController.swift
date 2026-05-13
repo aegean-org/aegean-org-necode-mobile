@@ -303,6 +303,12 @@ final class AppLifecycleController {
 
     func requestNotificationPermissionIfNeeded() {
         guard !notificationPermissionRequested else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-conversation-display") {
+            notificationPermissionRequested = true
+            return
+        }
+        #endif
         notificationPermissionRequested = true
         LLog.info("push", "requesting notification permission")
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }

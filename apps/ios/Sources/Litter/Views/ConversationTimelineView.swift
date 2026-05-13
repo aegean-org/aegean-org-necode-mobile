@@ -1173,7 +1173,6 @@ private struct ConversationReasoningRow: View {
                     if !expanded {
                         Text(collapsedSummary)
                             .litterFont(.caption)
-                            .italic()
                             .foregroundColor(LitterTheme.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -1211,11 +1210,10 @@ private struct ConversationReasoningRow: View {
     }
 
     private var collapsedSummary: String {
-        let collapsed = reasoningText
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return collapsed.isEmpty ? "Internal reasoning" : collapsed
+        let itemCount = (data.summary + data.content).filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.count
+        return itemCount == 1 ? "Internal reasoning" : "\(itemCount) reasoning notes"
     }
 
     private func toggleExpanded() {
