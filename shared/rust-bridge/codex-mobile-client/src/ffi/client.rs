@@ -2967,8 +2967,6 @@ mod tests {
             port: 0,
             wake_mac: None,
             is_local,
-            supports_ipc: false,
-            has_ipc: false,
             health,
             account: None,
             requires_openai_auth: false,

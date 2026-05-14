@@ -433,9 +433,6 @@ struct DiscoveryView: View {
                         .foregroundColor(LitterTheme.textSecondary)
                 }
                 Spacer()
-                if serverSnapshot?.isIpcConnected == true, ExperimentalFeatures.shared.isEnabled(.ipc) {
-                    statusTag(label: "ipc", color: LitterTheme.accentStrong)
-                }
                 if let progressTag = progressTag(for: serverSnapshot) {
                     statusTag(label: progressTag.label, color: progressTag.color)
                 } else if let health = serverSnapshot?.health,
@@ -496,9 +493,6 @@ struct DiscoveryView: View {
         }
         if server.canConnectViaSSH {
             parts.append(" - ssh \(server.resolvedSSHPort)")
-        }
-        if snapshot?.isIpcConnected == true, ExperimentalFeatures.shared.isEnabled(.ipc) {
-            parts.append(" - ipc")
         }
         return parts.joined()
     }
@@ -1048,7 +1042,6 @@ struct DiscoveryView: View {
                 "authMethod": authMethod
             ]
         )
-        let ipcSocketPathOverride = ExperimentalFeatures.shared.ipcSocketPathOverride()
         switch credentials {
         case .password(let username, let password, let unlockMacosKeychain):
             return try await appModel.serverBridge.startRemoteOverSshConnect(
@@ -1062,8 +1055,7 @@ struct DiscoveryView: View {
                 passphrase: nil,
                 unlockMacosKeychain: unlockMacosKeychain,
                 acceptUnknownHost: true,
-                workingDir: nil,
-                ipcSocketPathOverride: ipcSocketPathOverride
+                workingDir: nil
             )
         case .key(let username, let privateKey, let passphrase):
             return try await appModel.serverBridge.startRemoteOverSshConnect(
@@ -1077,8 +1069,7 @@ struct DiscoveryView: View {
                 passphrase: passphrase,
                 unlockMacosKeychain: false,
                 acceptUnknownHost: true,
-                workingDir: nil,
-                ipcSocketPathOverride: ipcSocketPathOverride
+                workingDir: nil
             )
         }
     }

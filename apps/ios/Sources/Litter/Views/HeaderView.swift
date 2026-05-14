@@ -115,15 +115,6 @@ struct HeaderView: View {
                     .foregroundColor(LitterTheme.danger)
             }
 
-            if server?.isIpcConnected == true, ExperimentalFeatures.shared.isEnabled(.ipc) {
-                Text("IPC")
-                    .font(LitterFont.styled(size: 11, weight: .bold))
-                    .foregroundColor(LitterTheme.accentStrong)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(LitterTheme.accentStrong.opacity(0.14))
-                    .clipShape(Capsule())
-            }
         }
     }
 
@@ -154,9 +145,6 @@ struct HeaderView: View {
         case .connecting, .unresponsive:
             return .orange
         case .connected:
-            if server.hasIpc && server.ipcState == .disconnected && ExperimentalFeatures.shared.isEnabled(.ipc) {
-                return .orange
-            }
             if server.isLocal {
                 switch server.account {
                 case .chatgpt?, .apiKey?:

@@ -68,7 +68,6 @@ final class AppModel {
 
         let rc = ReconnectController()
         rc.setCredentialProvider(provider: SwiftSshCredentialProvider())
-        rc.setIpcSocketPathOverride(path: ExperimentalFeatures.shared.ipcSocketPathOverride())
         rc.setMultiClankerAndQuicEnabled(enabled: true)
         return RustBridges(
             store: AppStore(),
@@ -273,7 +272,7 @@ final class AppModel {
             )
         }
 
-        // No overrides — let Rust decide whether to use IPC passively or do a thread/read RPC.
+        // No overrides: let Rust do a normal external resume/read path.
         try await store.externalResumeThread(key: key, hostId: nil)
         return key
     }
@@ -306,7 +305,7 @@ final class AppModel {
             )
         }
 
-        // No overrides — let Rust decide whether to use IPC passively or do a thread/read RPC.
+        // No overrides: let Rust do a normal external resume/read path.
         try await store.externalResumeThread(key: key, hostId: nil)
         return key
     }
@@ -1857,30 +1856,16 @@ final class AppModel {
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
-        let canResumeViaIpc = snapshot?.serverSnapshot(for: key.serverId)?.canResumeViaIpc == true
-
         if let existing = threadSnapshot(for: key) {
             appState.hydratePermissions(from: existing)
-            if !hasAuthoritativePermissions(existing), !canResumeViaIpc {
+            if !hasAuthoritativePermissions(existing) {
                 scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
             }
             return key
         }
 
         if snapshot?.sessionSummary(for: key) != nil {
-            if !canResumeViaIpc {
-                scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
-            } else {
-                LLog.info(
-                    "transport",
-                    "hydrateThreadPermissions skipping background thread/read for IPC-resumable thread",
-                    fields: ["serverId": key.serverId, "threadId": key.threadId]
-                )
-            }
-            return key
-        }
-
-        if canResumeViaIpc {
+            scheduleBackgroundThreadPermissionHydration(for: key, appState: appState)
             return key
         }
 
@@ -1912,14 +1897,6 @@ final class AppModel {
     ) {
         Task { [weak self] in
             guard let self else { return }
-            if self.snapshot?.serverSnapshot(for: key.serverId)?.canResumeViaIpc == true {
-                LLog.info(
-                    "transport",
-                    "scheduleBackgroundThreadPermissionHydration skipping thread/read for IPC-resumable thread",
-                    fields: ["serverId": key.serverId, "threadId": key.threadId]
-                )
-                return
-            }
             do {
                 let nextKey = try await client.readThread(
                     serverId: key.serverId,

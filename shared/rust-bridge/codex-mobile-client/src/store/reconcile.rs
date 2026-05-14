@@ -592,7 +592,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
 
         let response = upstream::GetAccountResponse {
@@ -631,7 +630,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
 
         let response = upstream::GetAccountRateLimitsResponse {
@@ -690,7 +688,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
 
         let response = upstream::ModelListResponse {
@@ -747,7 +744,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
 
         let list_response = upstream::ThreadListResponse {
@@ -992,7 +988,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
         let response = upstream::ThreadStartResponse {
             thread: test_upstream_thread("thread-1"),
@@ -1036,7 +1031,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
         let response = upstream::ThreadReadResponse {
             thread: test_upstream_thread("thread-1"),
@@ -1071,7 +1065,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
         // Prime the snapshot with a stale cursor to confirm the embedded
         // path clears it.
@@ -1150,7 +1143,6 @@ mod tests {
                 tls: false,
             },
             ServerHealthSnapshot::Connected,
-            false,
         );
         // Prime the snapshot as if load_thread_turns_page had just
         // applied a page: items populated, cursor stored, flag set.

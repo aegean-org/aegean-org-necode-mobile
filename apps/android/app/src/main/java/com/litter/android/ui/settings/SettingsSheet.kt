@@ -86,7 +86,6 @@ import com.litter.android.state.SshAuthMethod
 import com.litter.android.state.SshCredentialStore
 import com.litter.android.state.connectionModeLabel
 import com.litter.android.state.isConnected
-import com.litter.android.state.isIpcConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
 import com.litter.android.state.toRecord
@@ -489,20 +488,6 @@ private fun ServerSettingsRow(
                     color = server.statusColor,
                     fontSize = 11.sp,
                 )
-            }
-            if (server.isIpcConnected) {
-                Text(
-                    "IPC",
-                    color = LitterTheme.accentStrong,
-                    fontSize = 10.sp,
-                    modifier = Modifier
-                        .background(
-                            LitterTheme.accentStrong.copy(alpha = 0.14f),
-                            RoundedCornerShape(4.dp),
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-                Spacer(Modifier.width(8.dp))
             }
             IconButton(
                 onClick = { showMenu = true },
