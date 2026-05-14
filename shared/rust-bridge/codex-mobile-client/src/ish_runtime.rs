@@ -42,6 +42,7 @@ const BOOTSTRAP_COMMAND_TIMEOUT_MS: u64 = 10_000;
 const ROOTFS_STAMP_FILE: &str = ".litter-rootfs-id";
 const ROOTFS_ARCH_FILE: &str = "data/etc/apk/arch";
 const ROOTFS_ALPINE_RELEASE_FILE: &str = "data/etc/alpine-release";
+const ROOTFS_ROOT_HOME_DIR: &str = "data/root";
 
 impl From<ish_embed_host::IshError> for IshBootstrapError {
     fn from(err: ish_embed_host::IshError) -> Self {
@@ -338,8 +339,30 @@ fn replace_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
 
     remove_path_if_exists(&tmp)?;
     copy_dir_recursive(src, &tmp)?;
+    preserve_root_home(dst, &tmp)?;
     remove_path_if_exists(dst)?;
     fs::rename(&tmp, dst)?;
+    Ok(())
+}
+
+fn preserve_root_home(old_root: &Path, new_root: &Path) -> io::Result<()> {
+    let old_home = old_root.join(ROOTFS_ROOT_HOME_DIR);
+    let old_meta = match fs::symlink_metadata(&old_home) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    if !old_meta.is_dir() {
+        return Ok(());
+    }
+
+    let new_home = new_root.join(ROOTFS_ROOT_HOME_DIR);
+    remove_path_if_exists(&new_home)?;
+    if let Some(parent) = new_home.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    copy_dir_recursive(&old_home, &new_home)?;
+    eprintln!("[ish] preserved /root across rootfs replacement");
     Ok(())
 }
 
