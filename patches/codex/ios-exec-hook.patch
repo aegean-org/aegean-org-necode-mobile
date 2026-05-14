@@ -157,6 +157,19 @@ index fd5cd7bcdc..a7cd3491fd 100644
  
      let (program, args) = command.split_first().ok_or_else(|| {
          CodexErr::Io(io::Error::new(
+diff --git a/codex-rs/core/src/unified_exec/async_watcher.rs b/codex-rs/core/src/unified_exec/async_watcher.rs
+index 33dbf843dc..8e2cd83393 100644
+--- a/codex-rs/core/src/unified_exec/async_watcher.rs
++++ b/codex-rs/core/src/unified_exec/async_watcher.rs
+@@ -156,7 +156,7 @@ pub(crate) fn spawn_exit_watcher(
+     });
+ }
+ 
+-async fn process_chunk(
++pub(crate) async fn process_chunk(
+     pending: &mut Vec<u8>,
+     transcript: &Arc<Mutex<HeadTailBuffer>>,
+     call_id: &str,
 diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
 index 4f85b1ddf7..5bf42ba58c 100644
 --- a/codex-rs/core/src/unified_exec/process_manager.rs
