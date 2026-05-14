@@ -25,22 +25,73 @@ use tracing::{debug, info, warn};
 
 use crate::logging::{LogLevelName, log_rust};
 use crate::session::remote_transport::{Reconnected, RemoteTransport, SessionKeepalive};
-use crate::ssh::{SshBootstrapResult, SshClient};
+use crate::ssh::{RemoteShell, SshBootstrapResult, SshBootstrapTransport, SshClient};
 use crate::transport::{RpcError, TransportError};
 use crate::types::AgentRuntimeKind;
 
 const REMOTE_RECONNECT_MAX_ATTEMPTS: u32 = 5;
 const REMOTE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const OPENAI_BASE_URL_ENV_KEY: &str = "OPENAI_BASE_URL";
+const APP_SERVER_PROXY_WEBSOCKET_URL: &str = "ws://codex-app-server-proxy.localhost/";
 
 #[derive(Clone)]
 pub(crate) struct SshReconnectTransport {
     pub(crate) ssh_client: Arc<SshClient>,
+    pub(crate) mode: SshReconnectMode,
+    pub(crate) codex_path: String,
+    pub(crate) remote_shell: RemoteShell,
+    pub(crate) working_dir: Option<String>,
+    pub(crate) ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
+}
+
+#[derive(Clone)]
+pub(crate) enum SshReconnectMode {
+    AppServerProxy {
+        codex_path: String,
+        remote_shell: RemoteShell,
+    },
+    WebSocketTunnel {
+        local_port: u16,
+        remote_port: Arc<StdMutex<u16>>,
+        prefer_ipv6: bool,
+    },
+}
+
+impl SshReconnectTransport {
+    pub(crate) fn from_bootstrap(
+        ssh_client: Arc<SshClient>,
+        bootstrap: &SshBootstrapResult,
+        working_dir: Option<String>,
+        prefer_ipv6: bool,
+        ssh_pid: Arc<StdMutex<Option<u32>>>,
+    ) -> Self {
+        let mode = match bootstrap.transport {
+            SshBootstrapTransport::AppServerProxy => SshReconnectMode::AppServerProxy {
+                codex_path: bootstrap.codex_path.clone(),
+                remote_shell: bootstrap.shell,
+            },
+            SshBootstrapTransport::WebSocketTunnel => SshReconnectMode::WebSocketTunnel {
+                local_port: bootstrap.tunnel_local_port,
+                remote_port: Arc::new(StdMutex::new(bootstrap.server_port)),
+                prefer_ipv6,
+            },
+        };
+        Self {
+            ssh_client,
+            mode,
+            codex_path: bootstrap.codex_path.clone(),
+            remote_shell: bootstrap.shell,
+            working_dir,
+            ssh_pid: Some(ssh_pid),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct WebSocketReconnectState {
     pub(crate) local_port: u16,
     pub(crate) remote_port: Arc<StdMutex<u16>>,
     pub(crate) prefer_ipv6: bool,
-    pub(crate) working_dir: Option<String>,
-    pub(crate) ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
 }
 
 fn append_android_debug_log(line: &str) {
@@ -1201,6 +1252,30 @@ pub(crate) async fn connect_remote_client(
     ))
 }
 
+pub(crate) async fn connect_remote_client_over_app_server_proxy(
+    ssh_client: &SshClient,
+    args: &RemoteAppServerConnectArgs,
+    codex_path: &str,
+    remote_shell: RemoteShell,
+) -> Result<AppServerClient, TransportError> {
+    let label = "app-server-proxy:default".to_string();
+    let mut proxy_args = args.clone();
+    // The SSH exec proxy supplies the connected byte stream. The WebSocket
+    // client still needs a syntactically valid URI for the HTTP Upgrade
+    // request, so use a synthetic loopback-ish URL and keep the real transport
+    // in the label passed to `connect_websocket_stream`.
+    proxy_args.websocket_url = APP_SERVER_PROXY_WEBSOCKET_URL.to_string();
+    let stream = ssh_client
+        .open_app_server_proxy_stream(codex_path, remote_shell, None)
+        .await
+        .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+    Ok(AppServerClient::Remote(
+        RemoteAppServerClient::connect_websocket_stream(stream, proxy_args, label)
+            .await
+            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?,
+    ))
+}
+
 async fn reconnect_remote_client(
     client: &mut AppServerClient,
     keepalive: &mut Option<Arc<dyn SessionKeepalive>>,
@@ -1268,16 +1343,16 @@ async fn reconnect_remote_client(
     false
 }
 
-fn ssh_reconnect_remote_host(transport: &SshReconnectTransport) -> &'static str {
-    if transport.prefer_ipv6 {
+fn ssh_reconnect_remote_host(state: &WebSocketReconnectState) -> &'static str {
+    if state.prefer_ipv6 {
         "::1"
     } else {
         "127.0.0.1"
     }
 }
 
-fn ssh_reconnect_remote_port(transport: &SshReconnectTransport) -> u16 {
-    match transport.remote_port.lock() {
+fn ssh_reconnect_remote_port(state: &WebSocketReconnectState) -> u16 {
+    match state.remote_port.lock() {
         Ok(guard) => *guard,
         Err(error) => {
             warn!("remote reconnect: recovering poisoned remote_port lock");
@@ -1286,8 +1361,8 @@ fn ssh_reconnect_remote_port(transport: &SshReconnectTransport) -> u16 {
     }
 }
 
-fn update_ssh_reconnect_remote_port(transport: &SshReconnectTransport, port: u16) {
-    match transport.remote_port.lock() {
+fn update_ssh_reconnect_remote_port(state: &WebSocketReconnectState, port: u16) {
+    match state.remote_port.lock() {
         Ok(mut guard) => *guard = port,
         Err(error) => {
             warn!("remote reconnect: recovering poisoned remote_port lock");
@@ -1309,13 +1384,19 @@ fn update_ssh_reconnect_pid(transport: &SshReconnectTransport, pid: Option<u32>)
     }
 }
 
-async fn rebootstrap_remote_client_over_ssh(
+async fn rebootstrap_websocket_client_over_ssh(
     transport: &SshReconnectTransport,
+    state: &WebSocketReconnectState,
     websocket_url: &str,
 ) -> bool {
     let bootstrap = match transport
         .ssh_client
-        .bootstrap_codex_server(transport.working_dir.as_deref(), transport.prefer_ipv6)
+        .bootstrap_codex_websocket_server_with_binary_and_shell(
+            &crate::ssh::RemoteCodexBinary::Codex(transport.codex_path.clone()),
+            transport.working_dir.as_deref(),
+            state.prefer_ipv6,
+            transport.remote_shell,
+        )
         .await
     {
         Ok(bootstrap) => bootstrap,
@@ -1328,17 +1409,18 @@ async fn rebootstrap_remote_client_over_ssh(
         }
     };
 
-    finalize_ssh_rebootstrap(transport, bootstrap, websocket_url).await
+    finalize_websocket_rebootstrap(transport, state, bootstrap, websocket_url).await
 }
 
-async fn finalize_ssh_rebootstrap(
+async fn finalize_websocket_rebootstrap(
     transport: &SshReconnectTransport,
+    state: &WebSocketReconnectState,
     bootstrap: SshBootstrapResult,
     websocket_url: &str,
 ) -> bool {
-    let remote_host = ssh_reconnect_remote_host(transport);
-    let existing_local_port = transport.local_port;
-    let previous_remote_port = ssh_reconnect_remote_port(transport);
+    let remote_host = ssh_reconnect_remote_host(state);
+    let existing_local_port = state.local_port;
+    let previous_remote_port = ssh_reconnect_remote_port(state);
 
     if bootstrap.tunnel_local_port != existing_local_port {
         let _ = transport
@@ -1365,8 +1447,41 @@ async fn finalize_ssh_rebootstrap(
         return false;
     }
 
-    update_ssh_reconnect_remote_port(transport, bootstrap.server_port);
+    update_ssh_reconnect_remote_port(state, bootstrap.server_port);
     update_ssh_reconnect_pid(transport, bootstrap.pid);
+    true
+}
+
+async fn rebootstrap_app_server_proxy_over_ssh(
+    transport: &SshReconnectTransport,
+    codex_path: &str,
+    remote_shell: RemoteShell,
+    websocket_url: &str,
+) -> bool {
+    let bootstrap = match transport
+        .ssh_client
+        .bootstrap_codex_app_server_proxy_with_binary_and_shell(
+            &crate::ssh::RemoteCodexBinary::Codex(codex_path.to_string()),
+            transport.working_dir.as_deref(),
+            remote_shell,
+        )
+        .await
+    {
+        Ok(bootstrap) => bootstrap,
+        Err(error) => {
+            warn!(
+                "remote reconnect app-server proxy bootstrap failed: {} error={}",
+                websocket_url, error
+            );
+            return false;
+        }
+    };
+
+    update_ssh_reconnect_pid(transport, bootstrap.pid);
+    info!(
+        "remote reconnect app-server proxy bootstrap completed: {} pid={:?}",
+        websocket_url, bootstrap.pid
+    );
     true
 }
 
@@ -1377,47 +1492,119 @@ impl RemoteTransport for SshReconnectTransport {
         args: &RemoteAppServerConnectArgs,
         websocket_url: &str,
     ) -> Result<Reconnected, TransportError> {
-        let remote_host = ssh_reconnect_remote_host(self);
-        let remote_port = ssh_reconnect_remote_port(self);
-        if let Err(error) = self
-            .ssh_client
-            .ensure_forward_port_to(self.local_port, remote_host, remote_port)
+        match &self.mode {
+            SshReconnectMode::AppServerProxy {
+                codex_path,
+                remote_shell,
+            } => match connect_remote_client_over_app_server_proxy(
+                &self.ssh_client,
+                args,
+                codex_path,
+                *remote_shell,
+            )
             .await
-        {
-            warn!(
-                "remote reconnect forward restore failed: {} local_port={} remote={}:{} error={}",
-                websocket_url, self.local_port, remote_host, remote_port, error
-            );
-        }
-
-        match connect_remote_client(args).await {
-            Ok(client) => Ok(Reconnected {
-                client,
-                keepalive: None,
-            }),
-            Err(error) => {
-                if rebootstrap_remote_client_over_ssh(self, websocket_url).await {
-                    match connect_remote_client(args).await {
-                        Ok(client) => {
-                            info!(
-                                "remote reconnect succeeded after ssh rebootstrap: {}",
-                                websocket_url
-                            );
-                            Ok(Reconnected {
-                                client,
-                                keepalive: None,
-                            })
+            {
+                Ok(client) => Ok(Reconnected {
+                    client,
+                    keepalive: None,
+                }),
+                Err(error) => {
+                    if rebootstrap_app_server_proxy_over_ssh(
+                        self,
+                        codex_path,
+                        *remote_shell,
+                        websocket_url,
+                    )
+                    .await
+                    {
+                        match connect_remote_client_over_app_server_proxy(
+                            &self.ssh_client,
+                            args,
+                            codex_path,
+                            *remote_shell,
+                        )
+                        .await
+                        {
+                            Ok(client) => {
+                                info!(
+                                    "remote reconnect succeeded after app-server proxy bootstrap: {}",
+                                    websocket_url
+                                );
+                                Ok(Reconnected {
+                                    client,
+                                    keepalive: None,
+                                })
+                            }
+                            Err(retry_error) => {
+                                warn!(
+                                    "remote reconnect after app-server proxy bootstrap still failed: {} - {}",
+                                    websocket_url, retry_error
+                                );
+                                Err(retry_error)
+                            }
                         }
-                        Err(retry_error) => {
-                            warn!(
-                                "remote reconnect after ssh rebootstrap still failed: {} - {}",
-                                websocket_url, retry_error
-                            );
-                            Err(retry_error)
+                    } else {
+                        Err(error)
+                    }
+                }
+            },
+            SshReconnectMode::WebSocketTunnel { .. } => {
+                let state = match &self.mode {
+                    SshReconnectMode::WebSocketTunnel {
+                        local_port,
+                        remote_port,
+                        prefer_ipv6,
+                    } => WebSocketReconnectState {
+                        local_port: *local_port,
+                        remote_port: Arc::clone(remote_port),
+                        prefer_ipv6: *prefer_ipv6,
+                    },
+                    SshReconnectMode::AppServerProxy { .. } => unreachable!(),
+                };
+                let remote_host = ssh_reconnect_remote_host(&state);
+                let remote_port = ssh_reconnect_remote_port(&state);
+                if let Err(error) = self
+                    .ssh_client
+                    .ensure_forward_port_to(state.local_port, remote_host, remote_port)
+                    .await
+                {
+                    warn!(
+                        "remote reconnect forward restore failed: {} local_port={} remote={}:{} error={}",
+                        websocket_url, state.local_port, remote_host, remote_port, error
+                    );
+                }
+
+                match connect_remote_client(args).await {
+                    Ok(client) => Ok(Reconnected {
+                        client,
+                        keepalive: None,
+                    }),
+                    Err(error) => {
+                        if rebootstrap_websocket_client_over_ssh(self, &state, websocket_url).await
+                        {
+                            match connect_remote_client(args).await {
+                                Ok(client) => {
+                                    info!(
+                                        "remote reconnect succeeded after ssh rebootstrap: {}",
+                                        websocket_url
+                                    );
+                                    Ok(Reconnected {
+                                        client,
+                                        keepalive: None,
+                                    })
+                                }
+                                Err(retry_error) => {
+                                    warn!(
+                                        "remote reconnect after ssh rebootstrap still failed: {} - {}",
+                                        websocket_url, retry_error
+                                    );
+                                    Err(retry_error)
+                                }
+                            }
+                        } else {
+                            Err(error)
                         }
                     }
-                } else {
-                    Err(error)
                 }
             }
         }

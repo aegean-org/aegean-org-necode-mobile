@@ -641,9 +641,7 @@ impl AppStoreReducer {
                 preserve_thread_created_at(&existing.info, &mut thread.info);
                 preserve_thread_fork_lineage(&existing.info, &mut thread.info);
                 preserve_thread_runtime_state(existing, &mut thread);
-                if thread.agent_runtime_kind == "codex"
-                    && existing.agent_runtime_kind != "codex"
-                {
+                if thread.agent_runtime_kind == "codex" && existing.agent_runtime_kind != "codex" {
                     thread.agent_runtime_kind = existing.agent_runtime_kind.clone();
                 }
                 thread.is_resumed = thread.is_resumed || existing.is_resumed;
