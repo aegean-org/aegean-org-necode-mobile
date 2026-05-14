@@ -267,7 +267,7 @@ jobs:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
           GRADLE_MAX_WORKERS: "1"
-          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
           LITTER_UPLOAD_STORE_FILE: ${{ env.LITTER_UPLOAD_STORE_FILE }}
           LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
           LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
@@ -297,7 +297,7 @@ jobs:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
           GRADLE_MAX_WORKERS: "1"
-          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
           LITTER_VERSION_CODE_OVERRIDE: ${{ env.LITTER_VERSION_CODE_OVERRIDE }}
           LITTER_UPLOAD_STORE_FILE: ${{ env.LITTER_UPLOAD_STORE_FILE }}
           LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
