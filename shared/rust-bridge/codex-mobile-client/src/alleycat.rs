@@ -62,7 +62,13 @@ pub struct AgentCapabilities {
     pub uses_direct_codex_port: bool,
 }
 
-
+/// Map an alleycat-advertised agent (`name` + `display_name`) to the
+/// canonical runtime-kind id litter uses internally. Known agents get
+/// their well-known alias normalized (e.g. `pi.dev` → `pi`,
+/// `factory-droid` → `droid`) so the rest of the code can match against
+/// stable ids. Anything else falls through to the agent's own
+/// lowercased name (or display name if name is empty), so new agents
+/// advertised by alleycat work without a litter release.
 pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntimeKind> {
     let name = name.trim().to_ascii_lowercase();
     let display_name = display_name.trim().to_ascii_lowercase();
@@ -71,32 +77,35 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
     } else {
         name.as_str()
     };
-    match candidate {
-        "codex" => Some("codex".to_string()),
-        "pi" | "pi.dev" | "pidev" => Some("pi".to_string()),
-        "amp" | "ampcode" | "amp-code" | "amp_code" => Some("amp".to_string()),
-        "opencode" | "open-code" | "open_code" => Some("opencode".to_string()),
-        "claude" | "claude-code" | "claude_code" => Some("claude".to_string()),
-        "droid" | "factory" | "factory-droid" | "factory_droid" => Some("droid".to_string()),
-        "hermes" => Some("hermes".to_string()),
-        _ if display_name == "codex" => Some("codex".to_string()),
-        _ if display_name == "pi" || display_name == "pi.dev" => Some("pi".to_string()),
-        _ if display_name == "amp" || display_name == "amp code" => Some("amp".to_string()),
-        _ if display_name == "opencode" || display_name == "open code" => {
-            Some("opencode".to_string())
-        }
-        _ if display_name == "claude" || display_name == "claude code" => {
-            Some("claude".to_string())
-        }
+    let canonical = match candidate {
+        "codex" => Some("codex"),
+        "pi" | "pi.dev" | "pidev" => Some("pi"),
+        "amp" | "ampcode" | "amp-code" | "amp_code" => Some("amp"),
+        "opencode" | "open-code" | "open_code" => Some("opencode"),
+        "claude" | "claude-code" | "claude_code" => Some("claude"),
+        "droid" | "factory" | "factory-droid" | "factory_droid" => Some("droid"),
+        "hermes" => Some("hermes"),
+        _ if display_name == "codex" => Some("codex"),
+        _ if display_name == "pi" || display_name == "pi.dev" => Some("pi"),
+        _ if display_name == "amp" || display_name == "amp code" => Some("amp"),
+        _ if display_name == "opencode" || display_name == "open code" => Some("opencode"),
+        _ if display_name == "claude" || display_name == "claude code" => Some("claude"),
         _ if display_name == "droid"
             || display_name == "factory"
             || display_name == "factory droid" =>
         {
-            Some("droid".to_string())
+            Some("droid")
         }
-        _ if display_name == "hermes" => Some("hermes".to_string()),
+        _ if display_name == "hermes" => Some("hermes"),
         _ => None,
+    };
+    if let Some(kind) = canonical {
+        return Some(kind.to_string());
     }
+    if candidate.is_empty() {
+        return None;
+    }
+    Some(candidate.to_string())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -745,14 +754,8 @@ mod tests {
             agent_runtime_kind("codex", "Codex"),
             Some("codex".to_string())
         );
-        assert_eq!(
-            agent_runtime_kind("pi.dev", "Pi"),
-            Some("pi".to_string())
-        );
-        assert_eq!(
-            agent_runtime_kind("amp", "Amp"),
-            Some("amp".to_string())
-        );
+        assert_eq!(agent_runtime_kind("pi.dev", "Pi"), Some("pi".to_string()));
+        assert_eq!(agent_runtime_kind("amp", "Amp"), Some("amp".to_string()));
         assert_eq!(
             agent_runtime_kind("open-code", "opencode"),
             Some("opencode".to_string())
@@ -768,8 +771,16 @@ mod tests {
     }
 
     #[test]
-    fn agent_runtime_kind_ignores_unknown_agents() {
-        assert_eq!(agent_runtime_kind("custom", "Custom"), None);
+    fn agent_runtime_kind_passes_through_unknown_agents() {
+        assert_eq!(
+            agent_runtime_kind("devin", "Devin"),
+            Some("devin".to_string())
+        );
+        assert_eq!(
+            agent_runtime_kind("Custom-Agent", "Custom Agent"),
+            Some("custom-agent".to_string())
+        );
+        assert_eq!(agent_runtime_kind("", ""), None);
     }
 
     #[test]

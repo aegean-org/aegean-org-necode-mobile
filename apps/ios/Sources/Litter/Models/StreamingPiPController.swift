@@ -31,19 +31,42 @@ final class StreamingPiPController: NSObject {
     /// Cleared when PiP closes.
     private(set) var pinnedThreadKey: ThreadKey?
 
-    /// PiP canvas width is fixed; height grows with the card's content.
-    /// PiP reads each sample buffer's format description to size the
-    /// floating window, so changing dimensions per frame is how we resize.
+    /// PiP canvas width is fixed (in points); height grows with the card's
+    /// content. PiP reads each sample buffer's format description to size
+    /// the floating window, so changing dimensions per frame is how we
+    /// resize.
     @ObservationIgnored private let renderWidth: CGFloat = 360
     /// Coarse vertical snap so the floating window doesn't jitter on every
     /// token. PiP-side animation handles the transition between steps.
     @ObservationIgnored private let heightStep: CGFloat = 24
-    @ObservationIgnored private let pushIntervalSeconds: TimeInterval = 0.25
-    @ObservationIgnored private var currentRenderSize = CGSize(width: 360, height: 160)
+    /// Max push cadence — actual frames pushed are gated by `isDirty`, so
+    /// idle cost is unchanged. Streaming updates can hit this ceiling.
+    @ObservationIgnored private let pushIntervalSeconds: TimeInterval = 1.0 / 30.0
+    /// Native device scale so text is rendered at Retina resolution.
+    /// Pixel-buffer dimensions and cgImage dimensions are points * scale.
+    @ObservationIgnored private let renderScale: CGFloat = UIScreen.main.scale
+    /// Pool/buffer dimensions in pixels (not points). When the SwiftUI
+    /// content's point size changes we recreate the pool with the matching
+    /// pixel dimensions and trigger a PiP aspect transition.
+    @ObservationIgnored private var currentRenderSize: CGSize = {
+        let scale = UIScreen.main.scale
+        return CGSize(width: 360 * scale, height: 160 * scale)
+    }()
     /// When set, height is locked to this value (clamped to PiPContentView
     /// min/max) regardless of the card's intrinsic content height. Set by
     /// the PiP skip ⏪/⏩ controls and cleared on PiP close.
     @ObservationIgnored private var userHeightOverride: CGFloat?
+    /// Set true whenever something the card depends on changes. The render
+    /// timer only pushes a frame when this is true (or the 1 Hz heartbeat
+    /// is due), so an idle PiP drops to ~zero CPU.
+    @ObservationIgnored private var isDirty = true
+    @ObservationIgnored private var lastPushTime: Date = .distantPast
+    /// Bumped on every `endSession` so an in-flight `withObservationTracking`
+    /// callback can detect it's for a stopped session and stop re-subscribing.
+    @ObservationIgnored private var observationGeneration: Int = 0
+    /// Heartbeat cadence — push a frame at least this often even with no
+    /// data changes so the elapsed-turn timer chip keeps ticking.
+    @ObservationIgnored private let heartbeatSeconds: TimeInterval = 1.0
 
     @ObservationIgnored private let audioKeeper = SilentAudioKeeper()
     @ObservationIgnored private var hostView: PiPHostView?
@@ -64,7 +87,9 @@ final class StreamingPiPController: NSObject {
         // Width is fixed; nil height lets ImageRenderer use the SwiftUI
         // content's intrinsic height (clamped by PiPContentView's frame).
         r.proposedSize = ProposedViewSize(width: renderWidth, height: nil)
-        r.scale = 1
+        // Render at native device scale. The cgImage we get back has
+        // pixel dimensions = proposedSize (points) × scale.
+        r.scale = renderScale
         return r
     }()
 
@@ -81,6 +106,9 @@ final class StreamingPiPController: NSObject {
     /// different key, repin without closing.
     func start(for threadKey: ThreadKey) {
         pinnedThreadKey = threadKey
+        // Make sure the next tick re-renders even if the snapshot itself
+        // didn't change — the pinned thread did.
+        isDirty = true
         if isActive { return }
         start()
     }
@@ -134,12 +162,17 @@ final class StreamingPiPController: NSObject {
     /// alive — recreating them across sessions races with iOS's PiP slide-out
     /// animation and is the source of the second-tap crash.
     private func endSession() {
+        // Invalidate any in-flight observation callback so it doesn't
+        // resubscribe after we've torn the session down.
+        observationGeneration &+= 1
         renderTimer?.invalidate()
         renderTimer = nil
         audioKeeper.deactivate()
         isActive = false
         pinnedThreadKey = nil
         userHeightOverride = nil
+        isDirty = false
+        lastPushTime = .distantPast
     }
 
     // MARK: - One-time setup
@@ -191,10 +224,39 @@ final class StreamingPiPController: NSObject {
     private func startRenderTimer() {
         renderTimer?.invalidate()
         let timer = Timer(timeInterval: pushIntervalSeconds, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pushFrame() }
+            Task { @MainActor in self?.tickRender() }
         }
         RunLoop.main.add(timer, forMode: .common)
         renderTimer = timer
+        // Begin observing AppModel; any snapshot change will mark dirty
+        // so the next tick pushes a frame.
+        isDirty = true
+        observationGeneration &+= 1
+        observeSnapshotChanges(generation: observationGeneration)
+    }
+
+    /// Timer callback. Pushes a frame only when (a) something the card
+    /// reads has actually changed or (b) the 1 Hz heartbeat is due.
+    private func tickRender() {
+        let dueForHeartbeat =
+            Date().timeIntervalSince(lastPushTime) >= heartbeatSeconds
+        guard isDirty || dueForHeartbeat else { return }
+        pushFrame()
+    }
+
+    /// Subscribes to `AppModel.shared.snapshot`. When the snapshot is
+    /// replaced (which AppModel does once per debounced batch of bridge
+    /// events), `onChange` fires, we set `isDirty`, and re-subscribe.
+    private func observeSnapshotChanges(generation: Int) {
+        withObservationTracking {
+            _ = AppModel.shared.snapshot
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.observationGeneration == generation else { return }
+                self.isDirty = true
+                self.observeSnapshotChanges(generation: generation)
+            }
+        }
     }
 
     private func pushFrame() {
@@ -219,35 +281,56 @@ final class StreamingPiPController: NSObject {
         // render — particularly important on a fresh session where the
         // observed state changed but the renderer instance is the same.
         renderer.content = PiPContentView()
-        // Phase 1: measure the SwiftUI content's intrinsic height for our
-        // fixed width.
-        renderer.proposedSize = ProposedViewSize(width: renderWidth, height: nil)
-        guard let measured = renderer.cgImage else { return }
-        let target = adaptedSize(forIntrinsicHeight: CGFloat(measured.height))
-        // Phase 2: re-render at the snapped target so the image exactly fills
-        // the pixel buffer (no stretching, no offset). Skip if Phase 1
-        // already happened to match.
+
+        let targetPixels: CGSize
         let finalImage: CGImage
-        if CGFloat(measured.height) == target.height {
-            finalImage = measured
+        if isDirty {
+            // Content may have changed height: measure (Phase 1) in points,
+            // snap, then render at the snapped point-size (Phase 2) if
+            // different. cgImage dimensions are points * renderScale.
+            renderer.proposedSize = ProposedViewSize(width: renderWidth, height: nil)
+            guard let measured = renderer.cgImage else { return }
+            let measuredHeightPoints = CGFloat(measured.height) / renderScale
+            let targetPoints = adaptedSize(forIntrinsicHeight: measuredHeightPoints)
+            targetPixels = CGSize(
+                width: targetPoints.width * renderScale,
+                height: targetPoints.height * renderScale
+            )
+            if abs(measuredHeightPoints - targetPoints.height) < 0.5 {
+                finalImage = measured
+            } else {
+                renderer.proposedSize = ProposedViewSize(width: renderWidth, height: targetPoints.height)
+                guard let snapped = renderer.cgImage else { return }
+                finalImage = snapped
+            }
         } else {
-            renderer.proposedSize = ProposedViewSize(width: renderWidth, height: target.height)
-            guard let snapped = renderer.cgImage else { return }
-            finalImage = snapped
+            // Heartbeat-only push (idle PiP, just keeping the timer chip
+            // alive). Reuse the cached pixel size and skip the measurement
+            // render — one rasterisation instead of two.
+            targetPixels = currentRenderSize
+            let heightPoints = max(PiPContentView.minHeight, targetPixels.height / renderScale)
+            renderer.proposedSize = ProposedViewSize(width: renderWidth, height: heightPoints)
+            guard let img = renderer.cgImage else { return }
+            finalImage = img
         }
-        if target != currentRenderSize {
+        if targetPixels != currentRenderSize {
             // Format description is about to change. Without flushing,
             // the layer's queue may refuse to accept the new-format
             // buffer and `isReadyForMoreMediaData` stays false — which
             // is the "stops updating after I resize" symptom.
             host.displayLayer.flush()
-            currentRenderSize = target
+            currentRenderSize = targetPixels
             pixelBufferPool = nil
         }
-        ensurePixelBufferPool(size: target)
+        ensurePixelBufferPool(size: targetPixels)
         guard let pixelBuffer = makePixelBuffer(from: finalImage) else { return }
         guard let sampleBuffer = makeSampleBuffer(from: pixelBuffer) else { return }
         host.displayLayer.enqueue(sampleBuffer)
+        // Only clear dirty + advance heartbeat once the frame actually
+        // made it into the layer's queue. Early-returns above leave the
+        // dirty flag intact so the next tick retries.
+        isDirty = false
+        lastPushTime = Date()
     }
 
     /// Snaps the SwiftUI-measured height up to the next multiple of
@@ -270,12 +353,15 @@ final class StreamingPiPController: NSObject {
     /// without making the user mash the button.
     fileprivate func adjustHeight(byTaps delta: Int) {
         let bump = CGFloat(delta) * heightStep * 2
-        let current = userHeightOverride ?? currentRenderSize.height
+        // userHeightOverride is in points; currentRenderSize is pixels, so
+        // convert when falling back to it.
+        let currentPoints = userHeightOverride ?? (currentRenderSize.height / renderScale)
         let target = min(
             PiPContentView.maxHeight,
-            max(PiPContentView.minHeight, current + bump)
+            max(PiPContentView.minHeight, currentPoints + bump)
         )
         userHeightOverride = target
+        isDirty = true
         // Push immediately so the resize feels instant rather than waiting
         // for the next timer tick.
         pushFrame()
