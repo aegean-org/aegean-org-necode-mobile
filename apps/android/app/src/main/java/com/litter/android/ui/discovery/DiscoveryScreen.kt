@@ -670,59 +670,6 @@ fun DiscoveryScreen(
         )
     }
 
-    snapshot?.servers?.firstOrNull { it.connectionProgress?.pendingInstall == true }?.let { serverSnapshot ->
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Install Codex?") },
-            text = {
-                Text(
-                    serverSnapshot.connectionProgressDetail
-                        ?: "Codex was not found on the remote host. Install the latest stable release into ~/.litter?",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            LLog.t(
-                                logTag,
-                                "responding to install prompt",
-                                fields = mapOf(
-                                    "serverId" to serverSnapshot.serverId,
-                                    "install" to true,
-                                    "detail" to serverSnapshot.connectionProgressDetail,
-                                ),
-                            )
-                            appModel.ssh.sshRespondToInstallPrompt(serverSnapshot.serverId, true)
-                        }
-                    },
-                ) {
-                    Text("Install")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            LLog.t(
-                                logTag,
-                                "responding to install prompt",
-                                fields = mapOf(
-                                    "serverId" to serverSnapshot.serverId,
-                                    "install" to false,
-                                    "detail" to serverSnapshot.connectionProgressDetail,
-                                ),
-                            )
-                            appModel.ssh.sshRespondToInstallPrompt(serverSnapshot.serverId, false)
-                        }
-                    },
-                ) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
-
     connectError?.let { message ->
         AlertDialog(
             onDismissRequest = { connectError = null },

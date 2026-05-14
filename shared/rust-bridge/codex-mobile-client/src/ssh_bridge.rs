@@ -17,8 +17,11 @@ use tracing::{debug, info, warn};
 
 use crate::session::connection::{
     RuntimeRemoteSessionResource, SshReconnectTransport, connect_remote_client,
+    connect_remote_client_over_app_server_proxy,
 };
-use crate::ssh::{PROFILE_INIT, RemoteShell, SshClient, SshError, shell_quote};
+use crate::ssh::{
+    PROFILE_INIT, RemoteShell, SshBootstrapTransport, SshClient, SshError, shell_quote,
+};
 use crate::ssh_detached_launcher::SshDetachedLauncher;
 use crate::ssh_launcher::SshLauncher;
 use crate::types::{AgentRuntimeInfo, AgentRuntimeKind};
@@ -354,7 +357,12 @@ async fn connect_codex_via_ssh(
     prefer_ipv6: bool,
 ) -> Result<(AppServerClient, SshReconnectTransport), SshBridgeError> {
     let bootstrap = ssh.bootstrap_codex_server(None, prefer_ipv6).await?;
-    let websocket_url = format!("ws://127.0.0.1:{}", bootstrap.tunnel_local_port);
+    let websocket_url = match bootstrap.transport {
+        SshBootstrapTransport::AppServerProxy => "app-server-proxy://codex".to_string(),
+        SshBootstrapTransport::WebSocketTunnel => {
+            format!("ws://127.0.0.1:{}", bootstrap.tunnel_local_port)
+        }
+    };
     let args = RemoteAppServerConnectArgs {
         websocket_url: websocket_url.clone(),
         auth_token: None,
@@ -364,21 +372,31 @@ async fn connect_codex_via_ssh(
         opt_out_notification_methods: Vec::new(),
         channel_capacity: 256,
     };
-    let client = connect_remote_client(&args)
-        .await
-        .map_err(|error| SshBridgeError::HandshakeFailed(error.to_string()))?;
-    let ssh_pid = Arc::new(StdMutex::new(bootstrap.pid));
-    let reconnect_transport = SshReconnectTransport {
-        ssh_client: Arc::clone(&ssh),
-        local_port: bootstrap.tunnel_local_port,
-        remote_port: Arc::new(StdMutex::new(bootstrap.server_port)),
-        prefer_ipv6,
-        working_dir: None,
-        ssh_pid: Some(ssh_pid),
+    let client_result = match bootstrap.transport {
+        SshBootstrapTransport::AppServerProxy => {
+            connect_remote_client_over_app_server_proxy(
+                &ssh,
+                &args,
+                &bootstrap.codex_path,
+                bootstrap.shell,
+            )
+            .await
+        }
+        SshBootstrapTransport::WebSocketTunnel => connect_remote_client(&args).await,
     };
+    let client =
+        client_result.map_err(|error| SshBridgeError::HandshakeFailed(error.to_string()))?;
+    let ssh_pid = Arc::new(StdMutex::new(bootstrap.pid));
+    let reconnect_transport = SshReconnectTransport::from_bootstrap(
+        Arc::clone(&ssh),
+        &bootstrap,
+        None,
+        prefer_ipv6,
+        ssh_pid,
+    );
     info!(
-        "ssh codex runtime connected via direct bootstrap: websocket_url={} remote_port={} local_port={}",
-        websocket_url, bootstrap.server_port, bootstrap.tunnel_local_port
+        "ssh codex runtime connected via direct bootstrap: websocket_url={} transport={:?} remote_port={} local_port={}",
+        websocket_url, bootstrap.transport, bootstrap.server_port, bootstrap.tunnel_local_port
     );
     Ok((client, reconnect_transport))
 }
