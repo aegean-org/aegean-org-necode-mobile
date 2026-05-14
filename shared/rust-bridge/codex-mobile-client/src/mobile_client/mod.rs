@@ -3487,7 +3487,19 @@ impl MobileClient {
         let response_json = approval_response_json(&approval, approval_seed.as_ref(), decision)?;
         let response_request_id =
             server_request_id_json(approval_request_id(&approval, approval_seed.as_ref()));
-        session.respond(response_request_id, response_json).await?;
+        let runtime_kind = approval
+            .thread_id
+            .as_ref()
+            .map(|thread_id| {
+                self.runtime_for_thread(&ThreadKey {
+                    server_id: approval.server_id.clone(),
+                    thread_id: thread_id.clone(),
+                })
+            })
+            .unwrap_or_else(|| "codex".to_string());
+        session
+            .respond_for_runtime(runtime_kind, response_request_id, response_json)
+            .await?;
         self.app_store.finish_server_mutating_command_success(
             &approval.server_id,
             &direct_command_id,
@@ -3527,7 +3539,13 @@ impl MobileClient {
             );
             let response_json = mcp_elicitation_response_json(seed, &answers)?;
             let response_request_id = server_request_id_json(seed.request_id.clone());
-            session.respond(response_request_id, response_json).await?;
+            let runtime_kind = self.runtime_for_thread(&ThreadKey {
+                server_id: request.server_id.clone(),
+                thread_id: request.thread_id.clone(),
+            });
+            session
+                .respond_for_runtime(runtime_kind, response_request_id, response_json)
+                .await?;
             self.app_store.finish_server_mutating_command_success(
                 &request.server_id,
                 &direct_command_id,
@@ -3649,7 +3667,13 @@ impl MobileClient {
                 .map(|seed| seed.request_id.clone())
                 .unwrap_or_else(|| fallback_server_request_id(&request.id)),
         );
-        session.respond(response_request_id, response_json).await?;
+        let runtime_kind = self.runtime_for_thread(&ThreadKey {
+            server_id: request.server_id.clone(),
+            thread_id: request.thread_id.clone(),
+        });
+        session
+            .respond_for_runtime(runtime_kind, response_request_id, response_json)
+            .await?;
         self.app_store.finish_server_mutating_command_success(
             &request.server_id,
             &direct_command_id,
