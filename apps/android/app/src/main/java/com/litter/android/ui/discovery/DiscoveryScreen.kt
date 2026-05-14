@@ -92,7 +92,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.codex_mobile_client.AgentAvailabilityStatus
-import uniffi.codex_mobile_client.AgentRuntimeKind
+import com.litter.android.ui.common.AgentRuntimeKind
+import com.litter.android.ui.common.metadata
+import com.litter.android.ui.common.runtimeLabel
+import com.litter.android.ui.common.runtimeSortIndex
 import uniffi.codex_mobile_client.AppSshSessionResult
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
@@ -663,59 +666,6 @@ fun DiscoveryScreen(
                     appModel.refreshSnapshot()
                 }
                 renameTarget = null
-            },
-        )
-    }
-
-    snapshot?.servers?.firstOrNull { it.connectionProgress?.pendingInstall == true }?.let { serverSnapshot ->
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Install Codex?") },
-            text = {
-                Text(
-                    serverSnapshot.connectionProgressDetail
-                        ?: "Codex was not found on the remote host. Install the latest stable release into ~/.litter?",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            LLog.t(
-                                logTag,
-                                "responding to install prompt",
-                                fields = mapOf(
-                                    "serverId" to serverSnapshot.serverId,
-                                    "install" to true,
-                                    "detail" to serverSnapshot.connectionProgressDetail,
-                                ),
-                            )
-                            appModel.ssh.sshRespondToInstallPrompt(serverSnapshot.serverId, true)
-                        }
-                    },
-                ) {
-                    Text("Install")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            LLog.t(
-                                logTag,
-                                "responding to install prompt",
-                                fields = mapOf(
-                                    "serverId" to serverSnapshot.serverId,
-                                    "install" to false,
-                                    "detail" to serverSnapshot.connectionProgressDetail,
-                                ),
-                            )
-                            appModel.ssh.sshRespondToInstallPrompt(serverSnapshot.serverId, false)
-                        }
-                    },
-                ) {
-                    Text("Cancel")
-                }
             },
         )
     }
@@ -1445,30 +1395,12 @@ private fun availableSshBridgeKinds(agents: List<RemoteAgentAvailability>): List
         .map { it.kind }
         .sortedBy(::sshRuntimeSortRank)
 
-private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean = when (kind) {
-    AgentRuntimeKind.CODEX,
-    AgentRuntimeKind.CLAUDE,
-    AgentRuntimeKind.PI,
-    AgentRuntimeKind.OPENCODE -> true
-    AgentRuntimeKind.DROID -> false
-}
+private fun isSshBridgeKind(kind: AgentRuntimeKind): Boolean =
+    kind.metadata?.capabilities?.supportsSshBridge ?: false
 
+private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = kind.runtimeLabel
 
-private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = when (kind) {
-    AgentRuntimeKind.CODEX -> "Codex"
-    AgentRuntimeKind.PI -> "Pi"
-    AgentRuntimeKind.OPENCODE -> "OpenCode"
-    AgentRuntimeKind.CLAUDE -> "Claude"
-    AgentRuntimeKind.DROID -> "Droid"
-}
-
-private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = when (kind) {
-    AgentRuntimeKind.CLAUDE -> 0
-    AgentRuntimeKind.PI -> 1
-    AgentRuntimeKind.OPENCODE -> 2
-    AgentRuntimeKind.CODEX -> 3
-    AgentRuntimeKind.DROID -> 4
-}
+private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = kind.runtimeSortIndex
 
 private fun sshAgentStatusLabel(agent: RemoteAgentAvailability): String = when (agent.status) {
     AgentAvailabilityStatus.AVAILABLE -> "Available"

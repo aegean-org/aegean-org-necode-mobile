@@ -82,11 +82,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.AppModel
 import com.litter.android.state.ComposerImageAttachment
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.VoiceTranscriptionManager
+import com.litter.android.state.ampReasoningEffortLocked
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import uniffi.codex_mobile_client.AuthStatusRequest
@@ -159,6 +162,7 @@ fun ComposerBar(
     onShowSkillsSheet: (() -> Unit)? = null,
     onSlashError: ((String) -> Unit)? = null,
     pendingUserInput: PendingUserInputRequest? = null,
+    onDismissPendingUserInput: (() -> Unit)? = null,
 ) {
     val appModel = LocalAppModel.current
     val context = LocalContext.current
@@ -370,6 +374,9 @@ fun ComposerBar(
     // dialog. Keep this in sync if you change slash-command dispatch or
     // payload shape.
     val sendCurrent: () -> Unit = {
+        if (pendingUserInput != null) {
+            onDismissPendingUserInput?.invoke()
+        }
         val handledAsSlash = parseSlashCommandInvocation(text)?.let { invocation ->
             if (dispatchSlashCommand(invocation.command.name, invocation.args)) {
                 textFieldValue = TextFieldValue("")
@@ -380,8 +387,13 @@ fun ComposerBar(
         if (!handledAsSlash && (text.isNotBlank() || attachedImage != null)) {
             val launchState = appModel.launchState.snapshot.value
             val pendingModel = launchState.selectedModel.trim().ifEmpty { null }
-            val effort = launchState.reasoningEffort.trim().ifEmpty { null }
-                ?.let(::reasoningEffortFromServerValue)
+            val thread = appModel.snapshot.value?.threads?.find { it.key == threadKey }
+            val effort = if (thread?.ampReasoningEffortLocked == true) {
+                null
+            } else {
+                launchState.reasoningEffort.trim().ifEmpty { null }
+                    ?.let(::reasoningEffortFromServerValue)
+            }
             val tier = if (HeaderOverrides.pendingFastMode) ServiceTier.FAST else null
             val attachmentToSend = attachedImage
             val payload = AppComposerPayload(
@@ -604,6 +616,30 @@ fun ComposerBar(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Header with close button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Input Required",
+                        color = LitterTheme.textPrimary,
+                        fontSize = LitterTextStyle.caption.scaled,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (onDismissPendingUserInput != null) {
+                        Text(
+                            text = "✕",
+                            color = LitterTheme.textMuted,
+                            fontSize = LitterTextStyle.body.scaled,
+                            modifier = Modifier
+                                .clickable { onDismissPendingUserInput() }
+                                .padding(4.dp)
+                                .semantics { contentDescription = "Dismiss input request" },
+                        )
+                    }
+                }
                 for (question in pendingUserInput.questions) {
                     Text(question.question, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.footnote.scaled)
                     if (question.options.isNotEmpty()) {
@@ -1245,6 +1281,7 @@ private fun reasoningEffortFromServerValue(value: String): ReasoningEffort? =
         "medium" -> ReasoningEffort.MEDIUM
         "high" -> ReasoningEffort.HIGH
         "xhigh" -> ReasoningEffort.X_HIGH
+        "max" -> ReasoningEffort.MAX
         else -> null
     }
 
