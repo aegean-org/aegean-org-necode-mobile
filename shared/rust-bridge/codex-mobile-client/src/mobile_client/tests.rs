@@ -613,6 +613,8 @@ mod mobile_client_tests {
                     display_name: "Codex".to_string(),
                     wire: AlleycatAgentWire::Websocket,
                     available: true,
+                    presentation: None,
+                    capabilities: None,
                 },
             ),
             (
@@ -622,6 +624,8 @@ mod mobile_client_tests {
                     display_name: "Droid".to_string(),
                     wire: AlleycatAgentWire::Jsonl,
                     available: true,
+                    presentation: None,
+                    capabilities: None,
                 },
             ),
             (
@@ -631,6 +635,8 @@ mod mobile_client_tests {
                     display_name: "Amp".to_string(),
                     wire: AlleycatAgentWire::Jsonl,
                     available: true,
+                    presentation: None,
+                    capabilities: None,
                 },
             ),
         ];

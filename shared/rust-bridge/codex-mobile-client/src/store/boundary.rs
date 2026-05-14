@@ -34,6 +34,7 @@ pub struct AppServerSnapshot {
     pub account: Option<crate::types::Account>,
     pub requires_openai_auth: bool,
     pub rate_limits: Option<crate::types::RateLimitSnapshot>,
+    pub rate_limits_by_runtime: Vec<AppRateLimitsForRuntime>,
     pub available_models: Option<Vec<crate::types::ModelInfo>>,
     pub agent_runtimes: Vec<crate::types::AgentRuntimeInfo>,
     pub connection_progress: Option<AppConnectionProgressSnapshot>,
@@ -82,6 +83,12 @@ pub struct AppServerCapabilities {
     /// Derived from `codex_version >= 0.125.0`, with runtime fallback when
     /// the RPC returns method-not-found.
     pub supports_turn_pagination: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AppRateLimitsForRuntime {
+    pub runtime_kind: crate::types::AgentRuntimeKind,
+    pub rate_limits: crate::types::RateLimitSnapshot,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -511,6 +518,18 @@ impl TryFrom<AppSnapshot> for AppSnapshotRecord {
                     account: server.account,
                     requires_openai_auth: server.requires_openai_auth,
                     rate_limits: server.rate_limits,
+                    rate_limits_by_runtime: {
+                        let mut entries = server
+                            .rate_limits_by_runtime
+                            .into_iter()
+                            .map(|(runtime_kind, rate_limits)| AppRateLimitsForRuntime {
+                                runtime_kind,
+                                rate_limits,
+                            })
+                            .collect::<Vec<_>>();
+                        entries.sort_by_key(|entry| entry.runtime_kind.clone());
+                        entries
+                    },
                     available_models: server.available_models,
                     agent_runtimes: server.agent_runtimes,
                     connection_progress: server.connection_progress,

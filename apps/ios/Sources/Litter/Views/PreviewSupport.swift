@@ -375,6 +375,7 @@ enum LitterPreviewData {
             account: .chatgpt(email: "builder@example.com", planType: .plus),
             requiresOpenaiAuth: false,
             rateLimits: nil,
+            rateLimitsByRuntime: [],
             availableModels: sampleModels,
             agentRuntimes: [AgentRuntimeInfo(kind: "codex", name: "codex", displayName: "Codex", available: true)],
             connectionProgress: nil,

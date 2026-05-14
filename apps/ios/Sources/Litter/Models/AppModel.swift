@@ -1790,6 +1790,18 @@ final class AppModel {
         snapshot?.serverSnapshot(for: serverId)?.rateLimits
     }
 
+    /// Per-runtime rate limits. Returns the snapshot reported by the agent
+    /// runtime that owns the thread the user is currently looking at — e.g.
+    /// Claude Code threads return Claude usage, Codex threads return Codex
+    /// usage. Returns `nil` when the runtime hasn't reported any.
+    func rateLimits(forServer serverId: String, runtime: AgentRuntimeKind) -> RateLimitSnapshot? {
+        snapshot?
+            .serverSnapshot(for: serverId)?
+            .rateLimitsByRuntime
+            .first(where: { $0.runtimeKind == runtime })?
+            .rateLimits
+    }
+
     func loadConversationMetadataIfNeeded(serverId: String) async {
         if hasFreshConversationMetadata(for: serverId) {
             return
