@@ -399,9 +399,9 @@ private struct SplashCarouselText: View {
     /// the cold-start splash teaser.
     private let providers: [CarouselProvider] = [
         CarouselProvider(kind: "codex"),
-        CarouselProvider(kind: "opencode"),
-        CarouselProvider(kind: "amp"),
         CarouselProvider(kind: "pi"),
+        CarouselProvider(kind: "amp"),
+        CarouselProvider(kind: "opencode"),
         CarouselProvider(kind: "claude"),
         CarouselProvider(kind: "droid"),
         CarouselProvider(kind: "hermes"),

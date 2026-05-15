@@ -447,11 +447,38 @@ struct SettingsView: View {
                     guard let websocketURL = server.websocketURL else {
                         throw SettingsServerConnectionError.invalidWebsocketURL
                     }
-                    _ = try await appModel.serverBridge.connectRemoteUrlServer(
-                        serverId: server.id,
-                        displayName: server.name,
-                        websocketUrl: websocketURL
-                    )
+                    if isSettingsSlingshotURL(websocketURL) {
+                        let tokens = try await ChatGPTOAuth.loadStoredOrRefreshedTokens()
+                        do {
+                            _ = try await appModel.serverBridge.connectRemoteSlingshotUrlServer(
+                                serverId: server.id,
+                                displayName: server.name,
+                                connectionUrl: websocketURL,
+                                accessToken: tokens.accessToken,
+                                accountId: tokens.accountID,
+                                stepUpToken: ""
+                            )
+                        } catch {
+                            guard ChatGPTOAuth.isRemoteControlAuthorizationRequired(error) else {
+                                throw error
+                            }
+                            let stepUpToken = try await ChatGPTOAuth.remoteControlEnrollmentStepUpToken()
+                            _ = try await appModel.serverBridge.connectRemoteSlingshotUrlServer(
+                                serverId: server.id,
+                                displayName: server.name,
+                                connectionUrl: websocketURL,
+                                accessToken: tokens.accessToken,
+                                accountId: tokens.accountID,
+                                stepUpToken: stepUpToken
+                            )
+                        }
+                    } else {
+                        _ = try await appModel.serverBridge.connectRemoteUrlServer(
+                            serverId: server.id,
+                            displayName: server.name,
+                            websocketUrl: websocketURL
+                        )
+                    }
                     await appModel.refreshSnapshot()
                 case .ssh:
                     break
@@ -1337,6 +1364,10 @@ private struct SettingsDisconnectedAccountSection: View {
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
+}
+
+private func isSettingsSlingshotURL(_ rawURL: String) -> Bool {
+    URL(string: rawURL)?.scheme?.lowercased() == "slingshot"
 }
 
 #if DEBUG

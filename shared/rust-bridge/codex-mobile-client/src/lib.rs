@@ -129,6 +129,7 @@ pub mod recorder;
 pub mod remote_path;
 pub mod saved_apps;
 pub mod session;
+pub(crate) mod slingshot_url;
 pub mod ssh;
 pub mod ssh_bridge;
 pub mod ssh_detached_launcher;
