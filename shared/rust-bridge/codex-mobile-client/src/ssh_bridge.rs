@@ -48,8 +48,29 @@ struct StreamCloseHandle {
 }
 
 impl StreamCloseHandle {
+    fn with_on_close(self, on_close: Box<dyn Fn() + Send + Sync + 'static>) -> Self {
+        *self
+            .state
+            .on_close
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(on_close);
+        self
+    }
+
     fn close(&self) {
-        self.state.closed.store(true, Ordering::SeqCst);
+        let already_closed = self.state.closed.swap(true, Ordering::SeqCst);
+        let on_close = if already_closed {
+            None
+        } else {
+            self.state
+                .on_close
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+        };
+        if let Some(on_close) = on_close {
+            on_close();
+        }
         if let Some(waker) = self
             .state
             .waker
@@ -65,6 +86,7 @@ impl StreamCloseHandle {
 struct StreamCloseState {
     closed: AtomicBool,
     waker: StdMutex<Option<Waker>>,
+    on_close: StdMutex<Option<Box<dyn Fn() + Send + Sync + 'static>>>,
 }
 
 struct ClosableStream<S> {
@@ -77,6 +99,7 @@ impl<S> ClosableStream<S> {
         let state = Arc::new(StreamCloseState {
             closed: AtomicBool::new(false),
             waker: StdMutex::new(None),
+            on_close: StdMutex::new(None),
         });
         (
             Self {
@@ -386,10 +409,14 @@ impl RemoteTransport for SshBridgeReconnectTransport {
         .await
         .map_err(|error| crate::transport::TransportError::ConnectionFailed(error.to_string()))?;
         if let Some(close_handle) = close_handle {
-            *self
+            let previous = self
                 .current_close
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()) = Some(close_handle);
+                .unwrap_or_else(|error| error.into_inner())
+                .replace(close_handle);
+            if let Some(previous) = previous {
+                previous.close();
+            }
         }
         info!(kind = ?self.kind, "ssh bridge runtime reconnect ready");
         Ok(Reconnected {
@@ -497,9 +524,7 @@ async fn connect_app_server_client_via_ssh_with_close(
                 .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?
         }
         "opencode" => {
-            return connect_opencode_via_ssh(ssh, state_dir, bin_override)
-                .await
-                .map(|client| (client, None));
+            return connect_opencode_via_ssh(ssh, state_dir, bin_override).await;
         }
         "codex" => return Err(SshBridgeError::UseExistingCodexPath),
         // Every other agent (amp/droid/hermes/anything new from
@@ -597,7 +622,7 @@ async fn connect_opencode_via_ssh(
     ssh: Arc<SshClient>,
     state_dir: PathBuf,
     bin_override: Option<String>,
-) -> Result<AppServerClient, SshBridgeError> {
+) -> Result<(AppServerClient, Option<StreamCloseHandle>), SshBridgeError> {
     let shell = ssh.detect_remote_shell().await;
     let bin = resolve_remote_cli(
         &ssh,
@@ -613,8 +638,24 @@ async fn connect_opencode_via_ssh(
         "ssh bridge opencode remote start bin={bin} remote_port={remote_port} session_id={session_id}"
     );
     spawn_remote_opencode(&ssh, shell, &bin, remote_port, &session_id).await?;
-    wait_until_remote_opencode_healthy(&ssh, shell, remote_port, &session_id).await?;
-    let local_port = ssh.forward_port_to(0, "127.0.0.1", remote_port).await?;
+    if let Err(error) =
+        wait_until_remote_opencode_healthy(&ssh, shell, remote_port, &session_id).await
+    {
+        schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, remote_port, session_id.clone());
+        return Err(error);
+    }
+    let local_port = match ssh.forward_port_to(0, "127.0.0.1", remote_port).await {
+        Ok(port) => port,
+        Err(error) => {
+            schedule_remote_opencode_cleanup(
+                Arc::clone(&ssh),
+                shell,
+                remote_port,
+                session_id.clone(),
+            );
+            return Err(error.into());
+        }
+    };
     let base_url = format!("http://127.0.0.1:{local_port}");
     info!(
         "ssh bridge opencode forwarded remote_port={remote_port} local_port={local_port} session_id={session_id}"
@@ -625,20 +666,50 @@ async fn connect_opencode_via_ssh(
             .unwrap_or_else(|log_error| {
                 format!("failed to fetch remote opencode logs: {log_error}")
             });
+        schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, remote_port, session_id.clone());
         return Err(SshBridgeError::BridgeStartupFailed(format!(
             "{error}; remote opencode logs:\n{logs}"
         )));
     }
 
-    let bridge = OpencodeBridge::builder()
+    let bridge = match OpencodeBridge::builder()
         .runtime(OpencodeRuntime::external(base_url, String::new()))
         .state_dir(state_dir)
         .build()
         .await
-        .map_err(|error| SshBridgeError::BridgeStartupFailed(error.to_string()))?;
-    connect_bridge_stream(bridge, "opencode".to_string())
-        .await
-        .map(|(client, _close_handle)| client)
+    {
+        Ok(bridge) => bridge,
+        Err(error) => {
+            schedule_remote_opencode_cleanup(
+                Arc::clone(&ssh),
+                shell,
+                remote_port,
+                session_id.clone(),
+            );
+            return Err(SshBridgeError::BridgeStartupFailed(error.to_string()));
+        }
+    };
+    let (client, close_handle) = match connect_bridge_stream(bridge, "opencode".to_string()).await {
+        Ok(result) => result,
+        Err(error) => {
+            schedule_remote_opencode_cleanup(
+                Arc::clone(&ssh),
+                shell,
+                remote_port,
+                session_id.clone(),
+            );
+            return Err(error);
+        }
+    };
+    let close_handle = close_handle.map(|handle| {
+        handle.with_on_close(remote_opencode_cleanup_callback(
+            ssh,
+            shell,
+            remote_port,
+            session_id,
+        ))
+    });
+    Ok((client, close_handle))
 }
 
 fn cli_candidates(defaults: &[&str], bin_override: Option<&str>) -> Vec<String> {
@@ -1004,6 +1075,65 @@ async fn fetch_remote_opencode_logs(
     );
     let result = ssh.exec_shell(&script, shell).await?;
     Ok(nonempty_stdout_or_stderr(result))
+}
+
+fn remote_opencode_cleanup_callback(
+    ssh: Arc<SshClient>,
+    shell: RemoteShell,
+    remote_port: u16,
+    session_id: String,
+) -> Box<dyn Fn() + Send + Sync + 'static> {
+    Box::new(move || {
+        schedule_remote_opencode_cleanup(Arc::clone(&ssh), shell, remote_port, session_id.clone());
+    })
+}
+
+fn schedule_remote_opencode_cleanup(
+    ssh: Arc<SshClient>,
+    shell: RemoteShell,
+    remote_port: u16,
+    session_id: String,
+) {
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        warn!(
+            remote_port,
+            session_id,
+            "ssh bridge could not schedule remote opencode cleanup outside a tokio runtime"
+        );
+        return;
+    };
+    handle.spawn(async move {
+        if let Err(error) = cleanup_remote_opencode(&ssh, shell, remote_port, &session_id).await {
+            warn!(
+                remote_port,
+                session_id, "ssh bridge failed to clean up remote opencode: {error}"
+            );
+        }
+    });
+}
+
+async fn cleanup_remote_opencode(
+    ssh: &SshClient,
+    shell: RemoteShell,
+    remote_port: u16,
+    session_id: &str,
+) -> Result<(), SshBridgeError> {
+    let script = crate::ssh_scripts::render(
+        crate::ssh_scripts::posix::OPENCODE_CLEANUP,
+        &[("PROFILE_INIT", PROFILE_INIT), ("SESSION_ID", session_id)],
+    );
+    let pid_result = ssh.exec_shell(&script, shell).await;
+    if let Err(error) = ssh.kill_listener_on_port(remote_port).await {
+        warn!(
+            remote_port,
+            session_id, "ssh bridge failed to clean up opencode listener by port: {error}"
+        );
+    }
+    match pid_result {
+        Ok(result) if result.exit_code == 0 => Ok(()),
+        Ok(result) => Err(SshBridgeError::Transport(nonempty_stderr_or_stdout(result))),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn parse_agent_probe(stdout: &str) -> Vec<RemoteAgentAvailability> {
