@@ -50,6 +50,10 @@ struct HomeScreen: View {
             }
             NewTaskPage()
                 .tag(Selection.newTask)
+            if !store.hiddenTasks.isEmpty {
+                HiddenFooterPage(count: store.hiddenTasks.count)
+                    .tag(Selection.hidden)
+            }
         }
         .tabViewStyle(.verticalPage)
     }
@@ -62,6 +66,7 @@ struct HomeScreen: View {
     private enum Selection: Hashable {
         case task(String)
         case newTask
+        case hidden
     }
 
     private var tabSelection: Binding<Selection> {
@@ -76,10 +81,49 @@ struct HomeScreen: View {
             set: { new in
                 switch new {
                 case .task(let id): store.focusedTaskId = id
-                case .newTask:      break
+                case .newTask, .hidden: break
                 }
             }
         )
+    }
+}
+
+/// Trailing footer page shown only when there are hidden threads. A single
+/// large NavigationLink keeps the gesture target obvious on the small face.
+private struct HiddenFooterPage: View {
+    @EnvironmentObject var theme: WatchThemeStore
+    @Environment(\.watchSize) private var watchSize
+    let count: Int
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 0)
+            NavigationLink {
+                HiddenThreadsScreen()
+            } label: {
+                VStack(spacing: 6) {
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: 18 * watchSize.fontScale, weight: .bold))
+                        .foregroundStyle(theme.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(theme.surfaceLight)
+                                .overlay(Circle().stroke(theme.borderHi, lineWidth: 1))
+                        )
+                    Text("\(count) hidden")
+                        .font(WatchTheme.scaled(12, for: watchSize, weight: .bold))
+                        .foregroundStyle(theme.textPrimary)
+                    Text("tap to manage")
+                        .font(WatchTheme.scaled(10, for: watchSize))
+                        .foregroundStyle(theme.textSecondary)
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 6)
     }
 }
 

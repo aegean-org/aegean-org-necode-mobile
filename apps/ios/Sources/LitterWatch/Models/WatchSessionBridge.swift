@@ -241,6 +241,7 @@ final class WatchSessionBridge: NSObject, WCSessionDelegate {
             WatchSnapshotStore.save(snapshot, date: now)
             WatchThemeStore.shared.apply(snapshot.theme)
             store.tasks = snapshot.tasks
+            store.hiddenTasks = snapshot.hiddenTasks ?? []
             store.pendingApproval = snapshot.pendingApproval
             store.voice = snapshot.voice
             // Keep local focus if it's still valid, otherwise pick first task.

@@ -317,6 +317,19 @@ final class WatchCompanionBridge: NSObject {
         // surface to the top of each pin group).
         let tasks = WatchProjection.applyPinOrder(projected, pinned: pinned)
 
+        // Hidden slice: summaries whose key is in `hidden`, projected with
+        // the same shape as visible tasks so the watch hidden screen can
+        // render them with the same row.
+        let hiddenSet = Set(hidden)
+        let hiddenSummaries = summaries.filter {
+            hiddenSet.contains(PinnedThreadKey(threadKey: $0.key))
+        }
+        let hiddenTasks = WatchProjection.tasks(
+            summaries: hiddenSummaries,
+            threads: threads,
+            pendingApprovals: pendingApprovals
+        )
+
         return WatchSnapshotPayload(
             tasks: tasks,
             pendingApproval: pendingApprovals
@@ -326,7 +339,8 @@ final class WatchCompanionBridge: NSObject {
                 from: snapshot,
                 isMuted: VoiceRuntimeController.shared.isMicrophoneMuted
             ),
-            theme: WatchProjection.theme(from: ThemeManager.shared)
+            theme: WatchProjection.theme(from: ThemeManager.shared),
+            hiddenTasks: hiddenTasks.isEmpty ? nil : hiddenTasks
         )
     }
 

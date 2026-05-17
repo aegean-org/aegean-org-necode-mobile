@@ -474,6 +474,51 @@ final class WatchCompanionBridgeTests: XCTestCase {
         XCTAssertEqual(payload.tasks.map(\.threadId), [visibleKey.threadId])
     }
 
+    func testCurrentPayloadIncludesHiddenTasks() {
+        let visibleKey = ThreadKey(serverId: "macbook", threadId: "visible")
+        let hiddenKey = ThreadKey(serverId: "macbook", threadId: "hidden")
+        let otherHiddenKey = ThreadKey(serverId: "studio", threadId: "hidden2")
+        AppModel.shared.applySnapshot(makeRecord(
+            servers: [makeServer(id: "macbook"), makeServer(id: "studio")],
+            sessionSummaries: [
+                makeSummary(serverId: "macbook", threadId: "visible", updatedAt: 300, hasActiveTurn: false, title: "stays"),
+                makeSummary(serverId: "macbook", threadId: "hidden",  updatedAt: 200, hasActiveTurn: false, title: "tucked away"),
+                makeSummary(serverId: "studio",  threadId: "hidden2", updatedAt: 100, hasActiveTurn: false, title: "also tucked"),
+            ]
+        ))
+
+        SavedThreadsStore.hide(PinnedThreadKey(threadKey: hiddenKey))
+        SavedThreadsStore.hide(PinnedThreadKey(threadKey: otherHiddenKey))
+        defer {
+            SavedThreadsStore.unhide(PinnedThreadKey(threadKey: hiddenKey))
+            SavedThreadsStore.unhide(PinnedThreadKey(threadKey: otherHiddenKey))
+        }
+
+        let bridge = WatchCompanionBridge(transport: StubWatchTransport())
+        let payload = bridge.currentPayload()
+
+        // Visible slice excludes the hidden threads (existing behavior).
+        XCTAssertEqual(payload.tasks.map(\.threadId), [visibleKey.threadId])
+
+        // Hidden slice contains both hidden threads in some order.
+        let hiddenIds = Set((payload.hiddenTasks ?? []).map(\.threadId))
+        XCTAssertEqual(hiddenIds, [hiddenKey.threadId, otherHiddenKey.threadId])
+    }
+
+    func testCurrentPayloadOmitsHiddenTasksFieldWhenEmpty() {
+        AppModel.shared.applySnapshot(makeRecord(
+            servers: [makeServer(id: "macbook")],
+            sessionSummaries: [
+                makeSummary(serverId: "macbook", threadId: "visible", updatedAt: 100, hasActiveTurn: false),
+            ]
+        ))
+
+        let bridge = WatchCompanionBridge(transport: StubWatchTransport())
+        let payload = bridge.currentPayload()
+
+        XCTAssertNil(payload.hiddenTasks, "no hidden threads → no hiddenTasks slice")
+    }
+
     func testCurrentPayloadOrdersPinnedThreadsByPinOrder() {
         let pin1 = ThreadKey(serverId: "macbook", threadId: "alpha")
         let pin2 = ThreadKey(serverId: "macbook", threadId: "bravo")

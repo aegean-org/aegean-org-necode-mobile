@@ -43,4 +43,40 @@ final class WatchThemePayloadTests: XCTestCase {
         XCTAssertNil(decoded.theme)
         XCTAssertTrue(decoded.tasks.isEmpty)
     }
+
+    /// A payload encoded by an older iPhone build that doesn't know about
+    /// hiddenTasks must still decode cleanly so the new watch app can run
+    /// against an old phone build (and vice versa for persisted snapshots).
+    func testSnapshotWithoutHiddenTasksKeyDecodesAsNil() throws {
+        let json = #"{"tasks":[],"pendingApproval":null,"voice":null}"#
+            .data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(WatchSnapshotPayload.self, from: json)
+        XCTAssertNil(decoded.hiddenTasks)
+    }
+
+    func testSnapshotRoundTripsHiddenTasks() throws {
+        let task = WatchTask(
+            id: "macbook:hidden",
+            threadId: "hidden",
+            serverId: "macbook",
+            serverName: "macbook",
+            title: "tucked away",
+            subtitle: nil,
+            status: .idle,
+            relativeTime: "2h",
+            steps: [],
+            transcript: [],
+            pendingApprovalId: nil
+        )
+        let payload = WatchSnapshotPayload(
+            tasks: [], pendingApproval: nil, voice: nil, theme: nil,
+            hiddenTasks: [task]
+        )
+
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(WatchSnapshotPayload.self, from: data)
+
+        XCTAssertEqual(decoded.hiddenTasks?.count, 1)
+        XCTAssertEqual(decoded.hiddenTasks?.first?.threadId, "hidden")
+    }
 }

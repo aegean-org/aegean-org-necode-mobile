@@ -134,6 +134,10 @@ struct WatchSnapshotPayload: Codable, Hashable {
     /// Resolved palette + appearance for the watch UI. Optional so older
     /// iPhone builds (and old persisted snapshots) decode cleanly.
     var theme: WatchThemePayload?
+    /// Tasks the user has hidden from home. Optional so older iPhone builds
+    /// (and old persisted snapshots) decode cleanly — watch shows no
+    /// hidden screen until it sees a non-nil/non-empty list.
+    var hiddenTasks: [WatchTask]?
 }
 
 #if DEBUG
@@ -194,6 +198,22 @@ enum WatchPreviewFixtures {
             steps: [],
             transcript: [],
             pendingApprovalId: "approval-id"
+        ),
+    ]
+
+    static let hiddenTasks: [WatchTask] = [
+        WatchTask(
+            id: "macbook-pro:hidden1",
+            threadId: "hidden1",
+            serverId: "macbook-pro",
+            serverName: "macbook-pro",
+            title: "old session — bumped css",
+            subtitle: nil,
+            status: .idle,
+            relativeTime: "yesterday",
+            steps: [],
+            transcript: [],
+            pendingApprovalId: nil
         ),
     ]
 

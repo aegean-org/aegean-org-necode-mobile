@@ -73,9 +73,19 @@ final class WatchAppStore: ObservableObject {
     /// WCSession activation so the UI can render last-known state instead
     /// of an infinite "syncing…" placeholder.
     func hydrateFromAppGroupIfNeeded() {
-        guard lastSyncDate == nil,
-              let (payload, date) = WatchSnapshotStore.current()
-        else { return }
+        guard lastSyncDate == nil else { return }
+        applyAppGroupSnapshot()
+    }
+
+    /// Reload from the App Group even when `lastSyncDate` is already set.
+    /// Used by the background refresh task so the watch picks up updates
+    /// the iPhone wrote while the watch app was suspended.
+    func forceHydrateFromAppGroup() {
+        applyAppGroupSnapshot()
+    }
+
+    private func applyAppGroupSnapshot() {
+        guard let (payload, date) = WatchSnapshotStore.current() else { return }
         WatchThemeStore.shared.apply(payload.theme)
         tasks = payload.tasks
         hiddenTasks = payload.hiddenTasks ?? []
