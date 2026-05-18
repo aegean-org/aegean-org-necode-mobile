@@ -352,14 +352,9 @@ struct AssistantBlocksBubble: View {
             .id(identity)
         case .codeBlock(let language, let code, let identity):
             if isMathCodeBlock(language) {
-                LitterMarkdownView(
-                    markdown: mathBlockMarkdown(code),
-                    style: .content,
-                    bodySize: contentFontSize,
-                    codeSize: contentFontSize
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .id(identity)
+                LitterMathBlockView(latex: code)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(identity)
             } else {
                 CodeBlockView(
                     language: language ?? "",
@@ -412,9 +407,17 @@ struct AssistantBlocksBubble: View {
         return language.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("math") == .orderedSame
     }
+}
 
-    private func mathBlockMarkdown(_ code: String) -> String {
-        "```math\n\(code)\n```"
+private struct LitterMathBlockView: View {
+    let latex: String
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            LatexBlockView(content: latex)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -465,6 +468,30 @@ struct StreamingAssistantBubble: View {
     }
 
     var body: some View {
+        Group {
+            if shouldUseSegmentedRenderer {
+                AssistantBlocksBubble(
+                    segments: segmentedRenderSegments,
+                    label: label
+                )
+            } else {
+                streamingMarkdownBody
+            }
+        }
+        .onChange(of: text) {
+            onSnapshotRendered?()
+        }
+    }
+
+    private var shouldUseSegmentedRenderer: Bool {
+        !isStreaming || MessageContentBridge.containsMath(text)
+    }
+
+    private var segmentedRenderSegments: [MessageRenderCache.AssistantSegment] {
+        StreamingAssistantRenderCache.shared.segments(itemId: itemId, text: text)
+    }
+
+    private var streamingMarkdownBody: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 if let label {
@@ -497,9 +524,6 @@ struct StreamingAssistantBubble: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 20)
-        }
-        .onChange(of: text) {
-            onSnapshotRendered?()
         }
     }
 }
