@@ -745,6 +745,10 @@ final class WatchCompanionBridge: NSObject {
                     serverId: serverId,
                     params: request
                 )
+                // Pin so the thread shows on the (pinned-only) home — same
+                // behavior as the iPhone home composer, voice, and sessions
+                // start-thread paths.
+                SavedThreadsStore.add(PinnedThreadKey(threadKey: key))
                 AppModel.shared.store.setActiveThread(key: key)
                 AppModel.shared.queueComposerPrefill(threadKey: key, text: text)
                 return ["ok": true, "threadId": key.threadId]

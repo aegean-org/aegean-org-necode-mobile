@@ -140,6 +140,26 @@ private struct TaskPage: View {
     let task: WatchTask
 
     var body: some View {
+        NavigationLink {
+            TaskDetailScreen(task: task)
+        } label: {
+            content
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                WKInterfaceDevice.current().play(.click)
+                WatchSessionBridge.shared.sendHomeHide(
+                    serverId: task.serverId,
+                    threadId: task.threadId
+                )
+            } label: {
+                Label("Hide", systemImage: "eye.slash")
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 StatusChip(status: task.status, isAOD: isAOD)
@@ -171,12 +191,19 @@ private struct TaskPage: View {
                 identityStrip
 
                 if let subtitle = task.subtitle, !subtitle.isEmpty {
+                    // Assistant message gets the prime real estate — no CTA
+                    // row competes with it now. Allow up to 6 lines before
+                    // truncation since the page has no other content below.
                     Text(subtitle)
-                        .font(WatchTheme.scaled(11, for: watchSize))
+                        .font(WatchTheme.scaled(12, for: watchSize))
                         .foregroundStyle(subtitleColor)
-                        .lineLimit(3)
+                        .lineLimit(6)
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let tool = task.lastTool, !tool.isEmpty {
+                    toolChip(tool)
                 }
 
                 if task.status == .running, let line = telemetryLine {
@@ -187,11 +214,7 @@ private struct TaskPage: View {
                 }
             }
 
-            Spacer(minLength: 4)
-
-            if !isAOD {
-                ctaRow
-            }
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 4)
@@ -228,56 +251,25 @@ private struct TaskPage: View {
         .font(WatchTheme.scaled(10, for: watchSize))
     }
 
-    private var ctaRow: some View {
-        HStack(spacing: 6) {
-            NavigationLink {
-                TaskDetailScreen(task: task)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("open")
-                        .font(WatchTheme.scaled(11, for: watchSize, weight: .bold))
-                }
-                .frame(maxWidth: .infinity, minHeight: ctaHeight)
-                .foregroundStyle(theme.textOnAccent)
-                .background(
-                    Capsule().fill(
-                        LinearGradient(colors: [theme.accentSoft, theme.accent],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
-                )
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                WKInterfaceDevice.current().play(.click)
-                WatchSessionBridge.shared.sendHomeHide(
-                    serverId: task.serverId,
-                    threadId: task.threadId
-                )
-            } label: {
-                Image(systemName: "eye.slash")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 32, height: ctaHeight)
-                    .foregroundStyle(theme.textSecondary)
-                    .background(
-                        Capsule()
-                            .fill(theme.surfaceLight)
-                            .overlay(Capsule().stroke(theme.borderHi, lineWidth: 1))
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Hide task")
+    /// Small live-tool chip rendered below the assistant subtitle when the
+    /// task is currently running. Shows what tool the AI is using right now
+    /// without stealing the subtitle slot from the assistant text.
+    private func toolChip(_ tool: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "wrench.adjustable")
+                .font(.system(size: 8, weight: .bold))
+            Text(tool)
+                .font(WatchTheme.scaled(9, for: watchSize, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
-    }
-
-    private var ctaHeight: CGFloat {
-        switch watchSize {
-        case .compact:  return 26
-        case .regular:  return 28
-        case .expanded: return 32
-        }
+        .foregroundStyle(theme.accent)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule().fill(theme.accent.opacity(0.12))
+                .overlay(Capsule().stroke(theme.accent.opacity(0.3), lineWidth: 0.5))
+        )
     }
 
     private var dot: some View {

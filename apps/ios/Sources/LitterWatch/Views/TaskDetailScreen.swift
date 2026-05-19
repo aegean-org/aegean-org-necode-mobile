@@ -70,6 +70,11 @@ struct TaskDetailScreen: View {
                         }
                     }
 
+                    if let diffs = current.diffs, !diffs.isEmpty {
+                        DiffsLink(diffs: diffs)
+                            .padding(.top, 4)
+                    }
+
                     HStack(spacing: 4) {
                         NavigationLink {
                             TranscriptScreen()
@@ -162,6 +167,73 @@ struct TaskDetailScreen: View {
                 Capsule().stroke(accent ? Color.clear : theme.borderHi, lineWidth: 1)
             )
         )
+    }
+}
+
+/// Link row that opens `DiffsScreen` when the task has any file diffs.
+/// Surfaces aggregate additions/deletions and a small file count so the
+/// user knows what to expect before drilling in.
+private struct DiffsLink: View {
+    @EnvironmentObject var theme: WatchThemeStore
+    @Environment(\.watchSize) private var watchSize
+    let diffs: [WatchFileDiff]
+
+    var body: some View {
+        NavigationLink {
+            DiffsScreen()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(theme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("diffs")
+                        .font(WatchTheme.mono(11, weight: .bold))
+                        .foregroundStyle(theme.textPrimary)
+                    Text(filesLabel)
+                        .font(WatchTheme.mono(9))
+                        .foregroundStyle(theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                if additions > 0 {
+                    Text("+\(additions)")
+                        .font(WatchTheme.mono(10, weight: .bold))
+                        .foregroundStyle(theme.success)
+                }
+                if deletions > 0 {
+                    Text("−\(deletions)")
+                        .font(WatchTheme.mono(10, weight: .bold))
+                        .foregroundStyle(theme.danger)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(theme.textMuted)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(theme.surfaceLight)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(theme.borderHi, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var additions: Int { diffs.reduce(0) { $0 + $1.additions } }
+    private var deletions: Int { diffs.reduce(0) { $0 + $1.deletions } }
+
+    private var filesLabel: String {
+        let count = diffs.count
+        if count == 1, let only = diffs.first {
+            return (only.path as NSString).lastPathComponent
+        }
+        return "\(count) files"
     }
 }
 

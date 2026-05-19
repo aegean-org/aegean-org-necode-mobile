@@ -37,6 +37,27 @@ struct WatchTranscriptTurn: Identifiable, Hashable, Codable {
     let faded: Bool
 }
 
+/// One file's worth of unified-diff content surfaced on the watch's diffs
+/// screen. The phone trims `diff` to a hard byte budget before shipping so
+/// the WatchConnectivity application-context payload stays well under the
+/// 256 KB limit even when a task touches many files.
+struct WatchFileDiff: Identifiable, Hashable, Codable {
+    /// `path` is unique within a task — collapsed to "most recent diff per
+    /// file" in the projection, so it doubles as a stable id.
+    var id: String { path }
+    let path: String
+    /// Upstream kind label ("add", "modify", "delete", …); the UI uses this
+    /// to pick an icon, not for parsing.
+    let kind: String
+    let additions: Int
+    let deletions: Int
+    /// Unified-diff text, possibly tail-truncated with a `…` sentinel line.
+    let diff: String
+    /// True when the phone trimmed the diff to stay under the size budget.
+    /// The watch surfaces this as a small "truncated" hint.
+    let truncated: Bool
+}
+
 /// A single conversation/thread row — the watch's equivalent of the iPhone
 /// sessions list. Every Codex thread the phone knows about becomes a task
 /// row. The list is sorted by recent activity.
@@ -80,6 +101,15 @@ struct WatchTask: Identifiable, Hashable, Codable {
     var diffDeletions: Int?
     var contextPercent: Int?
     var hasTurnActive: Bool?
+    /// Most recent tool the AI is/was running. Set only when the subtitle
+    /// is the assistant's reply (so this stays a small secondary chip
+    /// instead of duplicating the subtitle text).
+    var lastTool: String?
+    /// Per-file diffs surfaced by the watch's full diffs screen, ordered
+    /// most-recent first and capped by the projection. `nil`/empty when
+    /// the task has no file changes yet (or older iPhone builds that
+    /// don't ship diffs).
+    var diffs: [WatchFileDiff]?
 }
 
 /// Slice of realtime voice session state pushed to the watch so it can
@@ -171,7 +201,44 @@ enum WatchPreviewFixtures {
             diffAdditions: 32,
             diffDeletions: 7,
             contextPercent: 18,
-            hasTurnActive: true
+            hasTurnActive: true,
+            lastTool: nil,
+            diffs: [
+                WatchFileDiff(
+                    path: "src/auth.go",
+                    kind: "modify",
+                    additions: 4,
+                    deletions: 2,
+                    diff: """
+                    @@ -10,7 +10,9 @@
+                     func refresh(t *Token) error {
+                    -    if t.expired() {
+                    -        return errors.New(\"expired\")
+                    +    if t.expiredAt.Before(time.Now()) {
+                    +        return t.rotate()
+                    +    }
+                         return nil
+                     }
+                    """,
+                    truncated: false
+                ),
+                WatchFileDiff(
+                    path: "src/auth_test.go",
+                    kind: "add",
+                    additions: 28,
+                    deletions: 5,
+                    diff: """
+                    @@ -0,0 +1,8 @@
+                    +func TestRefreshRotatesExpired(t *testing.T) {
+                    +    tok := &Token{expiredAt: time.Now().Add(-time.Minute)}
+                    +    if err := refresh(tok); err != nil {
+                    +        t.Fatal(err)
+                    +    }
+                    +}
+                    """,
+                    truncated: false
+                ),
+            ]
         ),
         WatchTask(
             id: "macbook-pro:t2",
