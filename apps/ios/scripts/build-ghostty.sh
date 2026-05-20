@@ -89,18 +89,15 @@ prepare_macos_sdk_for_zig() {
     local entry
     local dest
 
-    if [ -d "$CLT_DEVELOPER_DIR/SDKs/MacOSX.sdk" ]; then
+    if [ -d "$CLT_DEVELOPER_DIR/SDKs/MacOSX.sdk" ] &&
+        head -n 8 "$CLT_DEVELOPER_DIR/SDKs/MacOSX.sdk/usr/lib/libSystem.tbd" | grep -q 'arm64-macos'; then
         printf '%s\n' "$CLT_DEVELOPER_DIR/SDKs/MacOSX.sdk"
         return
     fi
 
     xcode_sdk="$(env DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" /usr/bin/xcrun --sdk macosx --show-sdk-path)"
-    if head -n 8 "$xcode_sdk/usr/lib/libSystem.tbd" | grep -q 'arm64-macos'; then
-        printf '%s\n' "$xcode_sdk"
-        return
-    fi
 
-    echo "==> Xcode macOS SDK lacks arm64 stubs; preparing Zig host SDK shim..." >&2
+    echo "==> Preparing Zig host macOS SDK shim from $xcode_sdk..." >&2
     source_sdk="$xcode_sdk"
     rm -rf "$MACOS_SDK_SHIM_DIR"
     mkdir -p "$MACOS_SDK_SHIM_DIR/usr"
