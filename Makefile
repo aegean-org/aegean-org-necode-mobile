@@ -170,7 +170,7 @@ STAMP_XCGEN := $(STAMPS)/xcgen
 # Pinned release tag of the prebuilt Alpine rootfs tarball (still hosted
 # on the dnakov/litter-ish releases page). The iSH kernel itself is built
 # from the `ish` Rust crate. Bump and re-run `make alpine-fs` to upgrade.
-ALPINE_FS_VERSION := v0.1.1
+ALPINE_FS_VERSION := v0.1.2
 STAMP_ALPINE_FS := $(STAMPS)/alpine-fs-$(ALPINE_FS_VERSION)
 STAMP_ANDROID_ALPINE_FS := $(STAMPS)/android-alpine-fs-$(ALPINE_FS_VERSION)
 PROOT_COMMIT := ee10b279a38d34b6704345bc448d18f019ca1b49

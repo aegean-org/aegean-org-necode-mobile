@@ -52,6 +52,21 @@ struct TerminalScreen: View {
             inputFocused = true
         }
         .onDisappear {
+            // Defocus the composer first so the keyboard tears down and
+            // SwiftUI releases first responder. Without this the keyboard
+            // can linger after navigating back, leaving the parent screen
+            // unable to receive touches until the OS gives up on the
+            // detached responder chain.
+            inputFocused = false
+            // Belt-and-suspenders: end editing on the whole responder
+            // chain so any view (including the hidden Ghostty UITextField
+            // overlay) that's still first-responder resigns.
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
             controller.setOutputSink(nil)
             ghosttyRenderer.invalidate()
             controller.close()
