@@ -922,13 +922,15 @@ private struct HomeCatFooterView: View {
             if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
                 let width = min(max(0, proxy.size.width - 48), 340)
                 VStack {
-                    AlphaAnimatedImageView(
-                        fileURL: imageURL,
-                        repeatCount: showingLoop ? 0 : 1,
-                        onFinished: showingLoop ? nil : {
-                            showingLoop = true
-                        }
-                    )
+                    CatTransmissionPressView {
+                        AlphaAnimatedImageView(
+                            fileURL: imageURL,
+                            repeatCount: showingLoop ? 0 : 1,
+                            onFinished: showingLoop ? nil : {
+                                showingLoop = true
+                            }
+                        )
+                    }
                         .frame(width: width, height: width * 9.0 / 16.0)
                         .accessibilityHidden(true)
                 }
@@ -937,7 +939,6 @@ private struct HomeCatFooterView: View {
                 .padding(.bottom, 20)
             }
         }
-        .allowsHitTesting(false)
     }
 }
 

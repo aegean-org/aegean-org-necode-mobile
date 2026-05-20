@@ -26,8 +26,18 @@ use super::links::{LinksCache, TerminalLink};
 use super::osc::{
     OscParser, TerminalCellPosition, TerminalSemanticState, TerminalSemanticStateListener,
 };
+use super::selection::{TerminalCellMetrics, TerminalCellRange};
 use super::session::TerminalError;
 use crate::ffi::shared::shared_runtime;
+
+/// Platform-implemented callback fired when the PTY stream emits a literal
+/// BEL (0x07) byte in Ground state. The renderer fans one call out per
+/// `feed_output` chunk that contains BEL(s); the platform applies its own
+/// throttling on top (typical UX: 250 ms haptic cooldown).
+#[uniffi::export(callback_interface)]
+pub trait TerminalBellListener: Send + Sync {
+    fn on_bell(&self);
+}
 
 /// Platform-implemented callback interface that maps Rust intent → Ghostty C
 /// calls on the right thread.
@@ -128,6 +138,9 @@ struct RendererInner {
     /// Cached URL detection over the most recent viewport snapshot
     /// supplied by the platform. See [`super::links`].
     links: Mutex<LinksCache>,
+    /// Listeners notified whenever `feed_output` observes one or more
+    /// BEL bytes in `Ground` state.
+    bell_listeners: Arc<Mutex<Vec<Arc<dyn TerminalBellListener>>>>,
 }
 
 #[uniffi::export]
@@ -152,6 +165,7 @@ impl TerminalRenderer {
             semantic,
             semantic_listeners,
             links: Mutex::new(LinksCache::new()),
+            bell_listeners: Arc::new(Mutex::new(Vec::new())),
         });
         spawn_tick_task(&inner);
         Self { inner }
@@ -261,8 +275,26 @@ impl TerminalRenderer {
     /// [`TerminalRenderer::subscribe_semantic_state`]) are invoked
     /// synchronously after the chunk is parsed, so callers should batch
     /// the platform-side updates they trigger.
+    ///
+    /// If the chunk contains one or more BEL bytes in `Ground` state, the
+    /// renderer also fires `on_bell` exactly once per non-empty BEL chunk
+    /// to every subscriber. Platforms throttle the haptic / sound on top.
     pub fn feed_output(&self, bytes: Vec<u8>) {
-        self.inner.osc.lock().unwrap().feed(&bytes);
+        let bells = self.inner.osc.lock().unwrap().feed(&bytes);
+        if bells > 0 {
+            let listeners = self.inner.bell_listeners.lock().unwrap().clone();
+            for listener in listeners {
+                listener.on_bell();
+            }
+        }
+    }
+
+    /// Subscribe to bell events. Listeners are invoked synchronously from
+    /// the byte-feed thread; the platform should hop to the UI thread
+    /// before touching haptics / sound APIs.
+    pub fn subscribe_bell(&self, listener: Box<dyn TerminalBellListener>) {
+        let listener: Arc<dyn TerminalBellListener> = Arc::from(listener);
+        self.inner.bell_listeners.lock().unwrap().push(listener);
     }
 
     /// Update the OSC parser's grid bounds used for cursor estimation
@@ -320,6 +352,31 @@ impl TerminalRenderer {
             .link_at(TerminalCellPosition { row, col })
     }
 
+    /// Pixel-coord → link lookup combining [`Self::hit_test`] with
+    /// [`Self::link_at`], translating viewport-relative rows to absolute
+    /// rows using the backend's `viewport_top`. Returns `None` if no
+    /// backend is attached, the surface has zero-sized cells, or no link
+    /// covers the cell under the touch point.
+    pub fn link_at_point(&self, x_px: f32, y_px: f32) -> Option<TerminalLink> {
+        let backend = self.inner.current_backend()?;
+        let metrics = backend.cell_metrics();
+        let viewport_pos = super::selection::hit_test_cell(metrics, x_px, y_px)?;
+        let abs_row = metrics.viewport_top.saturating_add(viewport_pos.row);
+        self.inner.links.lock().unwrap().link_at(TerminalCellPosition {
+            row: abs_row,
+            col: viewport_pos.col,
+        })
+    }
+
+    /// Current surface cell metrics (cell width/height in pixels, grid
+    /// dimensions). Returns `None` if no backend is attached. The platform
+    /// uses this to compute PTY (cols, rows) from view pixel bounds
+    /// instead of guessing from font size — keeps the PTY grid in lockstep
+    /// with what Ghostty actually paints.
+    pub fn cell_metrics(&self) -> Option<TerminalCellMetrics> {
+        Some(self.inner.current_backend()?.cell_metrics())
+    }
+
     /// Set the active selection range. Pushes the highlight overlay to
     /// the backend and remembers the range so [`Self::read_selection`]
     /// can pull the corresponding text.
@@ -334,6 +391,28 @@ impl TerminalRenderer {
         if let Some(backend) = self.inner.current_backend() {
             backend.set_selection_overlay(None);
         }
+    }
+
+    /// Convenience: select the entire visible viewport. Equivalent to
+    /// "Select All" in the platform edit menu. Returns the range that was
+    /// pushed, or `None` if no backend is attached or the surface reports
+    /// zero rows/cols.
+    pub fn selection_all(&self) -> Option<TerminalCellRange> {
+        let backend = self.inner.current_backend()?;
+        let metrics = backend.cell_metrics();
+        if metrics.cols == 0 || metrics.rows == 0 {
+            return None;
+        }
+        let range = TerminalCellRange {
+            start: TerminalCellPosition { row: 0, col: 0 },
+            end: TerminalCellPosition {
+                row: metrics.rows.saturating_sub(1),
+                col: metrics.cols.saturating_sub(1),
+            },
+            rectangle: false,
+        };
+        backend.set_selection_overlay(Some(range));
+        Some(range)
     }
 
     /// Read the active selection text (whatever Ghostty's read-only
@@ -880,5 +959,201 @@ mod tests {
     #[test]
     fn last_completed_command_returns_none_when_no_marks() {
         assert!(last_completed_command(&[]).is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cell_metrics_passes_through_backend() {
+        let backend = CountingBackend::new();
+        let renderer = TerminalRenderer::new(Box::new(BackendAdapter(backend.clone())));
+        let metrics = renderer.cell_metrics().expect("metrics");
+        assert_eq!(metrics.cell_width_px, 10.0);
+        assert_eq!(metrics.cell_height_px, 20.0);
+        assert_eq!(metrics.cols, 80);
+        assert_eq!(metrics.rows, 24);
+        renderer.detach();
+        assert!(renderer.cell_metrics().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn selection_all_pushes_full_viewport_range() {
+        struct OverlayCapturing {
+            last: Mutex<Option<Option<super::super::selection::TerminalCellRange>>>,
+        }
+        impl TerminalRendererBackend for OverlayCapturing {
+            fn set_focus(&self, _: bool) {}
+            fn set_occlusion(&self, _: bool) {}
+            fn request_redraw(&self) {}
+            fn apply_config_file(&self, _: String) {}
+            fn dispatch_key(&self, _: TerminalKeyEvent) {}
+            fn dispatch_text(&self, _: String, _: bool) {}
+            fn dispatch_paste(&self, _: Vec<u8>) {}
+            fn read_selection(&self) -> Option<String> {
+                None
+            }
+            fn read_text(&self, _: u32, _: u32, _: u32, _: u32) -> Option<String> {
+                None
+            }
+            fn cell_metrics(&self) -> super::super::selection::TerminalCellMetrics {
+                super::super::selection::TerminalCellMetrics {
+                    cell_width_px: 10.0,
+                    cell_height_px: 20.0,
+                    cols: 80,
+                    rows: 24,
+                    viewport_top: 0,
+                }
+            }
+            fn set_selection_overlay(
+                &self,
+                range: Option<super::super::selection::TerminalCellRange>,
+            ) {
+                *self.last.lock().unwrap() = Some(range);
+            }
+        }
+        let backend = Arc::new(OverlayCapturing {
+            last: Mutex::new(None),
+        });
+        struct Adapter(Arc<OverlayCapturing>);
+        impl TerminalRendererBackend for Adapter {
+            fn set_focus(&self, f: bool) {
+                self.0.set_focus(f);
+            }
+            fn set_occlusion(&self, o: bool) {
+                self.0.set_occlusion(o);
+            }
+            fn request_redraw(&self) {
+                self.0.request_redraw();
+            }
+            fn apply_config_file(&self, p: String) {
+                self.0.apply_config_file(p);
+            }
+            fn dispatch_key(&self, e: TerminalKeyEvent) {
+                self.0.dispatch_key(e);
+            }
+            fn dispatch_text(&self, t: String, c: bool) {
+                self.0.dispatch_text(t, c);
+            }
+            fn dispatch_paste(&self, b: Vec<u8>) {
+                self.0.dispatch_paste(b);
+            }
+            fn read_selection(&self) -> Option<String> {
+                self.0.read_selection()
+            }
+            fn read_text(&self, a: u32, b: u32, c: u32, d: u32) -> Option<String> {
+                self.0.read_text(a, b, c, d)
+            }
+            fn cell_metrics(&self) -> super::super::selection::TerminalCellMetrics {
+                self.0.cell_metrics()
+            }
+            fn set_selection_overlay(
+                &self,
+                r: Option<super::super::selection::TerminalCellRange>,
+            ) {
+                self.0.set_selection_overlay(r);
+            }
+        }
+        let renderer = TerminalRenderer::new(Box::new(Adapter(backend.clone())));
+        let range = renderer.selection_all().expect("range");
+        use super::super::osc::TerminalCellPosition;
+        assert_eq!(range.start, TerminalCellPosition { row: 0, col: 0 });
+        assert_eq!(range.end, TerminalCellPosition { row: 23, col: 79 });
+        assert_eq!(
+            backend.last.lock().unwrap().as_ref().unwrap().unwrap(),
+            range
+        );
+        renderer.selection_clear();
+        assert!(backend.last.lock().unwrap().as_ref().unwrap().is_none());
+        renderer.detach();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bell_listener_fires_on_ground_bel() {
+        struct CountingBell {
+            count: AtomicUsize,
+        }
+        impl TerminalBellListener for CountingBell {
+            fn on_bell(&self) {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let backend = CountingBackend::new();
+        let renderer = TerminalRenderer::new(Box::new(BackendAdapter(backend.clone())));
+        let listener = Arc::new(CountingBell {
+            count: AtomicUsize::new(0),
+        });
+        struct Forward(Arc<CountingBell>);
+        impl TerminalBellListener for Forward {
+            fn on_bell(&self) {
+                self.0.on_bell();
+            }
+        }
+        renderer.subscribe_bell(Box::new(Forward(listener.clone())));
+
+        // One BEL → one fire.
+        renderer.feed_output(b"hello\x07".to_vec());
+        assert_eq!(listener.count.load(Ordering::SeqCst), 1);
+
+        // OSC-terminator BEL doesn't fire.
+        renderer.feed_output(b"\x1b]7;file://h/tmp\x07".to_vec());
+        assert_eq!(listener.count.load(Ordering::SeqCst), 1);
+
+        // Two BELs in the same chunk coalesce to a single fan-out
+        // (platform applies its own haptic throttle on top, but the
+        // renderer pre-collapses bursts so a "ding flood" from a shell
+        // script doesn't translate to hundreds of UI events).
+        renderer.feed_output(b"\x07\x07".to_vec());
+        assert_eq!(listener.count.load(Ordering::SeqCst), 2);
+        renderer.detach();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn link_at_point_uses_hit_test_and_viewport_top() {
+        struct WithViewport;
+        impl TerminalRendererBackend for WithViewport {
+            fn set_focus(&self, _: bool) {}
+            fn set_occlusion(&self, _: bool) {}
+            fn request_redraw(&self) {}
+            fn apply_config_file(&self, _: String) {}
+            fn dispatch_key(&self, _: TerminalKeyEvent) {}
+            fn dispatch_text(&self, _: String, _: bool) {}
+            fn dispatch_paste(&self, _: Vec<u8>) {}
+            fn read_selection(&self) -> Option<String> {
+                None
+            }
+            fn read_text(&self, _: u32, _: u32, _: u32, _: u32) -> Option<String> {
+                None
+            }
+            fn cell_metrics(&self) -> super::super::selection::TerminalCellMetrics {
+                super::super::selection::TerminalCellMetrics {
+                    cell_width_px: 10.0,
+                    cell_height_px: 20.0,
+                    cols: 80,
+                    rows: 24,
+                    viewport_top: 100,
+                }
+            }
+            fn set_selection_overlay(
+                &self,
+                _: Option<super::super::selection::TerminalCellRange>,
+            ) {
+            }
+        }
+        let renderer = TerminalRenderer::new(Box::new(WithViewport));
+        // Seed link cache: a URL at absolute row 102, cols 4..23.
+        renderer.set_viewport_text(
+            100,
+            vec![
+                "row 100".to_string(),
+                "row 101".to_string(),
+                "see https://example.com here".to_string(),
+            ],
+        );
+        // Pixel (60, 50) → cell (col 6, row 2 viewport-relative) →
+        // absolute row 102, col 6 — inside the URL.
+        let link = renderer.link_at_point(60.0, 50.0).expect("link");
+        assert_eq!(link.url, "https://example.com");
+
+        // Pixel outside the URL columns returns None.
+        assert!(renderer.link_at_point(0.0, 50.0).is_none());
+        renderer.detach();
     }
 }

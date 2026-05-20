@@ -27,6 +27,20 @@ object ActiveTerminalRegistry {
         }
     }
 
+    /// Live `TerminalRenderer` if any. The terminal screen uses this to
+    /// read cell metrics for grid sizing without threading a renderer
+    /// reference through every Composable.
+    fun current(): TerminalRenderer? = rendererRef?.get()
+
+    /// Read the current painted selection, if any. The "Send to AI" path
+    /// prefers this over the bundled output buffer so the user can scope
+    /// the message to a specific block.
+    fun readSelection(): String? {
+        val renderer = rendererRef?.get() ?: return null
+        val text = renderer.readSelection() ?: return null
+        return text.takeIf { it.isNotEmpty() }
+    }
+
     /**
      * Send `selection` to the assistant on `threadKey`, pulling OSC cwd +
      * last completed command from the active renderer's semantic state.

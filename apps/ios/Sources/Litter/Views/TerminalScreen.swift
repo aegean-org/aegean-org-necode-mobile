@@ -1,6 +1,13 @@
 import SwiftUI
 import UIKit
 
+/// Full-screen terminal. The Ghostty surface fills the entire body —
+/// keystrokes go straight to the PTY via the hidden first-responder text
+/// field, and the Esc/Ctrl/Tab/arrows row docks above the system keyboard
+/// as an input accessory view (set up inside `GhosttyHostView`).
+///
+/// The header (backend chip + "Aa" appearance button) sits on top; we keep
+/// the SSH trust banner as a transient overlay when needed.
 struct TerminalScreen: View {
     let cwd: String?
     var preferredAlleycatNodeId: String? = nil
@@ -10,14 +17,12 @@ struct TerminalScreen: View {
     @State private var selectedBackendID: String?
     @State private var didStart = false
     @State private var terminalGridSize = TerminalGridSize(cols: 80, rows: 24)
-    @State private var command = ""
     @State private var ghosttyRenderer = GhosttyTerminalRenderer()
     @State private var nativeRendererHasOutput = false
     @State private var showConfigSheet = false
     @AppStorage("litter.terminal.fontSize") private var storedFontSize: Double = 13.0
     @AppStorage("litter.terminal.themeId") private var storedThemeId: String = "litter-dark"
     @AppStorage("litter.terminal.cursorBlink") private var storedCursorBlink: Bool = true
-    @FocusState private var inputFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
 
     private let accent = Color(red: 0, green: 1, blue: 0.612)
@@ -25,9 +30,7 @@ struct TerminalScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             backendBar
-            terminalOutput
-            accessoryRow
-            inputBar
+            terminalSurface
         }
         .background(Color.black.ignoresSafeArea())
         .navigationTitle("Terminal")
@@ -49,18 +52,13 @@ struct TerminalScreen: View {
             selectedBackendID = initial.id
             await controller.open(backend: initial.backend)
             applyConfigSettings()
-            inputFocused = true
         }
         .onDisappear {
-            // Defocus the composer first so the keyboard tears down and
-            // SwiftUI releases first responder. Without this the keyboard
-            // can linger after navigating back, leaving the parent screen
-            // unable to receive touches until the OS gives up on the
-            // detached responder chain.
-            inputFocused = false
-            // Belt-and-suspenders: end editing on the whole responder
-            // chain so any view (including the hidden Ghostty UITextField
-            // overlay) that's still first-responder resigns.
+            // End any active first-responder hold so the keyboard tears
+            // down and SwiftUI releases first responder. Without this the
+            // keyboard can linger after navigating back, leaving the
+            // parent screen unable to receive touches until the OS gives
+            // up on the detached responder chain.
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder),
                 to: nil,
@@ -68,7 +66,8 @@ struct TerminalScreen: View {
                 for: nil
             )
             controller.setOutputSink(nil)
-            ghosttyRenderer.invalidate()
+            ghosttyRenderer.setFocused(false)
+            ghosttyRenderer.setOccluded(true)
             controller.close()
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -121,6 +120,8 @@ struct TerminalScreen: View {
 
             Spacer(minLength: 0)
 
+            phaseChip
+
             Button {
                 showConfigSheet = true
             } label: {
@@ -151,16 +152,44 @@ struct TerminalScreen: View {
         }
     }
 
-    private var terminalOutput: some View {
+    private var phaseChip: some View {
+        HStack(spacing: 4) {
+            Image(systemName: phaseIcon)
+                .font(.system(size: 10, weight: .semibold))
+            Text(phaseLabel)
+                .font(.custom("SFMono-Regular", size: 11))
+                .lineLimit(1)
+        }
+        .foregroundColor(phaseColor)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(phaseColor.opacity(0.12))
+        .clipShape(Capsule())
+    }
+
+    private var terminalSurface: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                GhosttyTerminalView(renderer: ghosttyRenderer, onNativeOutputVisibilityChanged: { visible in
-                    nativeRendererHasOutput = visible
-                }) { data in
-                    Task {
-                        await controller.send(data)
-                    }
-                }
+                GhosttyTerminalView(
+                    renderer: ghosttyRenderer,
+                    onNativeOutputVisibilityChanged: { visible in
+                        nativeRendererHasOutput = visible
+                    },
+                    onInput: { data in
+                        Task { await controller.send(data) }
+                    },
+                    onClearTapped: {
+                        controller.clearOutput()
+                        ghosttyRenderer.clearScreen()
+                        nativeRendererHasOutput = false
+                    },
+                    onSendToAssistant: sendOutputToAssistant,
+                    onFontSizePinched: { newSize in
+                        storedFontSize = newSize
+                        applyConfigSettings()
+                    },
+                    fontSize: storedFontSize
+                )
                 .background(Color.black)
 
                 if shouldShowStatusOverlay {
@@ -197,115 +226,15 @@ struct TerminalScreen: View {
             .onChange(of: geometry.size) { _, size in
                 resizeTerminal(for: size)
             }
-        }
-    }
-
-    private var inputBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: phaseIcon)
-                .foregroundColor(phaseColor)
-                .frame(width: 20)
-
-            TextField("", text: $command, prompt: Text("Command").foregroundColor(.white.opacity(0.38)))
-                .font(.custom("SFMono-Regular", size: 14))
-                .foregroundColor(.white)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($inputFocused)
-                .submitLabel(.send)
-                .disabled(!controller.canSendInput)
-                .onSubmit { submitCommand() }
-
-            Button(action: submitCommand) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(controller.canSendInput ? accent : .white.opacity(0.28))
-            }
-            .disabled(!controller.canSendInput)
-            .accessibilityLabel("Send")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color.black)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.white.opacity(0.12))
-                .frame(height: 1)
-        }
-    }
-
-    private var accessoryRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                terminalKey("Esc", enabled: controller.canSendInput) {
-                    sendRaw("\u{1B}")
-                }
-                terminalKey("Tab", enabled: controller.canSendInput) {
-                    sendRaw("\t")
-                }
-                terminalKey("Ctrl-C", enabled: controller.canSendInput) {
-                    sendRaw("\u{03}")
-                }
-                terminalKey("Ctrl-D", enabled: controller.canSendInput) {
-                    sendRaw("\u{04}")
-                }
-                terminalKey("Left", enabled: controller.canSendInput) {
-                    sendRaw("\u{1B}[D")
-                }
-                terminalKey("Up", enabled: controller.canSendInput) {
-                    sendRaw("\u{1B}[A")
-                }
-                terminalKey("Down", enabled: controller.canSendInput) {
-                    sendRaw("\u{1B}[B")
-                }
-                terminalKey("Right", enabled: controller.canSendInput) {
-                    sendRaw("\u{1B}[C")
-                }
-                terminalKey("Paste", enabled: controller.canSendInput && UIPasteboard.general.hasStrings) {
-                    if let text = UIPasteboard.general.string {
-                        sendRaw(text)
-                    }
-                }
-                terminalKey("Clear", enabled: !controller.output.isEmpty) {
-                    controller.clearOutput()
-                    ghosttyRenderer.clearScreen()
-                    nativeRendererHasOutput = false
-                }
-                terminalKey(
-                    "Send to AI",
-                    enabled: !controller.output.isEmpty && AppModel.shared.snapshot?.activeThread != nil
-                ) {
-                    sendOutputToAssistant()
+            .onChange(of: storedFontSize) { _, _ in
+                // Font size change re-grids the PTY but the SwiftUI size
+                // didn't move — re-evaluate against the same geometry on
+                // the next frame so the new cell metrics propagate.
+                DispatchQueue.main.async {
+                    resizeTerminal(for: geometry.size)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
         }
-        .background(Color.black)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.white.opacity(0.08))
-                .frame(height: 1)
-        }
-    }
-
-    private func terminalKey(
-        _ label: String,
-        enabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.custom("SFMono-Regular", size: 12))
-                .foregroundColor(enabled ? .white.opacity(0.78) : .white.opacity(0.28))
-                .frame(minWidth: 34)
-                .padding(.horizontal, 8)
-                .frame(height: 34)
-                .background(Color.white.opacity(enabled ? 0.08 : 0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
     }
 
     private var displayText: String {
@@ -354,36 +283,30 @@ struct TerminalScreen: View {
         }
     }
 
-    private func submitCommand() {
-        guard controller.canSendInput else { return }
-        let text = command
-        command = ""
-        Task {
-            await controller.sendLine(text)
+    private var phaseLabel: String {
+        switch controller.phase {
+        case .idle: return "idle"
+        case .connecting: return "connecting"
+        case .running: return selectedBackend?.runningLabel ?? "running"
+        case .exited(let code): return "exited \(code)"
+        case .failed: return "failed"
         }
     }
 
-    private func sendRaw(_ text: String) {
-        Task {
-            await controller.send(text)
-        }
-    }
-
-    /// Send the visible terminal output to the assistant on the current
-    /// active thread, with cwd + last shell command pulled from the OSC
-    /// semantic state. The painted-selection overlay isn't wired yet, so
-    /// v1 sends the whole visible output. When the overlay lands this
-    /// should switch to `renderer.sendSelectionToAssistant` and read from
-    /// Ghostty's selection buffer.
+    /// Forward terminal text to the assistant on the current active
+    /// thread. If a painted selection is active, prefer that text; else
+    /// send the visible viewport.
     private func sendOutputToAssistant() {
         guard let threadKey = AppModel.shared.snapshot?.activeThread else { return }
-        let text = controller.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let selection = ghosttyRenderer.readSelection()?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = controller.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = (selection?.isEmpty == false ? selection : nil) ?? fallback
+        guard !payload.isEmpty else { return }
         Task {
             try? await ghosttyRenderer.sendTextToAssistant(
                 store: AppModel.shared.store,
                 threadKey: threadKey,
-                selection: text
+                selection: payload
             )
         }
     }
@@ -402,17 +325,32 @@ struct TerminalScreen: View {
     private func selectBackend(_ option: TerminalBackendOption) {
         guard selectedBackendID != option.id else { return }
         selectedBackendID = option.id
-        command = ""
         ghosttyRenderer.clearScreen()
         nativeRendererHasOutput = false
         Task {
             await controller.switchBackend(option.backend)
-            inputFocused = true
         }
     }
 
+    /// Recompute PTY cols/rows. Prefer the renderer's live cell metrics —
+    /// they're driven by Ghostty's actual font measurement so font-size
+    /// changes, rotation, and keyboard show/hide all yield correct grids.
+    /// Falls back to a font-size-aware estimate only when the renderer
+    /// hasn't yet reported metrics (first frame of attach).
     private func resizeTerminal(for size: CGSize) {
-        let grid = TerminalGridSize(size: size)
+        let scale = UIScreen.main.scale
+        let metrics = ghosttyRenderer.cellMetrics()
+        let grid: TerminalGridSize
+        if let metrics, metrics.cellWidthPx > 0, metrics.cellHeightPx > 0 {
+            grid = TerminalGridSize(
+                size: size,
+                contentScale: scale,
+                cellWidthPx: CGFloat(metrics.cellWidthPx),
+                cellHeightPx: CGFloat(metrics.cellHeightPx)
+            )
+        } else {
+            grid = TerminalGridSize(estimatedFor: size, fontSize: storedFontSize)
+        }
         guard grid != terminalGridSize else { return }
         terminalGridSize = grid
         let notifyBackend = selectedBackend?.supportsResize == true
@@ -544,7 +482,7 @@ private struct TerminalConfigSheet: View {
                             .font(.custom("SFMono-Regular", size: 13))
                             .foregroundColor(.secondary)
                     }
-                    Slider(value: $fontSize, in: 10...18, step: 1) {
+                    Slider(value: $fontSize, in: 10...24, step: 1) {
                         Text("Font size")
                     }
                     .onChange(of: fontSize) { _, _ in onApply() }
@@ -581,6 +519,7 @@ private struct TerminalBackendOption: Identifiable, Hashable {
     let systemImage: String
     let alleycatNodeId: String?
     let supportsResize: Bool
+    let runningLabel: String
     let backend: TerminalBackendKind
 
     static func localIsh(cwd: String?) -> TerminalBackendOption {
@@ -591,6 +530,7 @@ private struct TerminalBackendOption: Identifiable, Hashable {
             systemImage: "iphone",
             alleycatNodeId: nil,
             supportsResize: true,
+            runningLabel: "running",
             backend: .localIsh(cwd: normalized(cwd))
         )
     }
@@ -608,6 +548,7 @@ private struct TerminalBackendOption: Identifiable, Hashable {
             systemImage: "server.rack",
             alleycatNodeId: nodeId,
             supportsResize: true,
+            runningLabel: "remote",
             backend: .remoteAlleycat(
                 nodeId: nodeId,
                 token: token,
@@ -633,6 +574,7 @@ private struct TerminalBackendOption: Identifiable, Hashable {
             systemImage: "terminal.fill",
             alleycatNodeId: nil,
             supportsResize: true,
+            runningLabel: "ssh",
             backend: .remoteSsh(
                 host: host,
                 port: port,
@@ -664,11 +606,29 @@ private struct TerminalGridSize: Equatable {
         self.rows = rows
     }
 
-    init(size: CGSize) {
+    /// Derive cols/rows from the live cell metrics Ghostty reports. Pixel
+    /// values come from `ghostty_surface_size`, view bounds come from
+    /// SwiftUI; divide the latter (in pixels) by the former to get a
+    /// grid that lines up exactly with what Ghostty paints.
+    init(size: CGSize, contentScale: CGFloat, cellWidthPx: CGFloat, cellHeightPx: CGFloat) {
+        let widthPx = max(0, size.width * contentScale)
+        let heightPx = max(0, size.height * contentScale)
+        let computedCols = Int(floor(widthPx / max(cellWidthPx, 1)))
+        let computedRows = Int(floor(heightPx / max(cellHeightPx, 1)))
+        cols = UInt16(max(20, min(240, computedCols)))
+        rows = UInt16(max(4, min(120, computedRows)))
+    }
+
+    /// First-frame fallback used before the renderer has produced metrics.
+    /// Estimate cell dimensions from the chosen font size so the initial
+    /// PTY grid is in the right ballpark across the 10–24 pt range.
+    init(estimatedFor size: CGSize, fontSize: Double) {
+        let cellWidth = max(6.0, fontSize * 0.6)
+        let cellHeight = max(12.0, fontSize * 1.31)
         let contentWidth = max(0, size.width - 28)
         let contentHeight = max(0, size.height - 24)
-        let computedCols = Int(contentWidth / 7.8)
-        let computedRows = Int(contentHeight / 17.0)
+        let computedCols = Int(contentWidth / cellWidth)
+        let computedRows = Int(contentHeight / cellHeight)
         cols = UInt16(max(20, min(240, computedCols)))
         rows = UInt16(max(4, min(120, computedRows)))
     }

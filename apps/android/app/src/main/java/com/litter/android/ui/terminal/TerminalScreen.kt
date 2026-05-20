@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -20,14 +22,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.PhoneIphone
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.DropdownMenu
@@ -52,16 +50,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.core.bridge.GhosttyRendererBridge
@@ -90,7 +85,6 @@ fun TerminalScreen(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val controller = remember { TerminalSessionController(scope) }
-    val outputScroll = rememberScrollState()
     val prootState by AndroidProotBootstrap.state.collectAsState()
     val rendererStatus = remember { GhosttyRendererBridge.status() }
     var nativeRendererAvailable by remember {
@@ -100,7 +94,6 @@ fun TerminalScreen(
     var selectedBackendId by remember(preferredAlleycatNodeId) { mutableStateOf<String?>(null) }
     val selectedBackend = backendOptions.firstOrNull { it.id == selectedBackendId }
         ?: backendOptions.firstOrNull()
-    var command by remember { mutableStateOf("") }
     var terminalGridSize by remember { mutableStateOf(TerminalGridSize(cols = 80, rows = 24)) }
     var showConfigSheet by remember { mutableStateOf(false) }
 
@@ -116,12 +109,6 @@ fun TerminalScreen(
         TerminalConfigPrefs.currentConfig()
     }
 
-    fun submitCommand() {
-        val line = command
-        command = ""
-        controller.sendLine(line)
-    }
-
     LaunchedEffect(backendOptions, preferredAlleycatNodeId) {
         if (backendOptions.none { it.id == selectedBackendId }) {
             selectedBackendId = initialBackendId(backendOptions, preferredAlleycatNodeId)
@@ -130,10 +117,6 @@ fun TerminalScreen(
 
     LaunchedEffect(selectedBackend?.id) {
         selectedBackend?.let { controller.switchBackend(it.backend) }
-    }
-
-    LaunchedEffect(controller.output.length) {
-        outputScroll.scrollTo(outputScroll.maxValue)
     }
 
     DisposableEffect(controller) {
@@ -155,7 +138,6 @@ fun TerminalScreen(
             backendOptions = backendOptions,
             onSelectBackend = { option ->
                 selectedBackendId = option.id
-                command = ""
             },
             onBack = onBack,
             onConfigClick = { showConfigSheet = true },
@@ -202,7 +184,6 @@ fun TerminalScreen(
             selectedBackend = selectedBackend,
             terminalGridSize = terminalGridSize,
             onTerminalGridSizeChanged = { terminalGridSize = it },
-            outputScroll = outputScroll,
             density = density,
             terminalConfig = currentTerminalConfig,
             modifier = Modifier
@@ -217,59 +198,21 @@ fun TerminalScreen(
             canSendToAssistant = controller.output.isNotEmpty() && activeThreadKey != null,
             onSendToAssistant = {
                 val key = activeThreadKey ?: return@TerminalAccessoryRow
-                val text = controller.output.trim()
-                if (text.isEmpty()) return@TerminalAccessoryRow
+                val selection = ActiveTerminalRegistry.readSelection()
+                val fallback = controller.output.trim()
+                val payload = (selection?.takeIf { it.isNotEmpty() } ?: fallback)
+                if (payload.isEmpty()) return@TerminalAccessoryRow
                 scope.launch {
                     runCatching {
                         ActiveTerminalRegistry.sendTextToAssistant(
                             store = AppModel.shared.store,
                             threadKey = key,
-                            selection = text,
+                            selection = payload,
                         )
                     }
                 }
             },
         )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 12.dp, end = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            BasicTextField(
-                value = command,
-                onValueChange = { command = it },
-                enabled = controller.canSendInput,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = LitterTheme.textPrimary,
-                    fontFamily = LitterTheme.monoFont,
-                    fontSize = 14.sp,
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { submitCommand() }),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, LitterTheme.border, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-            )
-            IconButton(
-                onClick = { submitCommand() },
-                enabled = controller.canSendInput,
-                modifier = Modifier.size(42.dp),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    tint = if (controller.canSendInput) LitterTheme.accent else LitterTheme.textMuted,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
     }
 
     if (showConfigSheet) {
@@ -326,8 +269,8 @@ private fun TerminalConfigSheet(
                 Slider(
                     value = TerminalConfigPrefs.fontSize,
                     onValueChange = { TerminalConfigPrefs.setFontSize(context, it) },
-                    valueRange = 10f..18f,
-                    steps = 7,
+                    valueRange = 10f..24f,
+                    steps = 13,
                 )
             }
 
@@ -394,27 +337,33 @@ private fun TerminalOutputPane(
     selectedBackend: TerminalBackendOption?,
     terminalGridSize: TerminalGridSize,
     onTerminalGridSizeChanged: (TerminalGridSize) -> Unit,
-    outputScroll: androidx.compose.foundation.ScrollState,
     density: androidx.compose.ui.unit.Density,
     terminalConfig: uniffi.codex_mobile_client.TerminalConfig?,
     modifier: Modifier = Modifier,
 ) {
+    val outputScroll = rememberScrollState()
+    LaunchedEffect(controller.output.length) {
+        outputScroll.scrollTo(outputScroll.maxValue)
+    }
+
+    // Track the pane size so the pinch-driven font-size callback can
+    // re-grid against the same container dimensions without going
+    // through another layout pass.
+    var paneSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+
     Box(
         modifier = modifier
             .onSizeChanged { size ->
-                val grid = TerminalGridSize.fromPixels(
+                paneSize = size
+                applyResize(
                     width = size.width,
                     height = size.height,
                     density = density,
+                    terminalGridSize = terminalGridSize,
+                    onTerminalGridSizeChanged = onTerminalGridSizeChanged,
+                    controller = controller,
+                    selectedBackend = selectedBackend,
                 )
-                if (grid != terminalGridSize) {
-                    onTerminalGridSizeChanged(grid)
-                    controller.resize(
-                        cols = grid.cols,
-                        rows = grid.rows,
-                        notifyBackend = selectedBackend?.supportsResize == true,
-                    )
-                }
             },
     ) {
         if (nativeRendererAvailable) {
@@ -423,6 +372,22 @@ private fun TerminalOutputPane(
                 rendererStatus = rendererStatus,
                 onRendererUnavailable = onNativeRendererUnavailable,
                 config = terminalConfig,
+                onFontSizeChanged = { _ ->
+                    // Font size change shifts cell metrics; re-grid against
+                    // the current container size so the PTY learns the new
+                    // dimensions on the next event.
+                    if (paneSize.width > 0 && paneSize.height > 0) {
+                        applyResize(
+                            width = paneSize.width,
+                            height = paneSize.height,
+                            density = density,
+                            terminalGridSize = terminalGridSize,
+                            onTerminalGridSizeChanged = onTerminalGridSizeChanged,
+                            controller = controller,
+                            selectedBackend = selectedBackend,
+                        )
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -446,6 +411,46 @@ private fun TerminalOutputPane(
                 }
             }
         }
+    }
+}
+
+/// Recompute (cols, rows) for the PTY. Prefer the live Ghostty cell
+/// metrics returned by the active renderer — they're keyed to the
+/// actual painted font — and fall back to a font-size-aware estimate
+/// only when no renderer has been bound yet (first paint).
+private fun applyResize(
+    width: Int,
+    height: Int,
+    density: androidx.compose.ui.unit.Density,
+    terminalGridSize: TerminalGridSize,
+    onTerminalGridSizeChanged: (TerminalGridSize) -> Unit,
+    controller: TerminalSessionController,
+    selectedBackend: TerminalBackendOption?,
+) {
+    val metrics = ActiveTerminalRegistry.current()?.cellMetrics()
+    val grid = if (metrics != null && metrics.cellWidthPx > 0 && metrics.cellHeightPx > 0) {
+        TerminalGridSize.fromCellMetrics(
+            widthPx = width,
+            heightPx = height,
+            density = density,
+            cellWidthPx = metrics.cellWidthPx,
+            cellHeightPx = metrics.cellHeightPx,
+        )
+    } else {
+        TerminalGridSize.fromEstimate(
+            widthPx = width,
+            heightPx = height,
+            density = density,
+            fontSizeSp = TerminalConfigPrefs.fontSize,
+        )
+    }
+    if (grid != terminalGridSize) {
+        onTerminalGridSizeChanged(grid)
+        controller.resize(
+            cols = grid.cols,
+            rows = grid.rows,
+            notifyBackend = selectedBackend?.supportsResize == true,
+        )
     }
 }
 
@@ -565,18 +570,20 @@ private fun TerminalAccessoryRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.96f))
             .horizontalScroll(scroll)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        TerminalKey("Esc", enabled = controller.canSendInput) { controller.send("\u001B") }
+        TerminalKey("Esc", enabled = controller.canSendInput) { controller.send("") }
         TerminalKey("Tab", enabled = controller.canSendInput) { controller.send("\t") }
-        TerminalKey("Ctrl-C", enabled = controller.canSendInput) { controller.send("\u0003") }
-        TerminalKey("Ctrl-D", enabled = controller.canSendInput) { controller.send("\u0004") }
-        TerminalKey("Left", enabled = controller.canSendInput) { controller.send("\u001B[D") }
-        TerminalKey("Up", enabled = controller.canSendInput) { controller.send("\u001B[A") }
-        TerminalKey("Down", enabled = controller.canSendInput) { controller.send("\u001B[B") }
-        TerminalKey("Right", enabled = controller.canSendInput) { controller.send("\u001B[C") }
+        TerminalKey("Ctrl-C", enabled = controller.canSendInput) { controller.send("") }
+        TerminalKey("Ctrl-D", enabled = controller.canSendInput) { controller.send("") }
+        TerminalKey("Ctrl-Z", enabled = controller.canSendInput) { controller.send("") }
+        TerminalKey("←", enabled = controller.canSendInput) { controller.send("[D") }
+        TerminalKey("↑", enabled = controller.canSendInput) { controller.send("[A") }
+        TerminalKey("↓", enabled = controller.canSendInput) { controller.send("[B") }
+        TerminalKey("→", enabled = controller.canSendInput) { controller.send("[C") }
         TerminalKey("Paste", enabled = controller.canSendInput && !pasteText.isNullOrEmpty()) {
             pasteText?.let(controller::send)
         }
@@ -756,15 +763,42 @@ private data class TerminalGridSize(
     val rows: Int,
 ) {
     companion object {
-        fun fromPixels(
-            width: Int,
-            height: Int,
+        /// Compute the grid from the live cell metrics Ghostty reports.
+        /// Divides the container pixel size by the cell pixel size to
+        /// land on the same grid Ghostty paints.
+        fun fromCellMetrics(
+            widthPx: Int,
+            heightPx: Int,
             density: androidx.compose.ui.unit.Density,
+            cellWidthPx: Float,
+            cellHeightPx: Float,
+        ): TerminalGridSize {
+            val w = widthPx.coerceAtLeast(1)
+            val h = heightPx.coerceAtLeast(1)
+            val cellW = cellWidthPx.coerceAtLeast(1f)
+            val cellH = cellHeightPx.coerceAtLeast(1f)
+            val cols = (w / cellW).toInt().coerceIn(20, 240)
+            val rows = (h / cellH).toInt().coerceIn(4, 120)
+            return TerminalGridSize(cols = cols, rows = rows)
+        }
+
+        /// First-paint fallback when the renderer hasn't measured the
+        /// font yet. Scale cell estimates with the chosen font size so a
+        /// 24sp font doesn't over-report cols/rows.
+        fun fromEstimate(
+            widthPx: Int,
+            heightPx: Int,
+            density: androidx.compose.ui.unit.Density,
+            fontSizeSp: Float,
         ): TerminalGridSize = with(density) {
-            val contentWidth = (width - 32.dp.roundToPx()).coerceAtLeast(0)
-            val contentHeight = (height - 20.dp.roundToPx()).coerceAtLeast(0)
-            val cols = (contentWidth / 8.dp.toPx()).toInt().coerceIn(20, 240)
-            val rows = (contentHeight / 17.sp.toPx()).toInt().coerceIn(4, 120)
+            val contentWidth = (widthPx - 32.dp.roundToPx()).coerceAtLeast(0)
+            val contentHeight = (heightPx - 20.dp.roundToPx()).coerceAtLeast(0)
+            val cellWidthPx = (fontSizeSp.coerceAtLeast(8f) * 0.6f).sp.toPx()
+            val cellHeightPx = (fontSizeSp.coerceAtLeast(8f) * 1.31f).sp.toPx()
+            val cols = (contentWidth / cellWidthPx.coerceAtLeast(1f))
+                .toInt().coerceIn(20, 240)
+            val rows = (contentHeight / cellHeightPx.coerceAtLeast(1f))
+                .toInt().coerceIn(4, 120)
             TerminalGridSize(cols = cols, rows = rows)
         }
     }

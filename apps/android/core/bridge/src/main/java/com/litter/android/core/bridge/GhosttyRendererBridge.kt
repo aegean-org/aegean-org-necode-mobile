@@ -17,6 +17,18 @@ fun interface GhosttyWakeupListener {
     fun onWakeup()
 }
 
+/// Snapshot of the Ghostty surface grid + cell metrics. Pixel sizes are
+/// already multiplied by the content scale; cell sizes are floored to
+/// whole pixels.
+data class SurfaceSize(
+    val columns: Int,
+    val rows: Int,
+    val widthPx: Int,
+    val heightPx: Int,
+    val cellWidthPx: Int,
+    val cellHeightPx: Int,
+)
+
 object GhosttyRendererBridge {
     private const val rendererBlockedReason =
         "Ghostty Android GLES/EGL embedded surface is unavailable"
@@ -101,6 +113,16 @@ object GhosttyRendererBridge {
     private external fun nativeSetFocus(handle: Long, focused: Boolean)
 
     private external fun nativeApplyConfig(handle: Long, path: String): Boolean
+
+    private external fun nativeSurfaceSize(handle: Long): IntArray
+
+    private external fun nativeReadText(
+        handle: Long,
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+    ): String?
 
     private external fun nativeMouseMove(handle: Long, x: Double, y: Double, mods: Int)
 
@@ -190,6 +212,42 @@ object GhosttyRendererBridge {
             val active = handle
             if (active == 0L) return false
             return nativeApplyConfig(active, path)
+        }
+
+        /// Live surface metrics. Returns `null` if the surface isn't ready
+        /// or Ghostty reports zero-sized cells (e.g. before the first
+        /// layout pass).
+        fun surfaceSize(): SurfaceSize? {
+            val active = handle
+            if (active == 0L) return null
+            val raw = nativeSurfaceSize(active)
+            if (raw.size != 6) return null
+            val cellW = raw[4]
+            val cellH = raw[5]
+            if (cellW <= 0 || cellH <= 0) return null
+            return SurfaceSize(
+                columns = raw[0],
+                rows = raw[1],
+                widthPx = raw[2],
+                heightPx = raw[3],
+                cellWidthPx = cellW,
+                cellHeightPx = cellH,
+            )
+        }
+
+        /// Read text from a viewport-relative cell range (inclusive on
+        /// both endpoints, same coordinate space the selection overlay
+        /// uses). Returns `null` if the range is empty or the surface
+        /// isn't ready.
+        fun readText(
+            startRow: Int,
+            startCol: Int,
+            endRow: Int,
+            endCol: Int,
+        ): String? {
+            val active = handle
+            if (active == 0L) return null
+            return nativeReadText(active, startRow, startCol, endRow, endCol)
         }
 
         fun mouseMove(x: Double, y: Double, mods: Int = 0) {

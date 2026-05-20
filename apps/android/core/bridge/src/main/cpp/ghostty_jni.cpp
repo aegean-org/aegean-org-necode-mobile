@@ -884,6 +884,81 @@ Java_com_litter_android_core_bridge_GhosttyRendererBridge_nativeMouseScroll(
     ghostty_surface_mouse_scroll(state->surface, x, y, scroll_mods);
 }
 
+/// Read live Ghostty surface metrics. Returns a 6-element `int[]` packed
+/// as `{ columns, rows, width_px, height_px, cell_width_px, cell_height_px }`.
+/// Returns an all-zero array when the surface isn't ready.
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_litter_android_core_bridge_GhosttyRendererBridge_nativeSurfaceSize(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong handle
+) {
+    jintArray result = env->NewIntArray(6);
+    if (result == nullptr) {
+        return nullptr;
+    }
+    jint zeros[6] = {0, 0, 0, 0, 0, 0};
+    AndroidGhosttySurface* state = fromHandle(handle);
+    if (state == nullptr || state->surface == nullptr) {
+        env->SetIntArrayRegion(result, 0, 6, zeros);
+        return result;
+    }
+    ghostty_surface_size_s size = ghostty_surface_size(state->surface);
+    jint values[6] = {
+        (jint)size.columns,
+        (jint)size.rows,
+        (jint)size.width_px,
+        (jint)size.height_px,
+        (jint)size.cell_width_px,
+        (jint)size.cell_height_px,
+    };
+    env->SetIntArrayRegion(result, 0, 6, values);
+    return result;
+}
+
+/// Read text from a viewport-relative cell range. Returns `nil` if the
+/// surface isn't ready, the range is empty, or the Ghostty call fails.
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_litter_android_core_bridge_GhosttyRendererBridge_nativeReadText(
+    JNIEnv* env,
+    jobject /* thiz */,
+    jlong handle,
+    jint startRow,
+    jint startCol,
+    jint endRow,
+    jint endCol
+) {
+    AndroidGhosttySurface* state = fromHandle(handle);
+    if (state == nullptr || state->surface == nullptr) {
+        return nullptr;
+    }
+    ghostty_selection_s selection = {};
+    selection.top_left.tag = GHOSTTY_POINT_VIEWPORT;
+    selection.top_left.coord = GHOSTTY_POINT_COORD_EXACT;
+    selection.top_left.x = (uint32_t)startCol;
+    selection.top_left.y = (uint32_t)startRow;
+    selection.bottom_right.tag = GHOSTTY_POINT_VIEWPORT;
+    selection.bottom_right.coord = GHOSTTY_POINT_COORD_EXACT;
+    selection.bottom_right.x = (uint32_t)endCol;
+    selection.bottom_right.y = (uint32_t)endRow;
+    selection.rectangle = false;
+
+    ghostty_text_s text = {};
+    if (!ghostty_surface_read_text(state->surface, selection, &text)) {
+        return nullptr;
+    }
+    jstring result = nullptr;
+    if (text.text != nullptr && text.text_len > 0) {
+        // Ghostty hands us a UTF-8 buffer that is NOT NUL-terminated. Copy
+        // it into a temporary owned buffer so we can hand a valid C string
+        // to NewStringUTF.
+        std::string owned(text.text, text.text_len);
+        result = env->NewStringUTF(owned.c_str());
+    }
+    ghostty_surface_free_text(state->surface, &text);
+    return result;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_litter_android_core_bridge_GhosttyRendererBridge_nativeApplyConfig(
     JNIEnv* env,

@@ -624,7 +624,6 @@ struct HomeDashboardView: View {
                 .frame(width: catWidth, height: catHeight)
                 .position(x: w / 2, y: h * 0.42)
         }
-        .allowsHitTesting(false)
     }
 }
 
@@ -635,7 +634,7 @@ private struct EmptyHomeFatCatView: View {
     private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
 
     var body: some View {
-        Group {
+        CatTransmissionPressView {
             if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
                 AlphaAnimatedImageView(
                     fileURL: imageURL,

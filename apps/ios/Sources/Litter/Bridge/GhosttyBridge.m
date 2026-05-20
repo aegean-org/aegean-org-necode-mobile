@@ -289,6 +289,55 @@ static void LitterGhosttyExternalWrite(void *userdata, const uint8_t *data, uint
     ghostty_surface_mouse_scroll(_surface, x, y, scrollMods);
 }
 
+- (LitterGhosttySurfaceMetrics)surfaceMetrics {
+    LitterGhosttySurfaceMetrics out = {0};
+    if (_surface == NULL) {
+        return out;
+    }
+    ghostty_surface_size_s size = ghostty_surface_size(_surface);
+    out.columns = size.columns;
+    out.rows = size.rows;
+    out.widthPx = size.width_px;
+    out.heightPx = size.height_px;
+    out.cellWidthPx = size.cell_width_px;
+    out.cellHeightPx = size.cell_height_px;
+    return out;
+}
+
+- (nullable NSString *)readTextFromRow:(uint32_t)startRow
+                                 column:(uint32_t)startCol
+                                  toRow:(uint32_t)endRow
+                                 column:(uint32_t)endCol {
+    if (_surface == NULL) {
+        return nil;
+    }
+    ghostty_selection_s selection = {0};
+    selection.top_left.tag = GHOSTTY_POINT_VIEWPORT;
+    selection.top_left.coord = GHOSTTY_POINT_COORD_EXACT;
+    selection.top_left.x = startCol;
+    selection.top_left.y = startRow;
+    selection.bottom_right.tag = GHOSTTY_POINT_VIEWPORT;
+    selection.bottom_right.coord = GHOSTTY_POINT_COORD_EXACT;
+    selection.bottom_right.x = endCol;
+    selection.bottom_right.y = endRow;
+    selection.rectangle = false;
+
+    ghostty_text_s text = {0};
+    if (!ghostty_surface_read_text(_surface, selection, &text)) {
+        return nil;
+    }
+    @try {
+        if (text.text == NULL || text.text_len == 0) {
+            return nil;
+        }
+        return [[NSString alloc] initWithBytes:text.text
+                                        length:(NSUInteger)text.text_len
+                                      encoding:NSUTF8StringEncoding];
+    } @finally {
+        ghostty_surface_free_text(_surface, &text);
+    }
+}
+
 static ghostty_input_key_e LitterGhosttyKeyToGhosttyKey(LitterGhosttyKey key) {
     switch (key) {
         case LitterGhosttyKeyEnter:      return GHOSTTY_KEY_ENTER;
@@ -472,7 +521,12 @@ static void LitterGhosttyWriteClipboard(void *userdata, ghostty_clipboard_e clip
 static void LitterGhosttyCloseSurface(void *userdata, bool processActive) {
     (void)processActive;
     LitterGhosttyTerminal *terminal = LitterGhosttyTerminalFromUserdata(userdata);
-    [terminal invalidate];
+    if (terminal == nil) {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [terminal invalidate];
+    });
 }
 
 static void LitterGhosttyExternalWrite(void *userdata, const uint8_t *data, uintptr_t length) {

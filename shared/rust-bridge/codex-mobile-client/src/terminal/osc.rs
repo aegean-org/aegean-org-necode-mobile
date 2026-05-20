@@ -193,27 +193,46 @@ impl OscParser {
     /// Feed a chunk of bytes. Bytes that are not part of an in-progress
     /// OSC sequence advance the cursor estimate but are not modified. The
     /// caller is responsible for forwarding the same bytes to Ghostty.
-    pub fn feed(&mut self, bytes: &[u8]) {
+    ///
+    /// Returns the number of BEL (0x07) bytes seen in `Ground` state during
+    /// this chunk so the renderer can fan a single event out to bell
+    /// listeners regardless of how many BELs landed in the burst.
+    pub fn feed(&mut self, bytes: &[u8]) -> u32 {
         let mut changed = false;
+        let mut bells: u32 = 0;
         for &byte in bytes {
-            changed |= self.feed_byte(byte);
+            let (c, bell) = self.feed_byte(byte);
+            changed |= c;
+            if bell {
+                bells = bells.saturating_add(1);
+            }
         }
         if changed {
             self.notify();
         }
+        bells
     }
 
-    /// Advance one byte through the state machine. Returns `true` if the
-    /// semantic state was mutated and listeners should be notified.
-    fn feed_byte(&mut self, byte: u8) -> bool {
+    /// Advance one byte through the state machine. Returns
+    /// `(semantic_changed, bell)`:
+    ///   * `semantic_changed` — caller should run the listener fan-out.
+    ///   * `bell` — a BEL (0x07) was observed in `Ground` state, i.e. a
+    ///     real `\a` rather than an OSC string terminator.
+    fn feed_byte(&mut self, byte: u8) -> (bool, bool) {
         match self.state {
             ParserState::Ground => {
                 if byte == 0x1B {
                     self.state = ParserState::Esc;
-                } else {
-                    self.advance_cursor_ground(byte);
+                    return (false, false);
                 }
-                false
+                if byte == 0x07 {
+                    // Real terminal bell. 0x07 is treated as the OSC
+                    // string terminator only inside `OscBody`; in Ground
+                    // it's a bell.
+                    return (false, true);
+                }
+                self.advance_cursor_ground(byte);
+                (false, false)
             }
             ParserState::Esc => {
                 match byte {
@@ -231,7 +250,7 @@ impl OscParser {
                         self.state = ParserState::Ground;
                     }
                 }
-                false
+                (false, false)
             }
             ParserState::Csi => {
                 // CSI parameter (0x30..=0x3F) / intermediate (0x20..=0x2F)
@@ -239,29 +258,29 @@ impl OscParser {
                 if (0x40..=0x7E).contains(&byte) {
                     self.state = ParserState::Ground;
                 }
-                false
+                (false, false)
             }
             ParserState::OscBody => match byte {
-                0x07 => self.complete_osc(),
+                0x07 => (self.complete_osc(), false),
                 0x1B => {
                     self.state = ParserState::OscEsc;
-                    false
+                    (false, false)
                 }
                 _ => {
                     self.push_payload_byte(byte);
-                    false
+                    (false, false)
                 }
             },
             ParserState::OscEsc => {
                 if byte == b'\\' {
-                    self.complete_osc()
+                    (self.complete_osc(), false)
                 } else {
                     // Bare ESC inside OSC payload — keep both ESC and the
                     // following byte as data and resume accumulation.
                     self.push_payload_byte(0x1B);
                     self.push_payload_byte(byte);
                     self.state = ParserState::OscBody;
-                    false
+                    (false, false)
                 }
             }
         }
@@ -810,6 +829,28 @@ mod tests {
         let recorded = calls.lock().unwrap();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].cwd.as_deref(), Some("/tmp"));
+    }
+
+    #[test]
+    fn ground_bel_counts_once_per_byte() {
+        let (mut parser, _semantic, _) = fresh_parser();
+        assert_eq!(parser.feed(b"hi\x07there\x07"), 2);
+    }
+
+    #[test]
+    fn osc_terminator_bel_does_not_count_as_bell() {
+        let (mut parser, _semantic, _) = fresh_parser();
+        // OSC payload terminated by BEL — this BEL is the ST, not a real
+        // bell. Must NOT be counted.
+        assert_eq!(parser.feed(b"\x1b]7;file://h/tmp\x07"), 0);
+    }
+
+    #[test]
+    fn mixed_ground_bell_and_osc_terminator() {
+        let (mut parser, _semantic, _) = fresh_parser();
+        // Real bell + OSC + real bell. Only the two Ground bells count.
+        let n = parser.feed(b"\x07\x1b]2;title\x07\x07");
+        assert_eq!(n, 2);
     }
 
     #[test]

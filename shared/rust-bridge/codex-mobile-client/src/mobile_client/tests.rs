@@ -554,7 +554,11 @@ mod mobile_client_tests {
     }
 
     #[test]
-    fn upsert_thread_snapshot_from_thread_read_response_uses_effective_permissions() {
+    fn upsert_thread_snapshot_from_thread_read_response_leaves_effective_permissions_unset() {
+        // Upstream `thread/read` no longer carries approvalPolicy / sandbox;
+        // those fields only ride on `thread/resume`. Confirm the read path
+        // leaves `effective_*_policy` as `None` so a later resume populates
+        // them authoritatively instead of inheriting stale values.
         let reducer = AppStoreReducer::new();
         let response: upstream::ThreadReadResponse = serde_json::from_value(serde_json::json!({
             "thread": {
@@ -575,10 +579,6 @@ mod mobile_client_tests {
                 "gitInfo": null,
                 "name": "thread",
                 "turns": []
-            },
-            "approvalPolicy": "never",
-            "sandbox": {
-                "type": "dangerFullAccess"
             }
         }))
         .expect("thread/read response should deserialize");
@@ -597,14 +597,8 @@ mod mobile_client_tests {
             .find_map(|(thread_key, thread)| (thread_key == key).then_some(thread))
             .expect("thread snapshot should exist");
 
-        assert_eq!(
-            snapshot.effective_approval_policy,
-            Some(crate::types::AppAskForApproval::Never)
-        );
-        assert_eq!(
-            snapshot.effective_sandbox_policy,
-            Some(crate::types::AppSandboxPolicy::DangerFullAccess)
-        );
+        assert!(snapshot.effective_approval_policy.is_none());
+        assert!(snapshot.effective_sandbox_policy.is_none());
     }
 
     #[test]
@@ -649,10 +643,6 @@ mod mobile_client_tests {
                         "durationMs": null
                     }
                 ]
-            },
-            "approvalPolicy": "never",
-            "sandbox": {
-                "type": "dangerFullAccess"
             }
         }))
         .expect("thread/read response should deserialize");

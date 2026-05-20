@@ -94,6 +94,12 @@ targets:
       - path: Sources/Litter/Resources/TipJarProducts.storekit
       - path: Sources/Litter/Resources/home_cat.png
       - path: Sources/Litter/Resources/home_cat_entrance.png
+      - path: Sources/Litter/Resources/cat_transmission_01.png
+      - path: Sources/Litter/Resources/cat_transmission_02.png
+      - path: Sources/Litter/Resources/cat_transmission_03.png
+      - path: Sources/Litter/Resources/cat_transmission_04.png
+      - path: Sources/Litter/Resources/cat_transmission_05.png
+      - path: Sources/Litter/Resources/cat_transmission_06.png
     dependencies:
       - sdk: CarPlay.framework
       - sdk: CoreGraphics.framework
@@ -197,6 +203,12 @@ targets:
       - path: Sources/Litter/Resources/TipJarProducts.storekit
       - path: Sources/Litter/Resources/home_cat.png
       - path: Sources/Litter/Resources/home_cat_entrance.png
+      - path: Sources/Litter/Resources/cat_transmission_01.png
+      - path: Sources/Litter/Resources/cat_transmission_02.png
+      - path: Sources/Litter/Resources/cat_transmission_03.png
+      - path: Sources/Litter/Resources/cat_transmission_04.png
+      - path: Sources/Litter/Resources/cat_transmission_05.png
+      - path: Sources/Litter/Resources/cat_transmission_06.png
     dependencies:
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework

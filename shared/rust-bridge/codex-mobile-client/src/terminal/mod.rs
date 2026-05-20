@@ -31,7 +31,9 @@ pub use osc::{
     TerminalCellPosition, TerminalHyperlink, TerminalPromptMark, TerminalSemanticState,
     TerminalSemanticStateListener,
 };
-pub use renderer::{TerminalRenderer, TerminalRendererBackend, TerminalSendToAssistantPayload};
+pub use renderer::{
+    TerminalBellListener, TerminalRenderer, TerminalRendererBackend, TerminalSendToAssistantPayload,
+};
 pub use selection::{TerminalCellMetrics, TerminalCellRange};
 pub use session::{
     TerminalBackendKind, TerminalError, TerminalOutputListener, TerminalSession, TerminalSize,
