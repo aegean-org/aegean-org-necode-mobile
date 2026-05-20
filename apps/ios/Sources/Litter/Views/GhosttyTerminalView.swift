@@ -119,6 +119,13 @@ final class GhosttyTerminalRenderer {
         renderer?.sendPaste(text: text)
     }
 
+    /// Send raw, unwrapped bytes straight to the PTY (used by accessory
+    /// bar control keys so Esc/Tab/Ctrl-C don't accidentally enter
+    /// bracketed-paste mode).
+    func sendRawBytes(_ data: Data) {
+        renderer?.sendRawBytes(bytes: data)
+    }
+
     /// Send `selection` to the assistant on `threadKey`. Pulls cwd + last
     /// shell command from the renderer's OSC semantic state.
     func sendTextToAssistant(
@@ -228,6 +235,10 @@ final class GhosttyTerminalRenderer {
     func invalidate() {
         guard !isInvalidated else { return }
         isInvalidated = true
+        onInput = nil
+        onNativeOutputVisibilityChanged = nil
+        onSelectionRangeChanged = nil
+        onBell = nil
         renderer?.detach()
         renderer = nil
         backendBridge = nil
@@ -903,6 +914,7 @@ final class GhosttyHostView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
     private var selectionAnchorPos: TerminalCellPosition?
     private var pinchStartFontSize: Double = 13.0
     private var lastBellTimestamp: TimeInterval = 0
+    private var isDismantled = false
 
     private let keyboardOverlay = LitterGhosttyInputView()
     private let accessoryBar = LitterTerminalAccessoryBar()
@@ -963,7 +975,14 @@ final class GhosttyHostView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
     private func installAccessoryActions() {
         accessoryBar.onSendRaw = { [weak self] payload in
             guard let renderer = self?.renderer else { return }
-            renderer.sendPaste(payload)
+            // Raw control sequences (Esc, Tab, Ctrl-C, arrows) go straight
+            // to the PTY input direction without the bracketed-paste
+            // wrapper. iSH / busybox shells don't enable paste mode by
+            // default, so the wrapper would print as literal text and
+            // break the keystroke.
+            if let data = payload.data(using: .utf8) {
+                renderer.sendRawBytes(data)
+            }
         }
         accessoryBar.onPaste = { [weak self] in
             guard let renderer = self?.renderer else { return }
@@ -1305,20 +1324,42 @@ final class GhosttyHostView: UIView, UIGestureRecognizerDelegate, UIEditMenuInte
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
+            guard !isDismantled else { return }
+            isUserInteractionEnabled = true
+            gestureRecognizers?.forEach { $0.isEnabled = true }
+            if keyboardOverlay.accessoryBar == nil {
+                keyboardOverlay.accessoryBar = accessoryBar
+            }
+            keyboardOverlay.renderer = renderer
             selectionOverlay.setContentScale(contentScale)
-            becomeFirstResponder()
+            _ = becomeFirstResponder()
             renderer?.attach(to: self)
+            renderer?.setOccluded(false)
         } else {
-            teardownForDismissal()
+            parkForTemporaryDetach()
         }
     }
 
-    /// Release the hidden UITextField's first-responder hold and ask the
-    /// renderer to idle. Without this, leaving the terminal leaves the
-    /// keyboard up and the parent screen receives no taps because the
-    /// first-responder chain is still pinned to a now-offscreen overlay.
-    func teardownForDismissal() {
+    /// UIKit can temporarily remove a representable view from a window
+    /// during navigation transitions. Park focus, but keep recognizers and
+    /// the accessory bar intact in case the same view is reattached.
+    private func parkForTemporaryDetach() {
         keyboardOverlay.resignFirstResponder()
+        _ = resignFirstResponder()
+        renderer?.setFocused(false)
+        renderer?.setOccluded(true)
+    }
+
+    /// Final teardown from `UIViewRepresentable.dismantleUIView`.
+    func teardownForDismissal() {
+        isDismantled = true
+        isUserInteractionEnabled = false
+        gestureRecognizers?.forEach { $0.isEnabled = false }
+        keyboardOverlay.renderer = nil
+        keyboardOverlay.inputAccessoryView = nil
+        keyboardOverlay.accessoryBar = nil
+        keyboardOverlay.resignFirstResponder()
+        endEditing(true)
         _ = resignFirstResponder()
         renderer?.setFocused(false)
         renderer?.setOccluded(true)

@@ -188,8 +188,12 @@ final class TerminalSessionController {
         guard let id = sessionId else { return }
         sessionId = nil
         outputListener = nil
+        outputSink = nil
+        if appStore.activeTerminalId() == id {
+            appStore.setActiveTerminalId(id: nil)
+        }
         phase = .idle
-        Task {
+        Task.detached(priority: .utility) { [appStore] in
             try? await appStore.closeTerminalSession(id: id)
         }
     }

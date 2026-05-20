@@ -266,6 +266,21 @@ impl TerminalRenderer {
         }
     }
 
+    /// Send already-encoded raw bytes straight to the PTY input direction,
+    /// bypassing both the keyboard encoder and the bracketed-paste
+    /// wrapper. Used by the on-screen accessory bar for control keys
+    /// (Esc, Tab, Ctrl-C, arrow keys) so the shell sees them as if the
+    /// user typed them, and never as a paste sequence.
+    pub fn send_raw_bytes(&self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
+        }
+        if let Some(backend) = self.inner.current_backend() {
+            backend.dispatch_paste(bytes);
+            self.notify_needs_draw();
+        }
+    }
+
     /// Tee a chunk of PTY bytes through the OSC parser. The platform calls
     /// this with the same bytes it passes to `ghostty_surface_write`. The
     /// parser does not modify the byte stream — it only observes.

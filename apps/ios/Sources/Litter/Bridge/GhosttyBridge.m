@@ -15,6 +15,7 @@ static void LitterGhosttyConfirmReadClipboard(void *userdata, const char *title,
 static void LitterGhosttyWriteClipboard(void *userdata, ghostty_clipboard_e clipboard, const ghostty_clipboard_content_s *contents, size_t count, bool confirm);
 static void LitterGhosttyCloseSurface(void *userdata, bool processActive);
 static void LitterGhosttyExternalWrite(void *userdata, const uint8_t *data, uintptr_t length);
+static dispatch_queue_t LitterGhosttyDestroyQueue(void);
 
 @interface LitterGhosttyTerminal ()
 @property (nonatomic, weak) UIView *view;
@@ -143,18 +144,30 @@ static void LitterGhosttyExternalWrite(void *userdata, const uint8_t *data, uint
 
     [_displayLink invalidate];
     _displayLink = nil;
+    self.inputHandler = nil;
+    _view = nil;
 
-    if (_surface != NULL) {
-        ghostty_surface_free(_surface);
-        _surface = NULL;
-    }
-    if (_app != NULL) {
-        ghostty_app_free(_app);
-        _app = NULL;
-    }
-    if (_config != NULL) {
-        ghostty_config_free(_config);
-        _config = NULL;
+    ghostty_surface_t surface = _surface;
+    ghostty_app_t app = _app;
+    ghostty_config_t config = _config;
+    _surface = NULL;
+    _app = NULL;
+    _config = NULL;
+
+    if (surface != NULL || app != NULL || config != NULL) {
+        LitterGhosttyTerminal *terminal = self;
+        dispatch_async(LitterGhosttyDestroyQueue(), ^{
+            (void)terminal;
+            if (surface != NULL) {
+                ghostty_surface_free(surface);
+            }
+            if (app != NULL) {
+                ghostty_app_free(app);
+            }
+            if (config != NULL) {
+                ghostty_config_free(config);
+            }
+        });
     }
 }
 
@@ -456,6 +469,15 @@ static void LitterGhosttyResizeBackingLayers(UIView *view, CGFloat scale) {
         layer.contentsScale = scale;
         layer.needsDisplayOnBoundsChange = YES;
     }
+}
+
+static dispatch_queue_t LitterGhosttyDestroyQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create("com.sigkitten.litter.ghostty.destroy", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
 }
 
 static LitterGhosttyTerminal *LitterGhosttyTerminalFromUserdata(void *userdata) {
