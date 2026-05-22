@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -71,7 +72,6 @@ import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.common.AgentIconView
 import com.litter.android.ui.common.BetaBadge
 import com.litter.android.ui.common.isBetaAgentName
-import com.sigkitten.litter.android.BuildConfig
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -100,6 +100,7 @@ fun AlleycatAddServerSheet(
 ) {
     val appModel = LocalAppModel.current
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val credentialStore = remember(context) {
         AlleycatCredentialStore(context.applicationContext)
@@ -303,39 +304,60 @@ fun AlleycatAddServerSheet(
         }
         if (cameraDenied) {
             Text(
-                text = "Camera permission is required to scan a pairing QR. Grant access in system Settings, or paste the JSON below in debug builds.",
+                text = "Camera permission is required to scan a pairing QR. Grant access in system Settings, or paste the JSON below.",
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
             )
         }
 
-        if (BuildConfig.DEBUG) {
-            DisclosureRow(
-                expanded = showPaste,
-                label = "Paste JSON (debug)",
-                onToggle = { showPaste = !showPaste },
+        DisclosureRow(
+            expanded = showPaste,
+            label = "Paste Pairing JSON",
+            onToggle = { showPaste = !showPaste },
+        )
+        if (showPaste) {
+            OutlinedTextField(
+                value = pasteJson,
+                onValueChange = { pasteJson = it },
+                placeholder = {
+                    Text(
+                        text = "{\"v\":1,\"node_id\":\"...\",\"token\":\"...\",\"relay\":\"https://...\"}",
+                        color = LitterTheme.textMuted,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                    )
+                },
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth(),
             )
-            if (showPaste) {
-                OutlinedTextField(
-                    value = pasteJson,
-                    onValueChange = { pasteJson = it },
-                    placeholder = {
-                        Text(
-                            text = "{\"v\":1,\"node_id\":\"...\",\"token\":\"...\",\"relay\":\"https://...\"}",
-                            color = LitterTheme.textMuted,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                        )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = {
+                        clipboardManager.getText()?.text?.let { pasteJson = it }
                     },
-                    minLines = 3,
-                    maxLines = 6,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = null,
+                        tint = LitterTheme.accent,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Paste from Clipboard", color = LitterTheme.accent)
+                }
                 TextButton(
                     onClick = { handleScannedPayload(pasteJson) },
                     enabled = pasteJson.trim().isNotEmpty(),
                 ) {
-                    Text("Parse JSON", color = LitterTheme.accent)
+                    Text(
+                        text = if (parsedParams == null) "Parse JSON" else "Reparse JSON",
+                        color = LitterTheme.accent,
+                    )
                 }
             }
         }
