@@ -6,6 +6,7 @@ use crate::next_request_id;
 use crate::types;
 use base64::Engine;
 use codex_app_server_protocol as upstream;
+use std::collections::HashSet;
 use std::sync::Arc;
 use url::Url;
 
@@ -177,6 +178,27 @@ fn normalize_model_info_for_runtime(
         model_info.is_default = mode == "smart";
     }
     true
+}
+
+fn runtime_exposes_model_choices(runtime_kind: &str) -> bool {
+    !matches!(runtime_kind, "shell")
+}
+
+fn append_cached_models_for_failed_runtimes(
+    models: &mut Vec<types::ModelInfo>,
+    seen_model_ids: &mut HashSet<(types::AgentRuntimeKind, String)>,
+    cached_models: &[types::ModelInfo],
+    failed_runtime_kinds: &HashSet<types::AgentRuntimeKind>,
+) {
+    for model in cached_models {
+        if !failed_runtime_kinds.contains(&model.agent_runtime_kind) {
+            continue;
+        }
+        let dedupe_key = (model.agent_runtime_kind.clone(), model.id.clone());
+        if seen_model_ids.insert(dedupe_key) {
+            models.push(model.clone());
+        }
+    }
 }
 
 fn apply_thread_goal_to_store(
@@ -1009,8 +1031,12 @@ impl AppClient {
                 .runtime_kinds();
             let params: upstream::ModelListParams = params.into();
             let mut models = Vec::new();
-            let mut seen_model_ids = std::collections::HashSet::new();
+            let mut seen_model_ids = HashSet::new();
+            let mut failed_runtime_kinds = HashSet::new();
             for runtime_kind in runtime_kinds {
+                if !runtime_exposes_model_choices(&runtime_kind) {
+                    continue;
+                }
                 let mut request_params = params.clone();
                 loop {
                     let page: upstream::ModelListResponse = match rpc_runtime(
@@ -1031,7 +1057,16 @@ impl AppClient {
                             append_missing_amp_mode_models(&mut models);
                             break;
                         }
-                        Err(error) => return Err(error),
+                        Err(error) => {
+                            failed_runtime_kinds.insert(runtime_kind.clone());
+                            tracing::warn!(
+                                "model/list failed for runtime {} on server {}: {}; skipping runtime",
+                                runtime_kind,
+                                server_id,
+                                error
+                            );
+                            break;
+                        }
                     };
                     for model in page.data {
                         let mut model_info = types::ModelInfo::from(model);
@@ -1051,6 +1086,22 @@ impl AppClient {
                 }
                 if runtime_kind == "amp" {
                     append_missing_amp_mode_models(&mut models);
+                }
+            }
+            if !failed_runtime_kinds.is_empty() {
+                let cached_models = c
+                    .app_store
+                    .snapshot()
+                    .servers
+                    .get(&server_id)
+                    .and_then(|server| server.available_models.clone());
+                if let Some(cached_models) = cached_models {
+                    append_cached_models_for_failed_runtimes(
+                        &mut models,
+                        &mut seen_model_ids,
+                        &cached_models,
+                        &failed_runtime_kinds,
+                    );
                 }
             }
             c.app_store.update_server_models(&server_id, Some(models));
@@ -2943,16 +2994,17 @@ Widget construction guidelines (for reference when making UI decisions):\n\n\
 #[cfg(test)]
 mod tests {
     use super::{
-        ImageViewSource, append_missing_amp_mode_models, choose_saved_app_update_server_id,
-        image_read_command, is_mobile_hidden_skill, normalize_model_info_for_runtime,
-        normalized_image_path, splice_generative_ui_preamble,
+        ImageViewSource, append_cached_models_for_failed_runtimes, append_missing_amp_mode_models,
+        choose_saved_app_update_server_id, image_read_command, is_mobile_hidden_skill,
+        normalize_model_info_for_runtime, normalized_image_path, runtime_exposes_model_choices,
+        splice_generative_ui_preamble,
     };
     use crate::store::snapshot::ServerTransportDiagnostics;
     use crate::store::{AppSnapshot, ServerHealthSnapshot, ServerSnapshot};
     use crate::types::models::{AbsolutePath, AppDynamicToolSpec, SkillMetadata, SkillScope};
     use crate::types::{AgentRuntimeKind, ModelInfo, ReasoningEffort, ReasoningEffortOption};
     use crate::widget_guidelines::GENERATIVE_UI_PREAMBLE;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn show_widget_spec() -> AppDynamicToolSpec {
         AppDynamicToolSpec {
@@ -3117,6 +3169,49 @@ mod tests {
             &mut model,
             "amp".to_string()
         ));
+    }
+
+    #[test]
+    fn shell_runtime_does_not_expose_model_choices() {
+        assert!(!runtime_exposes_model_choices("shell"));
+        assert!(runtime_exposes_model_choices("amp"));
+        assert!(runtime_exposes_model_choices("codex"));
+    }
+
+    #[test]
+    fn failed_runtime_cache_preserves_only_failed_runtime_models() {
+        let mut models = vec![test_model("smart", "amp".to_string())];
+        let mut seen_model_ids = models
+            .iter()
+            .map(|model| (model.agent_runtime_kind.clone(), model.id.clone()))
+            .collect::<HashSet<_>>();
+        let cached_models = vec![
+            test_model("opus", "claude".to_string()),
+            test_model("gpt-5.5", "codex".to_string()),
+            test_model("smart", "amp".to_string()),
+        ];
+        let failed_runtime_kinds = HashSet::from(["claude".to_string()]);
+
+        append_cached_models_for_failed_runtimes(
+            &mut models,
+            &mut seen_model_ids,
+            &cached_models,
+            &failed_runtime_kinds,
+        );
+
+        assert!(models.iter().any(|model| {
+            model.agent_runtime_kind == "claude".to_string() && model.id == "opus"
+        }));
+        assert!(!models.iter().any(|model| {
+            model.agent_runtime_kind == "codex".to_string() && model.id == "gpt-5.5"
+        }));
+        assert_eq!(
+            models
+                .iter()
+                .filter(|model| model.agent_runtime_kind == "amp".to_string() && model.id == "smart")
+                .count(),
+            1
+        );
     }
 
     #[test]
