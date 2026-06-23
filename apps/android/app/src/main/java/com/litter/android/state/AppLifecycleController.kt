@@ -20,6 +20,7 @@ class AppLifecycleController {
     /** Threads that were active when the app went to background. */
     private val backgroundedTurnKeys = mutableSetOf<ThreadKey>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val foregroundRecovery = ForegroundReconnectMonitor(scope)
     private val pushProxy = PushProxyClient()
     private val pushProxyLock = Any()
     private var pushProxyRegistrationId: String? = null
@@ -77,6 +78,9 @@ class AppLifecycleController {
      * Called when the app enters the foreground.
      */
     suspend fun onResume(context: Context, appModel: AppModel) {
+        foregroundRecovery.start(context, appModel) { results ->
+            restoreLocalStateAfterReconnect(appModel, results)
+        }
         synchronized(pushProxyLock) {
             pushProxyGeneration += 1
         }
@@ -143,6 +147,7 @@ class AppLifecycleController {
      * Tracks active turns for notification on completion.
      */
     fun onPause(context: Context, appModel: AppModel) {
+        foregroundRecovery.stop()
         appModel.reconnectController.onAppEnteredBackground()
         lastBackgroundedAt = System.currentTimeMillis()
         backgroundedTurnKeys.clear()

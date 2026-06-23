@@ -876,15 +876,24 @@ impl MobileClient {
     /// cycles.
     pub(crate) async fn alleycat_endpoint(
         &self,
+        relay: Option<&str>,
     ) -> Result<iroh::Endpoint, crate::alleycat::AlleycatError> {
         let secret_key = match self.alleycat_secret_key.lock() {
             Ok(guard) => *guard,
             Err(error) => *error.into_inner(),
         };
-        self.alleycat_endpoint
-            .get_or_try_init(|| async { crate::alleycat::bind_alleycat_endpoint(secret_key).await })
-            .await
-            .cloned()
+        let configured_relay = relay.map(str::to_string);
+        let bind_relay = configured_relay.clone();
+        let endpoint = self
+            .alleycat_endpoint
+            .get_or_try_init(|| async move {
+                crate::alleycat::bind_alleycat_endpoint(secret_key, bind_relay.as_deref()).await
+            })
+            .await?
+            .clone();
+        crate::alleycat::ensure_alleycat_endpoint_relay(&endpoint, configured_relay.as_deref())
+            .await?;
+        Ok(endpoint)
     }
 
     fn sessions_write(
@@ -1682,7 +1691,7 @@ impl MobileClient {
         params: ParsedAlleycatPairPayload,
     ) -> Result<Vec<AlleycatAgentInfo>, TransportError> {
         let endpoint = self
-            .alleycat_endpoint()
+            .alleycat_endpoint(params.relay.as_deref())
             .await
             .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
         let agents = crate::alleycat::list_agents(&endpoint, params)
@@ -1844,7 +1853,7 @@ impl MobileClient {
             .upsert_server(&config, ServerHealthSnapshot::Connecting);
         self.replace_existing_session(server_id.as_str()).await;
 
-        let endpoint = match self.alleycat_endpoint().await {
+        let endpoint = match self.alleycat_endpoint(params.relay.as_deref()).await {
             Ok(endpoint) => endpoint,
             Err(error) => {
                 self.app_store
@@ -2389,7 +2398,7 @@ impl MobileClient {
         };
         if let Some(target) = alleycat_restart_target {
             let endpoint = self
-                .alleycat_endpoint()
+                .alleycat_endpoint(target.params.relay.as_deref())
                 .await
                 .map_err(|error| TransportError::ConnectionFailed(error.to_string()))?;
             crate::alleycat::restart_agent(&endpoint, target.params, "codex".to_string())

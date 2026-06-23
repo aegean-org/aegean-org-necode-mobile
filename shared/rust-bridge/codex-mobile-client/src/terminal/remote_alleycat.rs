@@ -24,12 +24,7 @@ pub(crate) async fn open(
     shell: Option<String>,
     size: TerminalSize,
 ) -> Result<OpenBackendResult, TerminalError> {
-    let endpoint = crate::ffi::shared::shared_mobile_client()
-        .alleycat_endpoint()
-        .await
-        .map_err(|error| TerminalError::Backend {
-            detail: format!("binding alleycat endpoint: {error}"),
-        })?;
+    let relay_for_endpoint = relay.clone();
     let params = crate::alleycat::ParsedPairPayload {
         version: crate::alleycat::ALLEYCAT_PROTOCOL_VERSION,
         node_id,
@@ -37,6 +32,12 @@ pub(crate) async fn open(
         relay,
         host_name: None,
     };
+    let endpoint = crate::ffi::shared::shared_mobile_client()
+        .alleycat_endpoint(relay_for_endpoint.as_deref())
+        .await
+        .map_err(|error| TerminalError::Backend {
+            detail: format!("binding alleycat endpoint: {error}"),
+        })?;
     let (stream, session) =
         crate::alleycat::connect_jsonl_agent_stream(&endpoint, params, "shell".to_string())
             .await

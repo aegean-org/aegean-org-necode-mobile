@@ -66,11 +66,17 @@ fi
 DYLIB_PATH="${CARGO_TARGET_DIR:-$WORKSPACE_DIR/target}/$PROFILE"
 
 # Resolve the dynamic library name per platform
-if [[ "$(uname)" == "Darwin" ]]; then
-    DYLIB_FILE="$DYLIB_PATH/libcodex_mobile_client.dylib"
-else
-    DYLIB_FILE="$DYLIB_PATH/libcodex_mobile_client.so"
-fi
+case "$(uname -s)" in
+    Darwin*)
+        DYLIB_FILE="$DYLIB_PATH/libcodex_mobile_client.dylib"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        DYLIB_FILE="$DYLIB_PATH/codex_mobile_client.dll"
+        ;;
+    *)
+        DYLIB_FILE="$DYLIB_PATH/libcodex_mobile_client.so"
+        ;;
+esac
 
 if [[ ! -f "$DYLIB_FILE" ]]; then
     echo "ERROR: Could not find built library at $DYLIB_FILE" >&2

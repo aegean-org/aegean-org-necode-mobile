@@ -10,7 +10,7 @@ use codex_app_server_client::{
     AppServerClient, RemoteAppServerClient, RemoteAppServerConnectArgs, RemoteAppServerEndpoint,
 };
 use iroh::endpoint::{Connection, QuicTransportConfig, RecvStream, SendStream, VarInt};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{debug, info, warn};
@@ -632,6 +632,7 @@ pub(crate) async fn connect_jsonl_agent_stream(
 /// still surface fast on resume.
 pub async fn bind_alleycat_endpoint(
     secret_key_bytes: Option<[u8; 32]>,
+    relay: Option<&str>,
 ) -> Result<Endpoint, AlleycatError> {
     let transport = QuicTransportConfig::builder()
         .keep_alive_interval(Duration::from_secs(15))
@@ -646,9 +647,12 @@ pub async fn bind_alleycat_endpoint(
             SecretKey::generate()
         }
     };
-    let endpoint_builder = Endpoint::builder(iroh::endpoint::presets::N0)
+    let mut endpoint_builder = Endpoint::builder(iroh::endpoint::presets::N0)
         .transport_config(transport)
         .secret_key(secret_key);
+    if let Some(relay_mode) = relay_mode_from_pairing(relay)? {
+        endpoint_builder = endpoint_builder.relay_mode(relay_mode);
+    }
     // iroh-on-Android can't use the system DNS resolver / system CA
     // roots from inside a packaged app — fall back to public DNS +
     // embedded CA roots there. iOS/macOS pick these up natively.
@@ -663,6 +667,35 @@ pub async fn bind_alleycat_endpoint(
         .bind()
         .await
         .map_err(|error| AlleycatError::Transport(format!("binding iroh endpoint: {error}")))
+}
+
+pub async fn ensure_alleycat_endpoint_relay(
+    endpoint: &Endpoint,
+    relay: Option<&str>,
+) -> Result<(), AlleycatError> {
+    let Some(relay) = relay else {
+        return Ok(());
+    };
+    let relay_url = parse_relay_url(relay)?;
+    let relay_map = RelayMap::from(relay_url.clone());
+    let relay_config = relay_map
+        .get(&relay_url)
+        .ok_or_else(|| AlleycatError::Transport(format!("missing relay config for {relay_url}")))?;
+    endpoint.insert_relay(relay_url, relay_config.clone()).await;
+    Ok(())
+}
+
+fn relay_mode_from_pairing(relay: Option<&str>) -> Result<Option<RelayMode>, AlleycatError> {
+    relay
+        .map(|relay| {
+            parse_relay_url(relay).map(|relay_url| RelayMode::Custom(RelayMap::from(relay_url)))
+        })
+        .transpose()
+}
+
+fn parse_relay_url(relay: &str) -> Result<RelayUrl, AlleycatError> {
+    RelayUrl::from_str(relay)
+        .map_err(|error| AlleycatError::InvalidPayload(format!("invalid relay URL: {error}")))
 }
 
 /// Open a fresh QUIC connection + bidirectional stream to the alleycat
@@ -950,6 +983,17 @@ mod tests {
         assert_eq!(parsed.token, "deadbeef");
         assert_eq!(parsed.relay.as_deref(), Some("https://relay.example.com"));
         assert_eq!(parsed.host_name.as_deref(), Some("studio.local"));
+    }
+
+    #[test]
+    fn relay_mode_from_pairing_uses_custom_relay_map() {
+        let mode = relay_mode_from_pairing(Some("https://relay.example.com"))
+            .expect("valid relay")
+            .expect("relay mode");
+        let relays = mode.relay_map().urls::<Vec<_>>();
+
+        assert_eq!(relays.len(), 1);
+        assert_eq!(relays[0].to_string(), "https://relay.example.com/");
     }
 
     #[test]

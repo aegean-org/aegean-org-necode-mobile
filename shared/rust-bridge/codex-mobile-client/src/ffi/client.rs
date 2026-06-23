@@ -493,7 +493,7 @@ impl AppClient {
     /// "load → bind → save" sequence at launch (avoids racing the
     /// lazy-init path against the lifecycle reconnect chain).
     pub async fn ensure_alleycat_endpoint(&self) -> Option<Vec<u8>> {
-        match self.inner.alleycat_endpoint().await {
+        match self.inner.alleycat_endpoint(None).await {
             Ok(endpoint) => Some(endpoint.secret_key().to_bytes().to_vec()),
             Err(error) => {
                 tracing::warn!("ensure_alleycat_endpoint: bind failed: {error}");
