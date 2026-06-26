@@ -505,7 +505,7 @@ class VoiceRuntimeController {
             addAll(remoteServers)
         }.joinToString("\n")
         return """
-            You are Codex in a live voice conversation inside Litter. Keep responses short, spoken, and conversational. Avoid markdown and code formatting unless explicitly asked.
+            You are NeCode in a live voice conversation inside NeCode Mobile. Keep responses short, spoken, and conversational. Avoid markdown and code formatting unless explicitly asked.
 
             Available servers:
             $serverLines

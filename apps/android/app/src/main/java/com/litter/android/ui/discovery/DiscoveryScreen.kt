@@ -564,8 +564,8 @@ fun DiscoveryScreen(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ChooserCard(
-                title = "Pair with kittylitter",
-                subtitle = "Run npx kittylitter on the host, then scan the QR code it prints.",
+                title = "Pair with NeCode",
+                subtitle = "Scan the QR code printed by the NeCode mobile daemon on your computer.",
                 badge = "RECOMMENDED",
                 icon = Icons.Default.QrCodeScanner,
                 supportedAgents = KittylitterAgents,
@@ -575,7 +575,7 @@ fun DiscoveryScreen(
 
             ChooserCard(
                 title = "Connected Computer",
-                subtitle = "Connect to a computer already signed in and running Codex for this ChatGPT account.",
+                subtitle = "Connect to a computer already signed in for this ChatGPT account.",
                 badge = null,
                 icon = Icons.Outlined.DesktopWindows,
                 supportedAgents = CodexOnlyAgents,
@@ -584,8 +584,8 @@ fun DiscoveryScreen(
             )
 
             ChooserCard(
-                title = "SSH or Codex URL",
-                subtitle = "Connect over SSH or paste a ws:// codex URL.",
+                title = "SSH or app-server URL",
+                subtitle = "Connect over SSH or paste a ws:// app-server URL.",
                 badge = null,
                 icon = Icons.Outlined.Terminal,
                 supportedAgents = CodexOnlyAgents,
@@ -679,7 +679,7 @@ fun DiscoveryScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Use Codex ($port)")
+                            Text("Use app-server ($port)")
                         }
                     }
                     if (server.canConnectViaSsh) {
@@ -745,7 +745,7 @@ fun DiscoveryScreen(
                         appModel.ssh.sshClose(session.sessionId)
                         LLog.t(
                             logTag,
-                            "no SSH bridge agents available; falling back to Codex SSH",
+                            "no SSH bridge agents available; falling back to app-server SSH",
                             fields = mapOf(
                                 "serverId" to server.id,
                                 "host" to server.hostname,
@@ -1198,7 +1198,7 @@ private fun ConnectedComputersDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "These computers come from ChatGPT using your signed-in account. Start Codex on the computer first so it appears here.",
+                    text = "These computers come from ChatGPT using your signed-in account. Start the app-server on the computer first so it appears here.",
                     color = LitterTheme.textSecondary,
                     fontSize = 12.sp,
                 )
@@ -1343,7 +1343,7 @@ private fun slingshotEnvironmentSubtitle(environment: AppSlingshotEnvironment): 
             environment.operatingSystem.trim().takeIf { it.isNotEmpty() },
             environment.architecture?.trim()?.takeIf { it.isNotEmpty() },
         ).joinToString(" ").takeIf { it.isNotEmpty() }?.let(::add)
-        environment.appServerVersion?.trim()?.takeIf { it.isNotEmpty() }?.let { add("Codex $it") }
+        environment.appServerVersion?.trim()?.takeIf { it.isNotEmpty() }?.let { add("App-server $it") }
     }
     return parts.ifEmpty { listOf(environment.id) }.joinToString(" - ")
 }
@@ -1414,7 +1414,7 @@ private fun ManualEntryDialog(
                                 codexUrl = it
                                 errorMessage = null
                             },
-                            label = { Text("Codex URL") },
+                            label = { Text("App-server URL") },
                             placeholder = { Text("ws://host:8390 or host:8390") },
                             singleLine = true,
                         )
@@ -1858,7 +1858,7 @@ private fun SSHAgentPickerDialog(
         dismissButton = {
             Row {
                 TextButton(onClick = onUseCodex, enabled = !isConnecting) {
-                    Text("Use Codex SSH")
+                    Text("Use app-server SSH")
                 }
                 TextButton(onClick = onDismiss, enabled = !isConnecting) {
                     Text("Cancel")
@@ -2003,12 +2003,12 @@ private fun mergeServers(
 private fun connectionChoiceMessage(server: SavedServer): String {
     val directPorts = server.availableDirectCodexPorts.map(Int::toString)
     if (directPorts.isEmpty()) {
-        return "Use SSH to bootstrap Codex on ${server.hostname}."
+        return "Use SSH to bootstrap the app-server on ${server.hostname}."
     }
     if (server.canConnectViaSsh) {
-        return "Codex is available on ports ${directPorts.joinToString(", ")} and SSH is also available on port ${server.resolvedSshPort}."
+        return "An app-server is available on ports ${directPorts.joinToString(", ")} and SSH is also available on port ${server.resolvedSshPort}."
     }
-    return "Choose a Codex app-server port on ${server.hostname}."
+    return "Choose an app-server port on ${server.hostname}."
 }
 
 private sealed interface ManualEntryAction {
@@ -2025,7 +2025,7 @@ private enum class ManualConnectionMode(
     val label: String,
     val primaryButtonTitle: String,
 ) {
-    CODEX("Codex", "Connect"),
+    CODEX("App-server", "Connect"),
     SSH("SSH", "Continue to SSH Login"),
 }
 

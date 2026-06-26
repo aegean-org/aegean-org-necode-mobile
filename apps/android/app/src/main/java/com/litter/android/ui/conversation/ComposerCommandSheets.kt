@@ -272,7 +272,7 @@ fun ComposerPermissionsSheet(threadKey: ThreadKey? = null, onDismiss: () -> Unit
         if (currentRuntimeSupportsPermissionOverrides) {
             PermissionSettingsSection(
                 title = "Approval policy",
-                subtitle = "Choose when Codex asks for approval",
+                subtitle = "Choose when NeCode asks for approval",
             ) {
                 PermissionDropdownField(
                     options = composerApprovalOptions,
@@ -285,7 +285,7 @@ fun ComposerPermissionsSheet(threadKey: ThreadKey? = null, onDismiss: () -> Unit
 
             PermissionSettingsSection(
                 title = "Sandbox settings",
-                subtitle = "Choose how much Codex can do when running commands",
+                subtitle = "Choose how much NeCode can do when running commands",
             ) {
                 PermissionDropdownField(
                     options = composerSandboxOptions,

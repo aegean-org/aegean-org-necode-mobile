@@ -88,7 +88,7 @@ data class LitterResolvedTheme(
                 slug = "codex-light",
                 definition =
                     LitterThemeDefinition(
-                        name = "Codex Light",
+                        name = "NeCode Light",
                         type = LitterColorThemeType.LIGHT,
                         colors =
                             mapOf(
@@ -108,7 +108,7 @@ data class LitterResolvedTheme(
                 slug = "codex-dark",
                 definition =
                     LitterThemeDefinition(
-                        name = "Codex Dark",
+                        name = "NeCode Dark",
                         type = LitterColorThemeType.DARK,
                         colors =
                             mapOf(

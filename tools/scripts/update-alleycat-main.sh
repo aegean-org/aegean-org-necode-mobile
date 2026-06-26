@@ -27,17 +27,19 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+ALLEYCAT_REPO="https://github.com/aegean-org/alleycat.git"
+
 ALLEYCAT_MAIN_SHA="$(
-  git ls-remote https://github.com/dnakov/alleycat.git refs/heads/main \
+  git ls-remote "$ALLEYCAT_REPO" refs/heads/main \
     | awk '{ print $1; exit }'
 )"
 if [ -z "$ALLEYCAT_MAIN_SHA" ]; then
-  echo "error: could not resolve dnakov/alleycat main" >&2
+  echo "error: could not resolve aegean-org/alleycat main" >&2
   exit 1
 fi
 
 update_shared() {
-  echo "==> Resolving shared Rust Alleycat deps to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
+  echo "==> Resolving shared Rust Alleycat deps to aegean-org/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   for package in \
     alleycat-bridge-core \
     alleycat-pi-bridge \
@@ -53,7 +55,7 @@ update_shared() {
 }
 
 update_kittylitter() {
-  echo "==> Resolving kittylitter Alleycat dep to dnakov/alleycat main ($ALLEYCAT_MAIN_SHA)..."
+  echo "==> Resolving kittylitter Alleycat dep to aegean-org/alleycat main ($ALLEYCAT_MAIN_SHA)..."
   cargo update \
     --quiet \
     --manifest-path "$REPO_DIR/services/kittylitter/Cargo.toml" \

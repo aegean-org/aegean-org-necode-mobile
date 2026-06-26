@@ -6,9 +6,9 @@ version = "0.3.4"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["The Alleycat Authors"]
-repository = "https://github.com/dnakov/litter"
-homepage = "https://github.com/dnakov/litter"
-description = "Iroh-backed daemon that multiplexes local coding agents (Codex, Pi, OpenCode, Claude) for paired clients."
+repository = "https://github.com/aegean-org/aegean-org-necode-mobile"
+homepage = "https://github.com/aegean-org/aegean-org-necode-mobile"
+description = "NeCode mobile daemon wrapper for the GPL Alleycat bridge."
 readme = "README.md"
 
 [package.metadata.wix]
@@ -22,8 +22,7 @@ name = "kittylitter"
 path = "src/main.rs"
 
 [dependencies]
-# Local development override while adding the Necode ACP agent upstream.
-alleycat = { path = "../../../alleycat/crates/alleycat" }
+alleycat = { git = "https://github.com/aegean-org/alleycat.git", branch = "main" }
 anyhow = "1"
 
 # cargo-dist builds with `cargo build --profile dist`. Mirrors the

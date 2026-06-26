@@ -243,7 +243,7 @@ fun AccountSheet(
                 )
             } else if (isChatGPTAccount) {
                 Text(
-                    "Save an OpenAI API key in the local Codex environment.",
+                    "Save an OpenAI API key in the local NeCode environment.",
                     color = LitterTheme.textSecondary,
                     fontSize = 12.sp,
                 )
@@ -293,7 +293,7 @@ fun AccountSheet(
 
             Text(
                 if (hasStoredBaseUrl) {
-                    "Custom OpenAI-compatible endpoint saved for the local Codex server."
+                    "Custom OpenAI-compatible endpoint saved for the local NeCode server."
                 } else {
                     "Optional OpenAI-compatible endpoint for local models."
                 },

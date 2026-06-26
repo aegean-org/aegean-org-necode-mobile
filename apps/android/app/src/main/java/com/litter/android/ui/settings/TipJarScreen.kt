@@ -313,7 +313,7 @@ fun TipJarScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(8.dp))
                     }
                     Text(
-                        "If you enjoy Litter, consider leaving a tip. Tips help support ongoing development and are entirely optional.",
+                        "If you enjoy NeCode, consider leaving a tip. Tips help support ongoing development and are entirely optional.",
                         color = LitterTheme.textSecondary,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,

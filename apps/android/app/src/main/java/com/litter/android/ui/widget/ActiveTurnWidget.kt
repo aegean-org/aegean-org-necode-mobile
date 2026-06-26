@@ -104,7 +104,7 @@ private fun ActiveTurnContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Codex",
+                text = "NeCode",
                 style = TextStyle(
                     color = AccentGreen,
                     fontSize = 12.sp,
@@ -197,7 +197,7 @@ private fun IdlePlaceholder() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "Codex",
+                text = "NeCode",
                 style = TextStyle(
                     color = AccentGreen,
                     fontSize = 14.sp,

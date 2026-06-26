@@ -256,7 +256,7 @@ private fun SettingsTopLevel(
             SettingsRow(
                 icon = { Icon(Icons.Default.Pets, null, tint = LitterTheme.accent, modifier = Modifier.size(18.dp)) },
                 label = "Wake Pet",
-                subtitle = PetOverlayController.selectedPet?.displayName ?: "Choose a Codex pet",
+                subtitle = PetOverlayController.selectedPet?.displayName ?: "Choose a NeCode pet",
                 trailing = {
                     Switch(
                         checked = PetOverlayController.visible,
@@ -534,8 +534,8 @@ private fun ServerSettingsRow(
 private enum class ServerConnectionMode(val label: String, val formHeader: String) {
     LOCAL("Local", "Local Runtime"),
     SSH("SSH", "SSH Host"),
-    DIRECT_CODEX("Codex", "Codex Server"),
-    WEBSOCKET("WebSocket", "Codex URL"),
+    DIRECT_CODEX("App-server", "App-server"),
+    WEBSOCKET("WebSocket", "App-server URL"),
     SLINGSHOT("Slingshot", "Slingshot"),
 }
 
@@ -661,7 +661,7 @@ private fun ServerEditSheet(
                 }
                 val resolvedCodexPort = codexPort.trim().toIntOrNull()
                 if (resolvedCodexPort == null || resolvedCodexPort !in 1..65535) {
-                    validationError = "Codex port must be a valid number."
+                    validationError = "App-server port must be a valid number."
                     return null
                 }
                 SavedServer(
@@ -951,7 +951,7 @@ private fun ServerEditSheet(
                                 OutlinedTextField(
                                     value = codexPort,
                                     onValueChange = { codexPort = it },
-                                    label = { Text("Codex port") },
+                                    label = { Text("App-server port") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -1128,7 +1128,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
             item {
                 Text(
-                    "Match the device setting, or keep Litter fixed in light or dark mode.",
+                    "Match the device setting, or keep NeCode fixed in light or dark mode.",
                     color = LitterTheme.textMuted,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(start = 4.dp),
@@ -2076,7 +2076,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                 )
             } else if (isChatGPTAccount) {
                 Text(
-                    "Save an API key in the local Codex environment.",
+                    "Save an API key in the local NeCode environment.",
                     color = LitterTheme.textSecondary,
                     fontSize = 11.sp,
                 )
@@ -2128,7 +2128,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
 
             Text(
                 if (hasStoredBaseUrl) {
-                    "Custom OpenAI-compatible endpoint saved for the local Codex server."
+                    "Custom OpenAI-compatible endpoint saved for the local NeCode server."
                 } else {
                     "Optional OpenAI-compatible endpoint for local models."
                 },

@@ -29,7 +29,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
@@ -613,8 +612,6 @@ fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.JSONL -> "jsonl"
 }
 
-private const val PAIR_COMMAND = "npx kittylitter"
-
 @Composable
 private fun QrScannerScreen(
     onScanned: (String) -> Unit,
@@ -732,13 +729,12 @@ private fun InstructionsCard() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Pair with kittylitter",
+            text = "Pair with NeCode",
             color = androidx.compose.ui.graphics.Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        StepRow(number = "1", title = "On the host you want to connect to, run:")
-        CommandRow()
+        StepRow(number = "1", title = "On your computer, generate a NeCode mobile pairing QR code.")
         StepRow(number = "2", title = "Point this camera at the QR code it prints.")
     }
 }
@@ -768,62 +764,6 @@ private fun StepRow(number: String, title: String) {
             fontSize = 13.sp,
             modifier = Modifier.fillMaxWidth(),
         )
-    }
-}
-
-@Composable
-private fun CommandRow() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var copied by remember { mutableStateOf(false) }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.padding(start = 30.dp),
-    ) {
-        Text(
-            text = PAIR_COMMAND,
-            color = androidx.compose.ui.graphics.Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier
-                .weight(1f)
-                .background(
-                    androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f),
-                    RoundedCornerShape(8.dp),
-                )
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-        )
-        TextButton(
-            onClick = {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                    as? android.content.ClipboardManager
-                clipboard?.setPrimaryClip(
-                    android.content.ClipData.newPlainText("kittylitter", PAIR_COMMAND),
-                )
-                copied = true
-                scope.launch {
-                    kotlinx.coroutines.delay(1400)
-                    copied = false
-                }
-            },
-            modifier = Modifier
-                .size(36.dp)
-                .background(
-                    androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
-                    androidx.compose.foundation.shape.CircleShape,
-                ),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-        ) {
-            Icon(
-                imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
-                contentDescription = if (copied) "Copied" else "Copy command",
-                tint = androidx.compose.ui.graphics.Color.White,
-                modifier = Modifier.size(16.dp),
-            )
-        }
     }
 }
 

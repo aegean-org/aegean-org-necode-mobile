@@ -1,13 +1,15 @@
 # NeCode Mobile
 
-NeCode Mobile is the Android companion app for NeCode. It is based on the Litter mobile client and keeps the same GPLv3 licensing boundary while focusing the product on one workflow: using a phone to control a NeCode session running on the user's own computer.
+NeCode Mobile is the GPLv3 Android companion app for NeCode. It is based on the Litter mobile client and focuses on one workflow: using a phone to control a NeCode session running on the user's own computer.
+
+See [OPEN_SOURCE.md](OPEN_SOURCE.md) for the open-source boundary across the mobile app, daemon, and NeCode CLI.
 
 ## Current Architecture
 
 ```text
 Android app
   -> self-hosted iroh relay
-  -> local kittylitter / alleycat daemon
+  -> local NeCode mobile daemon (Alleycat)
   -> NeCode bridge
   -> local NeCode CLI
 ```
@@ -43,21 +45,27 @@ Install a debug build:
 
 ## Pairing
 
-Start the local daemon on the computer:
+For normal NeCode users, start the local daemon through NeCode CLI:
 
 ```powershell
-cd D:\project\litter\services\kittylitter
-cargo run -- serve
+necode mobile serve
 ```
 
 Generate a QR pairing payload:
 
 ```powershell
-cd D:\project\litter\services\kittylitter
-cargo run -- pair --qr
+necode mobile qr
 ```
 
 Scan the QR code from the NeCode Android app and select the `necode` agent.
+
+For local daemon development, the wrapper can still be run directly:
+
+```powershell
+cd D:\project\litter\services\kittylitter
+cargo run -- serve
+cargo run -- pair --qr
+```
 
 ## Documentation
 
@@ -65,4 +73,4 @@ See [NECODE_MOBILE_SETUP.md](NECODE_MOBILE_SETUP.md) for the current end-to-end 
 
 ## License
 
-This mobile app is derived from Litter and remains licensed under the GNU General Public License version 3 with the additional permission under GPLv3 section 7 for Apple App Store and Google Play distribution. See [LICENSE](LICENSE).
+This mobile app is derived from Litter and remains licensed under the GNU General Public License version 3 with the additional permission under GPLv3 section 7 for Apple App Store and Google Play distribution. See [LICENSE](LICENSE) and [OPEN_SOURCE.md](OPEN_SOURCE.md).
