@@ -1,0 +1,128 @@
+name: NeCode mobile daemon release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag. Leave empty to use services/kittylitter/Cargo.toml.
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: version
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            version=$(awk -F'"' '/^version/ { print $2; exit }' services/kittylitter/Cargo.toml)
+            if [ -z "$version" ]; then
+              echo "could not parse version from services/kittylitter/Cargo.toml" >&2
+              exit 1
+            fi
+            tag="v$version"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $tag"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: necode-mobile-daemon-windows-x64.exe
+            bin: kittylitter.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: necode-mobile-daemon-linux-x64
+            bin: kittylitter
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: necode-mobile-daemon-macos-arm64
+            bin: kittylitter
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: necode-mobile-daemon-macos-x64
+            bin: kittylitter
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Resolve Alleycat dependency
+        shell: bash
+        run: bash tools/scripts/update-alleycat-main.sh --kittylitter
+
+      - name: Build daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build \
+            --manifest-path services/kittylitter/Cargo.toml \
+            --profile dist \
+            --target "${{ matrix.target }}"
+
+      - name: Prepare release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          src="services/kittylitter/target/${{ matrix.target }}/dist/${{ matrix.bin }}"
+          if [ ! -f "$src" ]; then
+            echo "built daemon not found: $src" >&2
+            exit 1
+          fi
+          cp "$src" "dist/${{ matrix.asset }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: NeCode Mobile Daemon ${{ needs.prepare.outputs.tag }}
+          files: dist/*
+          overwrite_files: true
