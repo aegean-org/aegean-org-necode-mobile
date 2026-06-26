@@ -927,6 +927,7 @@ fun DiscoveryScreen(
  * pre-pair preview.
  */
 private val KittylitterAgents: List<AgentRuntimeKind> = listOf(
+    "necode",
     "codex",
     "pi",
     "amp",

@@ -1,1 +1,1 @@
-Fast, secure AI coding sessions across local and remote runtimes.
+Run NeCode sessions from your phone through your own computer.

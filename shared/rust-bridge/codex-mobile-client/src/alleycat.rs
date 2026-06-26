@@ -90,6 +90,7 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
         "claude" | "claude-code" | "claude_code" => Some("claude"),
         "droid" | "factory" | "factory-droid" | "factory_droid" => Some("droid"),
         "hermes" => Some("hermes"),
+        "necode" | "necode-cli" | "ne-code" | "ne_code" => Some("necode"),
         _ if display_name == "codex" => Some("codex"),
         _ if display_name == "pi" || display_name == "pi.dev" => Some("pi"),
         _ if display_name == "amp" || display_name == "amp code" => Some("amp"),
@@ -102,6 +103,12 @@ pub fn agent_runtime_kind(name: &str, display_name: &str) -> Option<AgentRuntime
             Some("droid")
         }
         _ if display_name == "hermes" => Some("hermes"),
+        _ if display_name == "necode"
+            || display_name == "necode cli"
+            || display_name == "ne-code" =>
+        {
+            Some("necode")
+        }
         _ => None,
     };
     if let Some(kind) = canonical {
@@ -1034,6 +1041,10 @@ mod tests {
         assert_eq!(
             agent_runtime_kind("factory-droid", "Factory Droid"),
             Some("droid".to_string())
+        );
+        assert_eq!(
+            agent_runtime_kind("necode-cli", "NeCode"),
+            Some("necode".to_string())
         );
     }
 

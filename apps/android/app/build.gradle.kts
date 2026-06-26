@@ -26,7 +26,7 @@ android {
     ndkVersion = projectPropOrEnv("ANDROID_NDK_VERSION") ?: "30.0.14904198"
 
     defaultConfig {
-        applicationId = "com.sigkitten.litter.android"
+        applicationId = "com.aegean.necode.mobile"
         minSdk = 26
         targetSdk = 35
         versionCode = 11

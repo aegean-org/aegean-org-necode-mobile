@@ -1,11 +1,11 @@
 ﻿# NeCode 手机端接入说明
 
-本文记录当前已经跑通的 NeCode 手机端链路、具体命令、验证方式和常见问题。目标是让用户用 Litter Android App 作为 NeCode 的手机端入口，通过自建 relay 连接回自己的电脑，由本机 NeCode 真正执行代码分析和模型调用。
+本文记录当前已经跑通的 NeCode 手机端链路、具体命令、验证方式和常见问题。目标是让用户用 NeCode Android App 作为 NeCode 的手机端入口，通过自建 relay 连接回自己的电脑，由本机 NeCode 真正执行代码分析和模型调用。
 
 ## 1. 整体链路
 
 ```text
-手机 Litter App
+手机 NeCode App
   -> 自建 iroh relay: https://relay.inoteexpress.com
   -> 本机 kittylitter / alleycat daemon
   -> necode bridge / ACP 适配层
@@ -21,7 +21,7 @@
   -> necode bridge
   -> kittylitter / alleycat
   -> relay.inoteexpress.com
-  -> 手机 Litter App
+  -> 手机 NeCode App
 ```
 
 关键点：
@@ -215,7 +215,7 @@ cargo run -- pair --qr
 
 ## 7. 手机端连接
 
-在 Android 手机上打开 Litter App：
+在 Android 手机上打开 NeCode App：
 
 1. 点击添加远程服务器。
 2. 选择扫码。
@@ -321,13 +321,13 @@ D:\project\litter\apps\android\app\build\outputs\apk\debug\app-debug.apk
 启动 App：
 
 ```powershell
-& "$env:ANDROID_HOME\platform-tools\adb.exe" shell am start -n com.sigkitten.litter.android/com.litter.android.MainActivity
+& "$env:ANDROID_HOME\platform-tools\adb.exe" shell am start -n com.aegean.necode.mobile/com.litter.android.MainActivity
 ```
 
 如果安装时报签名不一致：
 
 ```powershell
-& "$env:ANDROID_HOME\platform-tools\adb.exe" uninstall com.sigkitten.litter.android
+& "$env:ANDROID_HOME\platform-tools\adb.exe" uninstall com.aegean.necode.mobile
 & "$env:ANDROID_HOME\platform-tools\adb.exe" install -r D:\project\litter\apps\android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
@@ -511,7 +511,7 @@ Relay(https://relay.inoteexpress.com/)
 处理方式：
 
 1. 先确认本机 daemon 窗口还在运行。
-2. 手机端完全退出 Litter App 后重新打开。
+2. 手机端完全退出 NeCode App 后重新打开。
 3. 如果仍不恢复，重启 daemon：
 
 ```powershell
@@ -585,7 +585,7 @@ ACP session not found: 019eede3-5f22-7000-92b2-4a8df6546ea8
 处理：
 
 1. 手机端新建一个会话。
-2. 或重启 Litter App。
+2. 或重启 NeCode App。
 3. 必要时重启 daemon。
 
 ### 12.6 session 已绑定到另一个目录
@@ -617,7 +617,7 @@ ACP session ... is already loaded for d:\project\qt-note, not D:\
 如果设备存在但安装失败，常见处理：
 
 ```powershell
-& "$env:ANDROID_HOME\platform-tools\adb.exe" uninstall com.sigkitten.litter.android
+& "$env:ANDROID_HOME\platform-tools\adb.exe" uninstall com.aegean.necode.mobile
 & "$env:ANDROID_HOME\platform-tools\adb.exe" install -r D:\project\litter\apps\android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
@@ -668,7 +668,7 @@ kubectl -n necode-relay logs deploy/iroh-relay -f
 
 ## 14. 当前已知限制
 
-- Litter 是 GPLv3 项目，后续如果对外分发修改版 APK，需要认真处理开源合规问题。
+- NeCode Android App 基于 GPLv3 的 Litter，后续如果对外分发 APK，需要认真处理开源合规问题。
 - 当前手机端 UI 不是专门为 NeCode 设计的，目录选择、会话恢复、图片交互还有明显产品体验问题。
 - relay 是自建基础设施，需要持续可用；如果 relay 域名或入口挂了，外网手机就连不回本机。
 - NeCode 的图片能力依赖模型元数据和后端真实能力，两边都要声明支持才行。

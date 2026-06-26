@@ -1,4 +1,4 @@
-Initial Android release of Litter.
-- On-device and remote runtime support
-- Improved conversation readability and text sizing
-- Stronger server discovery and connection behavior
+Initial Android release of NeCode Mobile.
+- Remote NeCode sessions from Android
+- QR pairing through a self-hosted relay
+- Project-aware conversation and image message support

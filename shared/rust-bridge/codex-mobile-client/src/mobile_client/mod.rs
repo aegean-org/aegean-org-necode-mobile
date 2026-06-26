@@ -605,6 +605,7 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
         "droid" | "factory" | "factory-droid" | "factory_droid" | "factory droid" => {
             Some("droid".to_string())
         }
+        "necode" | "necode-cli" | "ne-code" | "ne_code" | "ne code" => Some("necode".to_string()),
         "codex" => Some("codex".to_string()),
         // Match patterns like `anthropic/claude-opus-4-7` or
         // `claude-3-5-sonnet` — i.e. a `claude` token anywhere in the
@@ -642,6 +643,12 @@ fn runtime_for_model_hint(value: &str) -> Option<AgentRuntimeKind> {
         }
         _ if normalized.starts_with("factory/") || normalized.starts_with("droid/") => {
             Some("droid".to_string())
+        }
+        _ if normalized.starts_with("necode/")
+            || normalized.starts_with("necode:")
+            || normalized.contains("necode-cli") =>
+        {
+            Some("necode".to_string())
         }
         _ => None,
     }
