@@ -60,10 +60,6 @@ jobs:
             target: aarch64-apple-darwin
             asset: necode-mobile-daemon-macos-arm64
             bin: kittylitter
-          - os: macos-13
-            target: x86_64-apple-darwin
-            asset: necode-mobile-daemon-macos-x64
-            bin: kittylitter
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
