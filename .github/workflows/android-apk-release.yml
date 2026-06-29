@@ -230,7 +230,7 @@ jobs:
 
       - name: Build Rust JNI libs
         env:
-          ANDROID_ABIS: arm64-v8a,x86_64
+          ANDROID_ABIS: arm64-v8a x86_64
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
         run: make rust-android
 
@@ -268,8 +268,6 @@ jobs:
 
       - name: Build debug APK
         if: github.event_name == 'workflow_dispatch' && steps.upload-keystore.outputs.has_upload_signing != 'true'
-        env:
-          ANDROID_ABIS: arm64-v8a,x86_64
         run: apps/android/gradlew -p apps/android :app:assembleDebug
 
       - name: Generate release checksums
