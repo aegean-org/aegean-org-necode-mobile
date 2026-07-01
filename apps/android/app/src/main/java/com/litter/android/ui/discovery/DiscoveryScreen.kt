@@ -168,12 +168,12 @@ fun DiscoveryScreen(
         }
         if (result.resultCode != android.app.Activity.RESULT_OK) {
             connectError = result.data?.getStringExtra(ChatGPTOAuthActivity.EXTRA_ERROR)
-                ?: "Remote-control authorization was cancelled."
+                ?: "远程控制授权已取消。"
             return@rememberLauncherForActivityResult
         }
         val stepUpToken = ChatGPTOAuthActivity.parseRemoteControlStepUpToken(result.data)
         if (stepUpToken == null) {
-            connectError = "Remote-control authorization returned incomplete credentials."
+            connectError = "远程控制授权返回的凭据不完整。"
             return@rememberLauncherForActivityResult
         }
         authorizedSlingshotConnect = environment to stepUpToken
@@ -234,7 +234,7 @@ fun DiscoveryScreen(
                 )
         } catch (e: Exception) {
             LLog.e(logTag, "slingshot environment load failed", e)
-            slingshotError = e.message ?: "Unable to load connected computers."
+            slingshotError = e.message ?: "无法加载已连接电脑。"
         } finally {
             slingshotIsLoading = false
         }
@@ -242,7 +242,7 @@ fun DiscoveryScreen(
 
     suspend fun connectSlingshotEnvironmentOrThrow(environment: AppSlingshotEnvironment, stepUpToken: String) {
         if (!environment.online) {
-            throw IllegalStateException("${environment.displayName} is offline.")
+            throw IllegalStateException("${environment.displayName} 当前离线。")
         }
         val server = slingshotSavedServer(environment)
         val tokens = loadSlingshotTokens(context)
@@ -266,7 +266,7 @@ fun DiscoveryScreen(
 
     fun startSlingshotConnect(environment: AppSlingshotEnvironment) {
         if (!environment.online) {
-            connectError = "${environment.displayName} is offline."
+            connectError = "${environment.displayName} 当前离线。"
             return
         }
         scope.launch {
@@ -283,7 +283,7 @@ fun DiscoveryScreen(
                         e,
                         fields = mapOf("environmentId" to environment.id),
                     )
-                    connectError = e.message ?: "Unable to connect to this computer."
+                    connectError = e.message ?: "无法连接这台电脑。"
                     return@launch
                 }
                 needsAuthorization = true
@@ -304,7 +304,7 @@ fun DiscoveryScreen(
                 )
             } catch (e: Exception) {
                 pendingSlingshotEnvironment = null
-                connectError = e.localizedMessage ?: e.message ?: "Unable to authorize remote control."
+                connectError = e.localizedMessage ?: e.message ?: "无法完成远程控制授权。"
             }
         }
     }
@@ -321,7 +321,7 @@ fun DiscoveryScreen(
                 e,
                 fields = mapOf("environmentId" to environment.id),
             )
-            connectError = e.message ?: "Unable to connect to this computer."
+            connectError = e.message ?: "无法连接这台电脑。"
             return
         }
         finishSuccessfulSlingshotConnect()
@@ -516,7 +516,7 @@ fun DiscoveryScreen(
                 }
 
                 else -> {
-                    connectError = "Server did not respond after wake attempt. Enable Wake for network access on the Mac."
+                    connectError = "唤醒后设备没有响应。Mac 上需要开启网络唤醒。"
                 }
             }
         } catch (e: Exception) {
@@ -530,7 +530,7 @@ fun DiscoveryScreen(
                     "preferredConnectionMode" to entry.preferredConnectionMode,
                 ),
             )
-            connectError = e.message ?: "Unable to connect."
+            connectError = e.message ?: "连接失败。"
         }
     }
 
@@ -544,7 +544,7 @@ fun DiscoveryScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
-                text = "Add Server",
+                text = "添加设备",
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -555,7 +555,7 @@ fun DiscoveryScreen(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = "Pick how you want to connect.",
+            text = "选择连接方式。",
             color = LitterTheme.textSecondary,
             fontSize = 12.sp,
         )
@@ -564,9 +564,9 @@ fun DiscoveryScreen(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ChooserCard(
-                title = "Pair with NeCode",
-                subtitle = "Scan the QR code printed by the NeCode mobile daemon on your computer.",
-                badge = "RECOMMENDED",
+                title = "扫码连接 NeCode",
+                subtitle = "扫描电脑端 NeCode mobile 显示的配对二维码。",
+                badge = "推荐",
                 icon = Icons.Default.QrCodeScanner,
                 supportedAgents = KittylitterAgents,
                 isRecommended = true,
@@ -574,8 +574,8 @@ fun DiscoveryScreen(
             )
 
             ChooserCard(
-                title = "Connected Computer",
-                subtitle = "Connect to a computer already signed in for this ChatGPT account.",
+                title = "已连接电脑",
+                subtitle = "连接当前 ChatGPT 账号下已经在线的电脑。",
                 badge = null,
                 icon = Icons.Outlined.DesktopWindows,
                 supportedAgents = CodexOnlyAgents,
@@ -584,8 +584,8 @@ fun DiscoveryScreen(
             )
 
             ChooserCard(
-                title = "SSH or app-server URL",
-                subtitle = "Connect over SSH or paste a ws:// app-server URL.",
+                title = "SSH 或 App-server 地址",
+                subtitle = "通过 SSH 连接，或粘贴 ws:// App-server 地址。",
                 badge = null,
                 icon = Icons.Outlined.Terminal,
                 supportedAgents = CodexOnlyAgents,
@@ -635,7 +635,7 @@ fun DiscoveryScreen(
     connectionChoiceServer?.let { server ->
         AlertDialog(
             onDismissRequest = { connectionChoiceServer = null },
-            title = { Text("Connect ${server.name.ifBlank { server.hostname }}") },
+            title = { Text("连接 ${server.name.ifBlank { server.hostname }}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -673,13 +673,13 @@ fun DiscoveryScreen(
                                                 "os" to server.os,
                                             ),
                                         )
-                                        connectError = e.message ?: "Unable to connect."
+                                        connectError = e.message ?: "连接失败。"
                                     }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Use app-server ($port)")
+                            Text("使用 App-server ($port)")
                         }
                     }
                     if (server.canConnectViaSsh) {
@@ -690,14 +690,14 @@ fun DiscoveryScreen(
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Connect via SSH", color = LitterTheme.accent)
+                            Text("通过 SSH 连接", color = LitterTheme.accent)
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { connectionChoiceServer = null }) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             },
             dismissButton = {},
@@ -784,7 +784,7 @@ fun DiscoveryScreen(
                             "os" to server.os,
                         ),
                     )
-                    e.message ?: "Unable to connect over SSH."
+                    e.message ?: "无法通过 SSH 连接。"
                 }
             },
         )
@@ -850,7 +850,7 @@ fun DiscoveryScreen(
                             "host" to agentContext.host,
                         ),
                     )
-                    e.message ?: "Unable to connect SSH bridge agents."
+                    e.message ?: "无法连接 SSH bridge Agent。"
                 }
             },
         )
@@ -866,6 +866,7 @@ fun DiscoveryScreen(
                         context,
                         server.copy(name = newName.ifBlank { server.hostname }).normalizedForPersistence(),
                     )
+                    appModel.store.renameServer(server.id, newName.ifBlank { server.hostname })
                     reloadSavedServers()
                     appModel.refreshSnapshot()
                 }
@@ -877,11 +878,11 @@ fun DiscoveryScreen(
     connectError?.let { message ->
         AlertDialog(
             onDismissRequest = { connectError = null },
-            title = { Text("Connection Failed") },
+            title = { Text("连接失败") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { connectError = null }) {
-                    Text("OK")
+                    Text("确定")
                 }
             },
         )
@@ -1062,7 +1063,7 @@ private fun SupportedAgentsStrip(agents: List<AgentRuntimeKind>) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = "Works with",
+            text = "支持",
             color = LitterTheme.textMuted,
             fontSize = 10.sp,
             letterSpacing = 0.4.sp,
@@ -1135,8 +1136,8 @@ private fun ServerRow(
             "lanProbe" -> LitterTheme.accent to "LAN"
             "arpScan" -> LitterTheme.textSecondary to "ARP"
             "ssh" -> Color(0xFFFF9500) to "SSH"
-            "local" -> LitterTheme.accent to "Local"
-            else -> LitterTheme.textMuted to "Manual"
+            "local" -> LitterTheme.accent to "本机"
+            else -> LitterTheme.textMuted to "手动"
         }
         Text(
             text = sourceLabel,
@@ -1174,7 +1175,7 @@ private fun ServerRow(
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Edit,
-                    contentDescription = "Rename server",
+                    contentDescription = "重命名设备",
                     tint = LitterTheme.textMuted,
                     modifier = Modifier.size(16.dp),
                 )
@@ -1194,11 +1195,11 @@ private fun ConnectedComputersDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Connected Computers") },
+        title = { Text("已连接电脑") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "These computers come from ChatGPT using your signed-in account. Start the app-server on the computer first so it appears here.",
+                    text = "这些电脑来自当前登录的 ChatGPT 账号。请先在电脑端启动 App-server，在线后会显示在这里。",
                     color = LitterTheme.textSecondary,
                     fontSize = 12.sp,
                 )
@@ -1214,7 +1215,7 @@ private fun ConnectedComputersDialog(
                                 color = LitterTheme.accent,
                             )
                             Text(
-                                text = "Loading connected computers...",
+                                text = "正在加载已连接电脑...",
                                 color = LitterTheme.textSecondary,
                                 fontSize = 12.sp,
                             )
@@ -1231,7 +1232,7 @@ private fun ConnectedComputersDialog(
 
                     environments.isEmpty() -> {
                         Text(
-                            text = "No connected computers were found for this account.",
+                            text = "当前账号下没有找到已连接电脑。",
                             color = LitterTheme.textSecondary,
                             fontSize = 12.sp,
                         )
@@ -1265,12 +1266,12 @@ private fun ConnectedComputersDialog(
                 onClick = onRefresh,
                 enabled = !loading,
             ) {
-                Text("Refresh")
+                Text("刷新")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("取消")
             }
         },
     )
@@ -1350,9 +1351,9 @@ private fun slingshotEnvironmentSubtitle(environment: AppSlingshotEnvironment): 
 
 private fun slingshotEnvironmentStatus(environment: AppSlingshotEnvironment): String =
     when {
-        !environment.online -> "offline"
-        environment.busy -> "busy"
-        else -> "online"
+        !environment.online -> "离线"
+        environment.busy -> "忙碌"
+        else -> "在线"
     }
 
 private fun slingshotEnvironmentIcon(
@@ -1379,7 +1380,7 @@ private fun ManualEntryDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Server") },
+        title = { Text("添加设备") },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1419,8 +1420,8 @@ private fun ManualEntryDialog(
                             singleLine = true,
                         )
                         Text(
-                            text = "Prefer the SSH flow — it binds 127.0.0.1 on the remote and forwards the port. " +
-                                "If you run manually, bind loopback and tunnel yourself: " +
+                            text = "优先使用 SSH 流程，它会在远端绑定 127.0.0.1 并转发端口。" +
+                                "如果手动运行，需要自行绑定 loopback 并建立隧道：" +
                                 "codex app-server --listen ws://127.0.0.1:8390",
                             color = LitterTheme.textMuted,
                             fontSize = 11.sp,
@@ -1434,8 +1435,8 @@ private fun ManualEntryDialog(
                                 host = it
                                 errorMessage = null
                             },
-                            label = { Text("SSH host") },
-                            placeholder = { Text("hostname or IP") },
+                            label = { Text("SSH 主机") },
+                            placeholder = { Text("主机名或 IP") },
                             singleLine = true,
                         )
                         OutlinedTextField(
@@ -1444,7 +1445,7 @@ private fun ManualEntryDialog(
                                 sshPort = it
                                 errorMessage = null
                             },
-                            label = { Text("SSH port") },
+                            label = { Text("SSH 端口") },
                             singleLine = true,
                         )
                         OutlinedTextField(
@@ -1453,7 +1454,7 @@ private fun ManualEntryDialog(
                                 wakeMac = it
                                 errorMessage = null
                             },
-                            label = { Text("Wake MAC (optional)") },
+                            label = { Text("Wake MAC（可选）") },
                             placeholder = { Text("aa:bb:cc:dd:ee:ff") },
                             singleLine = true,
                         )
@@ -1493,7 +1494,7 @@ private fun ManualEntryDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("取消")
             }
         },
     )
@@ -1511,23 +1512,23 @@ private fun RenameServerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename Server") },
+        title = { Text("重命名设备") },
         text = {
             OutlinedTextField(
                 value = newName,
                 onValueChange = { newName = it },
-                label = { Text("Name") },
+                label = { Text("名称") },
                 singleLine = true,
             )
         },
         confirmButton = {
             TextButton(onClick = { onRename(newName.trim()) }) {
-                Text("Save")
+                Text("保存")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("取消")
             }
         },
     )
@@ -1561,7 +1562,7 @@ internal fun SSHLoginDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isConnecting) onDismiss() },
-        title = { Text("SSH Login") },
+        title = { Text("SSH 登录") },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1575,7 +1576,7 @@ internal fun SSHLoginDialog(
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text("Username") },
+                    label = { Text("用户名") },
                     singleLine = true,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1583,7 +1584,7 @@ internal fun SSHLoginDialog(
                         onClick = { authMethod = SshAuthMethod.PASSWORD },
                         enabled = !isConnecting,
                     ) {
-                        Text(if (authMethod == SshAuthMethod.PASSWORD) "Password *" else "Password")
+                        Text(if (authMethod == SshAuthMethod.PASSWORD) "密码 *" else "密码")
                     }
                     TextButton(
                         onClick = {
@@ -1599,7 +1600,7 @@ internal fun SSHLoginDialog(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Password") },
+                        label = { Text("密码") },
                         singleLine = true,
                         visualTransformation = if (isPasswordVisible) {
                             VisualTransformation.None
@@ -1618,9 +1619,9 @@ internal fun SSHLoginDialog(
                                         Icons.Filled.Visibility
                                     },
                                     contentDescription = if (isPasswordVisible) {
-                                        "Hide password"
+                                        "隐藏密码"
                                     } else {
-                                        "Show password"
+                                        "显示密码"
                                     },
                                 )
                             }
@@ -1637,12 +1638,12 @@ internal fun SSHLoginDialog(
                         )
                         Column {
                             Text(
-                                text = "Unlock keychain (macOS)",
+                                text = "解锁钥匙串（macOS）",
                                 color = LitterTheme.textPrimary,
                                 fontSize = 12.sp,
                             )
                             Text(
-                                text = "Uses your SSH/login password during headless bootstrap. Required for tools like gh CLI auth.",
+                                text = "无界面启动时会使用你的 SSH/登录密码，部分工具（如 gh CLI 授权）需要这个能力。",
                                 color = LitterTheme.textSecondary,
                                 fontSize = 11.sp,
                             )
@@ -1652,13 +1653,13 @@ internal fun SSHLoginDialog(
                     OutlinedTextField(
                         value = privateKey,
                         onValueChange = { privateKey = it },
-                        label = { Text("Private Key") },
+                        label = { Text("私钥") },
                         minLines = 5,
                     )
                     OutlinedTextField(
                         value = passphrase,
                         onValueChange = { passphrase = it },
-                        label = { Text("Passphrase (optional)") },
+                        label = { Text("Passphrase（可选）") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                     )
@@ -1673,7 +1674,7 @@ internal fun SSHLoginDialog(
                         enabled = !isConnecting,
                     )
                     Text(
-                        text = "Remember credentials on this device",
+                        text = "在此设备上记住凭据",
                         color = LitterTheme.textSecondary,
                         fontSize = 12.sp,
                     )
@@ -1724,13 +1725,13 @@ internal fun SSHLoginDialog(
                         color = LitterTheme.accent,
                     )
                 } else {
-                    Text("Connect")
+                    Text("连接")
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isConnecting) {
-                Text("Cancel")
+                Text("取消")
             }
         },
     )
@@ -1755,7 +1756,7 @@ private fun SSHAgentPickerDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isConnecting) onDismiss() },
-        title = { Text("Remote Agents") },
+        title = { Text("远程 Agent") },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1851,17 +1852,17 @@ private fun SSHAgentPickerDialog(
                         color = LitterTheme.accent,
                     )
                 } else {
-                    Text("Connect")
+                    Text("连接")
                 }
             }
         },
         dismissButton = {
             Row {
                 TextButton(onClick = onUseCodex, enabled = !isConnecting) {
-                    Text("Use app-server SSH")
+                    Text("使用 App-server SSH")
                 }
                 TextButton(onClick = onDismiss, enabled = !isConnecting) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             }
         },
@@ -1882,9 +1883,9 @@ private fun sshRuntimeLabel(kind: AgentRuntimeKind): String = kind.runtimeLabel
 private fun sshRuntimeSortRank(kind: AgentRuntimeKind): Int = kind.runtimeSortIndex
 
 private fun sshAgentStatusLabel(agent: RemoteAgentAvailability): String = when (agent.status) {
-    AgentAvailabilityStatus.AVAILABLE -> "Available"
-    AgentAvailabilityStatus.AGENT_CLI_MISSING -> "CLI missing"
-    AgentAvailabilityStatus.WINDOWS_NOT_YET_SUPPORTED -> "Windows not supported"
+    AgentAvailabilityStatus.AVAILABLE -> "可用"
+    AgentAvailabilityStatus.AGENT_CLI_MISSING -> "CLI 未安装"
+    AgentAvailabilityStatus.WINDOWS_NOT_YET_SUPPORTED -> "暂不支持 Windows"
 }
 
 private fun sshBridgeStateRoot(context: Context, host: String): String {
@@ -2003,12 +2004,12 @@ private fun mergeServers(
 private fun connectionChoiceMessage(server: SavedServer): String {
     val directPorts = server.availableDirectCodexPorts.map(Int::toString)
     if (directPorts.isEmpty()) {
-        return "Use SSH to bootstrap the app-server on ${server.hostname}."
+        return "使用 SSH 在 ${server.hostname} 上启动 App-server。"
     }
     if (server.canConnectViaSsh) {
-        return "An app-server is available on ports ${directPorts.joinToString(", ")} and SSH is also available on port ${server.resolvedSshPort}."
+        return "App-server 可用端口：${directPorts.joinToString(", ")}，SSH 端口：${server.resolvedSshPort}。"
     }
-    return "Choose an app-server port on ${server.hostname}."
+    return "选择 ${server.hostname} 的 App-server 端口。"
 }
 
 private sealed interface ManualEntryAction {
@@ -2025,8 +2026,8 @@ private enum class ManualConnectionMode(
     val label: String,
     val primaryButtonTitle: String,
 ) {
-    CODEX("App-server", "Connect"),
-    SSH("SSH", "Continue to SSH Login"),
+    CODEX("App-server", "连接"),
+    SSH("SSH", "继续 SSH 登录"),
 }
 
 private fun buildManualEntryAction(
@@ -2043,7 +2044,7 @@ private fun buildManualEntryAction(
 private fun buildManualCodexEntry(rawInput: String): ManualEntryBuild {
     val raw = rawInput.trim()
     if (raw.isEmpty()) {
-        return ManualEntryBuild.Error("Enter a ws:// URL or host:port.")
+        return ManualEntryBuild.Error("请输入 ws:// URL 或 host:port。")
     }
 
     runCatching { URI(raw) }
@@ -2072,9 +2073,9 @@ private fun buildManualCodexEntry(rawInput: String): ManualEntryBuild {
             }
         }
 
-    val (host, port) = parseBareHostAndPort(raw) ?: return ManualEntryBuild.Error("Enter a ws:// URL or host:port.")
+    val (host, port) = parseBareHostAndPort(raw) ?: return ManualEntryBuild.Error("请输入 ws:// URL 或 host:port。")
     if (host.isBlank()) {
-        return ManualEntryBuild.Error("Enter a hostname or IP address.")
+        return ManualEntryBuild.Error("请输入主机名或 IP 地址。")
     }
 
     return ManualEntryBuild.Action(
@@ -2101,18 +2102,18 @@ private fun buildManualSshEntry(
 ): ManualEntryBuild {
     val host = hostInput.trim()
     if (host.isEmpty()) {
-        return ManualEntryBuild.Error("Enter a hostname or IP address.")
+        return ManualEntryBuild.Error("请输入主机名或 IP 地址。")
     }
 
     val sshPort = sshPortInput.trim().toIntOrNull()
     if (sshPort == null || sshPort !in 1..65535) {
-        return ManualEntryBuild.Error("SSH port must be a valid number.")
+        return ManualEntryBuild.Error("SSH 端口必须是有效数字。")
     }
 
     val wakeInput = wakeMacInput.trim()
     val normalizedWakeMac = SavedServer.normalizeWakeMac(wakeInput)
     if (wakeInput.isNotEmpty() && normalizedWakeMac == null) {
-        return ManualEntryBuild.Error("Wake MAC must look like aa:bb:cc:dd:ee:ff.")
+        return ManualEntryBuild.Error("Wake MAC 格式应类似 aa:bb:cc:dd:ee:ff。")
     }
 
     return ManualEntryBuild.Action(

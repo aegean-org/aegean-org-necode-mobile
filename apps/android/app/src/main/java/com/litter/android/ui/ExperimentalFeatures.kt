@@ -13,20 +13,20 @@ enum class LitterFeature(
 ) {
     REALTIME_VOICE(
         id = "realtime_voice",
-        displayName = "Realtime",
-        description = "Show the realtime voice launcher on the home screen.",
+        displayName = "实时语音",
+        description = "在首页显示实时语音入口。",
         defaultEnabled = true,
     ),
     THINKING_MINIGAME(
         id = "thinking_minigame",
-        displayName = "Thinking minigame",
-        description = "Tap the Thinking shimmer while the assistant generates to play a tiny generated minigame.",
+        displayName = "思考小游戏",
+        description = "助手生成时点击思考动画，可打开一个小玩法。",
         defaultEnabled = false,
     ),
     TERMINAL(
         id = "terminal",
-        displayName = "Terminal",
-        description = "Show the local and remote terminal launcher on the home screen.",
+        displayName = "终端",
+        description = "在首页显示本机和远程终端入口。",
         defaultEnabled = false,
     ),
 }

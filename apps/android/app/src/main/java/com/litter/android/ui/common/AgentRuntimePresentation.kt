@@ -92,7 +92,10 @@ fun isBetaAgentName(name: String, displayName: String): Boolean {
 }
 
 private fun isStableAgentIdentity(name: String, displayName: String): Boolean =
-    name.trim().lowercase() == "codex" || displayName.trim().lowercase() == "codex"
+    when (name.trim().lowercase()) {
+        "codex", "necode" -> true
+        else -> displayName.trim().lowercase() in setOf("codex", "necode")
+    }
 
 private fun AgentRuntimeKind.titlecased(): String {
     if (isEmpty()) return "Agent"

@@ -13,6 +13,7 @@ import com.litter.android.state.AppModel
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.common.SwipeAction
 import com.litter.android.ui.common.SwipeableRow
+import com.litter.android.ui.conversation.turnSubmissionErrorMessage
 import uniffi.codex_mobile_client.AppSessionSummary
 
 /**
@@ -67,7 +68,7 @@ fun SessionReplySwipe(
                 runCatching {
                     sendQuickReplyTurn(appModel, threadKey, text)
                 }.onFailure { err ->
-                    onError(err.message ?: "Failed to send reply")
+                    onError(turnSubmissionErrorMessage(err))
                 }
             },
         )

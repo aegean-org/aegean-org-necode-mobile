@@ -50,6 +50,8 @@ import uniffi.codex_mobile_client.HydratedConversationItem
 import uniffi.codex_mobile_client.HydratedConversationItemContent
 import uniffi.codex_mobile_client.AppMessagePhase
 
+private const val LOCAL_USER_MESSAGE_ITEM_PREFIX = "local-user-message:"
+
 /**
  * A group of conversation items belonging to the same turn.
  */
@@ -82,7 +84,7 @@ data class TranscriptTurn(
                 when (val content = it.content) {
                     is HydratedConversationItemContent.Assistant -> content.v1.text
                     is HydratedConversationItemContent.CodeReview ->
-                        content.v1.findings.firstOrNull()?.title ?: "Code review"
+                        content.v1.findings.firstOrNull()?.title ?: "代码审查"
                     else -> null
                 }
             }
@@ -133,11 +135,27 @@ fun buildTranscriptTurns(
     }
 }
 
+/**
+ * Detects the optimistic user bubble inserted before the server returns a turn
+ * id. That tail item still needs a visible "waiting for NeCode" state.
+ */
+internal fun hasPendingTailLocalUserMessage(items: List<HydratedConversationItem>): Boolean {
+    val last = items.lastOrNull() ?: return false
+    return last.id.startsWith(LOCAL_USER_MESSAGE_ITEM_PREFIX) &&
+        last.isFromUserTurnBoundary &&
+        last.content is HydratedConversationItemContent.User
+}
+
 private fun groupItems(items: List<HydratedConversationItem>): List<List<HydratedConversationItem>> {
     val groups = mutableListOf<List<HydratedConversationItem>>()
     var current = mutableListOf<HydratedConversationItem>()
     var currentSourceTurnId: String? = null
     for (item in items) {
+        if (item.startsCurrentSourceTurn(current, currentSourceTurnId)) {
+            current.add(0, item)
+            continue
+        }
+
         val startsNewTurn =
             current.isNotEmpty() && (
                 item.isFromUserTurnBoundary ||
@@ -166,6 +184,17 @@ private fun groupItems(items: List<HydratedConversationItem>): List<List<Hydrate
     }
 
     return groups
+}
+
+private fun HydratedConversationItem.startsCurrentSourceTurn(
+    current: List<HydratedConversationItem>,
+    currentSourceTurnId: String?,
+): Boolean {
+    val turnId = sourceTurnId ?: return false
+    return current.isNotEmpty() &&
+        isFromUserTurnBoundary &&
+        currentSourceTurnId == turnId &&
+        current.none { it.isFromUserTurnBoundary }
 }
 
 private fun mergeTrailingStreamingGroups(
@@ -226,7 +255,7 @@ private fun turnIdentifier(items: List<HydratedConversationItem>, ordinal: Int):
     val first = items.firstOrNull() ?: return "turn-$ordinal"
     val sourceTurnId = items.firstNotNullOfOrNull { it.sourceTurnId }
     return if (sourceTurnId != null) {
-        "turn-$sourceTurnId-${first.id}"
+        "turn-$sourceTurnId"
     } else {
         "turn-${first.id}"
     }
@@ -234,7 +263,6 @@ private fun turnIdentifier(items: List<HydratedConversationItem>, ordinal: Int):
 
 /**
  * Renders a collapsed turn card with preview and metadata.
- * Tap to expand and show all items.
  */
 @Composable
 fun CollapsedTurnCard(
@@ -278,10 +306,10 @@ fun CollapsedTurnCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (turn.commandCount > 0) {
-                MetadataBadge("${turn.commandCount} cmd", LitterTheme.toolCallCommand)
+                MetadataBadge("${turn.commandCount} 命令", LitterTheme.toolCallCommand)
             }
             if (turn.fileChangeCount > 0) {
-                MetadataBadge("${turn.fileChangeCount} files", LitterTheme.toolCallFileChange)
+                MetadataBadge("${turn.fileChangeCount} 文件", LitterTheme.toolCallFileChange)
             }
             if (turn.totalDurationMs > 0) {
                 val dur = if (turn.totalDurationMs < 1000) "${turn.totalDurationMs}ms"
@@ -289,7 +317,7 @@ fun CollapsedTurnCard(
                 MetadataBadge(dur, LitterTheme.textMuted)
             }
             Spacer(Modifier.weight(1f))
-            Text("Tap to expand", color = LitterTheme.textMuted, fontSize = LitterTextStyle.caption2.scaled)
+            Text("点击展开", color = LitterTheme.textMuted, fontSize = LitterTextStyle.caption2.scaled)
         }
     }
 }
@@ -579,16 +607,16 @@ private fun ExplorationGroup.explorationSummaryText(isActive: Boolean): String {
     }
 
     val parts = buildList {
-        if (readCount > 0) add("$readCount ${if (readCount == 1) "file" else "files"}")
-        if (searchCount > 0) add("$searchCount ${if (searchCount == 1) "search" else "searches"}")
-        if (listingCount > 0) add("$listingCount ${if (listingCount == 1) "listing" else "listings"}")
-        if (fallbackCount > 0) add("$fallbackCount ${if (fallbackCount == 1) "step" else "steps"}")
+        if (readCount > 0) add("$readCount 个文件")
+        if (searchCount > 0) add("$searchCount 次搜索")
+        if (listingCount > 0) add("$listingCount 次列表")
+        if (fallbackCount > 0) add("$fallbackCount 个步骤")
     }
 
-    val prefix = if (isActive) "Exploring" else "Explored"
+    val prefix = if (isActive) "正在探索" else "已探索"
     return if (parts.isEmpty()) {
         val count = explorationEntries().size
-        "$prefix $count exploration ${if (count == 1) "step" else "steps"}"
+        "$prefix $count 个步骤"
     } else {
         "$prefix ${parts.joinToString(", ")}"
     }
@@ -601,21 +629,21 @@ private fun explorationActionLabel(
     val suffix = explorationCommandSuffix(action)
     return when (action.kind) {
         HydratedCommandActionKind.READ -> {
-            action.path?.let { "Read ${workspaceTitle(it)}$suffix" } ?: fallback
+            action.path?.let { "读取 ${workspaceTitle(it)}$suffix" } ?: fallback
         }
 
         HydratedCommandActionKind.SEARCH -> {
             when {
                 !action.query.isNullOrBlank() && !action.path.isNullOrBlank() ->
-                    "Searched for ${action.query} in ${workspaceTitle(action.path!!)}$suffix"
+                    "在 ${workspaceTitle(action.path!!)} 中搜索 ${action.query}$suffix"
                 !action.query.isNullOrBlank() ->
-                    "Searched for ${action.query}$suffix"
+                    "搜索 ${action.query}$suffix"
                 else -> fallback
             }
         }
 
         HydratedCommandActionKind.LIST_FILES -> {
-            action.path?.let { "Listed files in ${workspaceTitle(it)}$suffix" } ?: fallback
+            action.path?.let { "列出 ${workspaceTitle(it)} 中的文件$suffix" } ?: fallback
         }
 
         HydratedCommandActionKind.UNKNOWN -> fallback

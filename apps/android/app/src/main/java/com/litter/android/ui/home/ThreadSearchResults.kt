@@ -44,7 +44,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.litter.android.state.displayTitle
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.common.AgentIconView
@@ -79,7 +78,7 @@ fun ThreadSearchResults(
         sessions.filter { session ->
             (selectedRuntimeKind == null || session.agentRuntimeKind == selectedRuntimeKind) &&
                 (needle.isEmpty() ||
-                    session.displayTitle.lowercase().contains(needle)
+                    HomeDashboardSupport.sessionTitle(session).lowercase().contains(needle)
                 || (session.cwd ?: "").lowercase().contains(needle)
                 || session.serverDisplayName.lowercase().contains(needle)
                 || session.preview.lowercase().contains(needle))
@@ -134,7 +133,7 @@ fun ThreadSearchResults(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = if (sessions.isEmpty()) "No threads yet" else "No matches",
+                            text = if (sessions.isEmpty()) "暂无会话" else "没有匹配结果",
                             color = LitterTheme.textMuted,
                             fontSize = LitterTextStyle.caption.scaled,
                         )
@@ -196,7 +195,7 @@ private fun RuntimeFilterRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         RuntimeFilterPill(
-            label = "All",
+            label = "全部",
             kind = null,
             isActive = selectedRuntimeKind == null,
             onClick = { onRuntimeSelected(null) },
@@ -266,7 +265,7 @@ private fun ThreadSearchRow(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = session.displayTitle,
+                text = HomeDashboardSupport.sessionTitle(session),
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.caption.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -373,7 +372,7 @@ private fun ThreadSearchClusterRow(
             Spacer(Modifier.size(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = head.displayTitle,
+                    text = HomeDashboardSupport.sessionTitle(head),
                     color = LitterTheme.textPrimary,
                     fontSize = 13f.scaled,
                     fontWeight = FontWeight.SemiBold,

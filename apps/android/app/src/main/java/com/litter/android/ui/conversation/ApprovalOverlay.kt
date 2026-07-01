@@ -152,10 +152,10 @@ private fun ApprovalCard(
     val context = androidx.compose.ui.platform.LocalContext.current
     val isLocal = snap.value?.servers?.firstOrNull { it.serverId == approval.serverId }?.isLocal == true
     val title = when (approval.kind) {
-        ApprovalKind.COMMAND -> "Run command?"
-        ApprovalKind.FILE_CHANGE -> "File change?"
-        ApprovalKind.PERMISSIONS -> "Grant permission?"
-        ApprovalKind.MCP_ELICITATION -> "Tool request"
+        ApprovalKind.COMMAND -> "运行命令？"
+        ApprovalKind.FILE_CHANGE -> "文件变更？"
+        ApprovalKind.PERMISSIONS -> "授予权限？"
+        ApprovalKind.MCP_ELICITATION -> "工具请求"
     }
 
     // Bare layout (no card background) to match iOS ConversationView prompt.
@@ -192,7 +192,7 @@ private fun ApprovalCard(
         // CWD
         approval.cwd?.let { cwd ->
             Text(
-                text = "in " + com.litter.android.state.PathDisplay.display(cwd, isLocal, context),
+                text = "位置：" + com.litter.android.state.PathDisplay.display(cwd, isLocal, context),
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.caption.scaled,
             )
@@ -218,14 +218,14 @@ private fun ApprovalCard(
                 enabled = !isSubmitting,
                 modifier = Modifier.weight(1f),
             ) {
-                Text("Deny")
+                Text("拒绝")
             }
             OutlinedButton(
                 onClick = { onDecision(ApprovalDecisionValue.ACCEPT_FOR_SESSION) },
                 enabled = !isSubmitting,
                 modifier = Modifier.weight(1f),
             ) {
-                Text("Allow session")
+                Text("本会话允许")
             }
             Button(
                 onClick = { onDecision(ApprovalDecisionValue.ACCEPT) },
@@ -236,7 +236,7 @@ private fun ApprovalCard(
                     contentColor = Color.Black,
                 ),
             ) {
-                Text("Allow")
+                Text("允许")
             }
         }
     }
@@ -288,7 +288,7 @@ private fun UserInputCard(
                     modifier = Modifier
                         .clickable { onDismiss() }
                         .padding(4.dp)
-                        .semantics { contentDescription = "Dismiss input request" },
+                        .semantics { contentDescription = "关闭输入请求" },
                 )
             }
         }
@@ -333,7 +333,7 @@ private fun UserInputCard(
                         text = it
                         answers[question.id] = it
                     },
-                    label = { Text(question.header ?: "Answer") },
+                    label = { Text(question.header ?: "回答") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -357,7 +357,7 @@ private fun UserInputCard(
             ),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Submit")
+            Text("提交")
         }
     }
 }

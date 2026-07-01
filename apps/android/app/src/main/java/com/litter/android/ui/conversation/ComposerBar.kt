@@ -125,17 +125,17 @@ internal data class SlashInvocation(val command: SlashCommand, val args: String?
 data class ActiveTaskSummary(val progress: String, val label: String)
 
 private val SLASH_COMMANDS = listOf(
-    SlashCommand("plan", "Switch collaboration mode"),
-    SlashCommand("model", "Change model or reasoning effort"),
-    SlashCommand("new", "Start a new session"),
-    SlashCommand("fork", "Fork this conversation"),
-    SlashCommand("rename", "Rename this session"),
-    SlashCommand("review", "Start a code review"),
-    SlashCommand("goal", "Set or manage the thread goal"),
-    SlashCommand("resume", "Browse sessions"),
-    SlashCommand("skills", "List available skills"),
-    SlashCommand("permissions", "Change permissions"),
-    SlashCommand("experimental", "Toggle experimental features"),
+    SlashCommand("plan", "切换协作模式"),
+    SlashCommand("model", "切换模型或推理强度"),
+    SlashCommand("new", "新建会话"),
+    SlashCommand("fork", "复制当前会话"),
+    SlashCommand("rename", "重命名会话"),
+    SlashCommand("review", "开始代码审查"),
+    SlashCommand("goal", "设置或管理目标"),
+    SlashCommand("resume", "查看会话"),
+    SlashCommand("skills", "查看可用技能"),
+    SlashCommand("permissions", "调整权限"),
+    SlashCommand("experimental", "实验功能"),
 )
 
 private val SUPPORTED_IMAGE_FILE_MIME_TYPES = arrayOf(
@@ -146,6 +146,9 @@ private val SUPPORTED_IMAGE_FILE_MIME_TYPES = arrayOf(
 )
 
 private val ALL_FILE_MIME_TYPES = arrayOf("*/*")
+
+internal fun canShowInterruptAction(isThinking: Boolean, activeTurnId: String?): Boolean =
+    isThinking && !activeTurnId.isNullOrBlank()
 
 /**
  * Bottom composer bar with text input, send, voice, slash commands,
@@ -196,6 +199,7 @@ fun ComposerBar(
     var attachedFiles by remember(threadKey) {
         mutableStateOf(appModel.composerDraft(threadKey).fileAttachments)
     }
+    var sendErrorMessage by remember(threadKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(threadKey, text, attachedImage, attachedFiles) {
         appModel.setComposerDraft(
             threadKey,
@@ -294,7 +298,7 @@ fun ComposerBar(
                     threadKey.serverId,
                     AppThreadGoalGetRequest(threadId = threadKey.threadId),
                 )
-                onSlashError?.invoke(current?.let(::goalSummary) ?: "No goal is set for this thread.")
+                onSlashError?.invoke(current?.let(::goalSummary) ?: "当前会话还没有设置目标。")
             }
             "pause" -> {
                 appModel.client.setThreadGoal(
@@ -365,7 +369,7 @@ fun ComposerBar(
                 try {
                     handleGoalCommand(args)
                 } catch (e: Exception) {
-                    onSlashError?.invoke(e.message ?: "Failed to update goal")
+                    onSlashError?.invoke(e.message ?: "更新目标失败")
                 }
             }
             "fork" -> scope.launch {
@@ -383,7 +387,7 @@ fun ComposerBar(
                     appModel.store.setActiveThread(newKey)
                     appModel.refreshThreadSnapshot(newKey)
                 } catch (e: Exception) {
-                    onSlashError?.invoke(e.message ?: "Failed to fork conversation")
+                    onSlashError?.invoke(e.message ?: "复制会话失败")
                 }
             }
             "review" -> scope.launch {
@@ -397,7 +401,7 @@ fun ComposerBar(
                         ),
                     )
                 } catch (e: Exception) {
-                    onSlashError?.invoke(e.message ?: "Failed to start review")
+                    onSlashError?.invoke(e.message ?: "启动代码审查失败")
                 }
             }
             else -> return false
@@ -421,6 +425,7 @@ fun ComposerBar(
             } else false
         } ?: false
         if (!handledAsSlash && (text.isNotBlank() || attachedImage != null || attachedFiles.isNotEmpty())) {
+            sendErrorMessage = null
             val launchState = appModel.launchState.snapshot.value
             val pendingModel = launchState.selectedModel.trim().ifEmpty { null }
             val thread = appModel.snapshot.value?.threads?.find { it.key == threadKey }
@@ -449,6 +454,8 @@ fun ComposerBar(
             scope.launch {
                 try {
                     appModel.startTurn(threadKey, payload)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     textFieldValue = TextFieldValue(
                         text = payload.text,
@@ -456,6 +463,7 @@ fun ComposerBar(
                     )
                     attachedImage = attachmentToSend
                     attachedFiles = filesToSend
+                    sendErrorMessage = sendFailureMessage(e)
                 }
             }
         }
@@ -465,9 +473,38 @@ fun ComposerBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(LitterTheme.surface)
-            .imePadding(),
+            .background(LitterTheme.surface),
     ) {
+        sendErrorMessage?.let { message ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                    .background(LitterTheme.danger.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                    .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "发送失败：$message",
+                    color = LitterTheme.danger,
+                    fontSize = LitterTextStyle.caption.scaled,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { sendErrorMessage = null },
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "关闭错误提示",
+                        tint = LitterTheme.danger,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+
         if (attachedImage != null) {
             val previewBitmap = remember(attachedImage?.data) {
                 attachedImage?.data?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
@@ -481,7 +518,7 @@ fun ComposerBar(
                     previewBitmap?.let { bitmap ->
                         androidx.compose.foundation.Image(
                             bitmap = bitmap.asImageBitmap(),
-                            contentDescription = "Attached image",
+                            contentDescription = "已添加图片",
                             modifier = Modifier
                                 .size(60.dp)
                                 .clip(RoundedCornerShape(8.dp)),
@@ -496,7 +533,7 @@ fun ComposerBar(
                     ) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = "Remove attachment",
+                            contentDescription = "移除附件",
                             tint = Color.White,
                             modifier = Modifier.size(14.dp),
                         )
@@ -547,7 +584,7 @@ fun ComposerBar(
                                         tokenBudget = null,
                                     ),
                                 )
-                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                            }.onFailure { onSlashError?.invoke(it.message ?: "更新目标失败") }
                         }
                     },
                     markComplete = {
@@ -562,7 +599,7 @@ fun ComposerBar(
                                         tokenBudget = null,
                                     ),
                                 )
-                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                            }.onFailure { onSlashError?.invoke(it.message ?: "更新目标失败") }
                         }
                     },
                     setObjective = { objective ->
@@ -577,7 +614,7 @@ fun ComposerBar(
                                         tokenBudget = null,
                                     ),
                                 )
-                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                            }.onFailure { onSlashError?.invoke(it.message ?: "更新目标失败") }
                         }
                     },
                     setBudget = { budget ->
@@ -595,7 +632,7 @@ fun ComposerBar(
                                         tokenBudget = budget,
                                     ),
                                 )
-                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to update goal") }
+                            }.onFailure { onSlashError?.invoke(it.message ?: "更新目标失败") }
                         }
                     },
                     clear = {
@@ -605,7 +642,7 @@ fun ComposerBar(
                                     threadKey.serverId,
                                     AppThreadGoalClearRequest(threadId = threadKey.threadId),
                                 )
-                            }.onFailure { onSlashError?.invoke(it.message ?: "Failed to clear goal") }
+                            }.onFailure { onSlashError?.invoke(it.message ?: "清除目标失败") }
                         }
                     },
                 )
@@ -643,7 +680,7 @@ fun ComposerBar(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Active tasks",
+                            text = "进行中的任务",
                             color = LitterTheme.textPrimary,
                             fontSize = LitterTextStyle.caption.scaled,
                             fontWeight = FontWeight.SemiBold,
@@ -683,7 +720,7 @@ fun ComposerBar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Input Required",
+                        text = "需要输入",
                         color = LitterTheme.textPrimary,
                         fontSize = LitterTextStyle.caption.scaled,
                         fontWeight = FontWeight.SemiBold,
@@ -696,7 +733,7 @@ fun ComposerBar(
                             modifier = Modifier
                                 .clickable { onDismissPendingUserInput() }
                                 .padding(4.dp)
-                                .semantics { contentDescription = "Dismiss input request" },
+                                .semantics { contentDescription = "关闭输入请求" },
                         )
                     }
                 }
@@ -753,7 +790,7 @@ fun ComposerBar(
                     )
                 }
                 Text(
-                    text = "Submit",
+                    text = "提交",
                     color = if (isSubmittingPendingUserInput) LitterTheme.textMuted else Color.Black,
                     fontSize = LitterTextStyle.code.scaled,
                     fontWeight = FontWeight.Bold,
@@ -829,7 +866,7 @@ fun ComposerBar(
                 ) {
                     Icon(
                         Icons.Default.Add,
-                        contentDescription = "Attach",
+                        contentDescription = "添加附件",
                         tint = LitterTheme.textPrimary,
                     )
                 }
@@ -847,7 +884,7 @@ fun ComposerBar(
                 Box(modifier = Modifier.weight(1f)) {
                     if (text.isEmpty()) {
                         Text(
-                            text = "Message\u2026",
+                            text = "输入消息…",
                             color = LitterTheme.textMuted,
                             fontSize = LitterTextStyle.body.scaled,
                         )
@@ -882,7 +919,7 @@ fun ComposerBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.OpenInFull,
-                                contentDescription = "Expand composer",
+                                contentDescription = "展开输入框",
                                 tint = LitterTheme.textSecondary,
                                 modifier = Modifier.size(12.dp),
                             )
@@ -966,8 +1003,8 @@ fun ComposerBar(
                             modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
-                                Icons.Default.Stop,
-                                contentDescription = "Stop recording",
+                                    Icons.Default.Stop,
+                                    contentDescription = "停止录音",
                                 tint = LitterTheme.accentStrong,
                             )
                         }
@@ -1026,7 +1063,7 @@ fun ComposerBar(
                             ) {
                                 Icon(
                                     Icons.Default.Mic,
-                                    contentDescription = "Voice",
+                                    contentDescription = "语音",
                                     tint = LitterTheme.textSecondary,
                                 )
                             }
@@ -1055,7 +1092,7 @@ fun ComposerBar(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
+                        contentDescription = "发送",
                         tint = Color.Black,
                         modifier = Modifier.size(17.dp),
                     )
@@ -1063,9 +1100,9 @@ fun ComposerBar(
                 Spacer(Modifier.width(4.dp))
             }
 
-            if (isThinking && !canSend) {
+            if (canShowInterruptAction(isThinking, activeTurnId) && !canSend) {
                 Text(
-                    text = "Cancel",
+                    text = "取消",
                     color = LitterTheme.textPrimary,
                     fontSize = LitterTextStyle.caption.scaled,
                     fontWeight = FontWeight.Medium,
@@ -1073,14 +1110,16 @@ fun ComposerBar(
                         .clip(RoundedCornerShape(18.dp))
                         .background(LitterTheme.surface)
                         .clickable {
-                            val turnId = activeTurnId ?: return@clickable
+                            val turnId = activeTurnId?.trim() ?: return@clickable
                             scope.launch {
                                 try {
                                     appModel.client.interruptTurn(
                                         threadKey.serverId,
                                         AppInterruptTurnRequest(threadId = threadKey.threadId, turnId = turnId),
                                     )
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    sendErrorMessage = e.message ?: "取消失败"
+                                }
                             }
                         }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -1159,7 +1198,7 @@ fun ComposerBar(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "Attach",
+                    text = "添加附件",
                     color = LitterTheme.textPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -1167,7 +1206,7 @@ fun ComposerBar(
 
                 if (clipboardHasImage) {
                     AttachmentActionRow(
-                        title = "Paste Image",
+                        title = "粘贴图片",
                         onClick = {
                             showAttachMenu = false
                             val clip = clipboardManager.primaryClip
@@ -1180,7 +1219,7 @@ fun ComposerBar(
                 }
 
                 AttachmentActionRow(
-                    title = "Photo Library",
+                    title = "相册",
                     onClick = {
                         showAttachMenu = false
                         photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -1188,7 +1227,7 @@ fun ComposerBar(
                 )
 
                 AttachmentActionRow(
-                    title = "Choose File",
+                    title = "选择文件",
                     onClick = {
                         showAttachMenu = false
                         filePicker.launch(ALL_FILE_MIME_TYPES)
@@ -1196,7 +1235,7 @@ fun ComposerBar(
                 )
 
                 AttachmentActionRow(
-                    title = "Take Photo",
+                    title = "拍照",
                     onClick = {
                         showAttachMenu = false
                         cameraLauncher.launch(null)
@@ -1206,6 +1245,9 @@ fun ComposerBar(
         }
     }
 }
+
+private fun sendFailureMessage(error: Throwable): String =
+    turnSubmissionErrorMessage(error)
 
 private data class QueuedFollowUpUiStyle(
     val title: String,
@@ -1237,7 +1279,7 @@ private fun QueuedFollowUpsPreviewPanel(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "Queued Next",
+                text = "已加入队列",
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.caption.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -1316,7 +1358,7 @@ private fun QueuedFollowUpCard(
 
         if (preview.kind == AppQueuedFollowUpKind.MESSAGE) {
             Text(
-                text = "\u21b3 Steer",
+                text = "\u21b3 追加",
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.caption.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -1333,7 +1375,7 @@ private fun QueuedFollowUpCard(
         ) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = "Delete queued follow-up",
+                contentDescription = "删除队列消息",
                 tint = LitterTheme.textSecondary,
                 modifier = Modifier.size(14.dp),
             )
@@ -1345,7 +1387,7 @@ private fun queuedFollowUpUiStyle(kind: AppQueuedFollowUpKind): QueuedFollowUpUi
     when (kind) {
         AppQueuedFollowUpKind.MESSAGE ->
             QueuedFollowUpUiStyle(
-                title = "Queued message",
+                title = "队列消息",
                 tint = LitterTheme.accent,
                 background = LitterTheme.accent.copy(alpha = 0.08f),
                 border = LitterTheme.accent.copy(alpha = 0.24f),
@@ -1353,7 +1395,7 @@ private fun queuedFollowUpUiStyle(kind: AppQueuedFollowUpKind): QueuedFollowUpUi
 
         AppQueuedFollowUpKind.PENDING_STEER ->
             QueuedFollowUpUiStyle(
-                title = "Steer queued",
+                title = "追加已排队",
                 tint = LitterTheme.accentStrong,
                 background = LitterTheme.accentStrong.copy(alpha = 0.10f),
                 border = LitterTheme.accentStrong.copy(alpha = 0.28f),
@@ -1361,7 +1403,7 @@ private fun queuedFollowUpUiStyle(kind: AppQueuedFollowUpKind): QueuedFollowUpUi
 
         AppQueuedFollowUpKind.RETRYING_STEER ->
             QueuedFollowUpUiStyle(
-                title = "Retrying steer",
+                title = "正在重试追加",
                 tint = LitterTheme.warning,
                 background = LitterTheme.warning.copy(alpha = 0.10f),
                 border = LitterTheme.warning.copy(alpha = 0.28f),
@@ -1386,8 +1428,8 @@ internal fun CollaborationModeChip(
     onClick: () -> Unit,
 ) {
     val label = when (mode) {
-        uniffi.codex_mobile_client.AppModeKind.PLAN -> "Plan"
-        uniffi.codex_mobile_client.AppModeKind.DEFAULT -> "Default"
+        uniffi.codex_mobile_client.AppModeKind.PLAN -> "规划"
+        uniffi.codex_mobile_client.AppModeKind.DEFAULT -> "默认"
     }
     val container = if (mode == uniffi.codex_mobile_client.AppModeKind.PLAN) {
         LitterTheme.accent
@@ -1417,7 +1459,7 @@ internal fun CollaborationModeChip(
         )
         Icon(
             Icons.Default.KeyboardArrowDown,
-            contentDescription = "Open collaboration mode picker",
+            contentDescription = "打开协作模式选择",
             tint = contentColor,
             modifier = Modifier.size(14.dp),
         )
@@ -1442,7 +1484,7 @@ private fun PlanProgressPanel(
         }
 
         currentStep?.step?.trim()?.takeIf { it.isNotEmpty() }
-            ?: if (progress.plan.isEmpty()) "No plan task" else "Plan complete"
+            ?: if (progress.plan.isEmpty()) "暂无规划任务" else "规划已完成"
     }
     Column(
         modifier = Modifier
@@ -1461,7 +1503,7 @@ private fun PlanProgressPanel(
                 .clickable { expanded = !expanded },
         ) {
             Text(
-                text = if (expanded) "Plan Progress" else "Plan",
+                text = if (expanded) "规划进度" else "规划",
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.caption.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -1487,7 +1529,7 @@ private fun PlanProgressPanel(
             }
             Icon(
                 imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = if (expanded) "Collapse plan progress" else "Expand plan progress",
+                contentDescription = if (expanded) "收起规划进度" else "展开规划进度",
                 tint = LitterTheme.textMuted,
                 modifier = Modifier.size(16.dp),
             )
@@ -1571,7 +1613,7 @@ private fun ComposerFileAttachmentRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "FILE",
+            text = "文件",
             color = LitterTheme.accent,
             fontSize = LitterTextStyle.caption2.scaled,
             fontWeight = FontWeight.SemiBold,
@@ -1600,7 +1642,7 @@ private fun ComposerFileAttachmentRow(
         ) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = "Remove file",
+                contentDescription = "移除文件",
                 tint = LitterTheme.textMuted,
                 modifier = Modifier.size(14.dp),
             )
@@ -1712,14 +1754,14 @@ internal fun parseSlashCommandInvocation(text: String): SlashInvocation? {
 
 private fun goalSummary(goal: AppThreadGoal): String {
     return buildString {
-        append("Goal: ")
+        append("目标：")
         append(goal.objective)
-        append("\nStatus: ")
+        append("\n状态：")
         append(goalStatusLabel(goal.status))
-        append("\nTokens used: ")
+        append("\n已用 Token：")
         append(goal.tokensUsed)
         goal.tokenBudget?.let {
-            append("\nToken budget: ")
+            append("\nToken 预算：")
             append(it)
         }
     }
@@ -1727,12 +1769,12 @@ private fun goalSummary(goal: AppThreadGoal): String {
 
 private fun goalStatusLabel(status: AppThreadGoalStatus): String =
     when (status) {
-        AppThreadGoalStatus.ACTIVE -> "active"
-        AppThreadGoalStatus.PAUSED -> "paused"
-        AppThreadGoalStatus.BLOCKED -> "blocked"
-        AppThreadGoalStatus.USAGE_LIMITED -> "limited by usage"
-        AppThreadGoalStatus.BUDGET_LIMITED -> "limited by budget"
-        AppThreadGoalStatus.COMPLETE -> "complete"
+        AppThreadGoalStatus.ACTIVE -> "进行中"
+        AppThreadGoalStatus.PAUSED -> "已暂停"
+        AppThreadGoalStatus.BLOCKED -> "已阻塞"
+        AppThreadGoalStatus.USAGE_LIMITED -> "用量受限"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "预算受限"
+        AppThreadGoalStatus.COMPLETE -> "已完成"
     }
 
 data class GoalCardActions(
@@ -1764,12 +1806,12 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
         AppThreadGoalStatus.COMPLETE -> LitterTheme.success
     }
     val statusLabel = when (goal.status) {
-        AppThreadGoalStatus.ACTIVE -> "active"
-        AppThreadGoalStatus.PAUSED -> "paused"
-        AppThreadGoalStatus.BLOCKED -> "blocked"
-        AppThreadGoalStatus.USAGE_LIMITED -> "usage limit"
-        AppThreadGoalStatus.BUDGET_LIMITED -> "limited"
-        AppThreadGoalStatus.COMPLETE -> "complete"
+        AppThreadGoalStatus.ACTIVE -> "进行中"
+        AppThreadGoalStatus.PAUSED -> "已暂停"
+        AppThreadGoalStatus.BLOCKED -> "已阻塞"
+        AppThreadGoalStatus.USAGE_LIMITED -> "用量受限"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "预算受限"
+        AppThreadGoalStatus.COMPLETE -> "已完成"
     }
     val budgetProgress: Float? = goal.tokenBudget?.takeIf { it > 0 }?.let { budget ->
         (goal.tokensUsed.toFloat() / budget.toFloat()).coerceIn(0f, 1f)
@@ -1791,11 +1833,11 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
     }
     val canTogglePause = goal.status != AppThreadGoalStatus.COMPLETE
     val pauseResumeLabel: String? = when (goal.status) {
-        AppThreadGoalStatus.ACTIVE -> "Pause goal"
-        AppThreadGoalStatus.PAUSED -> "Resume goal"
-        AppThreadGoalStatus.BLOCKED -> "Resume goal (override block)"
-        AppThreadGoalStatus.USAGE_LIMITED -> "Resume goal (override usage cap)"
-        AppThreadGoalStatus.BUDGET_LIMITED -> "Resume goal (override cap)"
+        AppThreadGoalStatus.ACTIVE -> "暂停目标"
+        AppThreadGoalStatus.PAUSED -> "继续目标"
+        AppThreadGoalStatus.BLOCKED -> "继续目标（覆盖阻塞）"
+        AppThreadGoalStatus.USAGE_LIMITED -> "继续目标（覆盖用量限制）"
+        AppThreadGoalStatus.BUDGET_LIMITED -> "继续目标（覆盖预算限制）"
         AppThreadGoalStatus.COMPLETE -> null
     }
 
@@ -1884,7 +1926,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "Goal actions",
+                        contentDescription = "目标操作",
                         tint = LitterTheme.textSecondary,
                         modifier = Modifier.size(16.dp),
                     )
@@ -1903,14 +1945,14 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Edit objective", color = LitterTheme.textPrimary) },
+                        text = { Text("编辑目标", color = LitterTheme.textPrimary) },
                         onClick = {
                             showMenu = false
                             showEditDialog = true
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("Set token budget", color = LitterTheme.textPrimary) },
+                        text = { Text("设置 Token 预算", color = LitterTheme.textPrimary) },
                         onClick = {
                             showMenu = false
                             showBudgetDialog = true
@@ -1918,7 +1960,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                     )
                     if (goal.status != AppThreadGoalStatus.COMPLETE) {
                         DropdownMenuItem(
-                            text = { Text("Mark complete", color = LitterTheme.textPrimary) },
+                            text = { Text("标记完成", color = LitterTheme.textPrimary) },
                             onClick = {
                                 showMenu = false
                                 actions.markComplete()
@@ -1926,7 +1968,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Clear goal", color = LitterTheme.danger) },
+                        text = { Text("清除目标", color = LitterTheme.danger) },
                         onClick = {
                             showMenu = false
                             showClearConfirm = true
@@ -2036,11 +2078,11 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
 
     if (showEditDialog) {
         GoalTextInputDialog(
-            title = "Edit Objective",
+            title = "编辑目标",
             initial = goal.objective,
-            placeholder = "What do you want to accomplish?",
+            placeholder = "你想完成什么？",
             singleLine = false,
-            confirmLabel = "Save",
+            confirmLabel = "保存",
             onConfirm = { value ->
                 val trimmed = value.trim()
                 if (trimmed.isNotEmpty()) actions.setObjective(trimmed)
@@ -2052,13 +2094,13 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
 
     if (showBudgetDialog) {
         GoalTextInputDialog(
-            title = "Token Budget",
+            title = "Token 预算",
             initial = goal.tokenBudget?.toString().orEmpty(),
-            placeholder = "e.g. 50000",
+            placeholder = "例如 50000",
             singleLine = true,
             keyboardNumeric = true,
-            confirmLabel = "Save",
-            helper = "The agent will pause when the cap is reached.",
+            confirmLabel = "保存",
+            helper = "达到上限后，NeCode 会暂停目标。",
             onConfirm = { value ->
                 val parsed = value.trim().toLongOrNull()
                 if (parsed != null && parsed > 0) actions.setBudget(parsed)
@@ -2073,7 +2115,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
             onDismissRequest = { showClearConfirm = false },
             confirmButton = {
                 Text(
-                    text = "Clear Goal",
+                    text = "清除目标",
                     color = LitterTheme.danger,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
@@ -2086,7 +2128,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
             },
             dismissButton = {
                 Text(
-                    text = "Cancel",
+                    text = "取消",
                     color = LitterTheme.textPrimary,
                     modifier = Modifier
                         .clickable { showClearConfirm = false }
@@ -2094,11 +2136,11 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                 )
             },
             title = {
-                Text("Clear this goal?", color = LitterTheme.textPrimary, fontWeight = FontWeight.SemiBold)
+                Text("清除这个目标？", color = LitterTheme.textPrimary, fontWeight = FontWeight.SemiBold)
             },
             text = {
                 Text(
-                    "Removes the goal from this thread. The agent stops tracking objective progress.",
+                    "会从当前会话移除目标，NeCode 将停止跟踪目标进度。",
                     color = LitterTheme.textSecondary,
                 )
             },
@@ -2134,7 +2176,7 @@ private fun GoalTextInputDialog(
         },
         dismissButton = {
             Text(
-                text = "Cancel",
+                text = "取消",
                 color = LitterTheme.textPrimary,
                 modifier = Modifier
                     .clickable(onClick = onDismiss)

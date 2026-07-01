@@ -35,8 +35,8 @@ fun ProjectChip(
 ) {
     val label = when {
         project != null -> projectDefaultLabel(project.cwd)
-        disabled -> "no server"
-        else -> "pick project"
+        disabled -> "无设备"
+        else -> "选择项目"
     }
     Row(
         modifier = Modifier

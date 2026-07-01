@@ -39,20 +39,34 @@ fun ChatWallpaperBackground(
 @Composable
 fun WallpaperBackdrop(
     threadKey: ThreadKey? = null,
+    serverId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     // Read version to recompose when wallpaper prefs change
     @Suppress("UNUSED_VARIABLE")
     val ver = WallpaperManager.version
-    val config = if (threadKey != null) WallpaperManager.resolvedConfig(threadKey) else null
+    val resolvedServerId = threadKey?.serverId ?: serverId
+    val config = if (threadKey != null) {
+        WallpaperManager.resolvedConfig(threadKey)
+    } else {
+        resolvedServerId?.let(WallpaperManager::resolvedConfigForServer)
+    }
     val bitmap = if (config != null) {
-        WallpaperManager.resolvedBitmapForConfig(config, threadKey)
+        WallpaperManager.resolvedBitmapForConfig(config, threadKey = threadKey, serverId = resolvedServerId)
     } else {
         null
     }
 
     val isVideo = config?.type == WallpaperType.CUSTOM_VIDEO || config?.type == WallpaperType.VIDEO_URL
-    val videoPath = if (isVideo) WallpaperManager.videoFilePath(threadKey) else null
+    val videoPath = if (isVideo) {
+        if (threadKey != null) {
+            WallpaperManager.videoFilePath(threadKey)
+        } else {
+            resolvedServerId?.let(WallpaperManager::videoFilePathForServer)
+        }
+    } else {
+        null
+    }
 
     if (config != null && (bitmap != null || config.type == WallpaperType.SOLID_COLOR || (isVideo && videoPath != null))) {
         val blurRadius = wallpaperBlurRadius(config.blur)

@@ -1,5 +1,6 @@
 package com.litter.android.ui.home
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.ui.LitterTheme
+import com.sigkitten.litter.android.R
 import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.min
@@ -61,8 +64,8 @@ private enum class CoachmarkLabelAlignment {
 
 private data class CoachmarkItem(
     val id: CoachmarkTarget,
-    val primary: String,
-    val secondary: String?,
+    @StringRes val primaryRes: Int,
+    @StringRes val secondaryRes: Int?,
     val positionX: Float,
     val positionY: Float,
     val labelWidth: Dp,
@@ -74,8 +77,8 @@ private data class CoachmarkItem(
 private val coachmarkItems = listOf(
     CoachmarkItem(
         id = CoachmarkTarget.AddServer,
-        primary = "add a remote computer",
-        secondary = "if you have one",
+        primaryRes = R.string.coachmark_add_remote_primary,
+        secondaryRes = R.string.coachmark_add_remote_secondary,
         positionX = 0.55f,
         positionY = 0.20f,
         labelWidth = 200.dp,
@@ -85,8 +88,8 @@ private val coachmarkItems = listOf(
     ),
     CoachmarkItem(
         id = CoachmarkTarget.Search,
-        primary = "see all\nyour threads",
-        secondary = null,
+        primaryRes = R.string.coachmark_search_primary,
+        secondaryRes = null,
         positionX = 0.92f,
         positionY = 0.62f,
         labelWidth = 110.dp,
@@ -96,8 +99,8 @@ private val coachmarkItems = listOf(
     ),
     CoachmarkItem(
         id = CoachmarkTarget.NewThread,
-        primary = "start a new thread",
-        secondary = "or just type a message",
+        primaryRes = R.string.coachmark_new_thread_primary,
+        secondaryRes = R.string.coachmark_new_thread_secondary,
         positionX = 0.50f,
         positionY = 0.70f,
         labelWidth = 220.dp,
@@ -107,8 +110,8 @@ private val coachmarkItems = listOf(
     ),
     CoachmarkItem(
         id = CoachmarkTarget.Voice,
-        primary = "realtime voice",
-        secondary = "needs OpenAI key in Settings",
+        primaryRes = R.string.coachmark_voice_primary,
+        secondaryRes = R.string.coachmark_voice_secondary,
         positionX = 0.20f,
         positionY = 0.78f,
         labelWidth = 160.dp,
@@ -232,7 +235,7 @@ private fun CoachmarkLabel(
                 null
             }
             Text(
-                text = item.primary,
+                text = stringResource(item.primaryRes),
                 color = LitterTheme.accent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -240,9 +243,10 @@ private fun CoachmarkLabel(
                 textAlign = textAlign,
                 style = androidx.compose.ui.text.TextStyle(shadow = shadow),
             )
-            if (item.secondary != null) {
+            val secondaryRes = item.secondaryRes
+            if (secondaryRes != null) {
                 Text(
-                    text = item.secondary,
+                    text = stringResource(secondaryRes),
                     color = LitterTheme.textSecondary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Normal,

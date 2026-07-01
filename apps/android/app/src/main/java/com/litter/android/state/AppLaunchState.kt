@@ -337,7 +337,7 @@ private fun AppSandboxPolicy.toLaunchSandboxMode(): AppSandboxMode? =
         is AppSandboxPolicy.ExternalSandbox -> null
     }
 
-private fun String?.normalizedOrEmpty(): String = this?.trim().orEmpty()
+private fun String?.normalizedOrEmpty(): String = PathNormalizer.normalize(this)
 
 private fun String?.normalizedOrNull(): String? = normalizedOrEmpty().ifEmpty { null }
 

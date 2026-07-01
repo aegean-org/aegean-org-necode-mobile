@@ -16,6 +16,7 @@ import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppSessionSummary
 import uniffi.codex_mobile_client.AppSnapshotRecord
+import uniffi.codex_mobile_client.PinnedThreadKey
 import uniffi.codex_mobile_client.ThreadKey
 
 /**
@@ -93,20 +94,48 @@ object HomeDashboardSupport {
     }
 
     /**
-     * Resolve a session's display title using the same rules as the iOS
-     * `HomeDashboardSupport.sessionTitle` helper — non-empty trimmed title
-     * unless it is the placeholder "Untitled session", otherwise fall back
-     * to the cwd's last path component or "New thread".
+     * Resolve a session's display title for compact home rows: explicit
+     * non-placeholder title, then the user's prompt, then workspace name.
      */
     fun sessionTitle(session: AppSessionSummary): String {
         val trimmed = session.title.trim()
-        if (trimmed.isNotEmpty() && trimmed != "Untitled session") return trimmed
+        if (trimmed.isNotEmpty() && !trimmed.equals("Untitled session", ignoreCase = true)) return trimmed
+        val firstQuestion = session.lastUserMessage?.trim()
+            ?.lineSequence()
+            ?.firstOrNull { it.isNotBlank() }
+            ?.trim()
+        if (!firstQuestion.isNullOrEmpty()) return firstQuestion.take(32)
         val cwd = session.cwd.trim().trimEnd('/')
+            .trimEnd('\\')
         if (cwd.isNotEmpty()) {
-            val tail = cwd.substringAfterLast('/')
+            val tail = cwd.substringAfterLast('/').substringAfterLast('\\')
             return tail.ifEmpty { cwd }
         }
-        return "New thread"
+        return "新会话"
+    }
+
+    /**
+     * Build the home session list from live sessions and saved user pins.
+     * Stale pins are ignored because they cannot be opened.
+     */
+    fun mergeHomeSessions(
+        pinned: List<PinnedThreadKey>,
+        hidden: List<PinnedThreadKey>,
+        allSessions: List<AppSessionSummary>,
+    ): List<AppSessionSummary> {
+        val hiddenSet = hidden.toSet()
+        val candidates = allSessions.filter { session ->
+            PinnedThreadKey(serverId = session.key.serverId, threadId = session.key.threadId) !in hiddenSet
+        }
+        if (pinned.isEmpty()) return candidates.take(10)
+
+        val byKey = candidates.associateBy { session ->
+            PinnedThreadKey(serverId = session.key.serverId, threadId = session.key.threadId)
+        }
+        val pinnedSessions = pinned.mapNotNull { key ->
+            if (key in hiddenSet) null else byKey[key]
+        }
+        return pinnedSessions.ifEmpty { candidates.take(10) }
     }
 
     /**

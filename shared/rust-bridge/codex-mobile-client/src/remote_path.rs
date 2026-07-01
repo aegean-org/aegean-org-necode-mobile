@@ -22,7 +22,9 @@ pub fn normalize_thread_cwd(path: &str) -> Option<String> {
     let parsed = RemotePath::parse(trimmed);
     let normalized = parsed.as_str();
     if parsed.is_windows() {
-        Some(collapse_duplicated_windows_user_home(normalized))
+        Some(collapse_concatenated_windows_absolute_path(
+            &collapse_duplicated_windows_user_home(normalized),
+        ))
     } else {
         Some(normalized.to_string())
     }
@@ -75,6 +77,32 @@ fn collapse_one_duplicated_windows_user_home(path: &str) -> String {
     let mut collapsed = vec![parts[0], parts[1], parts[2]];
     collapsed.extend_from_slice(&parts[5..]);
     collapsed.join("\\")
+}
+
+fn collapse_concatenated_windows_absolute_path(path: &str) -> String {
+    let mut starts = windows_drive_starts(path);
+    if starts.len() < 2 || starts[0] != 0 {
+        return path.to_string();
+    }
+    path[starts.pop().unwrap()..].to_string()
+}
+
+fn windows_drive_starts(path: &str) -> Vec<usize> {
+    let bytes = path.as_bytes();
+    if bytes.len() < 3 {
+        return Vec::new();
+    }
+    bytes
+        .windows(3)
+        .enumerate()
+        .filter_map(|(index, window)| {
+            if window[0].is_ascii_alphabetic() && window[1] == b':' && (window[2] == b'\\' || window[2] == b'/') {
+                Some(index)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// A remote filesystem path that knows whether it lives on a POSIX or
@@ -329,6 +357,26 @@ mod tests {
         assert_eq!(
             normalize_thread_cwd("C:/Users/npace/dev/litter").as_deref(),
             Some(r"C:\Users\npace\dev\litter")
+        );
+    }
+
+    #[test]
+    fn normalize_thread_cwd_collapses_concatenated_windows_absolute_paths() {
+        assert_eq!(
+            normalize_thread_cwd(
+                r"D:\project\iNexGrow-code\D:\project\iNexGrow-code\D:\project\iNexGrow-code"
+            )
+            .as_deref(),
+            Some(r"D:\project\iNexGrow-code")
+        );
+    }
+
+    #[test]
+    fn normalize_thread_cwd_preserves_last_concatenated_windows_absolute_path() {
+        assert_eq!(
+            normalize_thread_cwd(r"D:\project\iNexGrow-code\D:\project\iNexGrow-code\frontend")
+                .as_deref(),
+            Some(r"D:\project\iNexGrow-code\frontend")
         );
     }
 

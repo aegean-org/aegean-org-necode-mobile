@@ -23,9 +23,9 @@ enum class LitterAppearanceMode(
     val storageValue: String,
     val displayName: String,
 ) {
-    SYSTEM("system", "System"),
-    LIGHT("light", "Light"),
-    DARK("dark", "Dark");
+    SYSTEM("system", "跟随系统"),
+    LIGHT("light", "浅色"),
+    DARK("dark", "深色");
 
     companion object {
         fun fromStorageValue(value: String?): LitterAppearanceMode? =

@@ -2,6 +2,7 @@ package com.litter.android.state
 
 import com.litter.android.core.bridge.UniffiInit
 import com.litter.android.util.LLog
+import com.sigkitten.litter.android.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,6 +46,60 @@ import uniffi.codex_mobile_client.AppReadThreadRequest
 import uniffi.codex_mobile_client.AppStartThreadRequest
 import uniffi.codex_mobile_client.registerAndroidTools
 import uniffi.codex_mobile_client.threadPermissionsAreAuthoritative
+
+/**
+ * Returns where a live item delta should be inserted into the currently loaded
+ * thread projection. User boundary items start their source turn even when the
+ * assistant item for that turn arrived first.
+ */
+internal fun insertionIndexForConversationItem(
+    items: List<HydratedConversationItem>,
+    item: HydratedConversationItem,
+): Int {
+    item.sourceTurnIndex?.toInt()?.let { turnIndex ->
+        return insertionIndexForSourceTurnIndex(items, item, turnIndex)
+    }
+
+    val turnId = item.normalizedSourceTurnId() ?: return items.size
+    return insertionIndexForSourceTurnId(items, item, turnId)
+}
+
+private fun insertionIndexForSourceTurnIndex(
+    items: List<HydratedConversationItem>,
+    item: HydratedConversationItem,
+    turnIndex: Int,
+): Int {
+    val firstSameTurn = items.indexOfFirst { it.sourceTurnIndex?.toInt() == turnIndex }
+    if (firstSameTurn >= 0 && item.isUserTurnBoundary()) return firstSameTurn
+
+    val lastSameTurn = items.indexOfLast { it.sourceTurnIndex?.toInt() == turnIndex }
+    if (lastSameTurn >= 0) return lastSameTurn + 1
+
+    val nextTurn = items.indexOfFirst {
+        val sourceTurn = it.sourceTurnIndex?.toInt()
+        sourceTurn != null && sourceTurn > turnIndex
+    }
+    return if (nextTurn >= 0) nextTurn else items.size
+}
+
+private fun insertionIndexForSourceTurnId(
+    items: List<HydratedConversationItem>,
+    item: HydratedConversationItem,
+    turnId: String,
+): Int {
+    val firstSameTurn = items.indexOfFirst { it.normalizedSourceTurnId() == turnId }
+    if (firstSameTurn < 0) return items.size
+    if (item.isUserTurnBoundary()) return firstSameTurn
+
+    val lastSameTurn = items.indexOfLast { it.normalizedSourceTurnId() == turnId }
+    return lastSameTurn + 1
+}
+
+private fun HydratedConversationItem.normalizedSourceTurnId(): String? =
+    sourceTurnId?.trim()?.takeIf { it.isNotEmpty() }
+
+private fun HydratedConversationItem.isUserTurnBoundary(): Boolean =
+    isFromUserTurnBoundary && content is HydratedConversationItemContent.User
 
 class LocalAccountLoginRequiredException(val serverId: String) :
     IllegalStateException("Local account login is required.")
@@ -350,6 +405,7 @@ class AppModel private constructor(context: android.content.Context) {
     private fun applySnapshot(snapshot: AppSnapshotRecord?) {
         val merged = snapshot
             ?.let(::applySavedServerNames)
+            ?.let(::normalizeSnapshotCwds)
             ?.let(::mergeCachedThreadSnapshots)
         _snapshot.value = merged
         if (merged != null) {
@@ -411,13 +467,32 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
+    private fun normalizeSnapshotCwds(snapshot: AppSnapshotRecord): AppSnapshotRecord =
+        snapshot.copy(
+            threads = snapshot.threads.map(::normalizeThreadSnapshot),
+            sessionSummaries = snapshot.sessionSummaries.map(::normalizeSessionSummary),
+        )
+
+    private fun normalizeThreadSnapshot(thread: AppThreadSnapshot): AppThreadSnapshot {
+        val cwd = thread.info.cwd ?: return thread
+        val normalized = PathNormalizer.normalize(cwd).ifEmpty { return thread }
+        if (normalized == cwd) return thread
+        return thread.copy(info = thread.info.copy(cwd = normalized))
+    }
+
+    private fun normalizeSessionSummary(summary: AppSessionSummary): AppSessionSummary {
+        val normalized = PathNormalizer.normalize(summary.cwd).ifEmpty { return summary }
+        if (normalized == summary.cwd) return summary
+        return summary.copy(cwd = normalized)
+    }
+
     /// Patch a single `AppSessionSummary` in the snapshot. Called whenever
     /// the reducer emits a per-item summary update on `threadItemChanged`,
     /// so home-list derived fields track streaming items without waiting
     /// for a full snapshot rebuild.
     private fun applySessionSummary(summary: AppSessionSummary) {
         val current = _snapshot.value ?: return
-        val adjusted = applySavedServerName(summary)
+        val adjusted = normalizeSessionSummary(applySavedServerName(summary))
         val existingIndex = current.sessionSummaries.indexOfFirst { it.key == adjusted.key }
         val updatedSummaries = current.sessionSummaries.toMutableList().apply {
             if (existingIndex >= 0) {
@@ -432,7 +507,7 @@ class AppModel private constructor(context: android.content.Context) {
     suspend fun restartLocalServer() {
         val currentLocal = snapshot.value?.servers?.firstOrNull { it.isLocal }
         val serverId = currentLocal?.serverId ?: "local"
-        val displayName = currentLocal?.displayName ?: "This Device"
+        val displayName = currentLocal?.displayName ?: appContext.getString(R.string.local_device_display_name)
         runCatching { serverBridge.disconnectServer(serverId) }
         serverBridge.connectLocalServer(
             serverId = serverId,
@@ -1264,7 +1339,7 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun applyThreadSnapshot(thread: AppThreadSnapshot) {
-        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
+        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(normalizeThreadSnapshot(thread))
         val current = _snapshot.value
         if (current == null) {
             cacheThreadSnapshot(mergedThread)
@@ -1288,7 +1363,7 @@ class AppModel private constructor(context: android.content.Context) {
         sessionSummary: AppSessionSummary,
         agentDirectoryVersion: ULong,
     ) {
-        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(thread)
+        val mergedThread = mergedThreadSnapshotPreservingHydratedItems(normalizeThreadSnapshot(thread))
         val current = _snapshot.value ?: return
         val existingThreadIndex = current.threads.indexOfFirst { it.key == thread.key }
 
@@ -1314,7 +1389,7 @@ class AppModel private constructor(context: android.content.Context) {
             }
         }
 
-        val adjustedSummary = applySavedServerName(sessionSummary)
+        val adjustedSummary = normalizeSessionSummary(applySavedServerName(sessionSummary))
         val existingSummaryIndex = current.sessionSummaries.indexOfFirst { it.key == adjustedSummary.key }
         val updatedSummaries = current.sessionSummaries.toMutableList().apply {
             if (existingSummaryIndex >= 0) {
@@ -1439,7 +1514,7 @@ class AppModel private constructor(context: android.content.Context) {
         if (existingItemIndex >= 0) {
             updatedItems[existingItemIndex] = item
         } else {
-            val insertionIndex = insertionIndexForItem(updatedItems, item)
+            val insertionIndex = insertionIndexForConversationItem(updatedItems, item)
             updatedItems.add(insertionIndex, item)
         }
         applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
@@ -1519,21 +1594,6 @@ class AppModel private constructor(context: android.content.Context) {
         }
     }
 
-    private fun insertionIndexForItem(
-        items: List<HydratedConversationItem>,
-        item: HydratedConversationItem,
-    ): Int {
-        val targetTurn = item.sourceTurnIndex?.toInt() ?: return items.size
-        val lastSameTurn = items.indexOfLast { it.sourceTurnIndex?.toInt() == targetTurn }
-        if (lastSameTurn >= 0) return lastSameTurn + 1
-
-        val nextTurn = items.indexOfFirst {
-            val sourceTurn = it.sourceTurnIndex?.toInt()
-            sourceTurn != null && sourceTurn > targetTurn
-        }
-        return if (nextTurn >= 0) nextTurn else items.size
-    }
-
     private fun hasAuthoritativePermissions(thread: AppThreadSnapshot): Boolean =
         threadPermissionsAreAuthoritative(
             approvalPolicy = thread.effectiveApprovalPolicy,
@@ -1583,7 +1643,8 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun cacheThreadSnapshot(thread: AppThreadSnapshot) {
-        cachedThreadSnapshots[thread.key] = thread
+        val normalized = normalizeThreadSnapshot(thread)
+        cachedThreadSnapshots[normalized.key] = normalized
     }
 
     private fun mergedThreadSnapshotPreservingHydratedItems(thread: AppThreadSnapshot): AppThreadSnapshot {
@@ -1595,6 +1656,7 @@ class AppModel private constructor(context: android.content.Context) {
 
     private fun mergeCachedThreadSnapshots(snapshot: AppSnapshotRecord): AppSnapshotRecord {
         val mergedThreads = snapshot.threads
+            .map(::normalizeThreadSnapshot)
             .map(::mergedThreadSnapshotPreservingHydratedItems)
             .toMutableList()
 

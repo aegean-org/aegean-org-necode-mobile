@@ -12,6 +12,7 @@ import coil.request.ImageRequest
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -160,6 +161,7 @@ fun ConversationTimelineItem(
 
         is HydratedConversationItemContent.Reasoning -> ReasoningRow(
             data = content.v1,
+            isLiveTurn = isLiveTurn,
         )
 
         is HydratedConversationItemContent.CommandExecution -> CommandExecutionRow(
@@ -315,7 +317,7 @@ private fun UserMessageRow(
                                 .data(it)
                                 .crossfade(false)
                                 .build(),
-                            contentDescription = "Attached image",
+                            contentDescription = "已添加图片",
                             modifier = Modifier
                                 .padding(top = 4.dp)
                                 .heightIn(max = 200.dp)
@@ -330,18 +332,18 @@ private fun UserMessageRow(
             ) {
                 if (onEdit != null) {
                     DropdownMenuItem(
-                        text = { Text("Edit Message") },
+                        text = { Text("编辑消息") },
                         onClick = { showMenu = false; onEdit(itemId) },
                     )
                 }
                 if (onFork != null) {
                     DropdownMenuItem(
-                        text = { Text("Fork From Here") },
+                        text = { Text("从这里复制会话") },
                         onClick = { showMenu = false; onFork(itemId) },
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Copy") },
+                    text = { Text("复制") },
                     onClick = {
                         showMenu = false
                         val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
@@ -370,7 +372,7 @@ private fun LimitedUserMessageText(text: String) {
 
     if (isLong) {
         Text(
-            text = if (expanded) "Show less" else "Show more",
+            text = if (expanded) "收起" else "展开",
             color = LitterTheme.accent,
             fontSize = LitterTextStyle.caption2.scaled,
             fontWeight = FontWeight.SemiBold,
@@ -514,7 +516,7 @@ private fun AssistantRenderBlocks(
                             .data(block.data)
                             .crossfade(false)
                             .build(),
-                        contentDescription = "Assistant image ${index + 1}",
+                        contentDescription = "助手图片 ${index + 1}",
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 300.dp)
@@ -606,7 +608,7 @@ private fun CodeReviewFindingCard(
             )
 
             Text(
-                text = "Dismiss",
+                text = "忽略",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.callout.scaled,
                 fontWeight = FontWeight.Medium,
@@ -632,29 +634,78 @@ private fun CodeReviewFindingCard(
 @Composable
 private fun ReasoningRow(
     data: uniffi.codex_mobile_client.HydratedReasoningData,
+    isLiveTurn: Boolean,
 ) {
     val reasoningText = remember(data.summary, data.content) {
-        (data.summary + data.content)
-            .filter { it.isNotBlank() }
-            .joinToString(separator = "\n\n")
+        reasoningDisplayText(data.summary, data.content)
     }
 
     if (reasoningText.isBlank()) return
 
-    SelectableConversationText(
+    var expanded by remember(reasoningText) { mutableStateOf(false) }
+    val label = remember(isLiveTurn) { reasoningCollapsedLabel(isLiveTurn) }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp)
+            .animateContentSize(),
     ) {
-        Text(
-            text = reasoningText,
-            color = LitterTheme.textSecondary,
-            fontSize = LitterTextStyle.body.scaled,
-            fontFamily = LitterTheme.monoFont,
-            fontStyle = FontStyle.Italic,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(LitterTheme.surface.copy(alpha = 0.45f))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.HourglassEmpty,
+                contentDescription = null,
+                tint = LitterTheme.textMuted,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = label,
+                color = LitterTheme.textMuted,
+                fontSize = LitterTextStyle.caption.scaled,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (expanded) "收起" else "展开",
+                color = LitterTheme.textMuted,
+                fontSize = LitterTextStyle.caption2.scaled,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            SelectableConversationText(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, top = 6.dp, bottom = 4.dp),
+            ) {
+                Text(
+                    text = reasoningText,
+                    color = LitterTheme.textMuted,
+                    fontSize = LitterTextStyle.caption.scaled,
+                    fontFamily = LitterTheme.monoFont,
+                    fontStyle = FontStyle.Italic,
+                )
+            }
+        }
     }
 }
+
+internal fun reasoningDisplayText(summary: List<String>, content: List<String>): String =
+    (summary + content)
+        .filter { it.isNotBlank() }
+        .joinToString(separator = "\n\n")
+
+internal fun reasoningCollapsedLabel(isLiveTurn: Boolean): String =
+    if (isLiveTurn) "正在思考..." else "思考过程已隐藏"
 
 // ── Command Execution ────────────────────────────────────────────────────────
 
@@ -670,9 +721,9 @@ private fun CommandExecutionRow(
             ?.trim('\n')
             ?.takeIf { it.isNotBlank() }
             ?: if (data.status == AppOperationStatus.PENDING || data.status == AppOperationStatus.IN_PROGRESS) {
-                "Waiting for output…"
+                "等待输出…"
             } else {
-                "No output"
+                "暂无输出"
             }
     val isRunning = data.status == AppOperationStatus.PENDING || data.status == AppOperationStatus.IN_PROGRESS
     val displayedCommand = remember(data.command) { displayCommandText(data.command) }
@@ -777,7 +828,7 @@ private fun FileChangeRow(
         status = data.status,
     ) {
         if (diffChanges.isEmpty() && data.changes.isNotEmpty()) {
-            ListSection("Files", data.changes.map { workspaceTitle(it.path) })
+            ListSection("文件", data.changes.map { workspaceTitle(it.path) })
         }
         diffChanges.forEach { change ->
             DiffSection(
@@ -798,8 +849,8 @@ private fun buildFileChangeSummary(
 ): FileChangeSummary {
     if (data.changes.isEmpty()) {
         return FileChangeSummary(
-            plainText = "File changes",
-            annotatedText = AnnotatedString("File changes"),
+            plainText = "文件变更",
+            annotatedText = AnnotatedString("文件变更"),
         )
     }
 
@@ -837,14 +888,14 @@ private fun buildFileChangeSummary(
 
     if (!hasCountSummary) {
         return FileChangeSummary(
-            plainText = "Changed ${data.changes.size} files",
-            annotatedText = AnnotatedString("Changed ${data.changes.size} files"),
+            plainText = "变更 ${data.changes.size} 个文件",
+            annotatedText = AnnotatedString("变更 ${data.changes.size} 个文件"),
         )
     }
 
-    val plainText = "Changed ${data.changes.size} files +$additions -$deletions"
+    val plainText = "变更 ${data.changes.size} 个文件 +$additions -$deletions"
     val annotatedText = buildAnnotatedString {
-        append("Changed ${data.changes.size} files")
+        append("变更 ${data.changes.size} 个文件")
         withStyle(SpanStyle(color = LitterTheme.success)) {
             append(" +$additions")
         }
@@ -856,10 +907,10 @@ private fun buildFileChangeSummary(
 }
 
 private fun fileChangeVerb(kind: String): String = when (kind.lowercase()) {
-    "add" -> "Added"
-    "delete" -> "Deleted"
-    "update" -> "Edited"
-    else -> "Changed"
+    "add" -> "新增"
+    "delete" -> "删除"
+    "update" -> "编辑"
+    else -> "变更"
 }
 
 // ── Todo List ────────────────────────────────────────────────────────────────
@@ -912,7 +963,7 @@ private fun ProposedPlanRow(
             .padding(vertical = 4.dp),
     ) {
         Text(
-            text = "Plan",
+            text = "规划",
             color = LitterTheme.accent,
             fontSize = LitterTextStyle.caption.scaled,
             fontWeight = FontWeight.SemiBold,
@@ -935,14 +986,14 @@ private fun McpToolCallRow(
         status = data.status,
         durationMs = data.durationMs,
     ) {
-        data.argumentsJson?.takeIf { it.isNotBlank() }?.let { CodeSection("Arguments", it) }
-        data.contentSummary?.takeIf { it.isNotBlank() }?.let { InlineTextSection("Result", it) }
-        data.structuredContentJson?.takeIf { it.isNotBlank() }?.let { CodeSection("Structured", it) }
-        data.rawOutputJson?.takeIf { it.isNotBlank() }?.let { CodeSection("Raw Output", it) }
+        data.argumentsJson?.takeIf { it.isNotBlank() }?.let { CodeSection("参数", it) }
+        data.contentSummary?.takeIf { it.isNotBlank() }?.let { InlineTextSection("结果", it) }
+        data.structuredContentJson?.takeIf { it.isNotBlank() }?.let { CodeSection("结构化内容", it) }
+        data.rawOutputJson?.takeIf { it.isNotBlank() }?.let { CodeSection("原始输出", it) }
         if (data.progressMessages.isNotEmpty()) {
-            ProgressSection("Progress", data.progressMessages)
+            ProgressSection("进度", data.progressMessages)
         }
-        data.errorMessage?.takeIf { it.isNotBlank() }?.let { InlineTextSection("Error", it, tone = LitterTheme.danger) }
+        data.errorMessage?.takeIf { it.isNotBlank() }?.let { InlineTextSection("错误", it, tone = LitterTheme.danger) }
     }
 }
 
@@ -963,7 +1014,7 @@ private fun ComputerUseToolCallRow(
             ScreenshotPreview(bytes)
         }
         data.errorMessage?.takeIf { it.isNotBlank() }?.let {
-            InlineTextSection("Error", it, tone = LitterTheme.danger)
+            InlineTextSection("错误", it, tone = LitterTheme.danger)
         }
         view.accessibilityText?.takeIf { it.isNotBlank() }?.let {
             AccessibilityTreeSection(it)
@@ -976,7 +1027,7 @@ private fun ScreenshotPreview(bytes: ByteArray) {
     val context = LocalContext.current
     Column {
         Text(
-            text = "SCREENSHOT",
+            text = "截图",
             color = LitterTheme.textSecondary,
             fontSize = 10f.scaled,
             fontWeight = FontWeight.Bold,
@@ -987,7 +1038,7 @@ private fun ScreenshotPreview(bytes: ByteArray) {
                 .data(bytes)
                 .crossfade(false)
                 .build(),
-            contentDescription = "Computer Use screenshot",
+            contentDescription = "电脑使用截图",
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
@@ -1005,13 +1056,13 @@ private fun AccessibilityTreeSection(text: String) {
     val display = if (expanded || lines.size <= previewLineCount) {
         text
     } else {
-        lines.take(previewLineCount).joinToString("\n") + "\n… (${lines.size - previewLineCount} more lines)"
+        lines.take(previewLineCount).joinToString("\n") + "\n…（还有 ${lines.size - previewLineCount} 行）"
     }
 
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "ACCESSIBILITY TREE",
+                text = "辅助信息树",
                 color = LitterTheme.textSecondary,
                 fontSize = 10f.scaled,
                 fontWeight = FontWeight.Bold,
@@ -1019,7 +1070,7 @@ private fun AccessibilityTreeSection(text: String) {
             )
             if (lines.size > previewLineCount) {
                 Text(
-                    text = if (expanded) "Show less" else "Show more",
+                    text = if (expanded) "收起" else "展开",
                     color = LitterTheme.accent,
                     fontSize = 10f.scaled,
                     fontWeight = FontWeight.Medium,
@@ -1064,8 +1115,8 @@ private fun DynamicToolCallRow(
         display?.metadata?.forEach { entry ->
             add(entry.key to entry.value)
         }
-        data.namespace?.takeIf { it.isNotBlank() }?.let { add("Namespace" to it) }
-        data.success?.let { add("Success" to it.toString()) }
+        data.namespace?.takeIf { it.isNotBlank() }?.let { add("命名空间" to it) }
+        data.success?.let { add("成功" to it.toString()) }
     }
     ToolCardShell(
         summary = summary,
@@ -1074,10 +1125,10 @@ private fun DynamicToolCallRow(
         durationMs = data.durationMs,
     ) {
         if (metadata.isNotEmpty()) {
-            KeyValueSection(label = "Metadata", entries = metadata)
+            KeyValueSection(label = "元数据", entries = metadata)
         }
-        data.argumentsJson?.takeIf { it.isNotBlank() }?.let { CodeSection("Arguments", it) }
-        data.contentSummary?.takeIf { it.isNotBlank() }?.let { InlineTextSection("Result", it) }
+        data.argumentsJson?.takeIf { it.isNotBlank() }?.let { CodeSection("参数", it) }
+        data.contentSummary?.takeIf { it.isNotBlank() }?.let { InlineTextSection("结果", it) }
     }
 }
 
@@ -1088,14 +1139,14 @@ private fun WebSearchRow(
     data: uniffi.codex_mobile_client.HydratedWebSearchData,
 ) {
     ToolCardShell(
-        summary = if (data.query.isBlank()) "Web search" else "Web search for ${data.query}",
+        summary = if (data.query.isBlank()) "网络搜索" else "搜索 ${data.query}",
         accent = LitterTheme.toolCallWebSearch,
         status = if (data.isInProgress) AppOperationStatus.IN_PROGRESS else AppOperationStatus.COMPLETED,
     ) {
         if (data.query.isNotBlank()) {
-            InlineTextSection("Query", data.query)
+            InlineTextSection("查询", data.query)
         }
-        data.actionJson?.takeIf { it.isNotBlank() }?.let { CodeSection("Action", it) }
+        data.actionJson?.takeIf { it.isNotBlank() }?.let { CodeSection("操作", it) }
     }
 }
 
@@ -1111,7 +1162,7 @@ private fun ImageViewRow(
         defaultExpanded = true,
     ) {
         ImageResultSection(path = data.path, serverId = serverId)
-        KeyValueSection("Metadata", listOf("Path" to data.path))
+        KeyValueSection("元数据", listOf("路径" to data.path))
     }
 }
 
@@ -1120,9 +1171,9 @@ private fun ImageGenerationRow(
     data: uniffi.codex_mobile_client.HydratedImageGenerationData,
 ) {
     val summary = when (data.status) {
-        AppOperationStatus.COMPLETED -> "Generated image"
-        AppOperationStatus.FAILED -> "Image generation failed"
-        else -> "Generating image…"
+        AppOperationStatus.COMPLETED -> "已生成图片"
+        AppOperationStatus.FAILED -> "图片生成失败"
+        else -> "正在生成图片…"
     }
     ToolCardShell(
         summary = summary,
@@ -1135,7 +1186,7 @@ private fun ImageGenerationRow(
             RevisedPromptSection(prompt)
         }
         data.savedPath?.takeIf { it.isNotBlank() }?.let { path ->
-            KeyValueSection("Metadata", listOf("Saved to" to path))
+            KeyValueSection("元数据", listOf("保存到" to path))
         }
     }
 }
@@ -1148,7 +1199,7 @@ private fun GeneratedImageSection(
     val pngBytes = data.imagePng
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel("Image")
+        SectionLabel("图片")
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1163,7 +1214,7 @@ private fun GeneratedImageSection(
                             .data(pngBytes)
                             .crossfade(false)
                             .build(),
-                        contentDescription = "Generated image",
+                        contentDescription = "生成的图片",
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1177,7 +1228,7 @@ private fun GeneratedImageSection(
                 }
                 else -> {
                     Text(
-                        text = "Image unavailable",
+                        text = "图片不可用",
                         color = LitterTheme.textMuted,
                         fontSize = LitterTextStyle.caption.scaled,
                         modifier = Modifier.padding(vertical = 20.dp),
@@ -1237,7 +1288,7 @@ private fun GeneratedImageLoadingTile() {
         }
 
         Text(
-            text = "Generating image",
+            text = "正在生成图片",
             color = LitterTheme.textPrimary,
             fontSize = LitterTextStyle.caption.scaled,
             fontWeight = FontWeight.SemiBold,
@@ -1271,11 +1322,11 @@ private fun RevisedPromptSection(prompt: String) {
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Revised Prompt")
+            SectionLabel("修订后的提示词")
             Spacer(Modifier.weight(1f))
             if (isLong) {
                 Text(
-                    text = if (expanded) "Show less" else "Show more",
+                    text = if (expanded) "收起" else "展开",
                     color = LitterTheme.accent,
                     fontSize = LitterTextStyle.caption2.scaled,
                     fontWeight = FontWeight.Medium,
@@ -1317,7 +1368,7 @@ private fun ImageResultSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel("Image")
+        SectionLabel("图片")
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1372,12 +1423,12 @@ private suspend fun loadToolImage(
         if (bitmap != null) {
             ToolImageLoadState.Loaded(bitmap)
         } else {
-            ToolImageLoadState.Failed("Could not decode the image.")
+            ToolImageLoadState.Failed("无法解码图片。")
         }
     } catch (error: Exception) {
         val message = error.message?.trim().orEmpty()
         ToolImageLoadState.Failed(
-            if (message.isNotEmpty()) message else "Image unavailable",
+            if (message.isNotEmpty()) message else "图片不可用",
         )
     }
 }
@@ -1605,7 +1656,7 @@ private fun SavedAsAppChip(
             modifier = Modifier.size(10.dp),
         )
         Text(
-            text = "Saved as",
+            text = "已保存为",
             color = LitterTheme.accent,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
@@ -1632,7 +1683,7 @@ private fun UserInputResponseRow(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = "Requested Input",
+            text = "请求输入",
             color = LitterTheme.textPrimary,
             fontSize = LitterTextStyle.body.scaled,
             fontWeight = FontWeight.SemiBold,
@@ -1655,7 +1706,7 @@ private fun UserInputResponseRow(
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    text = question.answer.ifBlank { "No answer provided" },
+                    text = question.answer.ifBlank { "未提供回答" },
                     color = LitterTheme.textSecondary,
                     fontSize = LitterTextStyle.body.scaled,
                 )
@@ -1671,11 +1722,11 @@ private fun TurnDiffRow(
     data: uniffi.codex_mobile_client.HydratedTurnDiffData,
 ) {
     ToolCardShell(
-        summary = "Turn Diff",
+        summary = "本轮变更",
         accent = LitterTheme.toolCallFileChange,
         status = AppOperationStatus.COMPLETED,
     ) {
-        DiffSection(label = "Diff", content = data.diff)
+        DiffSection(label = "变更", content = data.diff)
     }
 }
 
@@ -1686,15 +1737,15 @@ private fun DividerRow(
 ) {
     val label = when (data) {
         is uniffi.codex_mobile_client.HydratedDividerData.ContextCompaction ->
-            if (data.isComplete && !isLiveTurn) "Context compacted" else "Compacting context\u2026"
+            if (data.isComplete && !isLiveTurn) "上下文已压缩" else "正在压缩上下文…"
         is uniffi.codex_mobile_client.HydratedDividerData.ModelRerouted -> {
             val route = data.fromModel?.takeIf { it.isNotBlank() }?.let { "$it -> ${data.toModel}" }
-                ?: "Routed to ${data.toModel}"
+                ?: "已切换到 ${data.toModel}"
             val reason = data.reason?.takeIf { it.isNotBlank() }
             if (reason != null) "$route | $reason" else route
         }
-        is uniffi.codex_mobile_client.HydratedDividerData.ReviewEntered -> "Review started"
-        is uniffi.codex_mobile_client.HydratedDividerData.ReviewExited -> "Review ended"
+        is uniffi.codex_mobile_client.HydratedDividerData.ReviewEntered -> "代码审查已开始"
+        is uniffi.codex_mobile_client.HydratedDividerData.ReviewExited -> "代码审查已结束"
     }
 
     Row(
@@ -1760,7 +1811,7 @@ private fun ErrorRow(
     ) {
         SelectableConversationText {
             Text(
-                text = data.title.ifBlank { "Error" },
+                text = data.title.ifBlank { "错误" },
                 color = LitterTheme.danger,
                 fontSize = LitterTextStyle.body.scaled,
                 fontWeight = FontWeight.Medium,
@@ -2487,7 +2538,7 @@ private fun LimitedToolTextBlock(
     if (isLong) {
         TextButton(onClick = { expanded = !expanded }) {
             Text(
-                text = if (expanded) "Show less" else "Show more",
+                text = if (expanded) "收起" else "展开",
                 color = LitterTheme.accent,
                 fontSize = LitterTextStyle.caption2.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -2515,7 +2566,7 @@ private fun RichDynamicToolResult(
                         },
                         title = item.name,
                         subtitle = item.hostname,
-                        trailing = if (item.isConnected) "Connected" else "Offline",
+                        trailing = if (item.isConnected) "已连接" else "离线",
                         statusDotColor = if (item.isConnected) LitterTheme.success else LitterTheme.textMuted,
                     )
                 }
@@ -2537,7 +2588,7 @@ private fun RichDynamicToolResult(
                                 modifier = Modifier.size(18.dp),
                             )
                         },
-                        title = item.title.ifBlank { "Untitled session" },
+                        title = item.title.ifBlank { "未命名会话" },
                         subtitle = subtitle,
                         trailing = null,
                         statusDotColor = null,
@@ -2693,7 +2744,7 @@ internal fun StatusIcon(status: AppOperationStatus) {
         AppOperationStatus.COMPLETED -> {
             Icon(
                 Icons.Default.CheckCircle,
-                contentDescription = "Completed",
+                contentDescription = "已完成",
                 tint = LitterTheme.success,
                 modifier = Modifier.size(14.dp),
             )
@@ -2701,7 +2752,7 @@ internal fun StatusIcon(status: AppOperationStatus) {
         AppOperationStatus.FAILED -> {
             Icon(
                 Icons.Default.Error,
-                contentDescription = "Failed",
+                contentDescription = "失败",
                 tint = LitterTheme.danger,
                 modifier = Modifier.size(14.dp),
             )
@@ -2709,7 +2760,7 @@ internal fun StatusIcon(status: AppOperationStatus) {
         else -> {
             Icon(
                 Icons.Default.HourglassEmpty,
-                contentDescription = "Unknown",
+                contentDescription = "未知",
                 tint = LitterTheme.textMuted,
                 modifier = Modifier.size(14.dp),
             )

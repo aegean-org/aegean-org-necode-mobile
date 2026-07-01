@@ -137,8 +137,8 @@ fun WallpaperAdjustScreen(
                 .padding(start = 32.dp, end = 32.dp, top = 104.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SampleBubble("Can you help me refactor this module?", isUser = true)
-            SampleBubble("Sure! I'll analyze the code structure.", isUser = false)
+            SampleBubble("帮我重构一下这个模块", isUser = true)
+            SampleBubble("可以，我会先分析代码结构。", isUser = false)
         }
 
         // Top bar
@@ -153,14 +153,14 @@ fun WallpaperAdjustScreen(
             IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = "返回",
                     tint = LitterTheme.textPrimary,
                     modifier = Modifier.size(20.dp),
                 )
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "Adjust Wallpaper",
+                text = "调整壁纸",
                 color = LitterTheme.textPrimary,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -181,28 +181,6 @@ fun WallpaperAdjustScreen(
                 .padding(16.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .background(LitterTheme.textMuted.copy(alpha = 0.5f), RoundedCornerShape(999.dp)),
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sheetMinimized = !sheetMinimized }, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = if (sheetMinimized) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (sheetMinimized) "Expand controls" else "Minimize controls",
-                        tint = LitterTheme.textPrimary,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { sheetMinimized = !sheetMinimized },
@@ -210,16 +188,16 @@ fun WallpaperAdjustScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Wallpaper Controls",
+                        text = "壁纸设置",
                         color = LitterTheme.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = if (sheetMinimized) {
-                            "Tap to expand blur, motion, brightness, and apply controls."
+                            "点击展开模糊、动态、亮度和应用设置。"
                         } else {
-                            "Adjust the current wallpaper, or minimize this sheet to inspect it full-screen."
+                            "调整当前壁纸，也可以收起面板查看全屏效果。"
                         },
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
@@ -227,7 +205,7 @@ fun WallpaperAdjustScreen(
                 }
                 Icon(
                     imageVector = if (sheetMinimized) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (sheetMinimized) "Expand controls" else "Minimize controls",
+                    contentDescription = if (sheetMinimized) "展开控制项" else "收起控制项",
                     tint = LitterTheme.textPrimary,
                 )
             }
@@ -250,7 +228,7 @@ fun WallpaperAdjustScreen(
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
-                        Text("Blurred", color = LitterTheme.textPrimary, fontSize = 13.sp)
+                        Text("模糊", color = LitterTheme.textPrimary, fontSize = 13.sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
@@ -261,7 +239,7 @@ fun WallpaperAdjustScreen(
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
-                        Text("Motion", color = LitterTheme.textPrimary, fontSize = 13.sp)
+                        Text("动态", color = LitterTheme.textPrimary, fontSize = 13.sp)
                     }
                 }
 
@@ -307,7 +285,7 @@ fun WallpaperAdjustScreen(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Apply for This Thread", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("应用到当前会话", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     Spacer(Modifier.height(8.dp))
@@ -333,7 +311,7 @@ fun WallpaperAdjustScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            "Apply for This Server",
+                            "应用到当前设备",
                             fontSize = 13.sp,
                             fontWeight = if (isServerOnly) FontWeight.SemiBold else FontWeight.Normal,
                         )

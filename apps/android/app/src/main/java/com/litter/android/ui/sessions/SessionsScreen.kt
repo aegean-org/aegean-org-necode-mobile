@@ -267,7 +267,7 @@ fun SessionsScreen(
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = "返回",
                     tint = LitterTheme.textPrimary,
                 )
             }
@@ -298,7 +298,7 @@ fun SessionsScreen(
                             modifier = Modifier.size(14.dp),
                         )
                     } else {
-                        Text("Fork", color = LitterTheme.accent, fontSize = 12.sp)
+                        Text("分叉", color = LitterTheme.accent, fontSize = 12.sp)
                     }
                 }
             }
@@ -316,7 +316,7 @@ fun SessionsScreen(
                 } else {
                     Icon(
                         Icons.Default.Refresh,
-                        contentDescription = "Refresh sessions",
+                        contentDescription = "刷新会话",
                         tint = if (connectedServerIds.isEmpty()) {
                             LitterTheme.textMuted
                         } else {
@@ -330,7 +330,7 @@ fun SessionsScreen(
                 IconButton(onClick = onInfo, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Outlined.Info,
-                        contentDescription = "Server Info",
+                        contentDescription = "设备信息",
                         tint = LitterTheme.accent,
                         modifier = Modifier.size(18.dp),
                     )
@@ -355,7 +355,7 @@ fun SessionsScreen(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("New Session")
+                Text("新建会话")
             }
         }
 
@@ -374,7 +374,7 @@ fun SessionsScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 if (searchQuery.isEmpty()) {
-                    Text("Search sessions\u2026", color = LitterTheme.textMuted, fontSize = 13.sp)
+                    Text("搜索会话\u2026", color = LitterTheme.textMuted, fontSize = 13.sp)
                 }
                 BasicTextField(
                     value = searchQuery,
@@ -387,7 +387,7 @@ fun SessionsScreen(
             FilterChip(
                 selected = sessionsUiState.showOnlyForks,
                 onClick = { sessionsUiState.showOnlyForks = !sessionsUiState.showOnlyForks },
-                label = { Text("Forks", fontSize = 11.sp) },
+                label = { Text("分叉", fontSize = 11.sp) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = LitterTheme.accent,
                     selectedLabelColor = Color.Black,
@@ -433,7 +433,7 @@ fun SessionsScreen(
                     )
                 } else {
                     Text(
-                        text = "No sessions yet",
+                        text = "暂无会话",
                         color = LitterTheme.textMuted,
                         fontSize = 13.sp,
                     )
@@ -454,7 +454,7 @@ fun SessionsScreen(
                         modifier = Modifier.size(14.dp),
                     )
                     Text(
-                        text = "Loading more sessions...",
+                        text = "正在加载更多会话...",
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
                     )
@@ -585,7 +585,7 @@ private fun SessionNodeRow(
                 if (hasChildren) {
                     Icon(
                         if (isCollapsed) Icons.Default.ChevronRight else Icons.Default.ExpandMore,
-                        contentDescription = if (isCollapsed) "Expand session children" else "Collapse session children",
+                        contentDescription = if (isCollapsed) "展开子会话" else "折叠子会话",
                         tint = LitterTheme.textMuted,
                         modifier = Modifier.size(14.dp),
                     )
@@ -638,18 +638,18 @@ private fun SessionNodeRow(
 
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
-                text = { Text("Fork") },
+                text = { Text("分叉") },
                 onClick = {
                     showMenu = false
                     onFork()
                 },
             )
             DropdownMenuItem(
-                text = { Text("Rename") },
+                text = { Text("重命名") },
                 onClick = { showMenu = false; showRenameDialog = true },
             )
             DropdownMenuItem(
-                text = { Text("Archive") },
+                text = { Text("归档") },
                 onClick = { showMenu = false; showArchiveDialog = true },
             )
         }
@@ -660,12 +660,12 @@ private fun SessionNodeRow(
         var newName by remember { mutableStateOf(summary.title ?: "") }
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("Rename Session") },
+            title = { Text("重命名会话") },
             text = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    label = { Text("Name") },
+                    label = { Text("名称") },
                     singleLine = true,
                 )
             },
@@ -684,10 +684,10 @@ private fun SessionNodeRow(
                             appModel.refreshThreadSnapshot(summary.key)
                         } catch (_: Exception) {}
                     }
-                }) { Text("Rename") }
+                }) { Text("重命名") }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showRenameDialog = false }) { Text("取消") }
             },
         )
     }
@@ -696,8 +696,8 @@ private fun SessionNodeRow(
     if (showArchiveDialog) {
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
-            title = { Text("Archive Session") },
-            text = { Text("Are you sure you want to archive this session?") },
+            title = { Text("归档会话") },
+            text = { Text("确定要归档这个会话吗？") },
             confirmButton = {
                 TextButton(onClick = {
                     showArchiveDialog = false
@@ -715,10 +715,10 @@ private fun SessionNodeRow(
                             appModel.refreshSnapshot()
                         } catch (_: Exception) {}
                     }
-                }) { Text("Archive", color = LitterTheme.danger) }
+                }) { Text("归档", color = LitterTheme.danger) }
             },
             dismissButton = {
-                TextButton(onClick = { showArchiveDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showArchiveDialog = false }) { Text("取消") }
             },
         )
     }

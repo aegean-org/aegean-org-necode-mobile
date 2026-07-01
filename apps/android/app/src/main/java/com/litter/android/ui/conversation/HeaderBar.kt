@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.accentColor
 import com.litter.android.state.displayModelLabel
+import com.litter.android.state.PathNormalizer
 import com.litter.android.state.resolvedModel
 import com.litter.android.state.statusColor
 import com.litter.android.ui.LitterTextStyle
@@ -219,7 +220,8 @@ fun HeaderBar(
                 }
                 val cwd = thread?.info?.cwd
                 if (cwd != null) {
-                    val abbreviated = cwd.replace(Regex("^/home/[^/]+"), "~")
+                    val normalizedCwd = PathNormalizer.normalize(cwd)
+                    val abbreviated = normalizedCwd.replace(Regex("^/home/[^/]+"), "~")
                         .replace(Regex("^/Users/[^/]+"), "~")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -293,7 +295,7 @@ fun HeaderBar(
                             val nextKey = appModel.refreshThreadIncludingTurns(thread.key)
                             appModel.store.setActiveThread(nextKey)
                         } catch (e: Exception) {
-                            onReloadError?.invoke(e.message ?: "Failed to reload conversation")
+                            onReloadError?.invoke(e.message ?: "重新加载会话失败")
                         } finally {
                             isReloading = false
                         }

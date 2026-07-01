@@ -25,7 +25,7 @@ pub(crate) struct AppStoreSubscriptionState {
     pub(crate) buffered: VecDeque<AppStoreUpdateRecord>,
 }
 
-const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 8 * 1024;
+const MAX_COALESCED_STREAMING_TEXT_BYTES: usize = 512;
 
 #[cfg(test)]
 mod tests {
@@ -169,6 +169,51 @@ mod tests {
                 kind: crate::store::ThreadStreamingDeltaKind::AssistantText,
                 text,
             } if emitted_key == key && item_id == "assistant-1" && text == "hello world"
+        ));
+    }
+
+    #[test]
+    fn app_store_subscription_keeps_large_streaming_bursts_interactive() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread-1".to_string(),
+        };
+        let subscription = AppStoreSubscription {
+            state: std::sync::Mutex::new(Some(AppStoreSubscriptionState {
+                rx: reducer.subscribe(),
+                buffered: VecDeque::new(),
+            })),
+        };
+        let first_chunk = "a".repeat(384);
+        let second_chunk = "b".repeat(384);
+
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            &first_chunk,
+        );
+        reducer.emit_thread_streaming_delta(
+            &key,
+            "assistant-1",
+            ThreadStreamingDeltaKind::AssistantText,
+            &second_chunk,
+        );
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let update = runtime
+            .block_on(subscription.next_update())
+            .expect("next update should succeed");
+
+        assert!(matches!(
+            update,
+            AppStoreUpdateRecord::ThreadStreamingDelta {
+                key: emitted_key,
+                item_id,
+                kind: crate::store::ThreadStreamingDeltaKind::AssistantText,
+                text,
+            } if emitted_key == key && item_id == "assistant-1" && text == first_chunk
         ));
     }
 

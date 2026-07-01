@@ -66,6 +66,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.litter.android.state.PathNormalizer
 import com.litter.android.state.AppComposerPayload
 import com.litter.android.state.ComposerFileAttachment
 import com.litter.android.state.ComposerImageAttachment
@@ -194,8 +195,9 @@ fun HomeComposerBar(
     val sendCurrent: () -> Unit = {
         val currentProject = project
         if (currentProject == null) {
-            errorMessage = "Pick a project before sending."
+            errorMessage = "发送前请先选择项目。"
         } else {
+            val normalizedCwd = PathNormalizer.normalize(currentProject.cwd)
             val payloadText = text.trim()
             val attachmentToSend = attachedImage
             val filesToSend = attachedFiles
@@ -217,12 +219,13 @@ fun HomeComposerBar(
                     val threadKey = appModel.startThread(
                         currentProject.serverId,
                         appModel.launchState.threadStartRequest(
-                            currentProject.cwd,
+                            normalizedCwd,
                             serverIsLocal = serverIsLocal,
                         ),
                     )
                     com.litter.android.ui.RecentDirectoryStore(context)
-                        .record(currentProject.serverId, currentProject.cwd)
+                        .record(currentProject.serverId, normalizedCwd)
+                    onThreadCreated(threadKey)
                     val payload = AppComposerPayload(
                         text = payloadText,
                         additionalInputs = listOfNotNull(attachmentToSend?.toUserInput()),
@@ -235,7 +238,6 @@ fun HomeComposerBar(
                     )
                     appModel.startTurn(threadKey, payload)
                     appModel.refreshThreadSnapshot(threadKey)
-                    onThreadCreated(threadKey)
                 } catch (e: LocalAccountLoginRequiredException) {
                     onLoginRequired(e.serverId)
                     textFieldValue = TextFieldValue(
@@ -245,7 +247,7 @@ fun HomeComposerBar(
                     attachedImage = attachmentToSend
                     attachedFiles = filesToSend
                 } catch (e: Exception) {
-                    errorMessage = e.message ?: "Failed to start thread"
+                    errorMessage = e.message ?: "启动会话失败"
                     textFieldValue = TextFieldValue(
                         text = payloadText,
                         selection = TextRange(payloadText.length),
@@ -276,7 +278,7 @@ fun HomeComposerBar(
                 IconButton(onClick = { errorMessage = null }) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss",
+                        contentDescription = "关闭",
                         tint = LitterTheme.textMuted,
                         modifier = Modifier.size(14.dp),
                     )
@@ -298,7 +300,7 @@ fun HomeComposerBar(
                     bitmap?.let { bmp ->
                         androidx.compose.foundation.Image(
                             bitmap = bmp.asImageBitmap(),
-                            contentDescription = "Attached image",
+                            contentDescription = "已添加图片",
                             modifier = Modifier
                                 .size(60.dp)
                                 .clip(RoundedCornerShape(8.dp)),
@@ -313,7 +315,7 @@ fun HomeComposerBar(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Remove attachment",
+                            contentDescription = "移除附件",
                             tint = Color.White,
                             modifier = Modifier.size(14.dp),
                         )
@@ -354,7 +356,7 @@ fun HomeComposerBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Attach",
+                        contentDescription = "添加附件",
                         tint = LitterTheme.textPrimary,
                     )
                 }
@@ -403,7 +405,7 @@ fun HomeComposerBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.OpenInFull,
-                                contentDescription = "Expand composer",
+                                contentDescription = "展开输入框",
                                 tint = LitterTheme.textSecondary,
                                 modifier = Modifier.size(12.dp),
                             )
@@ -443,7 +445,7 @@ fun HomeComposerBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Stop,
-                                contentDescription = "Stop recording",
+                                contentDescription = "停止录音",
                                 tint = LitterTheme.accentStrong,
                             )
                         }
@@ -468,7 +470,7 @@ fun HomeComposerBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Mic,
-                                contentDescription = "Record",
+                                contentDescription = "录音",
                                 tint = LitterTheme.textSecondary,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -496,7 +498,7 @@ fun HomeComposerBar(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
+                        contentDescription = "发送",
                         tint = Color.Black,
                         modifier = Modifier.size(17.dp),
                     )
@@ -538,14 +540,14 @@ fun HomeComposerBar(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
-                        text = "Attach",
+                        text = "添加附件",
                         color = LitterTheme.textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
 
                     HomeAttachmentActionRow(
-                        title = "Photo Library",
+                        title = "照片图库",
                         onClick = {
                             showAttachMenu = false
                             photoPicker.launch(
@@ -555,7 +557,7 @@ fun HomeComposerBar(
                     )
 
                     HomeAttachmentActionRow(
-                        title = "Choose File",
+                        title = "选择文件",
                         onClick = {
                             showAttachMenu = false
                             filePicker.launch(ALL_FILE_MIME_TYPES)
@@ -603,7 +605,7 @@ private fun HomeFileAttachmentRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "FILE",
+            text = "文件",
             color = LitterTheme.accent,
             fontSize = LitterTextStyle.caption2.scaled,
             fontWeight = FontWeight.SemiBold,
@@ -632,7 +634,7 @@ private fun HomeFileAttachmentRow(
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "Remove file",
+                contentDescription = "移除文件",
                 tint = LitterTheme.textMuted,
                 modifier = Modifier.size(14.dp),
             )

@@ -11,6 +11,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,11 +36,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,18 +59,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.state.contextPercent
 import com.litter.android.state.hasActiveTurn
-import com.litter.android.state.isActiveStatus
 import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.ChatWallpaperBackground
 import com.litter.android.ui.ConversationPrefs
@@ -90,7 +98,7 @@ import uniffi.codex_mobile_client.ThreadKey
  * Main conversation screen with turn grouping, scroll-to-bottom FAB,
  * pinned context strip, gradient fade, and inline user input.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationScreen(
     threadKey: ThreadKey,
@@ -104,6 +112,11 @@ fun ConversationScreen(
     val snapshot by appModel.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val dismissKeyboard = remember(focusManager, keyboardController) {
+        { dismissConversationKeyboard(focusManager, keyboardController) }
+    }
 
     // Pre-warm Markwon and MessageParser on conversation open
     val warmMarkwon = remember(context) {
@@ -131,7 +144,10 @@ fun ConversationScreen(
     }
     val items = thread?.hydratedConversationItems ?: emptyList()
     val normalizedActiveTurnId = thread?.activeTurnId?.trim()?.takeIf { it.isNotEmpty() }
-    val isThinking = thread?.info?.status?.isActiveStatus == true
+    val hasPendingLocalUserMessage = remember(items) {
+        hasPendingTailLocalUserMessage(items)
+    }
+    val isThinking = thread?.hasActiveTurn == true || hasPendingLocalUserMessage
     val minigameOverlay by appModel.minigameOverlay.collectAsState()
     val isMinigameActive = minigameOverlay !is com.litter.android.state.MinigameOverlayState.Idle
     val collapseTurns = ConversationPrefs.areTurnsCollapsed
@@ -181,6 +197,7 @@ fun ConversationScreen(
         !it.info.preview.isNullOrBlank() || !it.info.title.isNullOrBlank()
     } == true
     val isWaitingForData = items.isEmpty() && threadHasServerData && !waitingForDataExpired
+    val isWaitingForFirstResponse = items.isEmpty() && (normalizedActiveTurnId != null || isThinking)
     var lastObservedUpdatedAt by remember(threadKey) { mutableStateOf<Long?>(null) }
     LaunchedEffect(transcriptTurns.map { it.id to it.isCollapsedByDefault }) {
         val validIds = transcriptTurns.mapTo(mutableSetOf()) { it.id }
@@ -311,7 +328,7 @@ fun ConversationScreen(
             ActiveTaskSummary(
                 progress = "$completed/${steps.size}",
                 label = detail.ifBlank {
-                    if (activeSteps.size == 1) "1 active task" else "${activeSteps.size} active tasks"
+                    "${activeSteps.size} 个进行中的任务"
                 },
             )
         }
@@ -438,6 +455,7 @@ fun ConversationScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp)
+                            .dismissKeyboardOnBackgroundTap(dismissKeyboard)
                             .then(
                                 if (!hasWallpaper) {
                                     Modifier.drawWithContent {
@@ -455,27 +473,29 @@ fun ConversationScreen(
                     ) {
                         item { Spacer(Modifier.height(12.dp)) }
 
-                        if (isWaitingForData || isInitialTurnsLoading) {
+                        if (isWaitingForFirstResponse || isWaitingForData || isInitialTurnsLoading) {
                             item {
-                                Box(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(top = 40.dp),
-                                    contentAlignment = Alignment.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    if (isInitialTurnsLoading) {
-                                        CircularProgressIndicator(
-                                            color = LitterTheme.accent,
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    } else {
-                                        Text(
-                                            "Loading conversation…",
-                                            color = LitterTheme.textMuted,
-                                            fontSize = LitterTextStyle.caption.scaled,
-                                        )
-                                    }
+                                    CircularProgressIndicator(
+                                        color = LitterTheme.accent,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+									Text(
+										if (isWaitingForFirstResponse) {
+											"思考中..."
+										} else {
+											"正在加载会话..."
+										},
+                                        color = LitterTheme.textMuted,
+                                        fontSize = LitterTextStyle.caption.scaled,
+                                    )
                                 }
                             }
                         }
@@ -505,7 +525,7 @@ fun ConversationScreen(
                                         )
                                     } else {
                                         Text(
-                                            "Load earlier messages",
+                                            "加载更早消息",
                                             color = LitterTheme.accent,
                                             fontSize = LitterTextStyle.caption.scaled,
                                             fontWeight = FontWeight.SemiBold,
@@ -655,12 +675,19 @@ fun ConversationScreen(
                                     }
 
                                     if (turn.isActiveTurn) {
-                                        StreamingCursor()
+                                        val waitingText = if (
+                                            turn.items.any { it.content !is HydratedConversationItemContent.User }
+										) {
+											"NeCode 正在处理..."
+										} else {
+											"思考中..."
+										}
+                                        StreamingCursor(waitingText)
                                     }
 
                                     if (turn.isCollapsedByDefault) {
                                         Text(
-                                            text = "Show less",
+                                            text = "收起",
                                             color = LitterTheme.textMuted,
                                             fontSize = LitterTextStyle.caption2.scaled,
                                             fontWeight = FontWeight.Medium,
@@ -698,7 +725,7 @@ fun ConversationScreen(
                         containerColor = LitterTheme.surface,
                         contentColor = LitterTheme.textPrimary,
                     ) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Scroll to bottom", modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.KeyboardArrowDown, "滚动到底部", modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -706,30 +733,6 @@ fun ConversationScreen(
             // Bottom area: gradient fade + pinned context + composer + nav bar inset
             // Hidden while the thinking-minigame overlay is up.
             if (!isMinigameActive) Column(modifier = Modifier.fillMaxWidth()) {
-                // Floating minigame launcher — visible only while thinking,
-                // gated by the experimental flag.
-                val minigameFeatureOn = com.litter.android.ui.ExperimentalFeatures.isEnabled(
-                    com.litter.android.ui.LitterFeature.THINKING_MINIGAME,
-                )
-                if (minigameFeatureOn) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.Start,
-                    ) {
-                        MinigameLaunchButton(onClick = {
-                            val (lastUser, lastAssistant) = lastUserAndAssistantText(items)
-                            appModel.requestMinigame(
-                                parentThreadId = threadKey.threadId,
-                                serverId = threadKey.serverId,
-                                lastUserMessage = lastUser,
-                                lastAssistantMessage = lastAssistant,
-                            )
-                        })
-                    }
-                }
-
                 // Gradient fade from transparent to scrim
                 if (hasWallpaper) {
                     Box(
@@ -776,77 +779,83 @@ fun ConversationScreen(
                         }
                     }
 
-                    // Inline voice status strip (above composer when voice active)
-                    run {
-                        val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
-                        val voiceLocalSession by voiceController.activeVoiceSession.collectAsState()
-                        val voiceSnap by appModel.snapshot.collectAsState()
-                        val voicePhase = voiceSnap?.voiceSession?.phase
-                        if (voiceLocalSession != null && voicePhase != null) {
-                            com.litter.android.ui.voice.InlineVoiceStatusStrip(
-                                phase = voicePhase,
-                                inputLevel = voiceLocalSession?.inputLevel ?: 0f,
-                                outputLevel = voiceLocalSession?.outputLevel ?: 0f,
-                                onToggleSpeaker = {
-                                    val current = voiceController.isSpeakerEnabled()
-                                    voiceController.setSpeakerEnabled(!current)
-                                },
-                            )
-                        }
-                    }
-
-                    // Composer bar
-                    ComposerBar(
-                        threadKey = threadKey,
-                        collaborationMode = thread?.collaborationMode ?: uniffi.codex_mobile_client.AppModeKind.DEFAULT,
-                        activePlanProgress = thread?.activePlanProgress,
-                        activeTurnId = thread?.activeTurnId,
-                        contextPercent = thread?.composerContextPercent(),
-                        isThinking = isThinking,
-                        activeTaskSummary = activeTaskSummary,
-                        queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
-                        goal = thread?.goal,
-                        rateLimits = thread?.agentRuntimeKind?.let { runtimeKind ->
-                            server?.rateLimitsByRuntime?.firstOrNull { it.runtimeKind == runtimeKind }?.rateLimits
-                        },
-                        showCollaborationModeChip = pinnedContext?.diffSummary == null,
-                        onOpenCollaborationModePicker = { showCollaborationModeSelector = true },
-                        onToggleModelSelector = { showModelSelector = !showModelSelector },
-                        onNavigateToSessions = onNavigateToSessions,
-                        onShowDirectoryPicker = onShowDirectoryPicker,
-                        onShowRenameDialog = { initialName ->
-                            val trimmed = initialName?.trim().orEmpty()
-                            if (trimmed.isNotEmpty()) {
-                                scope.launch {
-                                    try {
-                                        appModel.client.renameThread(
-                                            threadKey.serverId,
-                                            AppRenameThreadRequest(
-                                                threadId = threadKey.threadId,
-                                                name = trimmed,
-                                            ),
-                                        )
-                                        appModel.refreshThreadSnapshot(threadKey)
-                                    } catch (e: Exception) {
-                                        slashErrorMessage = e.message ?: "Failed to rename conversation"
-                                    }
-                                }
-                            } else {
-                                renameDraft = thread?.info?.title?.takeIf { it.isNotBlank() }.orEmpty()
-                                showRenameDialog = true
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .imePadding(),
+                    ) {
+                        // Inline voice status strip (above composer when voice active)
+                        run {
+                            val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
+                            val voiceLocalSession by voiceController.activeVoiceSession.collectAsState()
+                            val voiceSnap by appModel.snapshot.collectAsState()
+                            val voicePhase = voiceSnap?.voiceSession?.phase
+                            if (voiceLocalSession != null && voicePhase != null) {
+                                com.litter.android.ui.voice.InlineVoiceStatusStrip(
+                                    phase = voicePhase,
+                                    inputLevel = voiceLocalSession?.inputLevel ?: 0f,
+                                    outputLevel = voiceLocalSession?.outputLevel ?: 0f,
+                                    onToggleSpeaker = {
+                                        val current = voiceController.isSpeakerEnabled()
+                                        voiceController.setSpeakerEnabled(!current)
+                                    },
+                                )
                             }
-                        },
-                        onShowPermissionsSheet = { showPermissionsSheet = true },
-                        onShowExperimentalSheet = { showExperimentalSheet = true },
-                        onShowSkillsSheet = { showSkillsSheet = true },
-                        onSlashError = { slashErrorMessage = it },
-                        pendingUserInput = pendingInput,
-                        onDismissPendingUserInput = {
-                            pendingInput?.let { dismissedUserInputs.dismiss(it.id) }
-                        },
-                    )
+                        }
 
-                    Spacer(Modifier.navigationBarsPadding())
+                        // Composer bar
+                        ComposerBar(
+                            threadKey = threadKey,
+                            collaborationMode = thread?.collaborationMode ?: uniffi.codex_mobile_client.AppModeKind.DEFAULT,
+                            activePlanProgress = thread?.activePlanProgress,
+                            activeTurnId = thread?.activeTurnId,
+                            contextPercent = thread?.composerContextPercent(),
+                            isThinking = isThinking,
+                            activeTaskSummary = activeTaskSummary,
+                            queuedFollowUps = thread?.queuedFollowUps ?: emptyList(),
+                            goal = thread?.goal,
+                            rateLimits = thread?.agentRuntimeKind?.let { runtimeKind ->
+                                server?.rateLimitsByRuntime?.firstOrNull { it.runtimeKind == runtimeKind }?.rateLimits
+                            },
+                            showCollaborationModeChip = pinnedContext?.diffSummary == null,
+                            onOpenCollaborationModePicker = { showCollaborationModeSelector = true },
+                            onToggleModelSelector = { showModelSelector = !showModelSelector },
+                            onNavigateToSessions = onNavigateToSessions,
+                            onShowDirectoryPicker = onShowDirectoryPicker,
+                            onShowRenameDialog = { initialName ->
+                                val trimmed = initialName?.trim().orEmpty()
+                                if (trimmed.isNotEmpty()) {
+                                    scope.launch {
+                                        try {
+                                            appModel.client.renameThread(
+                                                threadKey.serverId,
+                                                AppRenameThreadRequest(
+                                                    threadId = threadKey.threadId,
+                                                    name = trimmed,
+                                                ),
+                                            )
+                                            appModel.refreshThreadSnapshot(threadKey)
+                                        } catch (e: Exception) {
+                                            slashErrorMessage = e.message ?: "重命名会话失败"
+                                        }
+                                    }
+                                } else {
+                                    renameDraft = thread?.info?.title?.takeIf { it.isNotBlank() }.orEmpty()
+                                    showRenameDialog = true
+                                }
+                            },
+                            onShowPermissionsSheet = { showPermissionsSheet = true },
+                            onShowExperimentalSheet = { showExperimentalSheet = true },
+                            onShowSkillsSheet = { showSkillsSheet = true },
+                            onSlashError = { slashErrorMessage = it },
+                            pendingUserInput = pendingInput,
+                            onDismissPendingUserInput = {
+                                pendingInput?.let { dismissedUserInputs.dismiss(it.id) }
+                            },
+                        )
+
+                        Spacer(Modifier.navigationBarsPadding())
+                    }
                 }
             }
         }
@@ -913,7 +922,7 @@ fun ConversationScreen(
                             try {
                                 appModel.store.setThreadCollaborationMode(threadKey, mode)
                             } catch (e: Exception) {
-                                slashErrorMessage = e.message ?: "Failed to switch collaboration mode"
+                                slashErrorMessage = e.message ?: "切换协作模式失败"
                             }
                         }
                     },
@@ -966,12 +975,12 @@ fun ConversationScreen(
         if (showRenameDialog) {
             AlertDialog(
                 onDismissRequest = { showRenameDialog = false },
-                title = { Text("Rename Thread") },
+                title = { Text("重命名会话") },
                 text = {
                     OutlinedTextField(
                         value = renameDraft,
                         onValueChange = { renameDraft = it },
-                        label = { Text("New thread title") },
+                        label = { Text("新会话标题") },
                         singleLine = true,
                     )
                 },
@@ -995,17 +1004,17 @@ fun ConversationScreen(
                                     )
                                     appModel.refreshThreadSnapshot(threadKey)
                                 } catch (e: Exception) {
-                                    slashErrorMessage = e.message ?: "Failed to rename conversation"
+                                    slashErrorMessage = e.message ?: "重命名会话失败"
                                 }
                             }
                         },
                     ) {
-                        Text("Rename")
+                        Text("重命名")
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showRenameDialog = false }) {
-                        Text("Cancel")
+                        Text("取消")
                     }
                 },
             )
@@ -1014,8 +1023,8 @@ fun ConversationScreen(
         thread?.pendingPlanImplementationPrompt?.let {
             AlertDialog(
                 onDismissRequest = { appModel.store.dismissPlanImplementationPrompt(threadKey) },
-                title = { Text("Implement this plan?") },
-                text = { Text("Switch back to Default mode and send \"Implement the plan.\"") },
+                title = { Text("执行这个规划？") },
+                text = { Text("切回默认模式，并发送“执行规划”。") },
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -1023,19 +1032,19 @@ fun ConversationScreen(
                                 try {
                                     appModel.store.implementPlan(threadKey)
                                 } catch (e: Exception) {
-                                    slashErrorMessage = e.message ?: "Failed to implement plan"
+                                    slashErrorMessage = e.message ?: "执行规划失败"
                                 }
                             }
                         },
                     ) {
-                        Text("Yes, implement")
+                        Text("执行")
                     }
                 },
                 dismissButton = {
                     TextButton(
                         onClick = { appModel.store.dismissPlanImplementationPrompt(threadKey) },
                     ) {
-                        Text("No, stay in Plan")
+                        Text("留在规划模式")
                     }
                 },
             )
@@ -1044,11 +1053,11 @@ fun ConversationScreen(
         slashErrorMessage?.let { message ->
             AlertDialog(
                 onDismissRequest = { slashErrorMessage = null },
-                title = { Text("Slash Command Error") },
+                title = { Text("命令执行失败") },
                 text = { Text(message) },
                 confirmButton = {
                     TextButton(onClick = { slashErrorMessage = null }) {
-                        Text("OK")
+                        Text("知道了")
                     }
                 },
             )
@@ -1057,11 +1066,11 @@ fun ConversationScreen(
         reloadErrorMessage?.let { message ->
             AlertDialog(
                 onDismissRequest = { reloadErrorMessage = null },
-                title = { Text("Reload Failed") },
+                title = { Text("重新加载失败") },
                 text = { Text(message) },
                 confirmButton = {
                     TextButton(onClick = { reloadErrorMessage = null }) {
-                        Text("OK")
+                        Text("知道了")
                     }
                 },
             )
@@ -1080,13 +1089,13 @@ private fun fallbackCollaborationModePresets(): List<uniffi.codex_mobile_client.
     listOf(
         uniffi.codex_mobile_client.AppCollaborationModePreset(
             kind = uniffi.codex_mobile_client.AppModeKind.DEFAULT,
-            name = "Default",
+            name = "默认",
             model = null,
             reasoningEffort = null,
         ),
         uniffi.codex_mobile_client.AppCollaborationModePreset(
             kind = uniffi.codex_mobile_client.AppModeKind.PLAN,
-            name = "Plan",
+            name = "规划",
             model = null,
             reasoningEffort = uniffi.codex_mobile_client.ReasoningEffort.MEDIUM,
         ),
@@ -1112,13 +1121,13 @@ private fun CollaborationModeSheet(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Collaboration Mode",
+                text = "协作模式",
                 color = LitterTheme.textPrimary,
                 fontSize = 18f.scaled,
                 fontWeight = FontWeight.SemiBold,
             )
             TextButton(onClick = onDismiss) {
-                Text("Done")
+                Text("完成")
             }
         }
 
@@ -1153,7 +1162,7 @@ private fun CollaborationModeSheet(
                 }
                 if (preset.kind == selectedMode) {
                     Text(
-                        text = "Selected",
+                        text = "已选择",
                         color = LitterTheme.accent,
                         fontSize = LitterTextStyle.caption2.scaled,
                         fontWeight = FontWeight.SemiBold,
@@ -1168,13 +1177,13 @@ private fun collaborationModeEffortLabel(
     effort: uniffi.codex_mobile_client.ReasoningEffort,
 ): String =
     when (effort) {
-        uniffi.codex_mobile_client.ReasoningEffort.NONE -> "None"
-        uniffi.codex_mobile_client.ReasoningEffort.MINIMAL -> "Minimal"
-        uniffi.codex_mobile_client.ReasoningEffort.LOW -> "Low"
-        uniffi.codex_mobile_client.ReasoningEffort.MEDIUM -> "Medium"
-        uniffi.codex_mobile_client.ReasoningEffort.HIGH -> "High"
-        uniffi.codex_mobile_client.ReasoningEffort.X_HIGH -> "XHigh"
-        uniffi.codex_mobile_client.ReasoningEffort.MAX -> "Max"
+        uniffi.codex_mobile_client.ReasoningEffort.NONE -> "无推理"
+        uniffi.codex_mobile_client.ReasoningEffort.MINIMAL -> "极低推理"
+        uniffi.codex_mobile_client.ReasoningEffort.LOW -> "低推理"
+        uniffi.codex_mobile_client.ReasoningEffort.MEDIUM -> "中等推理"
+        uniffi.codex_mobile_client.ReasoningEffort.HIGH -> "高推理"
+        uniffi.codex_mobile_client.ReasoningEffort.X_HIGH -> "超高推理"
+        uniffi.codex_mobile_client.ReasoningEffort.MAX -> "最高推理"
     }
 
 private data class PinnedContextData(
@@ -1232,10 +1241,33 @@ private fun uniffi.codex_mobile_client.AppThreadSnapshot.composerContextPercent(
 
 private fun conversationBottomAnchorIndex(turnCount: Int): Int = turnCount + 1
 
+@OptIn(ExperimentalComposeUiApi::class)
+private fun dismissConversationKeyboard(
+    focusManager: FocusManager,
+    keyboardController: SoftwareKeyboardController?,
+) {
+    focusManager.clearFocus(force = true)
+    keyboardController?.hide()
+}
+
+private fun Modifier.dismissKeyboardOnBackgroundTap(
+    onDismiss: () -> Unit,
+): Modifier = pointerInput(onDismiss) {
+    awaitEachGesture {
+        val down = awaitFirstDown(pass = PointerEventPass.Final)
+        if (down.isConsumed) return@awaitEachGesture
+
+        val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
+        if (up != null && !up.isConsumed) {
+            onDismiss()
+        }
+    }
+}
+
 @Composable
 private fun PlanContextBadge(progress: String) {
     Text(
-        text = "Plan $progress",
+        text = "规划 $progress",
         color = LitterTheme.accent,
         fontSize = LitterTextStyle.caption2.scaled,
         fontWeight = FontWeight.Medium,
@@ -1281,7 +1313,7 @@ private fun DiffSummaryBadge(
             )
         } else {
             Text(
-                text = "Diff",
+                text = "变更",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.caption2.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -1481,7 +1513,7 @@ private fun SessionDiffSheet(
                 horizontalArrangement = Arrangement.End,
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("Done", color = LitterTheme.accent)
+                    Text("完成", color = LitterTheme.accent)
                 }
             }
         }
@@ -1572,10 +1604,10 @@ private fun lastUserAndAssistantText(
 }
 
 /**
- * Shimmering "Thinking..." text shown while the assistant is working.
+ * Shimmering status text shown while the assistant is working.
  */
 @Composable
-private fun StreamingCursor() {
+private fun StreamingCursor(text: String = "NeCode 正在处理...") {
     val transition = rememberInfiniteTransition(label = "shimmer")
     val shimmerOffset by transition.animateFloat(
         initialValue = -1f,
@@ -1596,30 +1628,9 @@ private fun StreamingCursor() {
         end = Offset((shimmerOffset + 0.6f) * 200f, 0f),
     )
     Text(
-        text = "Thinking...",
+        text = text,
         fontSize = LitterTextStyle.body.scaled,
         fontWeight = FontWeight.Medium,
         style = TextStyle(brush = shimmerBrush),
     )
-}
-
-@Composable
-private fun MinigameLaunchButton(onClick: () -> Unit) {
-    androidx.compose.material3.Surface(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.CircleShape,
-        color = LitterTheme.surface.copy(alpha = 0.9f),
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, LitterTheme.accent.copy(alpha = 0.3f)),
-        shadowElevation = 2.dp,
-        modifier = Modifier.size(36.dp),
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = Icons.Filled.SportsEsports,
-                contentDescription = "Play a minigame while waiting",
-                tint = LitterTheme.accent,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
 }

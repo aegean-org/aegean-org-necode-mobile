@@ -25,7 +25,7 @@ object PathDisplay {
         context: Context,
         remoteHome: String? = null,
     ): String {
-        val trimmed = raw.trim()
+        val trimmed = PathNormalizer.normalize(raw)
         if (trimmed.isEmpty()) return if (isLocal) "~" else trimmed
         if (!isLocal) return remoteDisplay(trimmed, remoteHome)
         val home = HomeAnchor.path(context)

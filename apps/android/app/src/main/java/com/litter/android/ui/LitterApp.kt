@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
 import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.NetworkDiscovery
+import com.litter.android.state.PathNormalizer
 import com.litter.android.state.PetOverlayController
 import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.state.SavedServerStore
@@ -145,7 +146,11 @@ fun LitterApp(
 
         // Derive projects from current sessions
         val projects = remember(snapshot) {
-            snapshot?.let { deriveProjects(it.sessionSummaries) } ?: emptyList()
+            snapshot
+                ?.let { deriveProjects(it.sessionSummaries) }
+                ?.map(::normalizedProject)
+                ?.distinctBy { it.id }
+                ?: emptyList()
         }
 
         // Keep selectedServerId valid against connected servers. Default is
@@ -213,15 +218,16 @@ fun LitterApp(
         }
 
         suspend fun startNewSession(serverId: String, cwd: String) {
+            val normalizedCwd = PathNormalizer.normalize(cwd)
             val serverIsLocal = appModel.snapshot.value
                 ?.servers
                 ?.firstOrNull { it.serverId == serverId }
                 ?.isLocal == true
             val startedKey = appModel.startThread(
                 serverId,
-                appModel.launchState.threadStartRequest(cwd, serverIsLocal = serverIsLocal),
+                appModel.launchState.threadStartRequest(normalizedCwd, serverIsLocal = serverIsLocal),
             )
-            RecentDirectoryStore(context).record(serverId, cwd)
+            RecentDirectoryStore(context).record(serverId, normalizedCwd)
             SavedThreadsStore.add(
                 context,
                 PinnedThreadKey(serverId = startedKey.serverId, threadId = startedKey.threadId),
@@ -321,6 +327,7 @@ fun LitterApp(
                                 context,
                                 PinnedThreadKey(serverId = key.serverId, threadId = key.threadId),
                             )
+                            navigateToConversation(key)
                         },
                         onStartVoice = {
                             scope.launch {
@@ -565,17 +572,7 @@ fun LitterApp(
                         showSettings = false
                         settingsStartDestination = SettingsStartDestination.TopLevel
                     },
-                    onOpenAccount = { serverId ->
-                        showSettings = false
-                        settingsStartDestination = SettingsStartDestination.TopLevel
-                        showAccountForServer = serverId
-                    },
                     initialSubScreen = settingsStartDestination,
-                    onOpenApps = {
-                        showSettings = false
-                        settingsStartDestination = SettingsStartDestination.TopLevel
-                        navigate(Route.Apps)
-                    },
                 )
             }
         }
@@ -594,22 +591,23 @@ fun LitterApp(
                     initialServerId = directoryPickerServerId!!,
                     onSelect = { serverId, cwd ->
                         directoryPickerServerId = null
+                        val normalizedCwd = PathNormalizer.normalize(cwd)
                         val forProject = directoryPickerForProject
                         directoryPickerForProject = false
                         if (forProject) {
                             selectedServerId = serverId
-                            val id = projectIdFor(serverId, cwd)
+                            val id = projectIdFor(serverId, normalizedCwd)
                             val match = projects.firstOrNull { it.id == id }
                             selectedProject = match ?: AppProject(
                                 id = id,
                                 serverId = serverId,
-                                cwd = cwd,
+                                cwd = normalizedCwd,
                                 lastUsedAtMs = null,
                             )
-                            RecentDirectoryStore(context).record(serverId, cwd)
+                            RecentDirectoryStore(context).record(serverId, normalizedCwd)
                         } else {
                             scope.launch {
-                                runCatching { startNewSession(serverId, cwd) }
+                                runCatching { startNewSession(serverId, normalizedCwd) }
                                     .onFailure { error ->
                                         if (error is LocalAccountLoginRequiredException) {
                                             showAccountForServer = error.serverId
@@ -644,7 +642,7 @@ fun LitterApp(
                     isLocalById = isLocalById,
                     onSelect = { project ->
                         selectedServerId = project.serverId
-                        selectedProject = project
+                        selectedProject = normalizedProject(project)
                     },
                     onCreateNew = {
                         showProjectPicker = false
@@ -711,4 +709,13 @@ private fun android.content.Context.animationsDisabled(): Boolean {
         Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE)
     }.getOrDefault(1f)
     return scale == 0f
+}
+
+private fun normalizedProject(project: AppProject): AppProject {
+    val normalizedCwd = PathNormalizer.normalize(project.cwd)
+    if (normalizedCwd == project.cwd) return project
+    return project.copy(
+        id = projectIdFor(project.serverId, normalizedCwd),
+        cwd = normalizedCwd,
+    )
 }

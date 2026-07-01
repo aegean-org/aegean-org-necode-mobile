@@ -104,7 +104,6 @@ import com.litter.android.state.SavedProjectStore
 import com.litter.android.state.SavedServerStore
 import com.litter.android.state.SavedThreadsStore
 import com.litter.android.state.connectionModeLabel
-import com.litter.android.state.displayTitle
 import com.litter.android.state.isConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
@@ -115,6 +114,7 @@ import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.common.DebugBuildLabel
 import com.litter.android.ui.common.runtimeSortIndex
+import com.litter.android.ui.conversation.turnSubmissionErrorMessage
 import com.litter.android.ui.scaled
 import com.sigkitten.litter.android.R
 import kotlinx.coroutines.delay
@@ -185,7 +185,7 @@ fun HomeDashboardScreen(
     // show the 10 most-recent sessions. Hidden threads are excluded from
     // both halves.
     val homeSessions = remember(pinnedKeys, hiddenKeys, servers, allSessions) {
-        mergeHomeSessions(pinnedKeys, hiddenKeys, servers, allSessions)
+        HomeDashboardSupport.mergeHomeSessions(pinnedKeys, hiddenKeys, allSessions)
     }
 
     val scopedServerId = selectedProject?.serverId ?: selectedServerId
@@ -445,7 +445,7 @@ fun HomeDashboardScreen(
                         appModel = appModel,
                         trailingAction = com.litter.android.ui.common.SwipeAction(
                             icon = Icons.Default.MoreVert,
-                            label = "hide",
+                            label = "隐藏",
                             tint = LitterTheme.textMuted,
                             onTrigger = {
                                 val key = PinnedThreadKey(
@@ -478,7 +478,12 @@ fun HomeDashboardScreen(
                                 onOpenConversation(session.key)
                             },
                             onDelete = {
-                                confirmAction = ConfirmAction.ArchiveSession(session)
+                                SavedThreadsStore.hide(context, sessionPinKey)
+                                hiddenKeys = SavedThreadsStore.hiddenKeys(context)
+                                pinnedKeys = SavedThreadsStore.pinnedKeys(context)
+                                scope.launch {
+                                    runCatching { appModel.store.unsubscribeThread(session.key) }
+                                }
                             },
                             onReply = { replyTargetSession = session },
                             onPin = {
@@ -631,7 +636,7 @@ fun HomeDashboardScreen(
                         )
                     }
                     if (leftKitties.isNotEmpty()) Spacer(Modifier.width(4.dp))
-                    com.litter.android.ui.AnimatedLogo(size = 64.dp)
+                    com.litter.android.ui.AnimatedLogo(size = 34.dp)
                     if (rightKitties.isNotEmpty()) Spacer(Modifier.width(4.dp))
                     rightKitties.forEach { iconRes ->
                         androidx.compose.foundation.Image(
@@ -1027,7 +1032,7 @@ fun HomeDashboardScreen(
                     sendQuickReplyTurn(appModel, threadKey, text)
                 }.onFailure { err ->
                     confirmAction = ConfirmAction.ReplyError(
-                        err.message ?: "Failed to send reply",
+                        turnSubmissionErrorMessage(err),
                     )
                 }
             },
@@ -1043,23 +1048,6 @@ fun HomeDashboardScreen(
                 TextButton(onClick = {
                     scope.launch {
                         when (action) {
-                            is ConfirmAction.ArchiveSession -> {
-                                voiceController.stopVoiceSessionIfActive(appModel, action.session.key)
-                                voiceController.clearPinnedLocalVoiceThreadIfMatches(appModel, action.session.key)
-                                if (appModel.snapshot.value?.activeThread == action.session.key) {
-                                    appModel.store.setActiveThread(null)
-                                }
-                                try {
-                                    appModel.client.archiveThread(
-                                        action.session.key.serverId,
-                                        uniffi.codex_mobile_client.AppArchiveThreadRequest(
-                                            threadId = action.session.key.threadId,
-                                        ),
-                                    )
-                                } catch (_: Exception) {}
-                                kotlinx.coroutines.delay(400L)
-                                appModel.refreshSnapshot()
-                            }
                             is ConfirmAction.DisconnectServer -> {
                                 SavedServerStore.remove(context, action.server.serverId)
                                 appModel.sshSessionStore.close(action.server.serverId)
@@ -1073,12 +1061,12 @@ fun HomeDashboardScreen(
                     }
                     confirmAction = null
                 }) {
-                    Text("Confirm", color = LitterTheme.danger)
+                    Text("确认", color = LitterTheme.danger)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirmAction = null }) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             },
         )
@@ -1110,7 +1098,7 @@ fun HomeDashboardScreen(
             },
             dismissButton = {
                 TextButton(onClick = { renameTarget = null }) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             },
         )
@@ -1368,94 +1356,17 @@ private fun EmptyHomeFatCat(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Merge rule:
- * - If the user has pinned anything, the home list is just their pins
- *   (in pin order, most-recent-pinned first). No auto-fill from recent.
- * - If nothing is pinned, fill the list with up to 10 most-recent
- *   sessions so the home screen isn't empty.
- * - Hidden threads are always excluded.
- */
-private fun mergeHomeSessions(
-    pinned: List<PinnedThreadKey>,
-    hidden: List<PinnedThreadKey>,
-    servers: List<AppServerSnapshot>,
-    allSessions: List<AppSessionSummary>,
-): List<AppSessionSummary> {
-    val hiddenSet = hidden.toSet()
-    val candidates = allSessions.filter {
-        PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId) !in hiddenSet
-    }
-    if (pinned.isNotEmpty()) {
-        val byKey = candidates.associateBy {
-            PinnedThreadKey(serverId = it.key.serverId, threadId = it.key.threadId)
-        }
-        val serversById = servers.associateBy { it.serverId }
-        return pinned.mapNotNull { key ->
-            if (key in hiddenSet) return@mapNotNull null
-            byKey[key] ?: serversById[key.serverId]?.let { server ->
-                placeholderPinnedSession(key, server)
-            }
-        }
-    }
-    return candidates.take(10)
-}
-
-private fun placeholderPinnedSession(
-    pinned: PinnedThreadKey,
-    server: AppServerSnapshot,
-): AppSessionSummary = AppSessionSummary(
-    key = uniffi.codex_mobile_client.ThreadKey(
-        serverId = pinned.serverId,
-        threadId = pinned.threadId,
-    ),
-    agentRuntimeKind = "codex",
-    serverDisplayName = server.displayName,
-    serverHost = server.host,
-    title = "Loading thread",
-    preview = "",
-    cwd = "",
-    model = "",
-    modelProvider = "",
-    parentThreadId = null,
-    forkedFromId = null,
-    agentNickname = null,
-    agentRole = null,
-    agentDisplayLabel = null,
-    agentStatus = uniffi.codex_mobile_client.AppSubagentStatus.UNKNOWN,
-    updatedAt = null,
-    hasActiveTurn = false,
-    isResumed = false,
-    isSubagent = false,
-    isFork = false,
-    lastResponsePreview = null,
-    lastResponseTurnId = null,
-    lastUserMessage = null,
-    lastToolLabel = null,
-    recentToolLog = emptyList(),
-    lastTurnStartMs = null,
-    lastTurnEndMs = null,
-    stats = null,
-    tokenUsage = null,
-    goal = null,
-)
-
 private sealed class ConfirmAction {
     abstract val title: String
     abstract val message: String
 
-    data class ArchiveSession(val session: AppSessionSummary) : ConfirmAction() {
-        override val title = "Delete Session"
-        override val message = "Are you sure you want to delete this session?"
-    }
-
     data class DisconnectServer(val server: AppServerSnapshot) : ConfirmAction() {
-        override val title = "Disconnect Server"
-        override val message = "Disconnect from ${server.displayName}?"
+        override val title = "断开服务"
+        override val message = "确认断开 ${server.displayName}？"
     }
 
     data class ReplyError(val reason: String) : ConfirmAction() {
-        override val title = "Reply Failed"
+        override val title = "回复失败"
         override val message = reason
     }
 }

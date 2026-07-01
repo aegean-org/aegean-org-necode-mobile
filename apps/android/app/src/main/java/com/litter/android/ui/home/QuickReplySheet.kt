@@ -42,7 +42,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.litter.android.state.displayTitle
+import com.litter.android.ui.conversation.turnSubmissionErrorMessage
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.scaled
@@ -90,7 +90,7 @@ fun QuickReplySheet(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = thread.displayTitle,
+                text = HomeDashboardSupport.sessionTitle(thread),
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.body.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -125,7 +125,7 @@ fun QuickReplySheet(
                     onValueChange = { text = it },
                     placeholder = {
                         Text(
-                            text = "Reply\u2026",
+                            text = "输入回复…",
                             color = LitterTheme.textMuted,
                         )
                     },
@@ -181,7 +181,7 @@ fun QuickReplySheet(
                             result.onSuccess {
                                 onDismiss()
                             }.onFailure { err ->
-                                errorMessage = err.message ?: "Failed to send"
+                                errorMessage = turnSubmissionErrorMessage(err)
                             }
                         }
                     },

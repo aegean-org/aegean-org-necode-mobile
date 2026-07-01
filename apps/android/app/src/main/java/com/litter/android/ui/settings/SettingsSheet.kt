@@ -100,6 +100,8 @@ import com.litter.android.ui.ExperimentalFeatures
 import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.WallpaperBackdrop
 import com.litter.android.ui.WallpaperManager
+import com.litter.android.ui.WallpaperScope
+import com.litter.android.ui.WallpaperType
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LitterThemeIndexEntry
 import com.litter.android.ui.LitterThemeManager
@@ -126,9 +128,7 @@ import uniffi.codex_mobile_client.AppPetSummary
 @Composable
 fun SettingsSheet(
     onDismiss: () -> Unit,
-    onOpenAccount: (serverId: String) -> Unit,
     initialSubScreen: SettingsStartDestination = SettingsStartDestination.TopLevel,
-    onOpenApps: (() -> Unit)? = null,
 ) {
     // Sub-screen navigation
     var subScreen by remember(initialSubScreen) {
@@ -150,11 +150,7 @@ fun SettingsSheet(
             onDismiss = onDismiss,
             onOpenAppearance = { subScreen = SettingsSubScreen.Appearance },
             onOpenExperimental = { subScreen = SettingsSubScreen.Experimental },
-            onOpenPets = { subScreen = SettingsSubScreen.Pets },
-            onOpenTipJar = { subScreen = SettingsSubScreen.TipJar },
             onOpenDebug = { subScreen = SettingsSubScreen.Debug },
-            onOpenAccount = onOpenAccount,
-            onOpenApps = onOpenApps,
         )
     }
 }
@@ -168,11 +164,7 @@ private fun SettingsTopLevel(
     onDismiss: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenExperimental: () -> Unit,
-    onOpenPets: () -> Unit,
-    onOpenTipJar: () -> Unit,
     onOpenDebug: () -> Unit,
-    onOpenAccount: (serverId: String) -> Unit,
-    onOpenApps: (() -> Unit)?,
 ) {
     val appModel = LocalAppModel.current
     val context = LocalContext.current
@@ -181,13 +173,6 @@ private fun SettingsTopLevel(
     val collapseTurns = ConversationPrefs.areTurnsCollapsed
     var renameTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
     var renameText by remember { mutableStateOf("") }
-
-    val currentServer = remember(snapshot) {
-        val activeServerId = snapshot?.activeThread?.serverId
-        snapshot?.servers?.firstOrNull { it.serverId == activeServerId }
-            ?: snapshot?.servers?.firstOrNull { it.isLocal }
-            ?: snapshot?.servers?.firstOrNull()
-    }
 
     var editTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
     var sshReconnectTarget by remember { mutableStateOf<SavedServer?>(null) }
@@ -202,44 +187,39 @@ private fun SettingsTopLevel(
         // Title
         item {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Settings", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("设置", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterEnd)) {
-                    Text("Done", color = LitterTheme.accent)
+                    Text("完成", color = LitterTheme.accent)
                 }
             }
             Spacer(Modifier.height(8.dp))
         }
 
-        // ── Support ──
-        item { SectionHeader("Support") }
-        item {
-            NavRow(icon = Icons.Default.Pets, label = "Tip the Kitty", onClick = onOpenTipJar)
-        }
-
         // ── Theme ──
-        item { SectionHeader("Theme") }
+        item { SectionHeader("主题") }
         item {
-            NavRow(icon = Icons.Default.Palette, label = "Appearance", onClick = onOpenAppearance)
+            NavRow(icon = Icons.Default.Palette, label = "外观", onClick = onOpenAppearance)
         }
 
         // ── Font ──
-        item { SectionHeader("Font") }
+        item { SectionHeader("字体") }
         item {
             Column(
                 Modifier.fillMaxWidth().background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
             ) {
                 FontRow("Berkeley Mono", BerkeleyMono, LitterThemeManager.monoFontEnabled) { LitterThemeManager.applyFont(true) }
                 HorizontalDivider(color = LitterTheme.divider)
-                FontRow("System Default", FontFamily.Default, !LitterThemeManager.monoFontEnabled) { LitterThemeManager.applyFont(false) }
+                FontRow("系统默认", FontFamily.Default, !LitterThemeManager.monoFontEnabled) { LitterThemeManager.applyFont(false) }
             }
         }
 
         // ── Conversation ──
-        item { SectionHeader("Conversation") }
+        item { SectionHeader("会话") }
         item {
             SettingsRow(
                 icon = { Text("⊟", color = LitterTheme.accent, fontSize = 16.sp) },
-                label = "Collapse Turns", subtitle = "Collapse previous turns into cards",
+                label = "折叠历史轮次",
+                subtitle = "把之前的对话轮次折叠成卡片",
                 trailing = {
                     Switch(
                         checked = collapseTurns,
@@ -250,86 +230,25 @@ private fun SettingsTopLevel(
             )
         }
 
-        // ── Pets ──
-        item { SectionHeader("Pet") }
-        item {
-            SettingsRow(
-                icon = { Icon(Icons.Default.Pets, null, tint = LitterTheme.accent, modifier = Modifier.size(18.dp)) },
-                label = "Wake Pet",
-                subtitle = PetOverlayController.selectedPet?.displayName ?: "Choose a NeCode pet",
-                trailing = {
-                    Switch(
-                        checked = PetOverlayController.visible,
-                        onCheckedChange = { PetOverlayController.setVisible(context, it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = LitterTheme.accent),
-                    )
-                },
-                onClick = onOpenPets,
-            )
-        }
-
-        // ── Apps ──
-        if (onOpenApps != null) {
-            item { SectionHeader("Apps") }
-            item {
-                NavRow(
-                    icon = Icons.Default.Widgets,
-                    label = "Saved Apps",
-                    onClick = {
-                        onDismiss()
-                        onOpenApps()
-                    },
-                )
-            }
-        }
-
         // ── Experimental ──
-        item { SectionHeader("Experimental") }
+        item { SectionHeader("实验功能") }
         item {
-            NavRow(icon = Icons.Default.Science, label = "Experimental Features", onClick = onOpenExperimental)
+            NavRow(icon = Icons.Default.Science, label = "实验功能", onClick = onOpenExperimental)
         }
 
         // ── Debug ──
         if (DebugSettings.enabled) {
-            item { SectionHeader("Debug") }
+            item { SectionHeader("调试") }
             item {
-                NavRow(icon = Icons.Default.Science, label = "Debug Settings", onClick = onOpenDebug)
-            }
-        }
-
-        // ── Account ──
-        item { SectionHeader("Account") }
-        item {
-            if (currentServer != null) {
-                val accountStatus = when (val account = currentServer!!.account) {
-                    is Account.Chatgpt -> account.email.ifEmpty { "ChatGPT account" }
-                    is Account.ApiKey -> "OpenAI API key"
-                    null -> "Not logged in"
-                }
-                SettingsRow(
-                    icon = { Text("@", color = LitterTheme.accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
-                    label = currentServer!!.displayName,
-                    subtitle = accountStatus,
-                    trailing = {
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            null,
-                            tint = LitterTheme.textMuted,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    onClick = { onOpenAccount(currentServer!!.serverId) },
-                )
-            } else {
-                SettingsRow(label = "Connect to a server first")
+                NavRow(icon = Icons.Default.Science, label = "调试设置", onClick = onOpenDebug)
             }
         }
 
         // ── Servers ──
-        item { SectionHeader("Servers") }
+        item { SectionHeader("设备") }
         val servers = snapshot?.servers ?: emptyList()
         if (servers.isEmpty()) {
-            item { SettingsRow(label = "No servers connected") }
+            item { SettingsRow(label = "暂无已连接设备") }
         } else {
             items(servers, key = { it.serverId }) { server ->
                 ServerSettingsRow(
@@ -359,12 +278,12 @@ private fun SettingsTopLevel(
     renameTarget?.let { server ->
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Rename Server") },
+            title = { Text("重命名设备") },
             text = {
                 OutlinedTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
-                    label = { Text("Name") },
+                    label = { Text("名称") },
                     singleLine = true,
                 )
             },
@@ -374,16 +293,17 @@ private fun SettingsTopLevel(
                     if (trimmed.isEmpty()) return@TextButton
                     scope.launch {
                         SavedServerStore.rename(context, server.serverId, trimmed)
+                        appModel.store.renameServer(server.serverId, trimmed)
                         appModel.refreshSnapshot()
                     }
                     renameTarget = null
                 }) {
-                    Text("Save")
+                    Text("保存")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { renameTarget = null }) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             },
         )
@@ -495,7 +415,7 @@ private fun ServerSettingsRow(
             ) {
                 Icon(
                     Icons.Default.MoreVert,
-                    contentDescription = "Server actions",
+                    contentDescription = "设备操作",
                     tint = LitterTheme.textSecondary,
                 )
             }
@@ -504,7 +424,7 @@ private fun ServerSettingsRow(
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             if (onEdit != null) {
                 DropdownMenuItem(
-                    text = { Text("Edit") },
+                    text = { Text("编辑") },
                     onClick = {
                         showMenu = false
                         onEdit()
@@ -513,7 +433,7 @@ private fun ServerSettingsRow(
             }
             if (onRename != null) {
                 DropdownMenuItem(
-                    text = { Text("Rename") },
+                    text = { Text("重命名") },
                     onClick = {
                         showMenu = false
                         onRename()
@@ -521,7 +441,7 @@ private fun ServerSettingsRow(
                 )
             }
             DropdownMenuItem(
-                text = { Text("Remove") },
+                text = { Text("移除") },
                 onClick = {
                     showMenu = false
                     onRemove()
@@ -532,10 +452,10 @@ private fun ServerSettingsRow(
 }
 
 private enum class ServerConnectionMode(val label: String, val formHeader: String) {
-    LOCAL("Local", "Local Runtime"),
-    SSH("SSH", "SSH Host"),
+    LOCAL("本机", "本机运行时"),
+    SSH("SSH", "SSH 主机"),
     DIRECT_CODEX("App-server", "App-server"),
-    WEBSOCKET("WebSocket", "App-server URL"),
+    WEBSOCKET("WebSocket", "App-server 地址"),
     SLINGSHOT("Slingshot", "Slingshot"),
 }
 
@@ -546,7 +466,7 @@ private fun isSettingsSlingshotUrl(rawUrl: String): Boolean =
 private suspend fun loadSettingsSlingshotTokens(context: Context) =
     ChatGPTOAuth.requireStoredOrRefreshedTokens(
         context,
-        "Sign in with ChatGPT before connecting with Slingshot.",
+        "使用 Slingshot 连接前请先登录 ChatGPT。",
     )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -591,7 +511,7 @@ private fun ServerEditSheet(
     fun validateAndBuild(): SavedServer? {
         val name = displayName.trim()
         if (name.isEmpty()) {
-            validationError = "Server name cannot be empty."
+            validationError = "设备名称不能为空。"
             return null
         }
 
@@ -622,18 +542,18 @@ private fun ServerEditSheet(
             ServerConnectionMode.SSH -> {
                 val resolvedHost = host.trim()
                 if (resolvedHost.isEmpty()) {
-                    validationError = "Host cannot be empty."
+                    validationError = "主机地址不能为空。"
                     return null
                 }
                 val resolvedSSHPort = sshPort.trim().toIntOrNull()
                 if (resolvedSSHPort == null || resolvedSSHPort !in 1..65535) {
-                    validationError = "SSH port must be a valid number."
+                    validationError = "SSH 端口必须是有效数字。"
                     return null
                 }
                 val wakeInput = wakeMAC.trim()
                 val resolvedWakeMAC = SavedServer.normalizeWakeMac(wakeInput)
                 if (wakeInput.isNotEmpty() && resolvedWakeMAC == null) {
-                    validationError = "Wake MAC must look like aa:bb:cc:dd:ee:ff."
+                    validationError = "唤醒 MAC 格式应类似 aa:bb:cc:dd:ee:ff。"
                     return null
                 }
                 SavedServer(
@@ -656,12 +576,12 @@ private fun ServerEditSheet(
             ServerConnectionMode.DIRECT_CODEX -> {
                 val resolvedHost = host.trim()
                 if (resolvedHost.isEmpty()) {
-                    validationError = "Host cannot be empty."
+                    validationError = "主机地址不能为空。"
                     return null
                 }
                 val resolvedCodexPort = codexPort.trim().toIntOrNull()
                 if (resolvedCodexPort == null || resolvedCodexPort !in 1..65535) {
-                    validationError = "App-server port must be a valid number."
+                    validationError = "App-server 端口必须是有效数字。"
                     return null
                 }
                 SavedServer(
@@ -684,12 +604,12 @@ private fun ServerEditSheet(
             ServerConnectionMode.WEBSOCKET -> {
                 val rawURL = websocketURL.trim()
                 if (!rawURL.startsWith("ws://", ignoreCase = true) && !rawURL.startsWith("wss://", ignoreCase = true)) {
-                    validationError = "Enter a valid ws:// or wss:// URL."
+                    validationError = "请输入有效的 ws:// 或 wss:// 地址。"
                     return null
                 }
                 val uri = runCatching { java.net.URI(rawURL) }.getOrNull()
                 if (uri == null || uri.host.isNullOrEmpty()) {
-                    validationError = "Enter a valid ws:// or wss:// URL."
+                    validationError = "请输入有效的 ws:// 或 wss:// 地址。"
                     return null
                 }
                 val resolvedPort = if (uri.port != -1) uri.port else null
@@ -712,7 +632,7 @@ private fun ServerEditSheet(
             }
             ServerConnectionMode.SLINGSHOT -> {
                 val saved = originalSaved ?: run {
-                    validationError = "Remove and add this connected computer again."
+                    validationError = "请移除后重新添加这台电脑。"
                     return null
                 }
                 saved.copy(
@@ -836,18 +756,18 @@ private fun ServerEditSheet(
             // Header
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.weight(1f))
-                Text("Edit Server", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("编辑设备", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Done", color = LitterTheme.accent) }
+                TextButton(onClick = onDismiss) { Text("完成", color = LitterTheme.accent) }
             }
 
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    SectionHeader("Name")
+                    SectionHeader("名称")
                     OutlinedTextField(
                         value = displayName,
                         onValueChange = { displayName = it },
-                        label = { Text("Server name") },
+                        label = { Text("设备名称") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -859,19 +779,19 @@ private fun ServerEditSheet(
 
                     if (originalSaved?.alleycatNodeId != null || originalSaved?.alleycatAgentWire == "ssh-bridge") {
                         Text(
-                            "This paired server uses saved pairing metadata. Edit its display name here, or remove and add it again to change the pairing.",
+                            "这台已配对设备使用保存的配对信息。这里只能改显示名称，如需更换配对请移除后重新添加。",
                             color = LitterTheme.textSecondary,
                             fontSize = 12.sp,
                         )
                     } else if (server.isLocal) {
                         Text(
-                            "This device's local runtime is managed automatically.",
+                            "本机运行时由 NeCode 自动管理。",
                             color = LitterTheme.textSecondary,
                             fontSize = 12.sp,
                         )
                     } else if (connectionMode == ServerConnectionMode.SLINGSHOT) {
                         Text(
-                            "This connected computer comes from ChatGPT using your signed-in account. Edit its display name here, or remove and add it again to change the computer.",
+                            "这台电脑来自已登录账号的远程连接。这里只能改显示名称，如需更换电脑请移除后重新添加。",
                             color = LitterTheme.textSecondary,
                             fontSize = 12.sp,
                         )
@@ -917,7 +837,7 @@ private fun ServerEditSheet(
                                 OutlinedTextField(
                                     value = host,
                                     onValueChange = { host = it },
-                                    label = { Text("hostname or IP") },
+                                    label = { Text("主机名或 IP") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -925,7 +845,7 @@ private fun ServerEditSheet(
                                 OutlinedTextField(
                                     value = sshPort,
                                     onValueChange = { sshPort = it },
-                                    label = { Text("SSH port") },
+                                    label = { Text("SSH 端口") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -933,7 +853,7 @@ private fun ServerEditSheet(
                                 OutlinedTextField(
                                     value = wakeMAC,
                                     onValueChange = { wakeMAC = it },
-                                    label = { Text("wake MAC (optional)") },
+                                    label = { Text("唤醒 MAC（可选）") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -943,7 +863,7 @@ private fun ServerEditSheet(
                                 OutlinedTextField(
                                     value = host,
                                     onValueChange = { host = it },
-                                    label = { Text("hostname or IP") },
+                                    label = { Text("主机名或 IP") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -951,7 +871,7 @@ private fun ServerEditSheet(
                                 OutlinedTextField(
                                     value = codexPort,
                                     onValueChange = { codexPort = it },
-                                    label = { Text("App-server port") },
+                                    label = { Text("App-server 端口") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                     textStyle = TextStyle(color = LitterTheme.textPrimary, fontSize = 14.sp),
@@ -972,7 +892,7 @@ private fun ServerEditSheet(
 
                         if (connectionMode == ServerConnectionMode.WEBSOCKET) {
                             Text(
-                                "Prefer SSH when possible. If you run codex manually, bind loopback and tunnel it yourself; do not expose it directly to the internet unless you know what you are doing.",
+                                "能用 SSH 时优先用 SSH。手动运行服务时请自己做好隧道和访问控制，不要直接暴露到公网。",
                                 color = LitterTheme.textMuted,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(top = 4.dp),
@@ -1000,7 +920,7 @@ private fun ServerEditSheet(
                                 colors = ButtonDefaults.buttonColors(containerColor = LitterTheme.accent),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("Save", color = LitterTheme.onAccentStrong)
+                                Text("保存", color = LitterTheme.onAccentStrong)
                             }
                             if (server.isLocal || (originalSaved?.alleycatNodeId == null && originalSaved?.alleycatAgentWire != "ssh-bridge")) {
                                 Button(
@@ -1042,7 +962,7 @@ private fun ServerEditSheet(
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Text(
-                                        if (server.isLocal) "Save & Restart" else "Save & Reconnect",
+                                        if (server.isLocal) "保存并重启" else "保存并重连",
                                         color = LitterTheme.background,
                                     )
                                 }
@@ -1059,7 +979,7 @@ private fun ServerEditSheet(
     validationError?.let { error ->
         AlertDialog(
             onDismissRequest = { validationError = null },
-            title = { Text("Invalid Server") },
+            title = { Text("设备配置无效") },
             text = { Text(error) },
             confirmButton = {
                 TextButton(onClick = { validationError = null }) {
@@ -1077,24 +997,39 @@ private fun ServerEditSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppearanceScreen(onBack: () -> Unit) {
+    val appModel = LocalAppModel.current
     val context = LocalContext.current
+    val snapshot by appModel.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
     var textSizeStep by remember { mutableFloatStateOf(com.litter.android.ui.TextSizePrefs.currentStep.toFloat()) }
     var showThemePicker by remember { mutableStateOf<LitterColorThemeType?>(null) }
     var wallpaperError by remember { mutableStateOf<String?>(null) }
     val appearanceMode = LitterThemeManager.appearanceMode
+    @Suppress("UNUSED_VARIABLE")
+    val wallpaperVersion = WallpaperManager.version
+    val wallpaperServer = remember(snapshot) {
+        val activeServerId = snapshot?.activeThread?.serverId
+        snapshot?.servers?.firstOrNull { it.serverId == activeServerId && it.isConnected }
+            ?: snapshot?.servers?.firstOrNull { it.isConnected }
+    }
+    val wallpaperServerId = wallpaperServer?.serverId
+    val serverWallpaperConfig = wallpaperServerId?.let(WallpaperManager::resolvedConfigForServer)
     val wallpaperPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri == null) {
                 return@rememberLauncherForActivityResult
             }
             scope.launch {
-                wallpaperError =
-                    if (WallpaperManager.setCustomFromUri(uri)) {
-                        null
-                    } else {
-                        "Unable to save wallpaper from the selected image."
-                    }
+                val targetServerId = wallpaperServerId
+                if (targetServerId == null) {
+                    wallpaperError = "请先连接一个设备，再设置聊天壁纸。"
+                    return@launch
+                }
+                wallpaperError = if (WallpaperManager.setCustomImageFromUri(uri, WallpaperScope.Server(targetServerId))) {
+                    null
+                } else {
+                    "无法保存所选图片作为壁纸。"
+                }
             }
         }
 
@@ -1107,10 +1042,10 @@ private fun AppearanceScreen(onBack: () -> Unit) {
         // Nav bar
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.accent)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = LitterTheme.accent)
             }
             Spacer(Modifier.weight(1f))
-            Text("Appearance", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("外观", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(48.dp))
         }
@@ -1119,7 +1054,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             // Appearance mode
-            item { SectionHeader("Mode") }
+            item { SectionHeader("模式") }
             item {
                 AppearanceModePicker(
                     selectedMode = appearanceMode,
@@ -1128,7 +1063,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
             item {
                 Text(
-                    "Match the device setting, or keep NeCode fixed in light or dark mode.",
+                    "跟随系统设置，也可以固定为浅色或深色模式。",
                     color = LitterTheme.textMuted,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(start = 4.dp),
@@ -1136,7 +1071,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
 
             // Font size slider
-            item { SectionHeader("Font Size") }
+            item { SectionHeader("字号") }
             item {
                 Column(
                     Modifier.fillMaxWidth()
@@ -1144,7 +1079,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                         .padding(12.dp),
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Font Size", color = LitterTheme.textPrimary, fontSize = 14.sp)
+                        Text("字号", color = LitterTheme.textPrimary, fontSize = 14.sp)
                         Spacer(Modifier.weight(1f))
                         val label = com.litter.android.ui.ConversationTextSize.fromStep(textSizeStep.toInt()).label
                         Text(label, color = LitterTheme.textSecondary, fontSize = 13.sp)
@@ -1167,11 +1102,11 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                 }
             }
             item {
-                Text("Pinch in conversations to adjust, or use this slider.", color = LitterTheme.textMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+                Text("可在会话内双指缩放，也可以用这里的滑块调整。", color = LitterTheme.textMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
             }
 
             // Wallpaper picker
-            item { SectionHeader("Chat Wallpaper") }
+            item { SectionHeader("聊天壁纸") }
             item {
                 Row(
                     modifier = Modifier
@@ -1187,27 +1122,34 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, LitterTheme.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
                     ) {
-                        WallpaperBackdrop(modifier = Modifier.fillMaxSize())
+                        WallpaperBackdrop(serverId = wallpaperServerId, modifier = Modifier.fillMaxSize())
                     }
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        Text(
+                            wallpaperServer?.let { "作用于当前设备：${it.displayName}" } ?: "请先连接设备",
+                            color = LitterTheme.textMuted,
+                            fontSize = 11.sp,
+                        )
                         TextButton(
                             onClick = { wallpaperPicker.launch("image/*") },
                             contentPadding = ButtonDefaults.TextButtonContentPadding,
                         ) {
-                            Text("Choose from Library", color = LitterTheme.accent)
+                            Text("从相册选择", color = LitterTheme.accent)
                         }
-                        if (WallpaperManager.isWallpaperSet) {
+                        val removableServerId = wallpaperServerId
+                            ?.takeIf { serverWallpaperConfig?.type?.let { it != WallpaperType.NONE } == true }
+                        if (removableServerId != null) {
                             TextButton(
                                 onClick = {
-                                    WallpaperManager.clear()
+                                    WallpaperManager.clearWallpaper(WallpaperScope.Server(removableServerId))
                                     wallpaperError = null
                                 },
                                 contentPadding = ButtonDefaults.TextButtonContentPadding,
                             ) {
-                                Text("Remove Wallpaper", color = LitterTheme.danger)
+                                Text("移除壁纸", color = LitterTheme.danger)
                             }
                         }
                         if (!wallpaperError.isNullOrBlank()) {
@@ -1222,7 +1164,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
 
             // Conversation preview
-            item { SectionHeader("Preview") }
+            item { SectionHeader("预览") }
             item {
                 val scale = com.litter.android.ui.ConversationTextSize.fromStep(textSizeStep.toInt()).scale
                 val previewFontSize = (14f * scale).sp
@@ -1232,7 +1174,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
                 ) {
-                    WallpaperBackdrop(modifier = Modifier.fillMaxSize())
+                    WallpaperBackdrop(serverId = wallpaperServerId, modifier = Modifier.fillMaxSize())
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -1241,7 +1183,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                     ) {
                         // User bubble
                         Text(
-                            "Hey, why is prod on fire",
+                            "帮我看看这个项目为什么启动失败",
                             color = LitterTheme.textPrimary,
                             fontSize = previewFontSize,
                             lineHeight = (previewFontSize.value * 1.3f).sp,
@@ -1267,7 +1209,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                         // Assistant bubble
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "Found the issue. Someone deployed this:",
+                                "我看到了问题，关键在这里：",
                                 color = LitterTheme.textBody,
                                 fontSize = previewFontSize,
                                 lineHeight = (previewFontSize.value * 1.3f).sp,
@@ -1295,7 +1237,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                                 }
                             }
                             Text(
-                                "I'm not mad, just disappointed.",
+                                "先改这一处，再重新跑一遍。",
                                 color = LitterTheme.textBody,
                                 fontSize = previewFontSize,
                                 lineHeight = (previewFontSize.value * 1.3f).sp,
@@ -1303,7 +1245,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
                         }
                         // User reply
                         Text(
-                            "That was you",
+                            "那就直接修吧",
                             color = LitterTheme.textPrimary,
                             fontSize = previewFontSize,
                             lineHeight = (previewFontSize.value * 1.3f).sp,
@@ -1317,7 +1259,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
 
             // Light theme picker
-            item { SectionHeader("Light Theme") }
+            item { SectionHeader("浅色主题") }
             item {
                 val selectedLight = LitterThemeManager.lightThemes.firstOrNull {
                     it.slug == LitterThemeManager.lightTheme.slug
@@ -1326,7 +1268,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             }
 
             // Dark theme picker
-            item { SectionHeader("Dark Theme") }
+            item { SectionHeader("深色主题") }
             item {
                 val selectedDark = LitterThemeManager.darkThemes.firstOrNull {
                     it.slug == LitterThemeManager.darkTheme.slug
@@ -1346,7 +1288,7 @@ private fun AppearanceScreen(onBack: () -> Unit) {
             val themes = if (type == LitterColorThemeType.DARK) LitterThemeManager.darkThemes else LitterThemeManager.lightThemes
             val selectedSlug = if (type == LitterColorThemeType.DARK) LitterThemeManager.darkTheme.slug else LitterThemeManager.lightTheme.slug
             ThemePickerContent(
-                title = if (type == LitterColorThemeType.DARK) "Dark Theme" else "Light Theme",
+                title = if (type == LitterColorThemeType.DARK) "深色主题" else "浅色主题",
                 themes = themes,
                 selectedSlug = selectedSlug,
                 onSelect = { slug ->
@@ -1392,7 +1334,7 @@ private fun ThemePickerContent(
             Spacer(Modifier.weight(1f))
             Text(title, color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text("Done", color = LitterTheme.accent) }
+            TextButton(onClick = onDismiss) { Text("完成", color = LitterTheme.accent) }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -1413,7 +1355,7 @@ private fun ThemePickerContent(
                 cursorBrush = SolidColor(LitterTheme.accent),
                 modifier = Modifier.fillMaxWidth(),
                 decorationBox = { inner ->
-                    if (searchQuery.isEmpty()) Text("Search themes", color = LitterTheme.textMuted, fontSize = 14.sp)
+                    if (searchQuery.isEmpty()) Text("搜索主题", color = LitterTheme.textMuted, fontSize = 14.sp)
                     inner()
                 },
             )
@@ -1426,7 +1368,7 @@ private fun ThemePickerContent(
             Column(Modifier.fillMaxWidth().padding(top = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.Search, null, tint = LitterTheme.textMuted, modifier = Modifier.size(24.dp))
                 Spacer(Modifier.height(8.dp))
-                Text("No matching themes", color = LitterTheme.textPrimary, fontSize = 14.sp)
+                Text("没有匹配的主题", color = LitterTheme.textPrimary, fontSize = 14.sp)
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1494,7 +1436,7 @@ private fun ThemePickerButton(entry: LitterThemeIndexEntry?, onClick: () -> Unit
             Spacer(Modifier.width(10.dp))
             Text(entry.name, color = LitterTheme.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
         } else {
-            Text("No themes", color = LitterTheme.textMuted, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text("暂无主题", color = LitterTheme.textMuted, fontSize = 14.sp, modifier = Modifier.weight(1f))
         }
         Text("⇅", color = LitterTheme.textMuted, fontSize = 12.sp)
     }
@@ -1573,7 +1515,7 @@ private fun PetsScreen(onBack: () -> Unit) {
                 .onSuccess { pets = it }
                 .onFailure {
                     pets = emptyList()
-                    error = it.message ?: "Unable to load pets."
+                    error = it.message ?: "无法加载宠物。"
                 }
             loading = false
         }
@@ -1593,22 +1535,22 @@ private fun PetsScreen(onBack: () -> Unit) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.accent)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = LitterTheme.accent)
                 }
                 Spacer(Modifier.weight(1f))
-                Text("Pet", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("宠物", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { refresh() }, enabled = selectedServerId.isNotBlank() && !loading) {
-                    Icon(Icons.Default.Refresh, "Refresh", tint = LitterTheme.accent)
+                    Icon(Icons.Default.Refresh, "刷新", tint = LitterTheme.accent)
                 }
             }
         }
 
-        item { SectionHeader("Wake") }
+        item { SectionHeader("唤醒") }
         item {
             SettingsRow(
-                label = "Show Pet",
-                subtitle = PetOverlayController.selectedPet?.displayName ?: "No pet selected",
+                label = "显示宠物",
+                subtitle = PetOverlayController.selectedPet?.displayName ?: "未选择宠物",
                 icon = { Icon(Icons.Default.Pets, null, tint = LitterTheme.accent, modifier = Modifier.size(18.dp)) },
                 trailing = {
                     Switch(
@@ -1621,11 +1563,11 @@ private fun PetsScreen(onBack: () -> Unit) {
         }
         item {
             SettingsRow(
-                label = "Show Over Other Apps",
+                label = "显示在其他应用上方",
                 subtitle = if (overlayPermissionGranted) {
-                    "Overlay permission granted"
+                    "已获得悬浮窗权限"
                 } else {
-                    "Needs Display over other apps permission"
+                    "需要开启悬浮窗权限"
                 },
                 icon = { Icon(Icons.Default.Widgets, null, tint = LitterTheme.accent, modifier = Modifier.size(18.dp)) },
                 trailing = {
@@ -1648,9 +1590,9 @@ private fun PetsScreen(onBack: () -> Unit) {
             )
         }
 
-        item { SectionHeader("Server") }
+        item { SectionHeader("设备") }
         if (connectedServers.isEmpty()) {
-            item { SettingsRow(label = "Connect to a server first") }
+            item { SettingsRow(label = "请先连接设备") }
         } else {
             items(connectedServers, key = { it.serverId }) { server ->
                 SettingsRow(
@@ -1666,10 +1608,10 @@ private fun PetsScreen(onBack: () -> Unit) {
             }
         }
 
-        item { SectionHeader("Pets") }
+        item { SectionHeader("宠物列表") }
         when {
             selectedServerId.isBlank() -> {
-                item { SettingsRow(label = "No server selected") }
+                item { SettingsRow(label = "未选择设备") }
             }
             loading -> {
                 item {
@@ -1682,15 +1624,15 @@ private fun PetsScreen(onBack: () -> Unit) {
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), color = LitterTheme.accent, strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("Loading pets", color = LitterTheme.textSecondary, fontSize = 13.sp)
+                        Text("正在加载宠物", color = LitterTheme.textSecondary, fontSize = 13.sp)
                     }
                 }
             }
             error != null -> {
-                item { SettingsRow(label = "Unable to load pets", subtitle = error) }
+                item { SettingsRow(label = "无法加载宠物", subtitle = error) }
             }
             pets.isEmpty() -> {
-                item { SettingsRow(label = "No pets found", subtitle = "~/.codex/pets has no hatch-pet packages") }
+                item { SettingsRow(label = "没有找到宠物", subtitle = "~/.codex/pets 下没有 hatch-pet 包") }
             }
             else -> {
                 items(pets, key = { it.id }) { pet ->
@@ -1721,7 +1663,7 @@ private fun PetsScreen(onBack: () -> Unit) {
         }
 
         PetOverlayController.errorMessage?.let { message ->
-            item { SettingsRow(label = "Pet load failed", subtitle = message) }
+            item { SettingsRow(label = "宠物加载失败", subtitle = message) }
         }
 
         item { Spacer(Modifier.height(32.dp)) }
@@ -1746,17 +1688,17 @@ private fun ExperimentalScreen(onBack: () -> Unit) {
         // Nav bar
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.accent)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = LitterTheme.accent)
             }
             Spacer(Modifier.weight(1f))
-            Text("Experimental", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("实验功能", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(48.dp))
         }
 
         Spacer(Modifier.height(16.dp))
 
-        SectionHeader("Features")
+        SectionHeader("功能")
         Column(
             Modifier.fillMaxWidth().background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
         ) {
@@ -1780,7 +1722,7 @@ private fun ExperimentalScreen(onBack: () -> Unit) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text("Experimental features may be unstable or change without notice.", color = LitterTheme.textMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+        Text("实验功能可能不稳定，也可能随版本调整。", color = LitterTheme.textMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
     }
 }
 
@@ -1801,17 +1743,17 @@ private fun DebugScreen(onBack: () -> Unit) {
         // Nav bar
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = LitterTheme.accent)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = LitterTheme.accent)
             }
             Spacer(Modifier.weight(1f))
-            Text("Debug", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("调试", color = LitterTheme.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(48.dp))
         }
 
         Spacer(Modifier.height(16.dp))
 
-        SectionHeader("Rendering")
+        SectionHeader("渲染")
         Column(
             Modifier.fillMaxWidth().background(LitterTheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp)),
         ) {
@@ -1820,8 +1762,8 @@ private fun DebugScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Disable Markdown", color = LitterTheme.textPrimary, fontSize = 14.sp)
-                    Text("Show raw monospace text instead of rendered markdown", color = LitterTheme.textSecondary, fontSize = 11.sp)
+                    Text("禁用 Markdown", color = LitterTheme.textPrimary, fontSize = 14.sp)
+                    Text("显示原始等宽文本，不渲染 Markdown", color = LitterTheme.textSecondary, fontSize = 11.sp)
                 }
                 Switch(
                     checked = DebugSettings.disableMarkdown,
@@ -1835,8 +1777,8 @@ private fun DebugScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Show Turn Metrics", color = LitterTheme.textPrimary, fontSize = 14.sp)
-                    Text("Display elapsed time and token count on turn items", color = LitterTheme.textSecondary, fontSize = 11.sp)
+                    Text("显示轮次指标", color = LitterTheme.textPrimary, fontSize = 14.sp)
+                    Text("在每轮对话上显示耗时和 Token 数", color = LitterTheme.textSecondary, fontSize = 11.sp)
                 }
                 Switch(
                     checked = DebugSettings.showTurnMetrics,
@@ -1848,7 +1790,7 @@ private fun DebugScreen(onBack: () -> Unit) {
 
         // ── Recording ──
         Spacer(Modifier.height(12.dp))
-        SectionHeader("Recording")
+        SectionHeader("录制")
 
         val appModel = LocalAppModel.current
         val scope = rememberCoroutineScope()
@@ -1865,11 +1807,11 @@ private fun DebugScreen(onBack: () -> Unit) {
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (isRecording) "Recording..." else "Message Recording",
+                        if (isRecording) "录制中..." else "消息录制",
                         color = if (isRecording) LitterTheme.danger else LitterTheme.textPrimary,
                         fontSize = 14.sp,
                     )
-                    Text("Record server messages for replay", color = LitterTheme.textSecondary, fontSize = 11.sp)
+                    Text("录制服务消息，方便回放调试", color = LitterTheme.textSecondary, fontSize = 11.sp)
                 }
                 TextButton(onClick = {
                     if (isRecording) {
@@ -1882,7 +1824,7 @@ private fun DebugScreen(onBack: () -> Unit) {
                     }
                 }) {
                     Text(
-                        if (isRecording) "Stop" else "Start",
+                        if (isRecording) "停止" else "开始",
                         color = if (isRecording) LitterTheme.danger else LitterTheme.accent,
                     )
                 }
@@ -1890,7 +1832,7 @@ private fun DebugScreen(onBack: () -> Unit) {
 
             if (recordings.isNotEmpty()) {
                 HorizontalDivider(color = LitterTheme.divider)
-                Text("Saved Recordings", color = LitterTheme.textSecondary, fontSize = 11.sp)
+                Text("已保存录制", color = LitterTheme.textSecondary, fontSize = 11.sp)
                 recordings.forEach { file ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1909,7 +1851,7 @@ private fun DebugScreen(onBack: () -> Unit) {
                             MessageRecorder.deleteRecording(file)
                             recordings = MessageRecorder.listRecordings(context)
                         }) {
-                            Text("Delete", color = LitterTheme.danger, fontSize = 11.sp)
+                            Text("删除", color = LitterTheme.danger, fontSize = 11.sp)
                         }
                     }
                 }
@@ -1917,7 +1859,7 @@ private fun DebugScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("Debug features are for development and testing.", color = LitterTheme.textMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+        Text("调试功能仅用于开发和测试。", color = LitterTheme.textMuted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
     }
 }
 
@@ -1945,7 +1887,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val tokens = ChatGPTOAuthActivity.parseResult(result.data)
             if (tokens == null) {
-                authError = "ChatGPT login returned incomplete credentials."
+                authError = "ChatGPT 登录返回的凭据不完整。"
                 LLog.w("ChatGPTOAuth", "settings auth result missing tokens")
                 return@rememberLauncherForActivityResult
             }
@@ -1984,11 +1926,11 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
     val authTitle = when (val acct = server.account) {
         is Account.Chatgpt -> acct.email.ifEmpty { "ChatGPT" }
         is Account.ApiKey -> "API Key"
-        else -> "Not logged in"
+        else -> "未登录"
     }
     val authSubtitle = when (server.account) {
-        is Account.Chatgpt -> "ChatGPT account"
-        is Account.ApiKey -> "OpenAI API key"
+        is Account.Chatgpt -> "ChatGPT 账号"
+        is Account.ApiKey -> "OpenAI API Key"
         else -> null
     }
     val allowsLocalEnvApiKey = server.isLocal
@@ -2021,13 +1963,13 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                             appModel.restartLocalServer()
                         } catch (_: Exception) {}
                     }
-                }) { Text("Logout", color = LitterTheme.danger, fontSize = 12.sp) }
+                }) { Text("退出登录", color = LitterTheme.danger, fontSize = 12.sp) }
             }
         }
 
         if (server.isLocal && hasStoredApiKey) {
             Text(
-                "Local OpenAI API key is saved.",
+                "本机 OpenAI API Key 已保存。",
                 color = LitterTheme.accent,
                 fontSize = 11.sp,
             )
@@ -2035,7 +1977,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
 
         if (server.isLocal && hasStoredBaseUrl) {
             Text(
-                "OpenAI-compatible base URL is saved.",
+                "OpenAI 兼容 Base URL 已保存。",
                 color = LitterTheme.accent,
                 fontSize = 11.sp,
             )
@@ -2063,20 +2005,20 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
             ) {
                 if (isAuthWorking) { CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = LitterTheme.textPrimary); Spacer(Modifier.width(6.dp)) }
-                Text("Login with ChatGPT", color = LitterTheme.accent, fontSize = 14.sp)
+                Text("使用 ChatGPT 登录", color = LitterTheme.accent, fontSize = 14.sp)
             }
         }
 
         if (allowsLocalEnvApiKey) {
             if (hasStoredApiKey) {
                 Text(
-                    "OpenAI API key saved in the local environment.",
+                    "OpenAI API Key 已保存到本机环境。",
                     color = LitterTheme.textSecondary,
                     fontSize = 11.sp,
                 )
             } else if (isChatGPTAccount) {
                 Text(
-                    "Save an API key in the local NeCode environment.",
+                    "也可以把 API Key 保存到本机 NeCode 环境。",
                     color = LitterTheme.textSecondary,
                     fontSize = 11.sp,
                 )
@@ -2106,7 +2048,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                                 if (hasStoredApiKey) {
                                     apiKey = ""
                                 } else {
-                                    authError = "API key did not persist locally."
+                                    authError = "API Key 没有成功保存到本机。"
                                     return@launch
                                 }
                                 authError = null
@@ -2119,7 +2061,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                     enabled = apiKey.trim().isNotEmpty() && !isAuthWorking,
                 ) {
                     Text(
-                        if (hasStoredApiKey) "Update API Key" else "Save API Key",
+                        if (hasStoredApiKey) "更新 API Key" else "保存 API Key",
                         color = LitterTheme.accent,
                         fontSize = 12.sp,
                     )
@@ -2128,9 +2070,9 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
 
             Text(
                 if (hasStoredBaseUrl) {
-                    "Custom OpenAI-compatible endpoint saved for the local NeCode server."
+                    "本机 NeCode 服务已保存自定义 OpenAI 兼容端点。"
                 } else {
-                    "Optional OpenAI-compatible endpoint for local models."
+                    "可选：为本地模型配置 OpenAI 兼容端点。"
                 },
                 color = LitterTheme.textSecondary,
                 fontSize = 11.sp,
@@ -2149,7 +2091,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                     onClick = {
                         val normalized = normalizeOpenAIBaseUrl(openAIBaseUrl)
                         if (normalized == null) {
-                            authError = "Enter a valid http or https base URL."
+                            authError = "请输入有效的 http 或 https Base URL。"
                         } else {
                             scope.launch {
                                 isAuthWorking = true
@@ -2161,7 +2103,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                                         openAIBaseUrl = ""
                                         authError = null
                                     } else {
-                                        authError = "Base URL did not persist locally."
+                                        authError = "Base URL 没有成功保存到本机。"
                                     }
                                 } catch (e: Exception) {
                                     authError = e.message
@@ -2174,7 +2116,7 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                     enabled = openAIBaseUrl.trim().isNotEmpty() && !isAuthWorking,
                 ) {
                     Text(
-                        if (hasStoredBaseUrl) "Update" else "Save",
+                        if (hasStoredBaseUrl) "更新" else "保存",
                         color = LitterTheme.accent,
                         fontSize = 12.sp,
                     )
@@ -2200,12 +2142,12 @@ private fun AccountSection(server: uniffi.codex_mobile_client.AppServerSnapshot)
                     },
                     enabled = !isAuthWorking,
                 ) {
-                    Text("Clear Base URL", color = LitterTheme.danger, fontSize = 12.sp)
+                    Text("清除 Base URL", color = LitterTheme.danger, fontSize = 12.sp)
                 }
             }
         } else {
             Text(
-                "Remote servers request their own OAuth login when needed. Settings login and API key entry stay local-only.",
+                "远程设备需要登录时会自行请求授权。这里的登录和 API Key 只作用于本机。",
                 color = LitterTheme.textSecondary,
                 fontSize = 11.sp,
             )
@@ -2277,7 +2219,7 @@ private fun FontRow(name: String, fontFamily: FontFamily, isSelected: Boolean, o
     ) {
         Column(Modifier.weight(1f)) {
             Text(name, color = LitterTheme.textPrimary, fontSize = 14.sp)
-            Text("The quick brown fox", color = LitterTheme.textSecondary, fontSize = 13.sp, fontFamily = fontFamily)
+            Text("字体预览文字", color = LitterTheme.textSecondary, fontSize = 13.sp, fontFamily = fontFamily)
         }
         if (isSelected) Icon(Icons.Default.Check, null, tint = LitterTheme.accent, modifier = Modifier.size(18.dp))
     }

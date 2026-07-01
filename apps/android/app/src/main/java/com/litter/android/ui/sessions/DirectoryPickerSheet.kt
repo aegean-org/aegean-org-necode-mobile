@@ -57,6 +57,7 @@ import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.RecentDirectoryEntry
 import com.litter.android.ui.RecentDirectoryStore
+import com.litter.android.state.PathNormalizer
 import com.litter.android.state.canBrowseDirectories
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.RemotePath
@@ -99,8 +100,9 @@ fun DirectoryPickerSheet(
     }
 
     fun completeSelection(serverId: String, path: String) {
-        recentEntries = recentStore.record(serverId, path, limit = 8)
-        onSelect(serverId, path)
+        val normalizedPath = PathNormalizer.normalize(path)
+        recentEntries = recentStore.record(serverId, normalizedPath, limit = 8)
+        onSelect(serverId, normalizedPath)
     }
 
     fun isDisconnectedError(error: Throwable): Boolean {
@@ -118,21 +120,21 @@ fun DirectoryPickerSheet(
         }
         val serverSnapshot = appModel.snapshot.value?.servers?.firstOrNull { it.serverId == serverId }
         if (serverSnapshot?.canBrowseDirectories != true) {
-            errorMessage = "Selected server is not connected."
+            errorMessage = "所选设备未连接。"
             return "/"
         }
         return runCatching {
             appModel.client.resolveRemoteHome(serverId)
         }.getOrElse { error ->
             if (isDisconnectedError(error)) {
-                errorMessage = "Selected server is not connected."
+                errorMessage = "所选设备未连接。"
             }
             "/"
         }
     }
 
     suspend fun listDirectory(serverId: String, path: String) {
-        val normalizedPath = path.trim().ifEmpty { "/" }
+        val normalizedPath = PathNormalizer.normalize(path).ifEmpty { "/" }
         isLoading = true
         errorMessage = null
 
@@ -145,7 +147,7 @@ fun DirectoryPickerSheet(
                 currentPath = normalizedPath
             }.onFailure { err ->
                 allEntries = emptyList()
-                errorMessage = err.message ?: "Failed to list directory."
+                errorMessage = err.message ?: "无法列出目录。"
             }
             isLoading = false
             return
@@ -155,7 +157,7 @@ fun DirectoryPickerSheet(
         if (serverSnapshot?.canBrowseDirectories != true) {
             isLoading = false
             allEntries = emptyList()
-            errorMessage = "Selected server is not connected."
+            errorMessage = "所选设备未连接。"
             return
         }
 
@@ -173,9 +175,9 @@ fun DirectoryPickerSheet(
         }.onFailure { error ->
             allEntries = emptyList()
             errorMessage = if (isDisconnectedError(error)) {
-                "Selected server is not connected."
+                "所选设备未连接。"
             } else {
-                error.message ?: "Failed to list directory."
+                error.message ?: "无法列出目录。"
             }
         }
         isLoading = false
@@ -210,16 +212,21 @@ fun DirectoryPickerSheet(
     fun relativeTime(epochMillis: Long): String {
         val deltaMinutes = ((System.currentTimeMillis() - epochMillis).coerceAtLeast(0L) / 60000L)
         return when {
-            deltaMinutes < 1L -> "just now"
-            deltaMinutes < 60L -> "${deltaMinutes}m ago"
-            deltaMinutes < 1440L -> "${deltaMinutes / 60L}h ago"
-            deltaMinutes < 10080L -> "${deltaMinutes / 1440L}d ago"
-            else -> "${deltaMinutes / 10080L}w ago"
+            deltaMinutes < 1L -> "刚刚"
+            deltaMinutes < 60L -> "${deltaMinutes} 分钟前"
+            deltaMinutes < 1440L -> "${deltaMinutes / 60L} 小时前"
+            deltaMinutes < 10080L -> "${deltaMinutes / 1440L} 天前"
+            else -> "${deltaMinutes / 10080L} 周前"
         }
     }
 
     fun navigateInto(name: String) {
-        val nextPath = RemotePath.parse(currentPath).join(name).asString()
+        val target = PathNormalizer.normalize(name)
+        val nextPath = if (PathNormalizer.isWindowsAbsolute(target) || target.startsWith('/')) {
+            target
+        } else {
+            RemotePath.parse(currentPath).join(target).asString()
+        }
         scope.launch { listDirectory(selectedServerId, nextPath) }
     }
 
@@ -275,18 +282,18 @@ fun DirectoryPickerSheet(
                 showGoToPathDialog = false
                 pathInput = ""
             },
-            title = { Text("Go to Path") },
+            title = { Text("跳转到路径") },
             text = {
                 OutlinedTextField(
                     value = pathInput,
                     onValueChange = { pathInput = it },
                     singleLine = true,
-                    placeholder = { Text("D:\\Projects or /home/me/project") },
+                    placeholder = { Text("例如 D:\\Projects 或 /home/me/project") },
                 )
             },
             confirmButton = {
                 TextButton(onClick = { navigateToInputPath() }) {
-                    Text("Go")
+                    Text("跳转")
                 }
             },
             dismissButton = {
@@ -294,7 +301,7 @@ fun DirectoryPickerSheet(
                     showGoToPathDialog = false
                     pathInput = ""
                 }) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             },
         )
@@ -313,7 +320,7 @@ fun DirectoryPickerSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "Select Directory",
+                text = "选择目录",
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -324,7 +331,7 @@ fun DirectoryPickerSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = selectedServer?.let { "Connected server: ${it.name} • ${it.sourceLabel}" } ?: "No server selected",
+                    text = selectedServer?.let { "已连接设备：${it.name} • ${it.sourceLabel}" } ?: "未选择设备",
                     color = if (selectedServer == null) LitterTheme.textMuted else LitterTheme.textSecondary,
                     fontSize = 12.sp,
                     maxLines = 1,
@@ -334,7 +341,7 @@ fun DirectoryPickerSheet(
 
                 Box {
                     Text(
-                        text = "Change Server",
+                        text = "切换设备",
                         color = LitterTheme.accent,
                         fontSize = 12.sp,
                         modifier = Modifier.clickable(enabled = servers.isNotEmpty()) { showServerMenu = true },
@@ -358,7 +365,7 @@ fun DirectoryPickerSheet(
                 IconButton(onClick = { showHiddenDirectories = !showHiddenDirectories }) {
                     Icon(
                         imageVector = if (showHiddenDirectories) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = if (showHiddenDirectories) "Hide hidden folders" else "Show hidden folders",
+                        contentDescription = if (showHiddenDirectories) "隐藏隐藏目录" else "显示隐藏目录",
                         tint = if (showHiddenDirectories) LitterTheme.accent else LitterTheme.textSecondary,
                     )
                 }
@@ -376,7 +383,7 @@ fun DirectoryPickerSheet(
                 Spacer(Modifier.width(8.dp))
                 Box(modifier = Modifier.weight(1f)) {
                     if (searchQuery.isEmpty()) {
-                        Text("Search folders", color = LitterTheme.textMuted, fontSize = 13.sp)
+                        Text("搜索目录", color = LitterTheme.textMuted, fontSize = 13.sp)
                     }
                     BasicTextField(
                         value = searchQuery,
@@ -388,7 +395,7 @@ fun DirectoryPickerSheet(
                 }
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear search", tint = LitterTheme.textMuted)
+                        Icon(Icons.Default.Clear, contentDescription = "清除搜索", tint = LitterTheme.textMuted)
                     }
                 }
             }
@@ -400,7 +407,7 @@ fun DirectoryPickerSheet(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     Text(
-                        text = "Up one level",
+                        text = "上一级",
                         color = if (canGoUp) LitterTheme.accent else LitterTheme.textMuted,
                         fontSize = 12.sp,
                         modifier = Modifier
@@ -411,7 +418,7 @@ fun DirectoryPickerSheet(
                 }
                 item {
                     Text(
-                        text = "Go to Path",
+                        text = "跳转路径",
                         color = LitterTheme.accent,
                         fontSize = 12.sp,
                         modifier = Modifier
@@ -454,7 +461,7 @@ fun DirectoryPickerSheet(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Loading…", color = LitterTheme.textSecondary, fontSize = 13.sp)
+                    Text("正在加载…", color = LitterTheme.textSecondary, fontSize = 13.sp)
                 }
             }
 
@@ -467,7 +474,7 @@ fun DirectoryPickerSheet(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("Unable to load directory", color = LitterTheme.danger, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("无法加载目录", color = LitterTheme.danger, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = errorMessage ?: "",
@@ -479,13 +486,13 @@ fun DirectoryPickerSheet(
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            text = "Retry",
+                            text = "重试",
                             color = LitterTheme.accent,
                             fontSize = 13.sp,
                             modifier = Modifier.clickable { scope.launch { listDirectory(selectedServerId, currentPath.ifEmpty { "/" }) } },
                         )
                         Text(
-                            text = "Change Server",
+                            text = "切换设备",
                             color = LitterTheme.accent,
                             fontSize = 13.sp,
                             modifier = Modifier.clickable { showServerMenu = true },
@@ -506,7 +513,7 @@ fun DirectoryPickerSheet(
                         item("recent-continue") {
                             PickerRow(
                                 icon = Icons.Default.CheckCircle,
-                                title = "Continue in ${(mostRecentEntry.path.substringAfterLast('/')).ifBlank { mostRecentEntry.path }}",
+                                title = "继续使用 ${(mostRecentEntry.path.substringAfterLast('/')).ifBlank { mostRecentEntry.path }}",
                                 subtitle = com.litter.android.state.PathDisplay.display(
                                     mostRecentEntry.path,
                                     isLocalServer(selectedServerId),
@@ -526,18 +533,18 @@ fun DirectoryPickerSheet(
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Recent Directories", color = LitterTheme.textSecondary, fontSize = 12.sp)
+                                Text("最近目录", color = LitterTheme.textSecondary, fontSize = 12.sp)
                                 Spacer(Modifier.weight(1f))
                                 Box {
                                     IconButton(onClick = { showRecentsMenu = true }) {
-                                        Icon(Icons.Default.MoreHoriz, contentDescription = "Recent options", tint = LitterTheme.textMuted)
+                                        Icon(Icons.Default.MoreHoriz, contentDescription = "最近目录选项", tint = LitterTheme.textMuted)
                                     }
                                     DropdownMenu(
                                         expanded = showRecentsMenu,
                                         onDismissRequest = { showRecentsMenu = false },
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Clear recent directories") },
+                                            text = { Text("清除最近目录") },
                                             onClick = {
                                                 showRecentsMenu = false
                                                 recentEntries = recentStore.clear(selectedServerId, limit = 8)
@@ -563,7 +570,7 @@ fun DirectoryPickerSheet(
                         }
                         item("recent-footer") {
                             Text(
-                                text = "Recent directories are saved per connected server.",
+                                text = "最近目录会按已连接设备分别保存。",
                                 color = LitterTheme.textMuted,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -574,7 +581,7 @@ fun DirectoryPickerSheet(
                     if (filteredEntries.isEmpty()) {
                         item("empty") {
                             Text(
-                                text = if (searchQuery.isBlank()) "No subdirectories" else "No matches for \"$searchQuery\"",
+                                text = if (searchQuery.isBlank()) "没有子目录" else "没有匹配 \"$searchQuery\" 的目录",
                                 color = LitterTheme.textMuted,
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
@@ -603,7 +610,7 @@ fun DirectoryPickerSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = currentPath.ifBlank { "Choose a folder to start a new session." },
+                text = currentPath.ifBlank { "选择一个目录来开始新会话。" },
                 color = if (currentPath.isBlank()) LitterTheme.textSecondary else LitterTheme.textMuted,
                 fontSize = 12.sp,
                 maxLines = 1,
@@ -618,7 +625,7 @@ fun DirectoryPickerSheet(
                         contentColor = LitterTheme.textPrimary,
                     ),
                 ) {
-                    Text("Cancel")
+                    Text("取消")
                 }
                 Button(
                     onClick = { completeSelection(selectedServerId, currentPath) },
@@ -629,7 +636,7 @@ fun DirectoryPickerSheet(
                         contentColor = if (currentPath.isNotBlank()) Color.Black else LitterTheme.textMuted,
                     ),
                 ) {
-                    Text("Select Folder")
+                    Text("选择目录")
                 }
             }
         }

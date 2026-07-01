@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -45,6 +46,7 @@ import com.litter.android.ui.common.StatusDot
 import com.litter.android.ui.common.AgentIconView
 import com.litter.android.ui.common.runtimeSortIndex
 import com.litter.android.ui.scaled
+import com.sigkitten.litter.android.R
 import uniffi.codex_mobile_client.AgentRuntimeInfo
 import com.litter.android.ui.common.AgentRuntimeKind
 import uniffi.codex_mobile_client.AppServerSnapshot
@@ -144,21 +146,21 @@ private fun ServerPill(
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
-                text = { Text("Reconnect") },
+                text = { Text(stringResource(R.string.server_action_reconnect)) },
                 onClick = { showMenu = false; onReconnect() },
             )
             DropdownMenuItem(
-                text = { Text("Restart app server") },
+                text = { Text(stringResource(R.string.server_action_restart_app_server)) },
                 onClick = { showMenu = false; onRestartAppServer() },
             )
             if (!server.isLocal) {
                 DropdownMenuItem(
-                    text = { Text("Rename") },
+                    text = { Text(stringResource(R.string.server_action_rename)) },
                     onClick = { showMenu = false; onRename() },
                 )
             }
             DropdownMenuItem(
-                text = { Text("Remove") },
+                text = { Text(stringResource(R.string.server_action_remove)) },
                 onClick = { showMenu = false; onRemove() },
             )
         }
@@ -256,12 +258,12 @@ private fun AddServerPill(
     ) {
         Icon(
             imageVector = Icons.Default.Add,
-            contentDescription = "Add server",
+            contentDescription = stringResource(R.string.add_server_content_description),
             tint = LitterTheme.accent,
             modifier = Modifier.size(14.dp),
         )
         Text(
-            text = "server",
+            text = stringResource(R.string.add_server_label),
             color = LitterTheme.accent,
             fontSize = LitterTextStyle.footnote.scaled,
             fontWeight = FontWeight.SemiBold,

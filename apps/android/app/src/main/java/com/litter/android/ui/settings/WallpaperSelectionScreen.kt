@@ -102,8 +102,6 @@ fun WallpaperSelectionScreen(
 ) {
     val isServerOnly = threadKey == null
     val resolvedServerId = threadKey?.serverId ?: serverId
-    val wallpaperScope: WallpaperScope? = if (threadKey != null) WallpaperScope.Thread(threadKey)
-        else resolvedServerId?.let { WallpaperScope.Server(it) }
     val sourceScope: WallpaperScope? = if (threadKey != null) {
         WallpaperManager.resolvedScope(threadKey)
     } else {
@@ -112,13 +110,16 @@ fun WallpaperSelectionScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val themes = LitterThemeManager.themeIndex
-    var previewConfig by remember {
-        mutableStateOf(
-            WallpaperManager.pendingConfig ?: if (threadKey != null) WallpaperManager.resolvedConfig(threadKey)
-            else resolvedServerId?.let { WallpaperManager.resolvedConfigForServer(it) }
-        )
+    val initialPreviewConfig = remember(threadKey, resolvedServerId) {
+        WallpaperManager.pendingConfig ?: if (threadKey != null) WallpaperManager.resolvedConfig(threadKey)
+        else resolvedServerId?.let { WallpaperManager.resolvedConfigForServer(it) }
     }
-    var sourceOptionsExpanded by remember { mutableStateOf(false) }
+    var previewConfig by remember(threadKey, resolvedServerId) {
+        mutableStateOf(initialPreviewConfig)
+    }
+    var sourceOptionsExpanded by remember(threadKey, resolvedServerId) {
+        mutableStateOf(initialPreviewConfig == null || initialPreviewConfig.type == WallpaperType.NONE)
+    }
     var sheetMinimized by remember { mutableStateOf(false) }
     var isProcessingVideo by remember { mutableStateOf(false) }
     var videoUrlText by remember { mutableStateOf("") }
@@ -172,12 +173,12 @@ fun WallpaperSelectionScreen(
         val brightnessAlpha = brightness.coerceIn(0f, 1f)
         val motion = rememberWallpaperMotionTransform(motionEnabled)
         val selectedLabel = when (previewConfig?.type) {
-            WallpaperType.CUSTOM_IMAGE -> "Photo"
-            WallpaperType.CUSTOM_VIDEO -> "Video"
-            WallpaperType.VIDEO_URL -> "Video URL"
-            WallpaperType.SOLID_COLOR -> "Color"
-            WallpaperType.THEME -> themes.firstOrNull { it.slug == previewConfig?.themeSlug }?.name ?: "Theme"
-            WallpaperType.NONE, null -> "No wallpaper"
+            WallpaperType.CUSTOM_IMAGE -> "照片"
+            WallpaperType.CUSTOM_VIDEO -> "视频"
+            WallpaperType.VIDEO_URL -> "视频链接"
+            WallpaperType.SOLID_COLOR -> "纯色"
+            WallpaperType.THEME -> themes.firstOrNull { it.slug == previewConfig?.themeSlug }?.name ?: "主题"
+            WallpaperType.NONE, null -> "未选择壁纸"
         }
 
         if (previewConfig?.type in setOf(WallpaperType.CUSTOM_VIDEO, WallpaperType.VIDEO_URL) && previewVideoPath != null) {
@@ -225,11 +226,11 @@ fun WallpaperSelectionScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             SampleBubble(
-                text = "Can you help me refactor this module?",
+                text = "帮我重构一下这个模块",
                 isUser = true,
             )
             SampleBubble(
-                text = "Sure! I'll analyze the code structure and suggest improvements.",
+                text = "可以，我会先分析代码结构，再给出改进建议。",
                 isUser = false,
             )
         }
@@ -246,14 +247,14 @@ fun WallpaperSelectionScreen(
             IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = "返回",
                     tint = LitterTheme.textPrimary,
                     modifier = Modifier.size(20.dp),
                 )
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "Select Wallpaper",
+                text = "选择壁纸",
                 color = LitterTheme.textPrimary,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -274,29 +275,6 @@ fun WallpaperSelectionScreen(
                 .padding(16.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(LitterTheme.textMuted.copy(alpha = 0.5f)),
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sheetMinimized = !sheetMinimized }, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = if (sheetMinimized) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (sheetMinimized) "Expand controls" else "Minimize controls",
-                        tint = LitterTheme.textPrimary,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { sheetMinimized = !sheetMinimized },
@@ -304,16 +282,16 @@ fun WallpaperSelectionScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Wallpaper Controls",
+                        text = "壁纸设置",
                         color = LitterTheme.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = if (sheetMinimized) {
-                            "$selectedLabel selected. Tap to expand controls."
+                            "已选择$selectedLabel。点击展开设置。"
                         } else {
-                            "$selectedLabel selected. Adjust it here, or expand below to pick something new."
+                            "已选择$selectedLabel。可在这里调整，也可以展开下方重新选择。"
                         },
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
@@ -323,7 +301,7 @@ fun WallpaperSelectionScreen(
                 }
                 Icon(
                     imageVector = if (sheetMinimized) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (sheetMinimized) "Expand controls" else "Minimize controls",
+                    contentDescription = if (sheetMinimized) "展开控制项" else "收起控制项",
                     tint = LitterTheme.textPrimary,
                 )
             }
@@ -351,7 +329,7 @@ fun WallpaperSelectionScreen(
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
-                        Text("Blurred", color = LitterTheme.textPrimary, fontSize = 13.sp)
+                        Text("模糊", color = LitterTheme.textPrimary, fontSize = 13.sp)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
@@ -369,7 +347,7 @@ fun WallpaperSelectionScreen(
                                 uncheckedColor = LitterTheme.textMuted,
                             ),
                         )
-                        Text("Motion", color = LitterTheme.textPrimary, fontSize = 13.sp)
+                        Text("动态", color = LitterTheme.textPrimary, fontSize = 13.sp)
                     }
                 }
 
@@ -405,7 +383,7 @@ fun WallpaperSelectionScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                if (!isServerOnly && threadKey != null) {
+                if (threadKey != null) {
                     Button(
                         onClick = {
                             val config = (previewConfig ?: WallpaperConfig(type = WallpaperType.NONE)).copy(
@@ -433,7 +411,7 @@ fun WallpaperSelectionScreen(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Apply for This Thread", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("应用到当前会话", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
 
                     Spacer(Modifier.height(8.dp))
@@ -468,7 +446,7 @@ fun WallpaperSelectionScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            "Apply for This Server",
+                            "应用到当前设备",
                             fontSize = 13.sp,
                             fontWeight = if (isServerOnly) FontWeight.SemiBold else FontWeight.Normal,
                         )
@@ -488,20 +466,20 @@ fun WallpaperSelectionScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Choose a Different Wallpaper",
+                            text = "选择其他壁纸",
                             color = LitterTheme.textPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                         )
                         Text(
-                            text = "Themes, photos, colors, videos, and URL sources",
+                            text = "主题、照片、颜色、视频和链接来源",
                             color = LitterTheme.textMuted,
                             fontSize = 12.sp,
                         )
                     }
                     Icon(
                         imageVector = if (sourceOptionsExpanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                        contentDescription = if (sourceOptionsExpanded) "Collapse wallpaper sources" else "Expand wallpaper sources",
+                        contentDescription = if (sourceOptionsExpanded) "收起壁纸来源" else "展开壁纸来源",
                         tint = LitterTheme.textPrimary,
                     )
                 }
@@ -516,7 +494,7 @@ fun WallpaperSelectionScreen(
                             .verticalScroll(rememberScrollState()),
                     ) {
                         Text(
-                            text = "Themes",
+                            text = "主题",
                             color = LitterTheme.textPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -529,15 +507,16 @@ fun WallpaperSelectionScreen(
                         ) {
                             item {
                                 ThemeThumbnail(
-                                    label = "None",
+                                    label = "无",
                                     backgroundColor = LitterTheme.background,
                                     accentColor = null,
                                     isSelected = previewConfig == null || previewConfig?.type == WallpaperType.NONE,
                                     isNone = true,
                                     onClick = {
                                         WallpaperManager.clearPendingWallpaper()
-                                        previewConfig = null
-                                        wallpaperScope?.let { WallpaperManager.clearWallpaper(it) }
+                                        val config = WallpaperConfig(type = WallpaperType.NONE)
+                                        WallpaperManager.pendingConfig = config
+                                        previewConfig = config
                                     },
                                 )
                             }
@@ -587,7 +566,7 @@ fun WallpaperSelectionScreen(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "Choose Photo",
+                                    "选择照片",
                                     color = LitterTheme.accent,
                                     fontSize = 13.sp,
                                 )
@@ -616,7 +595,7 @@ fun WallpaperSelectionScreen(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "Set a Color",
+                                    "设置颜色",
                                     color = LitterTheme.accent,
                                     fontSize = 13.sp,
                                 )
@@ -642,7 +621,7 @@ fun WallpaperSelectionScreen(
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("Choose Video", color = LitterTheme.accent, fontSize = 13.sp)
+                            Text("选择视频", color = LitterTheme.accent, fontSize = 13.sp)
                         }
 
                         Row(
@@ -659,7 +638,7 @@ fun WallpaperSelectionScreen(
                             OutlinedTextField(
                                 value = videoUrlText,
                                 onValueChange = { videoUrlText = it },
-                                placeholder = { Text("Paste video URL", fontSize = 12.sp) },
+                                placeholder = { Text("粘贴视频链接", fontSize = 12.sp) },
                                 singleLine = true,
                                 modifier = Modifier
                                     .weight(1f)
@@ -718,7 +697,7 @@ fun WallpaperSelectionScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = LitterTheme.accent)
                     Spacer(Modifier.height(12.dp))
-                    Text("Processing video...", color = LitterTheme.textPrimary, fontSize = 13.sp)
+                    Text("正在处理视频...", color = LitterTheme.textPrimary, fontSize = 13.sp)
                 }
             }
         }
@@ -757,7 +736,7 @@ private fun ThemeThumbnail(
             if (isNone) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "No wallpaper",
+                    contentDescription = "无壁纸",
                     tint = LitterTheme.textMuted,
                     modifier = Modifier.size(20.dp),
                 )

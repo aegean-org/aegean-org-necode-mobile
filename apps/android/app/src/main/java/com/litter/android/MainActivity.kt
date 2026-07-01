@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
@@ -32,6 +33,7 @@ import com.litter.android.ui.LitterApp
 import com.litter.android.ui.LitterAppTheme
 import com.litter.android.ui.WallpaperManager
 import com.litter.android.util.LLog
+import com.sigkitten.litter.android.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.ThreadKey
@@ -83,7 +85,7 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         Text(
-                            text = "NeCode couldn't finish starting.",
+                            text = stringResource(R.string.app_start_failed),
                             modifier = Modifier.padding(horizontal = 24.dp),
                         )
                     }

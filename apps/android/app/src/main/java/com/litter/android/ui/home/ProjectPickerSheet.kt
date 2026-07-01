@@ -81,11 +81,11 @@ fun ProjectPickerSheet(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = LitterTheme.textSecondary)
+                Text("关闭", color = LitterTheme.textSecondary)
             }
             Spacer(Modifier.weight(1f))
             Text(
-                text = "Projects",
+                text = "项目",
                 color = LitterTheme.textPrimary,
                 fontSize = LitterTextStyle.subheadline.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -94,7 +94,7 @@ fun ProjectPickerSheet(
             IconButton(onClick = onCreateNew) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "New project",
+                    contentDescription = "新建项目",
                     tint = LitterTheme.accent,
                 )
             }
@@ -104,7 +104,7 @@ fun ProjectPickerSheet(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Search projects", color = LitterTheme.textMuted) },
+            placeholder = { Text("搜索项目", color = LitterTheme.textMuted) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Search,
@@ -117,7 +117,7 @@ fun ProjectPickerSheet(
                     IconButton(onClick = { query = "" }) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Clear",
+                            contentDescription = "清除",
                             tint = LitterTheme.textMuted,
                         )
                     }
@@ -147,19 +147,19 @@ fun ProjectPickerSheet(
                     modifier = Modifier.size(32.dp),
                 )
                 Text(
-                    text = "No projects yet",
+                    text = "还没有项目",
                     color = LitterTheme.textSecondary,
                     fontSize = LitterTextStyle.body.scaled,
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    text = "Tap + to pick a directory and start your first thread.",
+                    text = "点击 + 选择目录，然后开始第一条会话。",
                     color = LitterTheme.textMuted,
                     fontSize = LitterTextStyle.caption.scaled,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 TextButton(onClick = onCreateNew) {
-                    Text("New Project", color = LitterTheme.accent)
+                    Text("新建项目", color = LitterTheme.accent)
                 }
             }
         } else {

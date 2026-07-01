@@ -51,7 +51,7 @@ fun ComposerExpandedDialog(
     onSend: () -> Unit,
     onDismiss: () -> Unit,
     canSend: Boolean,
-    placeholder: String = "Message\u2026",
+    placeholder: String = "输入消息…",
 ) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -85,7 +85,7 @@ fun ComposerExpandedDialog(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloseFullscreen,
-                            contentDescription = "Collapse composer",
+                            contentDescription = "收起输入框",
                             tint = LitterTheme.textPrimary,
                         )
                     }
@@ -103,7 +103,7 @@ fun ComposerExpandedDialog(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
+                                contentDescription = "发送",
                                 tint = Color.Black,
                                 modifier = Modifier.size(20.dp),
                             )

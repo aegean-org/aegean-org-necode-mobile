@@ -137,14 +137,14 @@ fun ConversationInfoScreen(
             IconButton(onClick = onBack, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = "返回",
                     tint = LitterTheme.textPrimary,
                     modifier = Modifier.size(20.dp),
                 )
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (isServerOnly) "Server Info" else "Conversation Info",
+                text = if (isServerOnly) "服务信息" else "会话详情",
                 color = LitterTheme.textPrimary,
                 fontSize = 16f.scaled,
                 fontWeight = FontWeight.SemiBold,
@@ -206,13 +206,13 @@ fun ConversationInfoScreen(
                     ) {
                         ActionCircleButton(
                             icon = Icons.Default.Image,
-                            label = "Wallpaper",
+                            label = "壁纸",
                             onClick = onChangeWallpaper,
                         )
                         if (onOpenShell != null) {
                             ActionCircleButton(
                                 icon = Icons.Outlined.Terminal,
-                                label = "Shell",
+                                label = "终端",
                                 onClick = onOpenShell,
                             )
                         }
@@ -237,7 +237,7 @@ fun ConversationInfoScreen(
             // Section B: Server-Wide Charts
             if (serverUsage != null) {
                 item {
-                    SectionHeader("Server Usage")
+                    SectionHeader("服务使用情况")
                 }
 
                 if (serverUsage.tokensByThread.isNotEmpty()) {
@@ -279,12 +279,12 @@ fun ConversationInfoScreen(
     if (showRenameDialog && threadKey != null) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("Rename Thread") },
+            title = { Text("重命名会话") },
             text = {
                 OutlinedTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
-                    label = { Text("Name") },
+                    label = { Text("名称") },
                     singleLine = true,
                 )
             },
@@ -306,12 +306,12 @@ fun ConversationInfoScreen(
                         } catch (_: Exception) {}
                     }
                 }) {
-                    Text("Rename")
+                    Text("重命名")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
-                    Text("Cancel")
+                    Text("取消")
                 }
             },
         )
@@ -339,7 +339,7 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
             .padding(16.dp),
     ) {
         Text(
-            text = thread?.displayTitle ?: "Untitled session",
+            text = thread?.displayTitle ?: "未命名会话",
             color = LitterTheme.textPrimary,
             fontSize = 20f.scaled,
             fontWeight = FontWeight.Bold,
@@ -401,10 +401,10 @@ private fun ThreadDetailsSection(thread: AppThreadSnapshot?, isLocal: Boolean) {
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 thread.info.createdAt?.let { ts ->
-                    InfoLabel("Created", formatTimestamp(ts))
+                    InfoLabel("创建", formatTimestamp(ts))
                 }
                 thread.info.updatedAt?.let { ts ->
-                    InfoLabel("Updated", formatTimestamp(ts))
+                    InfoLabel("更新", formatTimestamp(ts))
                 }
             }
         }
@@ -435,7 +435,7 @@ private fun ContextWindowBar(thread: AppThreadSnapshot) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Context Window", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled)
+            Text("上下文窗口", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled)
             Text("$percent%", color = LitterTheme.accent, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(8.dp))
@@ -466,23 +466,23 @@ private fun StatsGrid(stats: AppConversationStats) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SectionHeader("Conversation Stats")
+        SectionHeader("会话统计")
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard("Messages", "${stats.totalMessages}", "${stats.userMessageCount}u / ${stats.assistantMessageCount}a", Modifier.weight(1f))
-            StatCard("Turns", "${stats.turnCount}", null, Modifier.weight(1f))
+            StatCard("消息", "${stats.totalMessages}", "${stats.userMessageCount}u / ${stats.assistantMessageCount}a", Modifier.weight(1f))
+            StatCard("轮次", "${stats.turnCount}", null, Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard("Commands", "${stats.commandsExecuted}", "${stats.commandsSucceeded}\u2713 / ${stats.commandsFailed}\u2717", Modifier.weight(1f))
-            StatCard("Files Changed", "${stats.filesChanged}", null, Modifier.weight(1f))
+            StatCard("命令", "${stats.commandsExecuted}", "${stats.commandsSucceeded}\u2713 / ${stats.commandsFailed}\u2717", Modifier.weight(1f))
+            StatCard("文件变更", "${stats.filesChanged}", null, Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard("MCP Calls", "${stats.mcpToolCallCount}", null, Modifier.weight(1f))
-            StatCard("Cmd Time", formatDuration(stats.totalCommandDurationMs), null, Modifier.weight(1f))
+            StatCard("MCP 调用", "${stats.mcpToolCallCount}", null, Modifier.weight(1f))
+            StatCard("命令耗时", formatDuration(stats.totalCommandDurationMs), null, Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatCard("Diff", "+${stats.diffAdditions} / -${stats.diffDeletions}", null, Modifier.weight(1f))
-            StatCard("Images", "${stats.imageCount}", null, Modifier.weight(1f))
+            StatCard("变更", "+${stats.diffAdditions} / -${stats.diffDeletions}", null, Modifier.weight(1f))
+            StatCard("图片", "${stats.imageCount}", null, Modifier.weight(1f))
         }
     }
 }
@@ -530,7 +530,7 @@ private fun TokenUsageChart(data: List<AppTokensByThreadEntry>) {
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Token Usage by Thread", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("各会话 Token 用量", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -602,7 +602,7 @@ private fun ActivityChart(data: List<AppActivityByDayEntry>) {
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Activity Timeline", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("活跃时间线", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -686,7 +686,7 @@ private fun ModelBreakdownChart(data: List<AppModelUsageEntry>) {
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Model Breakdown", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("模型分布", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -750,7 +750,7 @@ private fun RateLimitGauge(rateLimits: uniffi.codex_mobile_client.RateLimitSnaps
             .background(LitterTheme.surface, RoundedCornerShape(12.dp))
             .padding(16.dp),
     ) {
-        Text("Rate Limits", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
+        Text("限额", color = LitterTheme.textSecondary, fontSize = LitterTextStyle.caption.scaled, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(12.dp))
 
         val accent = LitterTheme.accent
@@ -764,7 +764,7 @@ private fun RateLimitGauge(rateLimits: uniffi.codex_mobile_client.RateLimitSnaps
         ) {
             // Primary gauge
             GaugeArc(
-                label = "Primary",
+                label = "主要",
                 percent = primaryPercent,
                 animatedProgress = animatedProgress,
                 accent = accent,
@@ -774,7 +774,7 @@ private fun RateLimitGauge(rateLimits: uniffi.codex_mobile_client.RateLimitSnaps
             )
             // Secondary gauge
             GaugeArc(
-                label = "Secondary",
+                label = "次要",
                 percent = secondaryPercent,
                 animatedProgress = animatedProgress,
                 accent = accent,
@@ -850,7 +850,7 @@ private fun ServerInfoSection(server: AppServerSnapshot) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SectionHeader("Server")
+        SectionHeader("服务")
         Spacer(Modifier.height(4.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -869,25 +869,25 @@ private fun ServerInfoSection(server: AppServerSnapshot) {
             )
         }
 
-        InfoRow("Host", "${server.host}:${server.port}")
-        InfoRow("Mode", server.connectionModeLabel)
-        InfoRow("Status", server.statusLabel)
+        InfoRow("地址", "${server.host}:${server.port}")
+        InfoRow("模式", server.connectionModeLabel)
+        InfoRow("状态", server.statusLabel)
 
         server.account?.let { account ->
             when (account) {
                 is uniffi.codex_mobile_client.Account.Chatgpt -> {
-                    InfoRow("Account", account.email)
-                    InfoRow("Plan", account.planType.toString())
+                    InfoRow("账号", account.email)
+                    InfoRow("套餐", account.planType.toString())
                 }
                 is uniffi.codex_mobile_client.Account.ApiKey -> {
-                    InfoRow("Auth", "API Key")
+                    InfoRow("认证", "API Key")
                 }
             }
         }
 
         server.availableModels?.let { models ->
             if (models.isNotEmpty()) {
-                Text("Available Models", color = LitterTheme.textMuted, fontSize = 10f.scaled)
+                Text("可用模型", color = LitterTheme.textMuted, fontSize = 10f.scaled)
                 Text(
                     text = models.joinToString(", ") { it.displayName.ifBlank { it.id } },
                     color = LitterTheme.textSecondary,
@@ -928,17 +928,17 @@ private fun ActionButtonsRow(
     ) {
         ActionCircleButton(
             icon = Icons.Default.Image,
-            label = "Wallpaper",
+            label = "壁纸",
             onClick = onChangeWallpaper,
         )
         ActionCircleButton(
             icon = Icons.Default.ContentCopy,
-            label = "Fork",
+            label = "复制",
             onClick = onFork,
         )
         ActionCircleButton(
             icon = Icons.Default.Edit,
-            label = "Rename",
+            label = "重命名",
             onClick = onRename,
         )
     }
@@ -984,11 +984,11 @@ private fun formatTimestamp(epochSeconds: Long): String {
     val ts = epochSeconds * 1000
     val diff = now - ts
     return when {
-        diff < 60_000 -> "just now"
-        diff < 3_600_000 -> "${diff / 60_000}m ago"
-        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-        diff < 604_800_000 -> "${diff / 86_400_000}d ago"
-        else -> SimpleDateFormat("MMM d", Locale.US).format(Date(ts))
+        diff < 60_000 -> "刚刚"
+        diff < 3_600_000 -> "${diff / 60_000} 分钟前"
+        diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
+        diff < 604_800_000 -> "${diff / 86_400_000} 天前"
+        else -> SimpleDateFormat("M月d日", Locale.CHINA).format(Date(ts))
     }
 }
 

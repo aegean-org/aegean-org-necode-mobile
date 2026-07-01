@@ -93,9 +93,9 @@ fun MinigameOverlay(
 private fun Header(state: MinigameOverlayState, onClose: () -> Unit) {
     val title = when (state) {
         is MinigameOverlayState.Idle -> ""
-        is MinigameOverlayState.Loading -> "Generating…"
+        is MinigameOverlayState.Loading -> "生成中…"
         is MinigameOverlayState.Shown -> state.content.title
-        is MinigameOverlayState.Failed -> "Couldn't generate"
+        is MinigameOverlayState.Failed -> "生成失败"
     }
     Row(
         modifier = Modifier
@@ -113,7 +113,7 @@ private fun Header(state: MinigameOverlayState, onClose: () -> Unit) {
         IconButton(onClick = onClose) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = "Close minigame",
+                contentDescription = "关闭小游戏",
                 tint = LitterTheme.textSecondary,
                 modifier = Modifier.size(16.dp),
             )
@@ -122,12 +122,12 @@ private fun Header(state: MinigameOverlayState, onClose: () -> Unit) {
 }
 
 private val LOADING_STAGES = listOf(
-    "Choosing archetype…",
-    "Sketching sprites…",
-    "Scattering hazards…",
-    "Tuning physics…",
-    "Wiring up controls…",
-    "Launching…",
+    "选择游戏类型…",
+    "绘制角色…",
+    "布置障碍…",
+    "调整物理效果…",
+    "连接控制逻辑…",
+    "启动中…",
 )
 
 @Composable
@@ -198,7 +198,7 @@ private fun FailureCard(message: String, onRetry: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "Couldn't generate a minigame.",
+            "小游戏生成失败。",
             color = LitterTheme.textPrimary,
             fontSize = LitterTextStyle.body.scaled,
             fontWeight = FontWeight.Medium,

@@ -130,8 +130,14 @@ fun AlleycatAddServerSheet(
                     appModel.serverBridge.listAlleycatAgents(params)
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
-                    agents = loaded
-                    selectedAgentNames = loaded
+                    val sorted = loaded.sortedWith(
+                        compareBy<AppAlleycatAgentInfo>(
+                            { alleycatAgentSortRank(it) },
+                            { it.displayName.lowercase() },
+                        ),
+                    )
+                    agents = sorted
+                    selectedAgentNames = sorted
                         .filter { it.available && !isBetaAgentName(it.name, it.displayName) }
                         .map { it.name }
                         .toSet()
@@ -143,7 +149,7 @@ fun AlleycatAddServerSheet(
                     agents = emptyList()
                     selectedAgentNames = emptySet()
                     isLoadingAgents = false
-                    agentError = e.message ?: "Unable to list agents"
+                    agentError = e.message ?: "无法加载 Agent"
                 }
             }
         }
@@ -166,7 +172,7 @@ fun AlleycatAddServerSheet(
             parsedParams = null
             agents = emptyList()
             selectedAgentNames = emptySet()
-            parseError = e.message ?: "Invalid pairing payload"
+            parseError = e.message ?: "配对信息无效"
         }
     }
 
@@ -243,7 +249,7 @@ fun AlleycatAddServerSheet(
             } catch (e: Exception) {
                 Log.w(LOG_TAG, "connectRemoteOverAlleycat failed", e)
                 isConnecting = false
-                connectError = e.message ?: "Unable to connect"
+                connectError = e.message ?: "连接失败"
             }
         }
     }
@@ -273,18 +279,18 @@ fun AlleycatAddServerSheet(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Add Remote Host",
+                text = "添加设备",
                 color = LitterTheme.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onDismiss, enabled = !isConnecting) {
-                Text("Cancel", color = LitterTheme.accent)
+                Text("取消", color = LitterTheme.accent)
             }
         }
 
-        SectionHeader(label = "Pairing")
+        SectionHeader(label = "配对")
         OutlinedButton(
             onClick = ::requestCameraAndScan,
             modifier = Modifier.fillMaxWidth(),
@@ -297,13 +303,13 @@ fun AlleycatAddServerSheet(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (parsedParams == null) "Scan Pairing QR" else "Rescan QR",
+                text = if (parsedParams == null) "扫描配对二维码" else "重新扫描",
                 color = LitterTheme.accent,
             )
         }
         if (cameraDenied) {
             Text(
-                text = "Camera permission is required to scan a pairing QR. Grant access in system Settings, or paste the JSON below.",
+                text = "需要相机权限才能扫描配对二维码。你也可以在下方粘贴 JSON。",
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
             )
@@ -311,7 +317,7 @@ fun AlleycatAddServerSheet(
 
         DisclosureRow(
             expanded = showPaste,
-            label = "Paste Pairing JSON",
+            label = "粘贴配对 JSON",
             onToggle = { showPaste = !showPaste },
         )
         if (showPaste) {
@@ -347,14 +353,14 @@ fun AlleycatAddServerSheet(
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Paste from Clipboard", color = LitterTheme.accent)
+                    Text("从剪贴板粘贴", color = LitterTheme.accent)
                 }
                 TextButton(
                     onClick = { handleScannedPayload(pasteJson) },
                     enabled = pasteJson.trim().isNotEmpty(),
                 ) {
                     Text(
-                        text = if (parsedParams == null) "Parse JSON" else "Reparse JSON",
+                        text = if (parsedParams == null) "解析 JSON" else "重新解析",
                         color = LitterTheme.accent,
                     )
                 }
@@ -367,7 +373,7 @@ fun AlleycatAddServerSheet(
 
         val params = parsedParams
         if (params != null) {
-            SectionHeader(label = "Scanned Host")
+            SectionHeader(label = "已扫描设备")
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -375,26 +381,26 @@ fun AlleycatAddServerSheet(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PreviewRow("node", shortNodeId(params.nodeId))
-                PreviewRow("protocol", "v${params.v.toInt()}")
+                PreviewRow("节点", shortNodeId(params.nodeId))
+                PreviewRow("协议", "v${params.v.toInt()}")
                 params.relay?.takeIf { it.isNotBlank() }?.let {
-                    PreviewRow("relay", it)
+                    PreviewRow("中继", it)
                 }
                 params.hostName?.takeIf { it.isNotBlank() }?.let {
-                    PreviewRow("host", it)
+                    PreviewRow("主机", it)
                 }
             }
 
             OutlinedTextField(
                 value = displayName,
                 onValueChange = { displayName = it },
-                label = { Text("display name (optional)") },
+                label = { Text("显示名称（可选）") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionHeader(label = "Agents", modifier = Modifier.weight(1f))
+                SectionHeader(label = "Agent", modifier = Modifier.weight(1f))
                 if (availableAgents.isNotEmpty()) {
                     TextButton(
                         onClick = {
@@ -406,7 +412,7 @@ fun AlleycatAddServerSheet(
                         },
                     ) {
                         Text(
-                            text = if (selectedAgents.size == availableAgents.size) "None" else "All",
+                            text = if (selectedAgents.size == availableAgents.size) "全不选" else "全选",
                             color = LitterTheme.accent,
                             fontSize = 12.sp,
                         )
@@ -430,10 +436,10 @@ fun AlleycatAddServerSheet(
                             color = LitterTheme.accent,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Loading agents", color = LitterTheme.textSecondary, fontSize = 12.sp)
+                        Text("正在加载 Agent", color = LitterTheme.textSecondary, fontSize = 12.sp)
                     }
                     agents.isEmpty() -> Text(
-                        text = "No agents are available on this host.",
+                        text = "这台设备上暂无可用 Agent。",
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(8.dp),
@@ -478,7 +484,7 @@ fun AlleycatAddServerSheet(
                 )
                 Spacer(Modifier.width(8.dp))
             }
-            Text("Connect")
+            Text("连接")
         }
 
         connectError?.let { message ->
@@ -537,7 +543,7 @@ private fun AgentRow(
             )
         }
         if (!agent.available) {
-            Text("Unavailable", color = LitterTheme.textMuted, fontSize = 11.sp)
+            Text("不可用", color = LitterTheme.textMuted, fontSize = 11.sp)
         } else {
             Checkbox(
                 checked = selected,
@@ -600,11 +606,21 @@ private fun shortNodeId(raw: String): String =
 
 private fun suggestedDisplayName(params: AppAlleycatPairPayload): String =
     params.hostName?.trim()?.takeIf { it.isNotEmpty() }
-        ?: "Alleycat ${shortNodeId(params.nodeId)}"
+        ?: "NeCode ${shortNodeId(params.nodeId)}"
 
 private fun wireLabel(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.WEBSOCKET -> "websocket"
     AppAlleycatAgentWire.JSONL -> "jsonl"
+}
+
+private fun alleycatAgentSortRank(agent: AppAlleycatAgentInfo): Int {
+    val name = agent.name.trim().lowercase()
+    val displayName = agent.displayName.trim().lowercase()
+    if (name == "necode" || displayName == "necode") return 0
+    if (agent.available && !isBetaAgentName(agent.name, agent.displayName)) return 1
+    if (agent.available) return 2
+    if (!isBetaAgentName(agent.name, agent.displayName)) return 3
+    return 4
 }
 
 fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
@@ -699,7 +715,7 @@ private fun QrScannerScreen(
                         ),
                 ) {
                     Text(
-                        text = "Cancel",
+                        text = "取消",
                         color = androidx.compose.ui.graphics.Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -729,13 +745,13 @@ private fun InstructionsCard() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Pair with NeCode",
+            text = "扫码连接 NeCode",
             color = androidx.compose.ui.graphics.Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        StepRow(number = "1", title = "On your computer, generate a NeCode mobile pairing QR code.")
-        StepRow(number = "2", title = "Point this camera at the QR code it prints.")
+        StepRow(number = "1", title = "在电脑端运行 NeCode mobile，并生成配对二维码。")
+        StepRow(number = "2", title = "用手机摄像头对准这个二维码。")
     }
 }
 
@@ -770,7 +786,7 @@ private fun StepRow(number: String, title: String) {
 @Composable
 private fun FramingHint() {
     Text(
-        text = "Hold steady — the QR code is detected automatically.",
+        text = "保持稳定，二维码会自动识别。",
         color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f),
         fontSize = 12.sp,
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,

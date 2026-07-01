@@ -499,7 +499,7 @@ fun ComposerExperimentalSheet(
             features = featuresResult.sortedBy { (it.displayName ?: it.name).lowercase() }
         }.onFailure { error ->
             features = emptyList()
-            onError(error.message ?: "Failed to load experimental features")
+            onError(error.message ?: "加载实验功能失败")
         }
         isLoading = false
     }
@@ -512,8 +512,8 @@ fun ComposerExperimentalSheet(
             .padding(16.dp),
     ) {
         SheetHeader(
-            title = "Experimental",
-            leadingActionLabel = "Reload",
+            title = "实验功能",
+            leadingActionLabel = "刷新",
             onLeadingAction = { reloadToken += 1 },
             onDismiss = onDismiss,
         )
@@ -526,7 +526,7 @@ fun ComposerExperimentalSheet(
             }
 
             features.isEmpty() -> {
-                Text("No experimental features available", color = LitterTheme.textMuted, fontSize = LitterTextStyle.code.scaled)
+                Text("暂无可用实验功能", color = LitterTheme.textMuted, fontSize = LitterTextStyle.code.scaled)
             }
 
             else -> {
@@ -592,7 +592,7 @@ fun ComposerExperimentalSheet(
                                                     it
                                                 }
                                             }
-                                            onError(error.message ?: "Failed to update experimental feature")
+                                            onError(error.message ?: "更新实验功能失败")
                                         }
                                     }
                                 },
@@ -632,7 +632,7 @@ fun ComposerSkillsSheet(
             skills = skillResults.sortedBy { it.name.lowercase() }
         }.onFailure { error ->
             skills = emptyList()
-            onError(error.message ?: "Failed to load skills")
+            onError(error.message ?: "加载技能失败")
         }
         isLoading = false
     }
@@ -645,8 +645,8 @@ fun ComposerSkillsSheet(
             .padding(16.dp),
     ) {
         SheetHeader(
-            title = "Skills",
-            leadingActionLabel = "Reload",
+            title = "技能",
+            leadingActionLabel = "刷新",
             onLeadingAction = { reloadToken += 1 },
             onDismiss = onDismiss,
         )
@@ -659,7 +659,7 @@ fun ComposerSkillsSheet(
             }
 
             skills.isEmpty() -> {
-                Text("No skills available for this workspace", color = LitterTheme.textMuted, fontSize = LitterTextStyle.code.scaled)
+                Text("当前工作区暂无可用技能", color = LitterTheme.textMuted, fontSize = LitterTextStyle.code.scaled)
             }
 
             else -> {

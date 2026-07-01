@@ -61,5 +61,6 @@ class AppComposerPayloadTest {
         assertEquals(1, params.input.size)
         val imageInput = params.input.single() as AppUserInput.Image
         assertTrue(imageInput.url.startsWith("data:image/jpeg;base64,"))
+        assertTrue(imageInput.url.endsWith("Cgs="))
     }
 }

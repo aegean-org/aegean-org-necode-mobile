@@ -1,6 +1,7 @@
 package com.litter.android.ui
 
 import android.content.Context
+import com.litter.android.state.PathNormalizer
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.min
@@ -189,12 +190,9 @@ class RecentDirectoryStore(
             .takeIf { it.isNotEmpty() }
 
     private fun normalizePath(path: String): String? {
-        var normalized = path.trim()
+        val normalized = PathNormalizer.normalize(path)
         if (normalized.isEmpty()) {
             return null
-        }
-        while (normalized.length > 1 && normalized.endsWith('/')) {
-            normalized = normalized.dropLast(1)
         }
         return normalized
     }

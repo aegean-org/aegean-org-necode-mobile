@@ -41,7 +41,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import uniffi.codex_mobile_client.ThreadKey
-import com.litter.android.state.displayTitle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.WallpaperBackdrop
 import com.litter.android.ui.common.FormattedText
@@ -183,7 +182,7 @@ fun SessionCanvasRow(
                 ) {
                     CompositionLocalProvider(LocalTextStyle provides titleStyle) {
                         FormattedText(
-                            text = session.displayTitle,
+                            text = HomeDashboardSupport.sessionTitle(session),
                             color = if (isActive) LitterTheme.accent else LitterTheme.textPrimary,
                             fontSize = titleStyle.fontSize,
                             maxLines = if (zoomLevel >= 4) 4 else 2,
@@ -293,7 +292,7 @@ fun SessionCanvasRow(
             ) {
                 if (onReply != null) {
                     DropdownMenuItem(
-                        text = { Text("Reply") },
+                        text = { Text("回复") },
                         onClick = {
                             showMenu = false
                             onReply()
@@ -302,7 +301,7 @@ fun SessionCanvasRow(
                 }
                 if (onFork != null) {
                     DropdownMenuItem(
-                        text = { Text("Fork") },
+                        text = { Text("复制") },
                         enabled = !session.hasActiveTurn,
                         onClick = {
                             showMenu = false
@@ -312,7 +311,7 @@ fun SessionCanvasRow(
                 }
                 if (onCancelTurn != null && session.hasActiveTurn) {
                     DropdownMenuItem(
-                        text = { Text("Cancel Turn", color = LitterTheme.danger) },
+                        text = { Text("取消任务", color = LitterTheme.danger) },
                         onClick = {
                             showMenu = false
                             onCancelTurn()
@@ -321,7 +320,7 @@ fun SessionCanvasRow(
                 }
                 if (isPinned && onUnpin != null) {
                     DropdownMenuItem(
-                        text = { Text("Unpin") },
+                        text = { Text("取消置顶") },
                         onClick = {
                             showMenu = false
                             onUnpin()
@@ -329,7 +328,7 @@ fun SessionCanvasRow(
                     )
                 } else if (!isPinned && onPin != null) {
                     DropdownMenuItem(
-                        text = { Text("Pin") },
+                        text = { Text("置顶") },
                         onClick = {
                             showMenu = false
                             onPin()
@@ -337,7 +336,7 @@ fun SessionCanvasRow(
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Delete") },
+                    text = { Text("隐藏") },
                     onClick = {
                         showMenu = false
                         onDelete()
