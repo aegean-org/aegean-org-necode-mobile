@@ -67,7 +67,7 @@ dependencies = [
 [[package]]
 name = "alleycat"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-amp-bridge",
@@ -110,7 +110,7 @@ dependencies = [
 [[package]]
 name = "alleycat-acp-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -133,7 +133,7 @@ dependencies = [
 [[package]]
 name = "alleycat-amp-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-claude-bridge",
@@ -156,7 +156,7 @@ dependencies = [
 [[package]]
 name = "alleycat-bridge-core"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-codex-proto",
  "anyhow",
@@ -175,7 +175,7 @@ dependencies = [
 [[package]]
 name = "alleycat-claude-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -199,7 +199,7 @@ dependencies = [
 [[package]]
 name = "alleycat-codex-proto"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "chrono",
  "serde",
@@ -210,7 +210,7 @@ dependencies = [
 [[package]]
 name = "alleycat-devin-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-bridge-core",
@@ -226,7 +226,7 @@ dependencies = [
 [[package]]
 name = "alleycat-droid-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -245,7 +245,7 @@ dependencies = [
 [[package]]
 name = "alleycat-grok-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-bridge-core",
@@ -261,7 +261,7 @@ dependencies = [
 [[package]]
 name = "alleycat-hermes-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -286,7 +286,7 @@ dependencies = [
 [[package]]
 name = "alleycat-opencode-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -310,7 +310,7 @@ dependencies = [
 [[package]]
 name = "alleycat-pi-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -334,7 +334,7 @@ dependencies = [
 [[package]]
 name = "alleycat-shell-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d0a9ffcf8ca091d31777edcf7637a1ec8b9276a4"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -2262,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "kittylitter"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "alleycat",
  "anyhow",
