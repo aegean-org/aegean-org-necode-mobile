@@ -2,12 +2,100 @@ package com.litter.android.ui.home
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import uniffi.codex_mobile_client.AppServerCapabilities
+import uniffi.codex_mobile_client.AppServerHealth
+import uniffi.codex_mobile_client.AppServerSnapshot
+import uniffi.codex_mobile_client.AppServerTransportState
 import uniffi.codex_mobile_client.AppSessionSummary
+import uniffi.codex_mobile_client.AppSnapshotRecord
 import uniffi.codex_mobile_client.AppSubagentStatus
+import uniffi.codex_mobile_client.AppVoiceSessionSnapshot
+import uniffi.codex_mobile_client.AgentRuntimeInfo
 import uniffi.codex_mobile_client.PinnedThreadKey
 import uniffi.codex_mobile_client.ThreadKey
 
 class HomeDashboardSupportTest {
+    @Test
+    fun sortedConnectedServersExcludesLocalDevice() {
+        val snapshot = snapshotRecord(
+            servers = listOf(
+                serverSnapshot(serverId = "local", displayName = "This Device", isLocal = true),
+                serverSnapshot(serverId = "necode", displayName = "NeCode", isLocal = false),
+            ),
+        )
+
+        val servers = HomeDashboardSupport.sortedConnectedServers(snapshot)
+
+        assertEquals(listOf("necode"), servers.map { it.serverId })
+    }
+
+    @Test
+    fun recentSessionsExcludesLocalDeviceSessions() {
+        val remoteSession = sessionSummary(
+            title = "Remote",
+            preview = "",
+            lastUserMessage = "hello",
+            cwd = "D:\\project\\remote",
+            serverId = "necode",
+            threadId = "remote-thread",
+            updatedAt = 2L,
+        )
+        val localSession = sessionSummary(
+            title = "Local",
+            preview = "",
+            lastUserMessage = "hello",
+            cwd = "D:\\project\\local",
+            serverId = "local",
+            threadId = "local-thread",
+            updatedAt = 3L,
+        )
+        val snapshot = snapshotRecord(
+            servers = listOf(
+                serverSnapshot(serverId = "local", displayName = "This Device", isLocal = true),
+                serverSnapshot(serverId = "necode", displayName = "NeCode", isLocal = false),
+            ),
+            sessions = listOf(localSession, remoteSession),
+        )
+
+        val sessions = HomeDashboardSupport.recentSessions(snapshot)
+
+        assertEquals(listOf(remoteSession), sessions)
+    }
+
+    @Test
+    fun voiceServerPrefersConnectedNecodeRemoteAndNeverFallsBackToLocal() {
+        val local = serverSnapshot(serverId = "local", displayName = "This Device", isLocal = true)
+        val codexRemote = serverSnapshot(
+            serverId = "codex-remote",
+            displayName = "Codex",
+            isLocal = false,
+            runtimes = listOf(runtime(kind = "codex", available = true)),
+        )
+        val necodeRemote = serverSnapshot(
+            serverId = "necode-remote",
+            displayName = "NeCode",
+            isLocal = false,
+            runtimes = listOf(runtime(kind = "necode", available = true)),
+        )
+
+        assertEquals(
+            "necode-remote",
+            HomeDashboardSupport.voiceTranscriptionServerId(
+                selectedProjectServerId = null,
+                selectedServerId = null,
+                servers = listOf(local, codexRemote, necodeRemote),
+            ),
+        )
+        assertEquals(
+            null,
+            HomeDashboardSupport.voiceTranscriptionServerId(
+                selectedProjectServerId = null,
+                selectedServerId = null,
+                servers = listOf(local, codexRemote),
+            ),
+        )
+    }
+
     @Test
     fun sessionTitleUsesFirstUserQuestionForUntitledSession() {
         val session = sessionSummary(
@@ -51,14 +139,81 @@ class HomeDashboardSupportTest {
         assertEquals(listOf(liveSession), merged)
     }
 
+    private fun snapshotRecord(
+        servers: List<AppServerSnapshot>,
+        sessions: List<AppSessionSummary> = emptyList(),
+    ) = AppSnapshotRecord(
+        servers = servers,
+        threads = emptyList(),
+        sessionSummaries = sessions,
+        agentDirectoryVersion = 0u,
+        activeThread = null,
+        pendingApprovals = emptyList(),
+        pendingUserInputs = emptyList(),
+        voiceSession = AppVoiceSessionSnapshot(
+            activeThread = null,
+            sessionId = null,
+            phase = null,
+            lastError = null,
+            transcriptEntries = emptyList(),
+            handoffThreadKey = null,
+        ),
+        terminalSessions = emptyList(),
+        activeTerminalId = null,
+    )
+
+    private fun serverSnapshot(
+        serverId: String,
+        displayName: String,
+        isLocal: Boolean,
+        runtimes: List<AgentRuntimeInfo> = emptyList(),
+    ) = AppServerSnapshot(
+        serverId = serverId,
+        displayName = displayName,
+        host = "127.0.0.1",
+        port = 0u.toUShort(),
+        wakeMac = null,
+        isLocal = isLocal,
+        health = AppServerHealth.CONNECTED,
+        transportState = AppServerTransportState.CONNECTED,
+        capabilities = AppServerCapabilities(
+            canUseTransportActions = true,
+            canBrowseDirectories = true,
+            canStartThreads = true,
+            canResumeThreads = true,
+            supportsTurnPagination = true,
+        ),
+        account = null,
+        requiresOpenaiAuth = false,
+        rateLimits = null,
+        rateLimitsByRuntime = emptyList(),
+        availableModels = null,
+        agentRuntimes = runtimes,
+        connectionProgress = null,
+        usageStats = null,
+        codexVersion = null,
+    )
+
+    private fun runtime(
+        kind: String,
+        available: Boolean,
+    ) = AgentRuntimeInfo(
+        kind = kind,
+        name = kind,
+        displayName = kind,
+        available = available,
+    )
+
     private fun sessionSummary(
         title: String,
         preview: String,
         lastUserMessage: String?,
         cwd: String,
+        serverId: String = "server",
         threadId: String = "thread",
+        updatedAt: Long? = null,
     ) = AppSessionSummary(
-        key = ThreadKey(serverId = "server", threadId = threadId),
+        key = ThreadKey(serverId = serverId, threadId = threadId),
         agentRuntimeKind = "necode",
         serverDisplayName = "server",
         serverHost = "localhost",
@@ -73,7 +228,7 @@ class HomeDashboardSupportTest {
         agentRole = null,
         agentDisplayLabel = null,
         agentStatus = AppSubagentStatus.UNKNOWN,
-        updatedAt = null,
+        updatedAt = updatedAt,
         hasActiveTurn = false,
         isResumed = true,
         isSubagent = false,

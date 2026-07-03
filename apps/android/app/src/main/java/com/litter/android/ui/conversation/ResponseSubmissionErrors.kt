@@ -10,12 +10,22 @@ private fun submissionErrorMessage(error: Throwable, fallback: String): String {
     val message = error.message?.trim().orEmpty()
     val lowerMessage = message.lowercase()
     return when {
+        isAcpSessionUnavailableMessage(lowerMessage) -> acpSessionUnavailableMessage()
+        isGenericAcpPromptInternalError(lowerMessage) -> acpSessionMaybeUnavailableMessage()
         isNeModelRequiredMessage(lowerMessage) -> neModelRequiredMessage()
         isNeLoginRequiredMessage(lowerMessage) -> neLoginRequiredMessage()
         error.isDisconnectedTransportError() -> disconnectedTransportMessage()
         else -> message.ifEmpty { fallback }
     }
 }
+
+private fun isAcpSessionUnavailableMessage(message: String): Boolean =
+    "unsupported acp session" in message ||
+        "acp session not found" in message
+
+private fun isGenericAcpPromptInternalError(message: String): Boolean =
+    "failed to send session/prompt to acp agent" in message &&
+        "internal error" in message
 
 private fun isNeLoginRequiredMessage(message: String): Boolean =
     "ne login required" in message ||
@@ -32,6 +42,12 @@ private fun neLoginRequiredMessage(): String =
 
 private fun neModelRequiredMessage(): String =
     "电脑端 NeCode 没有可用模型。请在电脑端运行 necode，完成 /login 后用 /model 选择模型；然后重启 necode mobile 或在手机端重新连接后再试。"
+
+private fun acpSessionUnavailableMessage(): String =
+    "电脑端会话已失效。请返回会话列表，新建会话或重新选择项目后再试。"
+
+private fun acpSessionMaybeUnavailableMessage(): String =
+    "电脑端返回了内部错误，当前会话可能已失效。请返回会话列表，新建会话或重新选择项目后再试。"
 
 private fun disconnectedTransportMessage(): String =
     "连接已断开。请等待 NeCode 重新连接后再试。"

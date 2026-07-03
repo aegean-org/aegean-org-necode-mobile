@@ -100,6 +100,7 @@ pub(crate) enum UiEvent {
     // ── Streaming deltas ───────────────────────────────────────────────
     MessageDelta {
         key: ThreadKey,
+        turn_id: String,
         item_id: String,
         delta: String,
     },
@@ -394,6 +395,7 @@ impl EventProcessor {
                 let key = Self::make_key(server_id, &n.thread_id);
                 self.emit(UiEvent::MessageDelta {
                     key,
+                    turn_id: n.turn_id.clone(),
                     item_id: n.item_id.clone(),
                     delta: n.delta.clone(),
                 });
@@ -1567,10 +1569,12 @@ mod tests {
         match evt {
             UiEvent::MessageDelta {
                 key,
+                turn_id,
                 item_id,
                 delta,
             } => {
                 assert_eq!(key.thread_id, "thr_1");
+                assert_eq!(turn_id, "turn_1");
                 assert_eq!(item_id, "item_1");
                 assert_eq!(delta, "Hello ");
             }

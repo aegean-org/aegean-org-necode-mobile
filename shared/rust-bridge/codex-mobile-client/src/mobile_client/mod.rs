@@ -42,6 +42,7 @@ mod store_listener;
 #[cfg(test)]
 mod tests;
 mod thread_projection;
+mod voice_transcription;
 
 use self::dynamic_tools::*;
 use self::store_listener::*;

@@ -1646,12 +1646,13 @@ impl AppStoreReducer {
             }
             UiEvent::MessageDelta {
                 key,
+                turn_id,
                 item_id,
                 delta,
             } => {
                 let inserted_placeholder = self
                     .mutate_thread_with_result(key, |thread| {
-                        append_assistant_delta(thread, item_id, delta)
+                        append_assistant_delta(thread, item_id, turn_id, delta)
                     })
                     .unwrap_or(false);
                 if inserted_placeholder {
@@ -2906,15 +2907,93 @@ fn upsert_item(
     thread: &mut ThreadSnapshot,
     item: crate::conversation_uniffi::HydratedConversationItem,
 ) {
-    if let Some(existing) = thread
+    if let Some(existing_index) = thread
         .items
-        .iter_mut()
-        .find(|existing| existing.id == item.id)
+        .iter()
+        .position(|existing| existing.id == item.id)
     {
-        *existing = item;
-    } else {
-        thread.items.push(item);
+        if same_item_ordering_scope(&thread.items[existing_index], &item) {
+            thread.items[existing_index] = item;
+            return;
+        }
+        thread.items.remove(existing_index);
     }
+    let insertion_index = insertion_index_for_item(&thread.items, &item);
+    thread.items.insert(insertion_index, item);
+}
+
+fn same_item_ordering_scope(
+    existing: &HydratedConversationItem,
+    item: &HydratedConversationItem,
+) -> bool {
+    existing.source_turn_index == item.source_turn_index
+        && existing.source_turn_id == item.source_turn_id
+}
+
+fn insertion_index_for_item(
+    items: &[HydratedConversationItem],
+    item: &HydratedConversationItem,
+) -> usize {
+    if let Some(turn_index) = item.source_turn_index {
+        return insertion_index_for_turn_index(items, item, turn_index);
+    }
+    let Some(turn_id) = item
+        .source_turn_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        return items.len();
+    };
+    insertion_index_for_turn_id(items, item, turn_id)
+}
+
+fn insertion_index_for_turn_index(
+    items: &[HydratedConversationItem],
+    item: &HydratedConversationItem,
+    turn_index: u32,
+) -> usize {
+    if item.is_from_user_turn_boundary
+        && let Some(index) = items
+            .iter()
+            .position(|existing| existing.source_turn_index == Some(turn_index))
+    {
+        return index;
+    }
+    if let Some(index) = items
+        .iter()
+        .rposition(|existing| existing.source_turn_index == Some(turn_index))
+    {
+        return index + 1;
+    }
+    items
+        .iter()
+        .position(|existing| {
+            existing
+                .source_turn_index
+                .is_some_and(|value| value > turn_index)
+        })
+        .unwrap_or(items.len())
+}
+
+fn insertion_index_for_turn_id(
+    items: &[HydratedConversationItem],
+    item: &HydratedConversationItem,
+    turn_id: &str,
+) -> usize {
+    let Some(first_same_turn) = items
+        .iter()
+        .position(|existing| existing.source_turn_id.as_deref() == Some(turn_id))
+    else {
+        return items.len();
+    };
+    if item.is_from_user_turn_boundary {
+        return first_same_turn;
+    }
+    items
+        .iter()
+        .rposition(|existing| existing.source_turn_id.as_deref() == Some(turn_id))
+        .unwrap_or(first_same_turn)
+        + 1
 }
 
 fn merge_reasoning_item_with_existing(
@@ -2953,7 +3032,12 @@ fn merge_reasoning_item_with_existing(
     item
 }
 
-fn append_assistant_delta(thread: &mut ThreadSnapshot, item_id: &str, delta: &str) -> bool {
+fn append_assistant_delta(
+    thread: &mut ThreadSnapshot,
+    item_id: &str,
+    turn_id: &str,
+    delta: &str,
+) -> bool {
     let mut inserted_placeholder = false;
     if !thread.items.iter().any(|item| item.id == item_id) {
         thread.items.push(HydratedConversationItem {
@@ -2964,7 +3048,7 @@ fn append_assistant_delta(thread: &mut ThreadSnapshot, item_id: &str, delta: &st
                 agent_role: None,
                 phase: None,
             }),
-            source_turn_id: thread.active_turn_id.clone(),
+            source_turn_id: Some(turn_id.to_string()),
             source_turn_index: None,
             timestamp: None,
             is_from_user_turn_boundary: false,
@@ -4122,6 +4206,34 @@ mod tests {
             }
             other => panic!("expected reasoning item, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn assistant_delta_uses_notification_turn_id_for_placeholder() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.active_turn_id = Some("turn-1".to_string());
+        reducer.upsert_thread_snapshot(thread);
+
+        reducer.apply_ui_event(&UiEvent::MessageDelta {
+            key: key.clone(),
+            turn_id: "turn-3".to_string(),
+            item_id: "assistant-live".to_string(),
+            delta: "third answer".to_string(),
+        });
+
+        let snapshot = reducer.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread exists");
+        let item = thread
+            .items
+            .iter()
+            .find(|item| item.id == "assistant-live")
+            .expect("assistant placeholder");
+        assert_eq!(item.source_turn_id.as_deref(), Some("turn-3"));
     }
 
     #[test]
@@ -5607,6 +5719,32 @@ mod tests {
 
     // ── SW-R3: streaming dynamic tool call argument deltas ───────────
 
+    #[test]
+    fn item_update_repositions_existing_item_when_turn_binding_changes() {
+        let reducer = AppStoreReducer::new();
+        let key = ThreadKey {
+            server_id: "srv".to_string(),
+            thread_id: "thread".to_string(),
+        };
+        let mut thread = ThreadSnapshot::from_info("srv", make_thread_info("thread"));
+        thread.items = vec![
+            user_message_item("user-1", "turn-1", "first"),
+            assistant_message_item("assistant-live", "turn-1", "misplaced"),
+            user_message_item("user-3", "turn-3", "third"),
+        ];
+        reducer.upsert_thread_snapshot(thread);
+
+        reducer.apply_item_update(
+            &key,
+            assistant_message_item("assistant-live", "turn-3", "corrected"),
+        );
+
+        let snapshot = reducer.snapshot();
+        let thread = snapshot.threads.get(&key).expect("thread exists");
+        let ids: Vec<&str> = thread.items.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, vec!["user-1", "user-3", "assistant-live"]);
+    }
+
     fn key_thread(thread_id: &str) -> ThreadKey {
         ThreadKey {
             server_id: "srv".to_string(),
@@ -5788,6 +5926,36 @@ mod tests {
         assert!(entry_b.buffer.contains("BBB"));
         assert_eq!(entry_a.item_id, "item-A");
         assert_eq!(entry_b.item_id, "item-B");
+    }
+
+    fn user_message_item(id: &str, turn_id: &str, text: &str) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: id.to_string(),
+            content: HydratedConversationItemContent::User(HydratedUserMessageData {
+                text: text.to_string(),
+                image_data_uris: Vec::new(),
+            }),
+            source_turn_id: Some(turn_id.to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: true,
+        }
+    }
+
+    fn assistant_message_item(id: &str, turn_id: &str, text: &str) -> HydratedConversationItem {
+        HydratedConversationItem {
+            id: id.to_string(),
+            content: HydratedConversationItemContent::Assistant(HydratedAssistantMessageData {
+                text: text.to_string(),
+                agent_nickname: None,
+                agent_role: None,
+                phase: None,
+            }),
+            source_turn_id: Some(turn_id.to_string()),
+            source_turn_index: None,
+            timestamp: None,
+            is_from_user_turn_boundary: false,
+        }
     }
 }
 

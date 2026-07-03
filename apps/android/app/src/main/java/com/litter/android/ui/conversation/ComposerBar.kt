@@ -96,7 +96,6 @@ import com.litter.android.util.LLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import uniffi.codex_mobile_client.AuthStatusRequest
 import uniffi.codex_mobile_client.AppSearchFilesRequest
 import uniffi.codex_mobile_client.PendingUserInputAnswer
 import uniffi.codex_mobile_client.PendingUserInputRequest
@@ -106,6 +105,7 @@ import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.BerkeleyMono
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.common.voiceTranscriptionOptions
 import com.litter.android.ui.scaled
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.launch
@@ -982,21 +982,17 @@ fun ComposerBar(
                         IconButton(
                             onClick = {
                                 scope.launch {
-                                    val auth = runCatching {
-                                        appModel.client.authStatus(
-                                            threadKey.serverId,
-                                            AuthStatusRequest(
-                                                includeToken = true,
-                                                refreshToken = false,
-                                            ),
-                                        )
-                                    }.getOrNull()
                                     val transcript = transcriptionManager.stopAndTranscribe(
-                                        authMethod = auth?.authMethod,
-                                        authToken = auth?.authToken,
+                                        appModel,
+                                        voiceTranscriptionOptions(
+                                            appModel = appModel,
+                                            serverId = threadKey.serverId,
+                                        ),
                                     )
-                                    transcript?.let {
-                                        textFieldValue = insertComposerTranscript(textFieldValue, it)
+                                    if (transcript != null) {
+                                        textFieldValue = insertComposerTranscript(textFieldValue, transcript)
+                                    } else {
+                                        sendErrorMessage = transcriptionManager.error.value
                                     }
                                 }
                             },
@@ -1020,53 +1016,22 @@ fun ComposerBar(
                     }
 
                     else -> {
-                        val realtimeAvailable = remember {
-                            com.litter.android.ui.ExperimentalFeatures.isEnabled(
-                                com.litter.android.ui.LitterFeature.REALTIME_VOICE,
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                if (transcriptionManager.hasMicPermission(context)) {
+                                    transcriptionManager.startRecording(context)
+                                } else {
+                                    micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                }
+                            },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "语音输入",
+                                tint = LitterTheme.textSecondary,
                             )
-                        }
-                        val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
-                        val voiceSession by voiceController.activeVoiceSession.collectAsState()
-                        val voiceSnapshot by appModel.snapshot.collectAsState()
-                        val voicePhase = voiceSnapshot?.voiceSession?.phase
-                        val voiceInputLevel = voiceSession?.inputLevel ?: 0f
-
-                        if (realtimeAvailable && text.isEmpty() && attachedImage == null && attachedFiles.isEmpty()) {
-                            Spacer(Modifier.width(8.dp))
-                            com.litter.android.ui.voice.InlineVoiceButton(
-                                phase = voicePhase,
-                                inputLevel = voiceInputLevel,
-                                isAvailable = true,
-                                onStart = {
-                                    scope.launch {
-                                        voiceController.startVoiceOnThread(appModel, threadKey)
-                                    }
-                                },
-                                onStop = {
-                                    scope.launch {
-                                        voiceController.stopActiveVoiceSession(appModel)
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp),
-                            )
-                        } else {
-                            Spacer(Modifier.width(8.dp))
-                            IconButton(
-                                onClick = {
-                                    if (transcriptionManager.hasMicPermission(context)) {
-                                        transcriptionManager.startRecording(context)
-                                    } else {
-                                        micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.Mic,
-                                    contentDescription = "语音",
-                                    tint = LitterTheme.textSecondary,
-                                )
-                            }
                         }
                     }
                 }

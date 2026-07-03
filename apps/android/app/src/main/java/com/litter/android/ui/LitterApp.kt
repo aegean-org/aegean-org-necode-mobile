@@ -29,7 +29,6 @@ import com.litter.android.state.PetOverlayController
 import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.state.SavedServerStore
 import com.litter.android.state.SavedThreadsStore
-import com.litter.android.state.VoiceRuntimeController
 import com.litter.android.state.connectionModeLabel
 import kotlinx.coroutines.launch
 import com.litter.android.ui.conversation.ApprovalOverlay
@@ -147,7 +146,14 @@ fun LitterApp(
         // Derive projects from current sessions
         val projects = remember(snapshot) {
             snapshot
-                ?.let { deriveProjects(it.sessionSummaries) }
+                ?.let { snap ->
+                    val selectableServerIds = HomeDashboardSupport.sortedConnectedServers(snap)
+                        .map { it.serverId }
+                        .toSet()
+                    deriveProjects(
+                        snap.sessionSummaries.filter { it.key.serverId in selectableServerIds },
+                    )
+                }
                 ?.map(::normalizedProject)
                 ?.distinctBy { it.id }
                 ?: emptyList()
@@ -187,7 +193,6 @@ fun LitterApp(
 
         // Network discovery
         val networkDiscovery = remember { NetworkDiscovery(appModel.discovery) }
-        val voiceController = remember { VoiceRuntimeController.shared }
 
         LaunchedEffect(openPetSettingsRequest) {
             if (openPetSettingsRequest <= 0) return@LaunchedEffect
@@ -328,19 +333,6 @@ fun LitterApp(
                                 PinnedThreadKey(serverId = key.serverId, threadId = key.threadId),
                             )
                             navigateToConversation(key)
-                        },
-                        onStartVoice = {
-                            scope.launch {
-                                val launchState = appModel.launchState.snapshot.value
-                                val threadKey = voiceController.preparePinnedLocalVoiceThread(
-                                    appModel = appModel,
-                                    cwd = launchState.currentCwd.ifBlank { "~" },
-                                    model = launchState.selectedModel.ifBlank { null },
-                                )
-                                if (threadKey != null) {
-                                    navigate(Route.RealtimeVoice(threadKey))
-                                }
-                            }
                         },
                         onOpenSavedApp = { appId -> navigate(Route.SavedApp(appId)) },
                         onOpenTerminal = if (ExperimentalFeatures.isEnabled(LitterFeature.TERMINAL)) {

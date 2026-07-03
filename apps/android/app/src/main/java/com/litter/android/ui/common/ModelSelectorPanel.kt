@@ -207,7 +207,7 @@ fun ModelSelectorPanel(
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
-            text = "Model",
+            text = "模型",
             color = LitterTheme.textSecondary,
             fontSize = LitterTextStyle.caption2.scaled,
         )
@@ -219,7 +219,7 @@ fun ModelSelectorPanel(
             ) {
                 item(key = "all") {
                     RuntimeFilterChip(
-                        label = "All",
+                        label = "全部",
                         count = visibleModels.size,
                         selected = selectedRuntimeFilterName == null,
                         onClick = { selectedRuntimeFilterName = null },
@@ -250,7 +250,7 @@ fun ModelSelectorPanel(
             singleLine = true,
             label = {
                 Text(
-                    "Search models",
+                    "搜索模型",
                     color = LitterTheme.textSecondary,
                     fontSize = LitterTextStyle.caption2.scaled,
                 )
@@ -268,7 +268,7 @@ fun ModelSelectorPanel(
                     IconButton(onClick = { modelSearchQuery = "" }) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Clear model search",
+                            contentDescription = "清空模型搜索",
                             tint = LitterTheme.textSecondary,
                             modifier = Modifier.size(16.dp),
                         )
@@ -308,14 +308,14 @@ fun ModelSelectorPanel(
 
         if (visibleModels.isEmpty()) {
             Text(
-                text = "Loading models...",
+                text = "正在加载模型...",
                 color = LitterTheme.textMuted,
                 fontSize = LitterTextStyle.caption2.scaled,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         } else if (filteredModels.isEmpty()) {
             Text(
-                text = "No matching models",
+                text = "没有匹配的模型",
                 color = LitterTheme.textMuted,
                 fontSize = LitterTextStyle.caption2.scaled,
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -324,7 +324,7 @@ fun ModelSelectorPanel(
 
         if (ampEffortLocked) {
             Text(
-                text = "Reasoning effort is locked after the first message.",
+                text = "首条消息后推理强度已锁定。",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.caption2.scaled,
                 modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
@@ -336,7 +336,7 @@ fun ModelSelectorPanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Effort",
+                        "推理强度",
                         color = LitterTheme.textSecondary,
                         fontSize = LitterTextStyle.caption2.scaled,
                     )
@@ -350,7 +350,7 @@ fun ModelSelectorPanel(
                             onClick = {
                                 appModel.launchState.updateReasoningEffort(effort)
                             },
-                            label = { Text(effort, fontSize = 10f.scaled) },
+                            label = { Text(effortDisplayLabel(effort), fontSize = 10f.scaled) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = LitterTheme.accent,
                                 selectedLabelColor = Color.Black,
@@ -375,7 +375,7 @@ fun ModelSelectorPanel(
                         val next = if (isPlan) AppModeKind.DEFAULT else AppModeKind.PLAN
                         onToggleMode(next)
                     },
-                    label = { Text("Plan", fontSize = 10f.scaled) },
+                    label = { Text("规划", fontSize = 10f.scaled) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = LitterTheme.accent,
                         selectedLabelColor = Color.Black,
@@ -422,7 +422,7 @@ fun ModelSelectorPanel(
                     },
                     label = {
                         Text(
-                            if (isFullAccess) "Full Access" else "Supervised",
+                            if (isFullAccess) "完全访问" else "监督模式",
                             fontSize = 10f.scaled,
                         )
                     },
@@ -435,7 +435,7 @@ fun ModelSelectorPanel(
             }
             Spacer(Modifier.weight(1f))
             Text(
-                "Fast mode",
+                "快速模式",
                 color = LitterTheme.textSecondary,
                 fontSize = LitterTextStyle.caption2.scaled,
             )
@@ -463,19 +463,16 @@ internal fun effortLabel(value: ReasoningEffort): String = when (value) {
 private fun ModelInfo.defaultReasoningEffortSelection(): String? =
     if (supportedReasoningEfforts.isEmpty()) null else effortLabel(defaultReasoningEffort)
 
-private val AmpVisibleModes = setOf("smart", "rush", "deep")
-
-private fun normalizedAmpModeName(value: String): String =
-    value.trim()
-        .lowercase(Locale.ROOT)
-        .removePrefix("amp/")
-        .removePrefix("amp:")
-
-private fun ModelInfo.ampModeName(): String =
-    normalizedAmpModeName(id)
-        .ifEmpty {
-            normalizedAmpModeName(model)
-        }
+private fun effortDisplayLabel(value: String): String = when (value) {
+    "none" -> "无"
+    "minimal" -> "极低"
+    "low" -> "低"
+    "medium" -> "中"
+    "high" -> "高"
+    "xhigh" -> "超高"
+    "max" -> "最高"
+    else -> value
+}
 
 internal fun ModelInfo.modelPickerDisplayName(): String =
     if (agentRuntimeKind == "amp") {
@@ -483,9 +480,6 @@ internal fun ModelInfo.modelPickerDisplayName(): String =
     } else {
         displayName.ifBlank { id }
     }
-
-private fun ModelInfo.isVisibleModelOption(): Boolean =
-    agentRuntimeKind != "amp" || ampModeName() in AmpVisibleModes
 
 private data class RuntimeModelBucket(
     val kind: AgentRuntimeKind,
@@ -644,7 +638,7 @@ private fun ModelOptionRow(
         if (selected) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = "Selected model",
+                contentDescription = "已选模型",
                 tint = LitterTheme.accent,
                 modifier = Modifier.size(18.dp),
             )

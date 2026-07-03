@@ -13,9 +13,9 @@ use std::path::PathBuf;
 
 use super::enums::ApprovalKind;
 use super::{
-    AbsolutePath, AppAskForApproval, AppDynamicToolSpec, AppMergeStrategy, AppReadOnlyAccess,
-    AppRealtimeAudioChunk, AppReviewTarget, AppSandboxMode, AppSandboxPolicy, AppUserInput,
-    ReasoningEffort, ServiceTier,
+    AbsolutePath, AgentRuntimeKind, AppAskForApproval, AppDynamicToolSpec, AppMergeStrategy,
+    AppReadOnlyAccess, AppRealtimeAudioChunk, AppReviewTarget, AppSandboxMode, AppSandboxPolicy,
+    AppUserInput, ReasoningEffort, ServiceTier,
 };
 
 fn absolute_path_buf_from_mobile(value: AbsolutePath) -> Result<AbsolutePathBuf, RpcClientError> {
@@ -84,6 +84,30 @@ pub(crate) fn reasoning_effort_into_upstream(value: ReasoningEffort) -> CoreReas
         // upstream effort available for Codex requests.
         ReasoningEffort::Max => CoreReasoningEffort::XHigh,
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[derive(uniffi::Record)]
+pub struct AppVoiceTranscriptionRequest {
+    pub audio_bytes: Vec<u8>,
+    #[uniffi(default = None)]
+    pub mime_type: Option<String>,
+    #[uniffi(default = None)]
+    pub file_name: Option<String>,
+    #[uniffi(default = None)]
+    pub model: Option<String>,
+    #[uniffi(default = None)]
+    pub language: Option<String>,
+    #[uniffi(default = None)]
+    pub agent_runtime_kind: Option<AgentRuntimeKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[derive(uniffi::Record)]
+pub struct AppVoiceTranscriptionResponse {
+    pub text: String,
 }
 
 fn network_access_into_upstream(value: super::AppNetworkAccess) -> upstream::NetworkAccess {

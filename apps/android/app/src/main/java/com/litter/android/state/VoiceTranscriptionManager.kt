@@ -7,23 +7,28 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
+import com.litter.android.util.LLog
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.Locale
+import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.io.DataOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import kotlin.math.sqrt
-import uniffi.codex_mobile_client.AuthMode
+import uniffi.codex_mobile_client.AppVoiceTranscriptionRequest
+
+private const val DEFAULT_DEVICE_SAMPLE_RATE = 44100
+private const val TRANSCRIPTION_SAMPLE_RATE = 24000
+private const val MIN_DURATION_SECONDS = 0.5f
+private const val RECORDING_THREAD_JOIN_MS = 1000L
+private const val AUDIO_LEVEL_GAIN = 3.0
 
 /**
- * Records microphone input and transcribes via ChatGPT/OpenAI API.
- * Used for push-to-talk text input in the composer.
+ * Records microphone input and asks the paired desktop daemon to transcribe it.
  */
 class VoiceTranscriptionManager {
 
@@ -41,32 +46,32 @@ class VoiceTranscriptionManager {
 
     private var audioRecord: AudioRecord? = null
     private val buffers = mutableListOf<ShortArray>()
-    private var deviceSampleRate = 44100
+    private var deviceSampleRate = DEFAULT_DEVICE_SAMPLE_RATE
     private var recordingThread: Thread? = null
 
     fun hasMicPermission(context: Context): Boolean {
         return ContextCompat.checkSelfPermission(
-            context, Manifest.permission.RECORD_AUDIO,
+            context,
+            Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
     }
 
     fun startRecording(context: Context) {
         if (_isRecording.value) return
         if (!hasMicPermission(context)) {
-            _error.value = "Microphone permission required"
+            _error.value = "需要麦克风权限"
             return
         }
 
         buffers.clear()
         _error.value = null
-        deviceSampleRate = 44100
+        deviceSampleRate = DEFAULT_DEVICE_SAMPLE_RATE
 
         val bufferSize = AudioRecord.getMinBufferSize(
             deviceSampleRate,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
-
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             deviceSampleRate,
@@ -74,7 +79,6 @@ class VoiceTranscriptionManager {
             AudioFormat.ENCODING_PCM_16BIT,
             bufferSize * 2,
         )
-
         audioRecord?.startRecording()
         _isRecording.value = true
 
@@ -92,56 +96,47 @@ class VoiceTranscriptionManager {
         }.also { it.start() }
     }
 
-    suspend fun stopAndTranscribe(authMethod: AuthMode?, authToken: String?): String? {
-        _isRecording.value = false
-        audioRecord?.stop()
-        audioRecord?.release()
-        audioRecord = null
-        recordingThread?.join(1000)
-        recordingThread = null
-        _audioLevel.value = 0f
-
-        val allSamples: ShortArray
-        synchronized(buffers) {
-            val total = buffers.sumOf { it.size }
-            allSamples = ShortArray(total)
-            var offset = 0
-            for (buf in buffers) {
-                buf.copyInto(allSamples, offset)
-                offset += buf.size
-            }
-            buffers.clear()
-        }
-
-        // Minimum duration check (0.5 seconds)
+    suspend fun stopAndTranscribe(
+        appModel: AppModel,
+        options: VoiceTranscriptionOptions,
+    ): String? {
+        stopRecorder()
+        val allSamples = drainSamples()
         val durationSec = allSamples.size.toFloat() / deviceSampleRate
-        if (durationSec < 0.5f) {
-            _error.value = "Recording too short"
+        if (durationSec < MIN_DURATION_SECONDS) {
+            _error.value = "录音时间太短"
             return null
         }
 
-        val token = authToken?.trim().orEmpty()
-        if (token.isEmpty()) {
-            _error.value = "Not logged in."
-            return null
-        }
-
-        // Resample to 24kHz
-        val targetRate = 24000
-        val resampled = resample(allSamples, deviceSampleRate, targetRate)
-        val wav = encodeWav(resampled, targetRate)
-
-        // Upload for transcription
+        val wav = encodeWav(
+            resample(allSamples, deviceSampleRate, TRANSCRIPTION_SAMPLE_RATE),
+            TRANSCRIPTION_SAMPLE_RATE,
+        )
         _isTranscribing.value = true
         return try {
             withContext(Dispatchers.IO) {
-                if (authMethod == AuthMode.API_KEY) {
-                    transcribeOpenAI(wav, token)
-                } else {
-                    transcribeChatGPT(wav, token)
-                }
+                LLog.i(
+                    "VoiceTranscription",
+                    "transcription request",
+                    fields = mapOf(
+                        "serverId" to options.serverId,
+                        "runtime" to options.agentRuntimeKind,
+                        "model" to options.asrModel,
+                        "bytes" to wav.size,
+                    ),
+                )
+                appModel.transcribeVoice(options, voiceRequest(wav, options))
+                    .trim()
+                    .takeIf { it.isNotEmpty() }
+                    ?: throw IllegalStateException("语音识别结果为空")
             }
         } catch (e: Exception) {
+            LLog.e(
+                "VoiceTranscription",
+                "transcription failed",
+                e,
+                fields = mapOf("serverId" to options.serverId),
+            )
             _error.value = e.message
             null
         } finally {
@@ -159,7 +154,42 @@ class VoiceTranscriptionManager {
         _audioLevel.value = 0f
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    private fun stopRecorder() {
+        _isRecording.value = false
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
+        recordingThread?.join(RECORDING_THREAD_JOIN_MS)
+        recordingThread = null
+        _audioLevel.value = 0f
+    }
+
+    private fun drainSamples(): ShortArray {
+        synchronized(buffers) {
+            val allSamples = ShortArray(buffers.sumOf { it.size })
+            var offset = 0
+            for (buffer in buffers) {
+                buffer.copyInto(allSamples, offset)
+                offset += buffer.size
+            }
+            buffers.clear()
+            return allSamples
+        }
+    }
+
+    private fun voiceRequest(
+        wav: ByteArray,
+        options: VoiceTranscriptionOptions,
+    ): AppVoiceTranscriptionRequest {
+        return AppVoiceTranscriptionRequest(
+            audioBytes = wav,
+            mimeType = "audio/wav",
+            fileName = "audio.wav",
+            model = options.asrModel?.trim()?.takeIf { it.isNotEmpty() },
+            language = transcriptionLanguage(options.language),
+            agentRuntimeKind = options.agentRuntimeKind?.trim()?.takeIf { it.isNotEmpty() },
+        )
+    }
 
     private fun rms(buffer: ShortArray, size: Int): Float {
         var sum = 0.0
@@ -167,15 +197,14 @@ class VoiceTranscriptionManager {
             val sample = buffer[i].toDouble() / Short.MAX_VALUE
             sum += sample * sample
         }
-        return (sqrt(sum / size) * 3).coerceAtMost(1.0).toFloat()
+        return (sqrt(sum / size) * AUDIO_LEVEL_GAIN).coerceAtMost(1.0).toFloat()
     }
 
     private fun resample(input: ShortArray, inputRate: Int, outputRate: Int): ShortArray {
         if (inputRate == outputRate) return input
         val ratio = inputRate.toDouble() / outputRate
-        val outputSize = (input.size / ratio).toInt()
-        val output = ShortArray(outputSize)
-        for (i in 0 until outputSize) {
+        val output = ShortArray((input.size / ratio).toInt())
+        for (i in output.indices) {
             val srcPos = i * ratio
             val srcIndex = srcPos.toInt()
             val frac = srcPos - srcIndex
@@ -188,87 +217,33 @@ class VoiceTranscriptionManager {
 
     private fun encodeWav(samples: ShortArray, sampleRate: Int): ByteArray {
         val dataSize = samples.size * 2
-        val bos = ByteArrayOutputStream(44 + dataSize)
-        val dos = DataOutputStream(bos)
-
-        // RIFF header
-        dos.writeBytes("RIFF")
-        dos.writeIntLE(36 + dataSize)
-        dos.writeBytes("WAVE")
-
-        // fmt chunk
-        dos.writeBytes("fmt ")
-        dos.writeIntLE(16) // chunk size
-        dos.writeShortLE(1) // PCM
-        dos.writeShortLE(1) // mono
-        dos.writeIntLE(sampleRate)
-        dos.writeIntLE(sampleRate * 2) // byte rate
-        dos.writeShortLE(2) // block align
-        dos.writeShortLE(16) // bits per sample
-
-        // data chunk
-        dos.writeBytes("data")
-        dos.writeIntLE(dataSize)
-        val buf = ByteBuffer.allocate(dataSize).order(ByteOrder.LITTLE_ENDIAN)
-        for (s in samples) buf.putShort(s)
-        dos.write(buf.array())
-
-        return bos.toByteArray()
+        val output = ByteArrayOutputStream(44 + dataSize)
+        val data = DataOutputStream(output)
+        data.writeBytes("RIFF")
+        data.writeIntLE(36 + dataSize)
+        data.writeBytes("WAVE")
+        data.writeBytes("fmt ")
+        data.writeIntLE(16)
+        data.writeShortLE(1)
+        data.writeShortLE(1)
+        data.writeIntLE(sampleRate)
+        data.writeIntLE(sampleRate * 2)
+        data.writeShortLE(2)
+        data.writeShortLE(16)
+        data.writeBytes("data")
+        data.writeIntLE(dataSize)
+        val buffer = ByteBuffer.allocate(dataSize).order(ByteOrder.LITTLE_ENDIAN)
+        for (sample in samples) buffer.putShort(sample)
+        data.write(buffer.array())
+        return output.toByteArray()
     }
 
-    private fun transcribeChatGPT(wav: ByteArray, token: String): String? {
-        return uploadMultipart(
-            url = "https://chatgpt.com/backend-api/transcribe",
-            wav = wav,
-            token = token,
-            modelField = null,
-        )
-    }
-
-    private fun transcribeOpenAI(wav: ByteArray, token: String): String? {
-        return uploadMultipart(
-            url = "https://api.openai.com/v1/audio/transcriptions",
-            wav = wav,
-            token = token,
-            modelField = "gpt-4o-mini-transcribe",
-        )
-    }
-
-    private fun uploadMultipart(url: String, wav: ByteArray, token: String, modelField: String?): String? {
-        val boundary = "----FormBoundary${System.currentTimeMillis()}"
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer $token")
-        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-        conn.doOutput = true
-
-        conn.outputStream.use { os ->
-            // File part
-            os.write("--$boundary\r\n".toByteArray())
-            os.write("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".toByteArray())
-            os.write("Content-Type: audio/wav\r\n\r\n".toByteArray())
-            os.write(wav)
-            os.write("\r\n".toByteArray())
-
-            // Model part (if needed)
-            if (modelField != null) {
-                os.write("--$boundary\r\n".toByteArray())
-                os.write("Content-Disposition: form-data; name=\"model\"\r\n\r\n".toByteArray())
-                os.write(modelField.toByteArray())
-                os.write("\r\n".toByteArray())
-            }
-
-            os.write("--$boundary--\r\n".toByteArray())
-        }
-
-        val response = conn.inputStream.bufferedReader().readText()
-        conn.disconnect()
-
-        // Parse transcript from JSON response
-        return try {
-            org.json.JSONObject(response).optString("text").takeIf { it.isNotBlank() }
-        } catch (_: Exception) {
-            response.takeIf { it.isNotBlank() }
+    private fun transcriptionLanguage(language: String?): String {
+        val configured = language?.trim()?.takeIf { it.isNotEmpty() }
+        if (configured != null) return configured
+        return when (Locale.getDefault().language.lowercase(Locale.ROOT)) {
+            "zh" -> "zh"
+            else -> "en"
         }
     }
 

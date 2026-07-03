@@ -107,8 +107,6 @@ import com.litter.android.state.connectionModeLabel
 import com.litter.android.state.isConnected
 import com.litter.android.state.statusColor
 import com.litter.android.state.statusLabel
-import com.litter.android.ui.ExperimentalFeatures
-import com.litter.android.ui.LitterFeature
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
@@ -143,7 +141,6 @@ fun HomeDashboardScreen(
     selectedServerId: String?,
     onSelectServer: (AppServerSnapshot) -> Unit,
     onThreadCreated: (ThreadKey) -> Unit,
-    onStartVoice: (() -> Unit)? = null,
     onOpenSavedApp: ((String) -> Unit)? = null,
     onOpenTerminal: (() -> Unit)? = null,
 ) {
@@ -151,7 +148,6 @@ fun HomeDashboardScreen(
     val context = LocalContext.current
     val snapshot by appModel.snapshot.collectAsState()
     val scope = rememberCoroutineScope()
-    val voiceController = remember { com.litter.android.state.VoiceRuntimeController.shared }
     val lifecycleController = remember { AppLifecycleController() }
 
     var showTipJar by remember { mutableStateOf(false) }
@@ -242,6 +238,7 @@ fun HomeDashboardScreen(
     // scope so the two paths stay aligned.
     var replyTargetSession by remember { mutableStateOf<AppSessionSummary?>(null) }
     var isComposerActive by remember { mutableStateOf(false) }
+    var startVoiceRequest by remember { mutableIntStateOf(0) }
     // When the user taps a composer chip (model / project), a modal sheet
     // opens and the IME dismisses — which would otherwise cascade through
     // `HomeComposerBar.onActiveChange(false)` and collapse the composer
@@ -905,6 +902,12 @@ fun HomeDashboardScreen(
                         }
                         HomeComposerBar(
                             project = selectedProject,
+                            voiceServerId = HomeDashboardSupport.voiceTranscriptionServerId(
+                                selectedProjectServerId = selectedProject?.serverId,
+                                selectedServerId = selectedServerId,
+                                servers = snap?.servers.orEmpty(),
+                            ),
+                            startVoiceRequest = startVoiceRequest,
                             onThreadCreated = { key ->
                                 pinThreadOnHome(key)
                                 onThreadCreated(key)
@@ -920,25 +923,9 @@ fun HomeDashboardScreen(
                         )
                     }
                     else -> {
-                        // Collapsed: realtime voice pill on the left, + and search
+                        // Collapsed: voice input on the left, + and search
                         // pills on the right. All three share the same 44dp
-                        // circular glass style; only the mic pill's icon tint
-                        // reflects live voice state.
-                        val realtimeAvailable = remember {
-                            ExperimentalFeatures.isEnabled(LitterFeature.REALTIME_VOICE)
-                        }
-                        val voicePhase = snapshot?.voiceSession?.phase
-                        val voiceIconTint = when (voicePhase) {
-                            uniffi.codex_mobile_client.AppVoiceSessionPhase.CONNECTING,
-                            uniffi.codex_mobile_client.AppVoiceSessionPhase.LISTENING,
-                            -> LitterTheme.accent
-                            uniffi.codex_mobile_client.AppVoiceSessionPhase.SPEAKING,
-                            uniffi.codex_mobile_client.AppVoiceSessionPhase.THINKING,
-                            uniffi.codex_mobile_client.AppVoiceSessionPhase.HANDOFF,
-                            -> LitterTheme.warning
-                            uniffi.codex_mobile_client.AppVoiceSessionPhase.ERROR -> LitterTheme.danger
-                            null -> LitterTheme.textSecondary
-                        }
+                        // circular glass style.
 
                         Row(
                             modifier = Modifier
@@ -946,26 +933,27 @@ fun HomeDashboardScreen(
                                 .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (realtimeAvailable && onStartVoice != null) {
-                                androidx.compose.material3.IconButton(
-                                    onClick = { onStartVoice() },
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .onGloballyPositioned {
-                                            coachmarkTargetBounds[CoachmarkTarget.Voice] = it.boundsInRoot()
-                                        }
-                                        .background(
-                                            LitterTheme.surface.copy(alpha = 0.9f),
-                                            CircleShape,
-                                        ),
-                                ) {
-                                    Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Default.Mic,
-                                        contentDescription = "Start realtime voice",
-                                        tint = voiceIconTint,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
+                            androidx.compose.material3.IconButton(
+                                onClick = {
+                                    isComposerActive = true
+                                    startVoiceRequest += 1
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .onGloballyPositioned {
+                                        coachmarkTargetBounds[CoachmarkTarget.Voice] = it.boundsInRoot()
+                                    }
+                                    .background(
+                                        LitterTheme.surface.copy(alpha = 0.9f),
+                                        CircleShape,
+                                    ),
+                            ) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.Mic,
+                                    contentDescription = "语音输入",
+                                    tint = LitterTheme.textSecondary,
+                                    modifier = Modifier.size(20.dp),
+                                )
                             }
                             Spacer(Modifier.weight(1f))
                             androidx.compose.material3.IconButton(

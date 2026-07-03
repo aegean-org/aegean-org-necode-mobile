@@ -890,6 +890,18 @@ impl AppClient {
 
     // ── Realtime / voice ─────────────────────────────────────────────────
 
+    pub async fn transcribe_voice(
+        &self,
+        server_id: String,
+        params: types::AppVoiceTranscriptionRequest,
+    ) -> Result<types::AppVoiceTranscriptionResponse, ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.transcribe_voice(&server_id, params)
+                .await
+                .map_err(|error| ClientError::Rpc(error.to_string()))
+        })
+    }
+
     pub async fn start_realtime_session(
         &self,
         server_id: String,

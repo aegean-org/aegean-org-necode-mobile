@@ -96,7 +96,10 @@ fn windows_drive_starts(path: &str) -> Vec<usize> {
         .windows(3)
         .enumerate()
         .filter_map(|(index, window)| {
-            if window[0].is_ascii_alphabetic() && window[1] == b':' && (window[2] == b'\\' || window[2] == b'/') {
+            if window[0].is_ascii_alphabetic()
+                && window[1] == b':'
+                && (window[2] == b'\\' || window[2] == b'/')
+            {
                 Some(index)
             } else {
                 None

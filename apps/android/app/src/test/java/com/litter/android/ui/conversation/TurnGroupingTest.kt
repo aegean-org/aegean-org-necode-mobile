@@ -44,6 +44,24 @@ class TurnGroupingTest {
     }
 
     @Test
+    fun sourceTurnIdGroupsRepliesWithTheirUserWhenItemsArriveAfterLaterUser() {
+        val user1 = userItem(id = "user-1", turnId = "turn-1")
+        val user2 = userItem(id = "user-2", turnId = "turn-2")
+        val assistant1 = assistantItem(id = "assistant-1", turnId = "turn-1")
+        val assistant2 = assistantItem(id = "assistant-2", turnId = "turn-2")
+
+        val turns = buildTranscriptTurns(
+            items = listOf(user1, user2, assistant1, assistant2),
+            isStreaming = false,
+            expandedRecentTurnCount = Int.MAX_VALUE,
+        )
+
+        assertEquals(2, turns.size)
+        assertEquals(listOf("user-1", "assistant-1"), turns[0].items.map { it.id })
+        assertEquals(listOf("user-2", "assistant-2"), turns[1].items.map { it.id })
+    }
+
+    @Test
     fun pendingTailLocalUserOverlayNeedsWaitingIndicator() {
         val pendingUser = userItem(id = "local-user-message:1", turnId = "")
 

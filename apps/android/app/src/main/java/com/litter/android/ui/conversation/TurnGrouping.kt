@@ -52,6 +52,12 @@ import uniffi.codex_mobile_client.AppMessagePhase
 
 private const val LOCAL_USER_MESSAGE_ITEM_PREFIX = "local-user-message:"
 
+private data class MutableTranscriptTurnGroup(
+    val keys: MutableSet<String>,
+    val items: MutableList<HydratedConversationItem>,
+    var firstIndex: Int,
+)
+
 /**
  * A group of conversation items belonging to the same turn.
  */
@@ -147,54 +153,70 @@ internal fun hasPendingTailLocalUserMessage(items: List<HydratedConversationItem
 }
 
 private fun groupItems(items: List<HydratedConversationItem>): List<List<HydratedConversationItem>> {
-    val groups = mutableListOf<List<HydratedConversationItem>>()
-    var current = mutableListOf<HydratedConversationItem>()
-    var currentSourceTurnId: String? = null
-    for (item in items) {
-        if (item.startsCurrentSourceTurn(current, currentSourceTurnId)) {
-            current.add(0, item)
-            continue
+    val groups = mutableListOf<MutableTranscriptTurnGroup>()
+    val groupsByKey = mutableMapOf<String, MutableTranscriptTurnGroup>()
+    var currentSourcelessGroup: MutableTranscriptTurnGroup? = null
+    items.forEachIndexed { index, item ->
+        val keys = item.turnGroupingKeys()
+        val group = if (keys.isEmpty()) {
+            sourcelessTurnGroup(groups, currentSourcelessGroup, item, index)
+        } else {
+            keyedTurnGroup(groups, groupsByKey, keys, index)
         }
-
-        val startsNewTurn =
-            current.isNotEmpty() && (
-                item.isFromUserTurnBoundary ||
-                    (
-                        item.sourceTurnId != null &&
-                            currentSourceTurnId != null &&
-                            item.sourceTurnId != currentSourceTurnId
-                        )
-                )
-
-        if (startsNewTurn) {
-            groups += current.toList()
-            current = mutableListOf()
-        }
-        current += item
-
-        currentSourceTurnId = when {
-            currentSourceTurnId == null -> item.sourceTurnId
-            current.size == 1 -> current.firstOrNull()?.sourceTurnId
-            else -> currentSourceTurnId
-        }
+        group.addTurnItem(item)
+        currentSourcelessGroup = if (keys.isEmpty()) group else null
     }
 
-    if (current.isNotEmpty()) {
-        groups += current.toList()
-    }
-
-    return groups
+    return groups.sortedBy { it.firstIndex }.map { it.items.toList() }
 }
 
-private fun HydratedConversationItem.startsCurrentSourceTurn(
-    current: List<HydratedConversationItem>,
-    currentSourceTurnId: String?,
-): Boolean {
-    val turnId = sourceTurnId ?: return false
-    return current.isNotEmpty() &&
-        isFromUserTurnBoundary &&
-        currentSourceTurnId == turnId &&
-        current.none { it.isFromUserTurnBoundary }
+private fun sourcelessTurnGroup(
+    groups: MutableList<MutableTranscriptTurnGroup>,
+    current: MutableTranscriptTurnGroup?,
+    item: HydratedConversationItem,
+    index: Int,
+): MutableTranscriptTurnGroup {
+    if (current != null && !item.isFromUserTurnBoundary) return current
+    return MutableTranscriptTurnGroup(mutableSetOf(), mutableListOf(), index).also(groups::add)
+}
+
+private fun keyedTurnGroup(
+    groups: MutableList<MutableTranscriptTurnGroup>,
+    groupsByKey: MutableMap<String, MutableTranscriptTurnGroup>,
+    keys: Set<String>,
+    index: Int,
+): MutableTranscriptTurnGroup {
+    val matches = keys.mapNotNull(groupsByKey::get).distinct()
+    val group = matches.firstOrNull() ?: MutableTranscriptTurnGroup(
+        keys = mutableSetOf(),
+        items = mutableListOf(),
+        firstIndex = index,
+    ).also(groups::add)
+    matches.drop(1).forEach { extra ->
+        group.firstIndex = minOf(group.firstIndex, extra.firstIndex)
+        group.items += extra.items
+        group.keys += extra.keys
+        groups.remove(extra)
+    }
+    group.firstIndex = minOf(group.firstIndex, index)
+    keys.forEach { key ->
+        group.keys += key
+        groupsByKey[key] = group
+    }
+    return group
+}
+
+private fun MutableTranscriptTurnGroup.addTurnItem(item: HydratedConversationItem) {
+    if (item.isFromUserTurnBoundary && items.none { it.isFromUserTurnBoundary }) {
+        items.add(0, item)
+    } else {
+        items += item
+    }
+}
+
+private fun HydratedConversationItem.turnGroupingKeys(): Set<String> = buildSet {
+    sourceTurnId?.trim()?.takeIf { it.isNotEmpty() }?.let { add("id:$it") }
+    sourceTurnIndex?.let { add("index:$it") }
 }
 
 private fun mergeTrailingStreamingGroups(

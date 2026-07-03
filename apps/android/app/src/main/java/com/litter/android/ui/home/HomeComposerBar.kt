@@ -75,11 +75,11 @@ import com.litter.android.state.VoiceTranscriptionManager
 import com.litter.android.ui.LitterTextStyle
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.common.voiceTranscriptionOptions
 import com.litter.android.ui.scaled
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.launch
 import uniffi.codex_mobile_client.AppProject
-import uniffi.codex_mobile_client.AuthStatusRequest
 import uniffi.codex_mobile_client.ReasoningEffort
 import uniffi.codex_mobile_client.ThreadKey
 
@@ -101,6 +101,8 @@ private val ALL_FILE_MIME_TYPES = arrayOf("*/*")
 @Composable
 fun HomeComposerBar(
     project: AppProject?,
+    voiceServerId: String? = project?.serverId,
+    startVoiceRequest: Int = 0,
     onThreadCreated: (ThreadKey) -> Unit,
     onLoginRequired: (String) -> Unit = {},
     onActiveChange: ((Boolean) -> Unit)? = null,
@@ -136,6 +138,14 @@ fun HomeComposerBar(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) transcriptionManager.startRecording(context)
+    }
+    LaunchedEffect(startVoiceRequest) {
+        if (startVoiceRequest <= 0) return@LaunchedEffect
+        if (transcriptionManager.hasMicPermission(context)) {
+            transcriptionManager.startRecording(context)
+        } else {
+            micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
     }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -373,7 +383,7 @@ fun HomeComposerBar(
                 Box(modifier = Modifier.weight(1f)) {
                     if (text.isEmpty()) {
                         Text(
-                            text = "Message\u2026",
+                            text = "输入消息…",
                             color = LitterTheme.textMuted,
                             fontSize = LitterTextStyle.body.scaled,
                         )
@@ -418,26 +428,24 @@ fun HomeComposerBar(
                         Spacer(Modifier.width(8.dp))
                         IconButton(
                             onClick = {
-                                val currentProject = project ?: run {
+                                val targetServerId = voiceServerId ?: project?.serverId
+                                if (targetServerId.isNullOrBlank()) {
                                     transcriptionManager.cancelRecording()
+                                    errorMessage = "语音输入前请先连接或选择 NeCode 主机。"
                                     return@IconButton
                                 }
                                 scope.launch {
-                                    val auth = runCatching {
-                                        appModel.client.authStatus(
-                                            currentProject.serverId,
-                                            AuthStatusRequest(
-                                                includeToken = true,
-                                                refreshToken = false,
-                                            ),
-                                        )
-                                    }.getOrNull()
                                     val transcript = transcriptionManager.stopAndTranscribe(
-                                        authMethod = auth?.authMethod,
-                                        authToken = auth?.authToken,
+                                        appModel,
+                                        voiceTranscriptionOptions(
+                                            appModel = appModel,
+                                            serverId = targetServerId,
+                                        ),
                                     )
-                                    transcript?.let {
-                                        textFieldValue = insertHomeComposerTranscript(textFieldValue, it)
+                                    if (transcript != null) {
+                                        textFieldValue = insertHomeComposerTranscript(textFieldValue, transcript)
+                                    } else {
+                                        errorMessage = transcriptionManager.error.value
                                     }
                                 }
                             },

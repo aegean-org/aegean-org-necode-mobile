@@ -44,8 +44,21 @@ import uniffi.codex_mobile_client.AppLoginAccountRequest
 import uniffi.codex_mobile_client.AppRefreshModelsRequest
 import uniffi.codex_mobile_client.AppReadThreadRequest
 import uniffi.codex_mobile_client.AppStartThreadRequest
+import uniffi.codex_mobile_client.AppVoiceTranscriptionRequest
 import uniffi.codex_mobile_client.registerAndroidTools
 import uniffi.codex_mobile_client.threadPermissionsAreAuthoritative
+
+private const val MERGE_KEY_SEPARATOR = "\u001F"
+
+private data class SnapshotMergeKey(
+    val turnKeys: Set<String>,
+    val content: SnapshotMergeContentKey,
+)
+
+private data class SnapshotMergeContentKey(
+    val kind: String,
+    val values: List<String>,
+)
 
 /**
  * Returns where a live item delta should be inserted into the currently loaded
@@ -63,6 +76,109 @@ internal fun insertionIndexForConversationItem(
     val turnId = item.normalizedSourceTurnId() ?: return items.size
     return insertionIndexForSourceTurnId(items, item, turnId)
 }
+
+/**
+ * Upsert a conversation item and re-evaluate its position from authoritative
+ * turn metadata. Streaming placeholders can be inserted before their final
+ * `sourceTurnId` is known; a later item update must be able to move them.
+ */
+internal fun upsertConversationItem(
+    items: List<HydratedConversationItem>,
+    item: HydratedConversationItem,
+): List<HydratedConversationItem> {
+    val updatedItems = items.toMutableList()
+    val existingItemIndex = updatedItems.indexOfFirst { it.id == item.id }
+    if (existingItemIndex >= 0) {
+        if (updatedItems[existingItemIndex].hasSameOrderingScope(item)) {
+            updatedItems[existingItemIndex] = item
+            return updatedItems
+        }
+        updatedItems.removeAt(existingItemIndex)
+    }
+    val insertionIndex = insertionIndexForConversationItem(updatedItems, item)
+    updatedItems.add(insertionIndex, item)
+    return updatedItems
+}
+
+/**
+ * Merge a newly received thread projection with already hydrated items.
+ * Live refreshes can contain only the newest turn; those partial snapshots
+ * must not make older assistant results disappear from the local UI.
+ */
+internal fun mergeThreadSnapshotPreservingLoadedItems(
+    loaded: AppThreadSnapshot?,
+    incoming: AppThreadSnapshot,
+): AppThreadSnapshot {
+    if (loaded == null || loaded.key != incoming.key) return incoming
+    val loadedItems = loaded.hydratedConversationItems
+    if (loadedItems.isEmpty()) return incoming
+    val incomingItems = incoming.hydratedConversationItems
+    if (incomingItems.isEmpty()) {
+        return incoming.copy(hydratedConversationItems = loadedItems)
+    }
+
+    val mergedItems = incomingItems.fold(loadedItems) { items, item ->
+        upsertSnapshotConversationItem(items, item)
+    }
+    return incoming.copy(hydratedConversationItems = mergedItems)
+}
+
+private fun upsertSnapshotConversationItem(
+    items: List<HydratedConversationItem>,
+    item: HydratedConversationItem,
+): List<HydratedConversationItem> {
+    val prunedItems = item.snapshotMergeKey()?.let { incomingKey ->
+        items.filterNot { existing ->
+            existing.id != item.id && existing.isSupersededBySnapshotItem(incomingKey)
+        }
+    } ?: items
+    return upsertConversationItem(prunedItems, item)
+}
+
+private fun HydratedConversationItem.isSupersededBySnapshotItem(
+    incomingKey: SnapshotMergeKey,
+): Boolean {
+    val existingKey = snapshotMergeKey() ?: return false
+    if (existingKey.content != incomingKey.content) return false
+    return existingKey.turnKeys.any { it in incomingKey.turnKeys }
+}
+
+private fun HydratedConversationItem.snapshotMergeKey(): SnapshotMergeKey? {
+    val contentKey = snapshotMergeContentKey() ?: return null
+    return SnapshotMergeKey(turnKeys = snapshotMergeTurnKeys(), content = contentKey)
+}
+
+private fun HydratedConversationItem.snapshotMergeTurnKeys(): Set<String> =
+    buildSet {
+        normalizedSourceTurnId()?.let { add("id:$it") }
+        sourceTurnIndex?.let { add("index:$it") }
+    }
+
+private fun HydratedConversationItem.snapshotMergeContentKey(): SnapshotMergeContentKey? =
+    when (val value = content) {
+        is HydratedConversationItemContent.User -> SnapshotMergeContentKey(
+            kind = "user",
+            values = listOf(value.v1.text, value.v1.imageDataUris.joinToString(MERGE_KEY_SEPARATOR)),
+        )
+        is HydratedConversationItemContent.Assistant -> SnapshotMergeContentKey(
+            kind = "assistant",
+            values = listOf(value.v1.text, value.v1.phase?.name.orEmpty()),
+        )
+        is HydratedConversationItemContent.Reasoning -> SnapshotMergeContentKey(
+            kind = "reasoning",
+            values = listOf(
+                value.v1.summary.joinToString(MERGE_KEY_SEPARATOR),
+                value.v1.content.joinToString(MERGE_KEY_SEPARATOR),
+            ),
+        )
+        else -> null
+    }
+
+private fun HydratedConversationItem.hasSameOrderingScope(
+    item: HydratedConversationItem,
+): Boolean =
+    sourceTurnIndex == item.sourceTurnIndex &&
+        normalizedSourceTurnId() == item.normalizedSourceTurnId()
 
 private fun insertionIndexForSourceTurnIndex(
     items: List<HydratedConversationItem>,
@@ -837,12 +953,142 @@ class AppModel private constructor(context: android.content.Context) {
         restoreStoredLocalAuthIfNeeded(key.serverId, reason = "startTurn")
 
         try {
-            store.startTurn(key, payload.toAppStartTurnRequest(key.threadId))
-            _lastError.value = null
+            reconnectBeforeStartTurnIfNeeded(key.serverId)
+            submitStartTurn(key, payload)
         } catch (e: Exception) {
-            _lastError.value = e.message
-            throw e
+            if (!shouldRetryStartTurnAfterReconnect(e)) {
+                _lastError.value = e.message
+                throw e
+            }
+            retryStartTurnAfterReconnect(key, payload, e)
         }
+    }
+
+    private suspend fun submitStartTurn(
+        key: ThreadKey,
+        payload: AppComposerPayload,
+    ) {
+        store.startTurn(key, payload.toAppStartTurnRequest(key.threadId))
+        _lastError.value = null
+    }
+
+    private suspend fun reconnectBeforeStartTurnIfNeeded(serverId: String) {
+        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
+        if (shouldReconnectBeforeStartTurn(server.transportState)) {
+            reconnectServerForStartTurn(serverId, cause = null)
+        }
+    }
+
+    private suspend fun retryStartTurnAfterReconnect(
+        key: ThreadKey,
+        payload: AppComposerPayload,
+        cause: Exception,
+    ) {
+        try {
+            reconnectServerForStartTurn(key.serverId, cause)
+            submitStartTurn(key, payload)
+        } catch (retryError: Exception) {
+            _lastError.value = retryError.message
+            throw retryError
+        }
+    }
+
+    private suspend fun reconnectServerForStartTurn(
+        serverId: String,
+        cause: Exception?,
+    ) = reconnectServerForRemoteAction(
+        serverId = serverId,
+        cause = cause,
+        action = "startTurn",
+        failureMessage = "Reconnect failed before sending message.",
+    )
+
+    suspend fun transcribeVoice(
+        options: VoiceTranscriptionOptions,
+        request: AppVoiceTranscriptionRequest,
+    ): String {
+        try {
+            reconnectBeforeVoiceTranscriptionIfNeeded(options.serverId)
+            return submitVoiceTranscription(options, request)
+        } catch (e: Exception) {
+            if (!shouldRetryVoiceTranscriptionAfterReconnect(e)) {
+                _lastError.value = e.message
+                throw e
+            }
+            return retryVoiceTranscriptionAfterReconnect(options, request, e)
+        }
+    }
+
+    private suspend fun submitVoiceTranscription(
+        options: VoiceTranscriptionOptions,
+        request: AppVoiceTranscriptionRequest,
+    ): String {
+        val response = client.transcribeVoice(options.serverId, request)
+        _lastError.value = null
+        return response.text
+    }
+
+    private suspend fun reconnectBeforeVoiceTranscriptionIfNeeded(serverId: String) {
+        val server = snapshot.value?.servers?.firstOrNull { it.serverId == serverId } ?: return
+        if (shouldReconnectBeforeVoiceTranscription(server.transportState)) {
+            reconnectServerForVoiceTranscription(serverId, cause = null)
+        }
+    }
+
+    private suspend fun retryVoiceTranscriptionAfterReconnect(
+        options: VoiceTranscriptionOptions,
+        request: AppVoiceTranscriptionRequest,
+        cause: Exception,
+    ): String {
+        try {
+            reconnectServerForVoiceTranscription(options.serverId, cause)
+            return submitVoiceTranscription(options, request)
+        } catch (retryError: Exception) {
+            _lastError.value = retryError.message
+            throw retryError
+        }
+    }
+
+    private suspend fun reconnectServerForVoiceTranscription(
+        serverId: String,
+        cause: Exception?,
+    ) = reconnectServerForRemoteAction(
+        serverId = serverId,
+        cause = cause,
+        action = "voiceTranscription",
+        failureMessage = "Reconnect failed before voice transcription.",
+    )
+
+    private suspend fun reconnectServerForRemoteAction(
+        serverId: String,
+        cause: Exception?,
+        action: String,
+        failureMessage: String,
+    ) {
+        LLog.i(
+            "AppModel",
+            "reconnecting server before remote action",
+            fields = mapOf(
+                "serverId" to serverId,
+                "action" to action,
+                "cause" to (cause?.message ?: "preflight"),
+            ),
+        )
+        reconnectController.setMultiClankerAndQuicEnabled(true)
+        reconnectController.syncSavedServers(
+            SavedServerStore.load(appContext).map { it.toRecord(appContext) },
+        )
+        val result = reconnectController.reconnectServer(serverId)
+        if (!result.success) {
+            throw IllegalStateException(
+                result.errorMessage ?: failureMessage,
+            )
+        }
+        if (result.needsLocalAuthRestore) {
+            restoreStoredLocalAuthState(result.serverId)
+        }
+        refreshSnapshot()
+        persistAlleycatSecretKeyIfNeeded()
     }
 
     suspend fun externalResumeThread(
@@ -1509,14 +1755,7 @@ class AppModel private constructor(context: android.content.Context) {
         if (threadIndex < 0) return false
 
         val thread = current.threads[threadIndex]
-        val updatedItems = thread.hydratedConversationItems.toMutableList()
-        val existingItemIndex = updatedItems.indexOfFirst { it.id == item.id }
-        if (existingItemIndex >= 0) {
-            updatedItems[existingItemIndex] = item
-        } else {
-            val insertionIndex = insertionIndexForConversationItem(updatedItems, item)
-            updatedItems.add(insertionIndex, item)
-        }
+        val updatedItems = upsertConversationItem(thread.hydratedConversationItems, item)
         applyThreadSnapshot(thread.copy(hydratedConversationItems = updatedItems))
         return true
     }
@@ -1648,10 +1887,7 @@ class AppModel private constructor(context: android.content.Context) {
     }
 
     private fun mergedThreadSnapshotPreservingHydratedItems(thread: AppThreadSnapshot): AppThreadSnapshot {
-        if (thread.hydratedConversationItems.isNotEmpty()) return thread
-        val cached = cachedThreadSnapshots[thread.key] ?: return thread
-        if (cached.hydratedConversationItems.isEmpty()) return thread
-        return thread.copy(hydratedConversationItems = cached.hydratedConversationItems)
+        return mergeThreadSnapshotPreservingLoadedItems(cachedThreadSnapshots[thread.key], thread)
     }
 
     private fun mergeCachedThreadSnapshots(snapshot: AppSnapshotRecord): AppSnapshotRecord {

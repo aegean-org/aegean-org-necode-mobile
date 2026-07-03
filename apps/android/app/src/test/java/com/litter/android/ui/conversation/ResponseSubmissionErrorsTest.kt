@@ -26,6 +26,29 @@ class ResponseSubmissionErrorsTest {
     }
 
     @Test
+    fun turnSubmissionErrorExplainsExpiredAcpSession() {
+        val message = turnSubmissionErrorMessage(
+            IllegalStateException("server error -32603: ACP session not found: 019f1804"),
+        )
+
+        assertTrue(message.contains("会话已失效"))
+        assertTrue(message.contains("新建会话"))
+    }
+
+    @Test
+    fun turnSubmissionErrorExplainsGenericAcpPromptInternalError() {
+        val message = turnSubmissionErrorMessage(
+            IllegalStateException(
+                "v1=deserialization failed: server error -32603: " +
+                    "Failed to send session/prompt to ACP agent: Internal error",
+            ),
+        )
+
+        assertTrue(message.contains("可能已失效"))
+        assertTrue(message.contains("重新选择项目"))
+    }
+
+    @Test
     fun responseSubmissionErrorKeepsRawActionableDetails() {
         val message = responseSubmissionErrorMessage(IllegalStateException("permission denied"))
 

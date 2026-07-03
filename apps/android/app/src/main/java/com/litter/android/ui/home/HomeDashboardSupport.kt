@@ -79,6 +79,7 @@ object HomeDashboardSupport {
     fun sortedConnectedServers(snapshot: AppSnapshotRecord): List<AppServerSnapshot> {
         val seen = mutableSetOf<String>()
         return snapshot.servers
+            .filterNot { it.isLocal }
             .filter { it.health != AppServerHealth.DISCONNECTED || it.connectionProgress != null }
             .sortedWith(compareBy<AppServerSnapshot> {
                 // Active server (has active thread on it) sorts first
@@ -223,6 +224,7 @@ object HomeDashboardSupport {
         limit: Int = 10,
     ): List<AppSessionSummary> {
         val connectedServerIds = snapshot.servers
+            .filterNot { it.isLocal }
             .filter { it.health == AppServerHealth.CONNECTED }
             .map { it.serverId }
             .toSet()
@@ -233,6 +235,30 @@ object HomeDashboardSupport {
             .distinctBy { it.key.serverId to it.key.threadId }
             .sortedByDescending { it.updatedAt ?: 0L }
             .take(limit)
+    }
+
+    fun voiceTranscriptionServerId(
+        selectedProjectServerId: String?,
+        selectedServerId: String?,
+        servers: List<AppServerSnapshot>,
+    ): String? {
+        val byId = servers.associateBy { it.serverId }
+        val preferred = listOfNotNull(
+            selectedProjectServerId?.trim()?.takeIf { it.isNotEmpty() },
+            selectedServerId?.trim()?.takeIf { it.isNotEmpty() },
+        )
+            .mapNotNull { byId[it] }
+            .firstOrNull(::supportsNeCodeVoiceTranscription)
+
+        return preferred?.serverId
+            ?: servers.firstOrNull(::supportsNeCodeVoiceTranscription)?.serverId
+    }
+
+    private fun supportsNeCodeVoiceTranscription(server: AppServerSnapshot): Boolean {
+        if (server.isLocal || server.health != AppServerHealth.CONNECTED) return false
+        return server.agentRuntimes.any { runtime ->
+            runtime.available && runtime.kind.equals("necode", ignoreCase = true)
+        }
     }
 
     /**

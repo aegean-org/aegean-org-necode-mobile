@@ -24,8 +24,8 @@
     <string name="coachmark_search_primary">查看全部\n会话</string>
     <string name="coachmark_new_thread_primary">新建会话</string>
     <string name="coachmark_new_thread_secondary">也可以直接输入消息</string>
-    <string name="coachmark_voice_primary">实时语音</string>
-    <string name="coachmark_voice_secondary">需在设置中配置 OpenAI Key</string>
+    <string name="coachmark_voice_primary">语音输入</string>
+    <string name="coachmark_voice_secondary">说话后转成文字发送</string>
     <string name="directory_picker_title">选择目录</string>
     <string name="directory_picker_select_server">选择服务器</string>
     <string name="directory_picker_connected_server">已连接：%1$s</string>

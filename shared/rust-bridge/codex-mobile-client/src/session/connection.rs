@@ -16,8 +16,8 @@ use codex_app_server_client::{
     RemoteAppServerEndpoint,
 };
 use codex_app_server_protocol::{
-    ClientNotification, ClientRequest, JSONRPCErrorError, RequestId, Result as JsonRpcResult,
-    ServerNotification, ServerRequest,
+    ClientNotification, ClientRequest, JSONRPCErrorError, JSONRPCRequest, RequestId,
+    Result as JsonRpcResult, ServerNotification, ServerRequest,
 };
 use serde_json::Value as JsonValue;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -453,6 +453,10 @@ enum SessionCommand {
         request: ClientRequest,
         response_tx: oneshot::Sender<Result<JsonValue, RpcError>>,
     },
+    RawRequest {
+        request: JSONRPCRequest,
+        response_tx: oneshot::Sender<Result<JsonValue, RpcError>>,
+    },
     Notify {
         notification: ClientNotification,
         response_tx: oneshot::Sender<Result<(), RpcError>>,
@@ -515,6 +519,9 @@ pub struct ServerSession {
 pub(crate) type TestRequestHandler =
     Arc<dyn Fn(ClientRequest) -> Result<JsonValue, RpcError> + Send + Sync>;
 #[cfg(test)]
+pub(crate) type TestRawRequestHandler =
+    Arc<dyn Fn(JSONRPCRequest) -> Result<JsonValue, RpcError> + Send + Sync>;
+#[cfg(test)]
 pub(crate) type TestResolveHandler =
     Arc<dyn Fn(RequestId, JsonRpcResult) -> Result<(), RpcError> + Send + Sync>;
 #[cfg(test)]
@@ -524,6 +531,7 @@ pub(crate) type TestRejectHandler =
 #[cfg(test)]
 fn spawn_test_command_worker(
     request_handler: Option<TestRequestHandler>,
+    raw_request_handler: Option<TestRawRequestHandler>,
     resolve_handler: Option<TestResolveHandler>,
     reject_handler: Option<TestRejectHandler>,
 ) -> (mpsc::Sender<SessionCommand>, tokio::task::JoinHandle<()>) {
@@ -536,6 +544,16 @@ fn spawn_test_command_worker(
                     response_tx,
                 } => {
                     let result = request_handler
+                        .as_ref()
+                        .map(|handler| handler(request))
+                        .unwrap_or_else(|| Err(RpcError::Transport(TransportError::Disconnected)));
+                    let _ = response_tx.send(result);
+                }
+                SessionCommand::RawRequest {
+                    request,
+                    response_tx,
+                } => {
+                    let result = raw_request_handler
                         .as_ref()
                         .map(|handler| handler(request))
                         .unwrap_or_else(|| Err(RpcError::Transport(TransportError::Disconnected)));
@@ -742,6 +760,14 @@ impl ServerSession {
                                     };
                                     let _ = response_tx.send(result);
                                 });
+                            }
+                            SessionCommand::RawRequest { request, response_tx } => {
+                                let _ = response_tx.send(Err(RpcError::Transport(
+                                    TransportError::SendFailed(format!(
+                                        "raw JSON-RPC request unsupported for in-process sessions: {}",
+                                        request.method
+                                    )),
+                                )));
                             }
                             SessionCommand::Notify { notification, response_tx } => {
                                 let result = sender
@@ -990,6 +1016,50 @@ impl ServerSession {
         response_rx
             .await
             .map_err(|_| RpcError::Transport(TransportError::Disconnected))?
+    }
+
+    pub async fn request_raw_client_for_runtime(
+        &self,
+        runtime_kind: AgentRuntimeKind,
+        request: JSONRPCRequest,
+    ) -> Result<JsonValue, RpcError> {
+        let wire_method = request.method.clone();
+        let (response_tx, response_rx) = oneshot::channel();
+        let command_tx = self
+            .runtime_command_txs
+            .get(&runtime_kind)
+            .unwrap_or(&self.command_tx);
+        debug!(
+            "session raw request route server_id={} runtime={:?} method={}",
+            self.config.server_id, runtime_kind, wire_method
+        );
+        command_tx
+            .send(SessionCommand::RawRequest {
+                request,
+                response_tx,
+            })
+            .await
+            .map_err(|_| RpcError::Transport(TransportError::Disconnected))?;
+
+        response_rx
+            .await
+            .map_err(|_| RpcError::Transport(TransportError::Disconnected))?
+    }
+
+    pub async fn request_raw_for_runtime(
+        &self,
+        runtime_kind: AgentRuntimeKind,
+        method: &str,
+        params: JsonValue,
+    ) -> Result<JsonValue, RpcError> {
+        let request = JSONRPCRequest {
+            id: RequestId::Integer(next_request_id()),
+            method: method.to_string(),
+            params: Some(params),
+            trace: None,
+        };
+        self.request_raw_client_for_runtime(runtime_kind, request)
+            .await
     }
 
     /// Send a JSON-RPC request (constructed from method + params) and await the response.
@@ -1649,6 +1719,42 @@ fn spawn_remote_runtime_worker(
                             }
                             let _ = response_tx.send(result);
                         }
+                        SessionCommand::RawRequest { request, response_tx } => {
+                            let request_retry = request.clone();
+                            let mut result = match client.request_raw(request).await {
+                                Ok(Ok(value)) => Ok(value),
+                                Ok(Err(error)) => Err(RpcError::Server {
+                                    code: error.code,
+                                    message: error.message,
+                                }),
+                                Err(error) => Err(RpcError::Transport(
+                                    TransportError::SendFailed(error.to_string()),
+                                )),
+                            };
+                            if matches!(result, Err(RpcError::Transport(_)))
+                                && reconnect_remote_client(
+                                    &mut client,
+                                    &mut keepalive,
+                                    &reconnect_args,
+                                    &reconnect_url,
+                                    &health_tx,
+                                    reconnect_transport.as_ref(),
+                                )
+                                .await
+                            {
+                                result = match client.request_raw(request_retry).await {
+                                    Ok(Ok(value)) => Ok(value),
+                                    Ok(Err(error)) => Err(RpcError::Server {
+                                        code: error.code,
+                                        message: error.message,
+                                    }),
+                                    Err(error) => Err(RpcError::Transport(
+                                        TransportError::SendFailed(error.to_string()),
+                                    )),
+                                };
+                            }
+                            let _ = response_tx.send(result);
+                        }
                         SessionCommand::Notify { notification, response_tx } => {
                             let result = client.notify(notification).await.map_err(|error| {
                                 RpcError::Transport(TransportError::SendFailed(error.to_string()))
@@ -1824,6 +1930,10 @@ impl ServerSession {
                             });
                         let _ = response_tx.send(result);
                     }
+                    SessionCommand::RawRequest { response_tx, .. } => {
+                        let _ = response_tx
+                            .send(Err(RpcError::Transport(TransportError::Disconnected)));
+                    }
                     SessionCommand::Notify { response_tx, .. } => {
                         let _ = response_tx.send(Ok(()));
                     }
@@ -1873,13 +1983,49 @@ impl ServerSession {
         runtime_handlers: Vec<(AgentRuntimeKind, TestRequestHandler)>,
     ) -> Self {
         let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connected);
-        let (command_tx, default_worker_handle) = spawn_test_command_worker(None, None, None);
+        let (command_tx, default_worker_handle) = spawn_test_command_worker(None, None, None, None);
         let (event_tx, _) = broadcast::channel(16);
         let mut runtime_command_txs = std::collections::HashMap::new();
         let mut worker_handles = vec![default_worker_handle];
         for (runtime_kind, handler) in runtime_handlers {
             let (runtime_tx, runtime_worker_handle) =
-                spawn_test_command_worker(Some(handler), None, None);
+                spawn_test_command_worker(Some(handler), None, None, None);
+            runtime_command_txs.insert(runtime_kind, runtime_tx);
+            worker_handles.push(runtime_worker_handle);
+        }
+        let worker_handle = tokio::spawn(async move {
+            for handle in worker_handles {
+                let _ = handle.await;
+            }
+        });
+
+        Self {
+            config,
+            health_tx,
+            health_rx,
+            command_tx,
+            runtime_command_txs,
+            runtime_transports: Vec::new(),
+            event_tx,
+            ssh_client: None,
+            ssh_pid: None,
+            worker_handle,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_stub_with_runtime_raw_handlers(
+        config: ServerConfig,
+        runtime_handlers: Vec<(AgentRuntimeKind, TestRawRequestHandler)>,
+    ) -> Self {
+        let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connected);
+        let (command_tx, default_worker_handle) = spawn_test_command_worker(None, None, None, None);
+        let (event_tx, _) = broadcast::channel(16);
+        let mut runtime_command_txs = std::collections::HashMap::new();
+        let mut worker_handles = vec![default_worker_handle];
+        for (runtime_kind, handler) in runtime_handlers {
+            let (runtime_tx, runtime_worker_handle) =
+                spawn_test_command_worker(None, Some(handler), None, None);
             runtime_command_txs.insert(runtime_kind, runtime_tx);
             worker_handles.push(runtime_worker_handle);
         }
@@ -1970,6 +2116,10 @@ mod tests {
     enum TestJsonLineServer {
         DropOnFirstRequest,
         Respond(JsonValue),
+        RespondAndRecord {
+            response: JsonValue,
+            requests: Arc<Mutex<Vec<JsonValue>>>,
+        },
     }
 
     async fn app_server_client_for_json_line_server(
@@ -2011,6 +2161,32 @@ mod tests {
                     while let Ok(Some(line)) = lines.next_line().await {
                         let request: JsonValue = serde_json::from_str(&line)
                             .expect("client should send JSON-RPC request");
+                        let Some(id) = request.get("id").cloned() else {
+                            continue;
+                        };
+                        let response = json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": response
+                        });
+                        if writer
+                            .write_all(format!("{response}\n").as_bytes())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                        let _ = writer.flush().await;
+                    }
+                }
+                TestJsonLineServer::RespondAndRecord { response, requests } => {
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let request: JsonValue = serde_json::from_str(&line)
+                            .expect("client should send JSON-RPC request");
+                        requests
+                            .lock()
+                            .expect("request log should lock")
+                            .push(request.clone());
                         let Some(id) = request.get("id").cloned() else {
                             continue;
                         };
@@ -2115,6 +2291,66 @@ mod tests {
         assert_eq!(response, json!({"source": "reconnected"}));
         assert_eq!(reconnects.load(Ordering::SeqCst), 1);
         assert_eq!(*health_rx.borrow_and_update(), ConnectionHealth::Connected);
+
+        command_tx
+            .send(SessionCommand::Shutdown)
+            .await
+            .expect("worker should accept shutdown");
+        worker.await.expect("worker should shut down cleanly");
+    }
+
+    #[tokio::test]
+    async fn remote_runtime_worker_forwards_raw_jsonrpc_methods_without_client_request_decode() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let initial_client = app_server_client_for_json_line_server(
+            TestJsonLineServer::RespondAndRecord {
+                response: json!({"text": "你好"}),
+                requests: Arc::clone(&requests),
+            },
+            "raw-request-test-bridge",
+        )
+        .await;
+        let (command_tx, command_rx) = mpsc::channel(4);
+        let (event_tx, _) = broadcast::channel(4);
+        let (health_tx, _) = watch::channel(ConnectionHealth::Connected);
+        let worker = spawn_remote_runtime_worker(
+            "necode".to_string(),
+            initial_client,
+            None,
+            command_rx,
+            event_tx,
+            health_tx,
+            test_remote_args("raw-request-test-bridge"),
+            "raw-request-test-bridge".to_string(),
+            None,
+        );
+
+        let request = JSONRPCRequest {
+            id: RequestId::Integer(77),
+            method: "voice/transcribe".to_string(),
+            params: Some(json!({"audioBase64": "UklGRiBkYXRh"})),
+            trace: None,
+        };
+        let (response_tx, response_rx) = oneshot::channel();
+        command_tx
+            .send(SessionCommand::RawRequest {
+                request,
+                response_tx,
+            })
+            .await
+            .expect("worker should accept raw request");
+
+        let response = tokio::time::timeout(std::time::Duration::from_secs(2), response_rx)
+            .await
+            .expect("raw request should return")
+            .expect("worker should send raw response")
+            .expect("raw request should succeed");
+        assert_eq!(response, json!({"text": "你好"}));
+
+        let requests = requests.lock().expect("request log should lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "voice/transcribe");
+        assert_eq!(requests[0]["params"]["audioBase64"], "UklGRiBkYXRh");
 
         command_tx
             .send(SessionCommand::Shutdown)

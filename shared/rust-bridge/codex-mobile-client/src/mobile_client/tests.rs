@@ -1672,4 +1672,59 @@ mod mobile_client_tests {
         assert_eq!(preview.kind, AppQueuedFollowUpKind::PendingSteer);
         assert_eq!(preview.text, "Please try the same search again.");
     }
+
+    #[test]
+    fn voice_transcribe_jsonrpc_request_excludes_secrets() {
+        let request = crate::types::AppVoiceTranscriptionRequest {
+            audio_bytes: b"RIFF data".to_vec(),
+            mime_type: Some("audio/wav".to_string()),
+            file_name: Some("voice.wav".to_string()),
+            model: Some("qwen3-asr-1.7b".to_string()),
+            language: Some("zh".to_string()),
+            agent_runtime_kind: Some("necode".to_string()),
+        };
+
+        let frame =
+            super::super::voice_transcription::voice_transcribe_jsonrpc_request(7, &request)
+                .expect("frame");
+
+        assert_eq!(frame["jsonrpc"], "2.0");
+        assert_eq!(frame["id"], 7);
+        assert_eq!(frame["method"], "voice/transcribe");
+        assert_eq!(frame["params"]["audioBase64"], "UklGRiBkYXRh");
+        assert_eq!(frame["params"]["model"], "qwen3-asr-1.7b");
+        assert!(!frame.to_string().contains("token"));
+        assert!(!frame.to_string().contains("apiKey"));
+        assert!(!frame.to_string().contains("baseUrl"));
+    }
+
+    #[test]
+    fn voice_agent_selection_prefers_requested_runtime() {
+        let runtimes = vec![
+            AgentRuntimeInfo {
+                kind: "codex".to_string(),
+                name: "codex".to_string(),
+                display_name: "Codex".to_string(),
+                available: true,
+            },
+            AgentRuntimeInfo {
+                kind: "necode".to_string(),
+                name: "necode".to_string(),
+                display_name: "NeCode".to_string(),
+                available: true,
+            },
+        ];
+
+        assert_eq!(
+            super::super::voice_transcription::select_alleycat_voice_agent(
+                &runtimes,
+                Some("necode"),
+            ),
+            Some("necode".to_string()),
+        );
+        assert_eq!(
+            super::super::voice_transcription::select_alleycat_voice_agent(&runtimes, None),
+            Some("necode".to_string()),
+        );
+    }
 }
