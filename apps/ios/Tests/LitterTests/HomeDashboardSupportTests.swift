@@ -153,6 +153,24 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [remote.serverId])
     }
 
+    func testNormalizedPairPayloadRemovesBomAndMarkdownFence() {
+        let raw = "\u{feff}```json\n{\"v\":1,\"node_id\":\"abc\",\"token\":\"secret\"}\n```"
+
+        XCTAssertEqual(
+            PairPayloadInput.normalized(raw),
+            "{\"v\":1,\"node_id\":\"abc\",\"token\":\"secret\"}"
+        )
+    }
+
+    func testNormalizedPairPayloadLeavesJsonTextUnchangedExceptOuterWhitespace() {
+        let raw = "  {\"v\":1,\"node_id\":\"abc\",\"token\":\"secret\"}\n"
+
+        XCTAssertEqual(
+            PairPayloadInput.normalized(raw),
+            "{\"v\":1,\"node_id\":\"abc\",\"token\":\"secret\"}"
+        )
+    }
+
     func testHomeDashboardModelRefreshesRecentSessionsWhenObservedSnapshotThreadChanges() async {
         let appModel = AppModel()
         let model = HomeDashboardModel()
