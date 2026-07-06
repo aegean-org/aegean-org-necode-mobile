@@ -256,6 +256,21 @@ jobs:
           echo "LITTER_UPLOAD_STORE_FILE=$store_file" >> "$GITHUB_ENV"
           echo "has_upload_signing=true" >> "$GITHUB_OUTPUT"
           ls -lh "$store_file"
+      
+      - name: Verify upload signing inputs
+        if: steps.upload-keystore.outputs.has_upload_signing == 'true'
+        env:
+          LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
+          LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
+        run: |
+          test -n "$LITTER_UPLOAD_STORE_FILE"
+          test -n "$LITTER_UPLOAD_STORE_PASSWORD"
+          test -n "$LITTER_UPLOAD_KEY_ALIAS"
+          sha256sum "$LITTER_UPLOAD_STORE_FILE"
+          keytool -list \
+            -keystore "$LITTER_UPLOAD_STORE_FILE" \
+            -storepass "$LITTER_UPLOAD_STORE_PASSWORD" \
+            -alias "$LITTER_UPLOAD_KEY_ALIAS"
 
       - name: Build signed release APK
         if: steps.upload-keystore.outputs.has_upload_signing == 'true'
@@ -264,7 +279,7 @@ jobs:
           LITTER_UPLOAD_STORE_PASSWORD: ${{ secrets.LITTER_UPLOAD_STORE_PASSWORD }}
           LITTER_UPLOAD_KEY_ALIAS: ${{ secrets.LITTER_UPLOAD_KEY_ALIAS }}
           LITTER_UPLOAD_KEY_PASSWORD: ${{ secrets.LITTER_UPLOAD_KEY_PASSWORD }}
-        run: apps/android/gradlew -p apps/android :app:assembleRelease
+        run: apps/android/gradlew -p apps/android :app:assembleRelease --stacktrace --info
 
       - name: Build debug APK
         if: github.event_name == 'workflow_dispatch' && steps.upload-keystore.outputs.has_upload_signing != 'true'
