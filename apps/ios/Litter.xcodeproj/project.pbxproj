@@ -216,7 +216,6 @@
 		5380A526444F33B701903335 /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFE934B56ED67FA473EA25A /* MacCommands.swift */; };
 		54B6CE97AD74BBE79CA6890D /* WatchThemePayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC37206CDAE11DBA2A94234E /* WatchThemePayloadTests.swift */; };
 		559D9CFDF4AAC8C5E5FC4452 /* StreamingRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ECDF838BCE5FEBFE5B80DCC /* StreamingRendererCoordinator.swift */; };
-		55AE48C9584578161C2C19F8 /* CatTransmissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E003D083368D075E2F387D28 /* CatTransmissionView.swift */; };
 		55C3EEE366FD3ABE9BCFA271 /* ConversationScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91A1B7B1207FAD81D940DA8 /* ConversationScreenModel.swift */; };
 		55C6A6864F364EC484A9D349 /* notion-dark-BTRKJ-yg.json in Resources */ = {isa = PBXBuildFile; fileRef = 5FB346B6064CA358E9EEAD00 /* notion-dark-BTRKJ-yg.json */; };
 		567985EEB59AFFF8AA6A594B /* LitterRunningTurnPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C65B428C64E23550B2F0A5F /* LitterRunningTurnPayload.swift */; };
@@ -306,7 +305,6 @@
 		76D59A3607F33A97008334CA /* material-theme-lighter.json in Resources */ = {isa = PBXBuildFile; fileRef = 76B9969D2D4C7AA23FC9DB93 /* material-theme-lighter.json */; };
 		7731537E9BC8B234CDFE6424 /* SwiftSshCredentialProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 782D870FCEA68BB3752F965F /* SwiftSshCredentialProvider.swift */; };
 		774A98FA8D339F01AEFF3501 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBE8C3705FCC98F7E1642771 /* SettingsView.swift */; };
-		788B6E1D44340CBF56A351D7 /* CatTransmissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E003D083368D075E2F387D28 /* CatTransmissionView.swift */; };
 		78E0E5FAADB2ED8404E29221 /* ConversationWarmupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD02327C52F16587C973B70F /* ConversationWarmupCoordinator.swift */; };
 		78E6867AD363C6B010CBEC2D /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB7D40730BFA8569737636E /* ThemeManager.swift */; };
 		791AAC75180CBFADFBFDAD50 /* pierre-dark.json in Resources */ = {isa = PBXBuildFile; fileRef = 370F75B42793F9B35D8F4990 /* pierre-dark.json */; };
@@ -1051,7 +1049,6 @@
 		DD7A57CD59F1F3C8300A9ECE /* AppsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppsListView.swift; sourceTree = "<group>"; };
 		DE215BBAC0A577758AE46D23 /* WatchDeepLinkRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDeepLinkRouterTests.swift; sourceTree = "<group>"; };
 		E002B30249FFDB3567BD8326 /* WatchChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchChrome.swift; sourceTree = "<group>"; };
-		E003D083368D075E2F387D28 /* CatTransmissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatTransmissionView.swift; sourceTree = "<group>"; };
 		E052E9EFBC98D003637D417E /* SavedProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedProjectStore.swift; sourceTree = "<group>"; };
 		E0CB9BD7FEC41759BD42861A /* GhosttyRendererBackendBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyRendererBackendBridge.swift; sourceTree = "<group>"; };
 		E108E5ACB93F4A71B484C125 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -1581,7 +1578,6 @@
 				63D9ACF04F4018F2949FB7E0 /* AudioWaveformView.swift */,
 				C361CBF40ED3D35C44D46880 /* BrandLogo.swift */,
 				A36C53F042D99EC31804B19E /* CatalystVoiceStubs.swift */,
-				E003D083368D075E2F387D28 /* CatTransmissionView.swift */,
 				4754654D5240E850C98AB85D /* ChatWallpaperBackground.swift */,
 				EEDF2E1FEDF741D69062FDDD /* CodeBlockView.swift */,
 				32A00D8BD24DF9E3C4F5EA2C /* ComputerUseToolCallView.swift */,
@@ -2238,7 +2234,6 @@
 				E41F675D5DA4CB9AAF30EDC4 /* BrandLogo.swift in Sources */,
 				1D50169996989CD0831C3768 /* CarPlaySceneDelegate.swift in Sources */,
 				483C48A38E7D5B48F9735CB6 /* CarPlayVoiceManager.swift in Sources */,
-				788B6E1D44340CBF56A351D7 /* CatTransmissionView.swift in Sources */,
 				29C4BF0A7811B9FA8062D8E3 /* CatalystRuntimeStubs.swift in Sources */,
 				51BEDF843D3BE5D93D7F9E62 /* CatalystVoiceStubs.swift in Sources */,
 				BDC09E8F6B156DB1FD6A0059 /* ChatGPTOAuth.swift in Sources */,
@@ -2437,7 +2432,6 @@
 				200625E357DD536744735D21 /* AppsListView.swift in Sources */,
 				AC42D6FE72AF65BDC551B0A6 /* AudioWaveformView.swift in Sources */,
 				A5D2556BF0AC3D6805FF91FF /* BrandLogo.swift in Sources */,
-				55AE48C9584578161C2C19F8 /* CatTransmissionView.swift in Sources */,
 				A4106AB49B911B49D4DCAE1A /* CatalystRuntimeStubs.swift in Sources */,
 				4CC1297FBBAEBB597D72C0DA /* CatalystVoiceStubs.swift in Sources */,
 				8ED7EC56C6814E0B40673ADD /* ChatGPTOAuth.swift in Sources */,
