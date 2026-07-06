@@ -171,6 +171,20 @@ final class HomeDashboardSupportTests: XCTestCase {
         )
     }
 
+    func testNormalizedPairPayloadExtractsJsonFromCopiedTerminalOutput() {
+        let raw = """
+        necode mobile qr
+        {"v":1,"node_id":"abc","token":"secret","host_name":"Mac"}
+
+        ▀ ▄ █
+        """
+
+        XCTAssertEqual(
+            PairPayloadInput.normalized(raw),
+            "{\"v\":1,\"node_id\":\"abc\",\"token\":\"secret\",\"host_name\":\"Mac\"}"
+        )
+    }
+
     func testHomeDashboardModelRefreshesRecentSessionsWhenObservedSnapshotThreadChanges() async {
         let appModel = AppModel()
         let model = HomeDashboardModel()

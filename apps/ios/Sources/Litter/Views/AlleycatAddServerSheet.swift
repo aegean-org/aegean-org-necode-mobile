@@ -15,7 +15,7 @@ struct AlleycatConnectedTarget: Equatable {
 enum PairPayloadInput {
     static func normalized(_ raw: String) -> String {
         let text = trimmedWithoutBom(raw)
-        return strippedMarkdownFence(text)
+        return extractedJsonObject(from: strippedMarkdownFence(text))
     }
 
     private static func trimmedWithoutBom(_ raw: String) -> String {
@@ -47,6 +47,38 @@ enum PairPayloadInput {
 
     private static func isClosingFence(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespacesAndNewlines) == "```"
+    }
+
+    private static func extractedJsonObject(from text: String) -> String {
+        guard let start = text.firstIndex(of: "{") else { return text }
+        var depth = 0
+        var inString = false
+        var isEscaped = false
+        var index = start
+        while index < text.endIndex {
+            let char = text[index]
+            if inString {
+                if isEscaped {
+                    isEscaped = false
+                } else if char == "\\" {
+                    isEscaped = true
+                } else if char == "\"" {
+                    inString = false
+                }
+            } else if char == "\"" {
+                inString = true
+            } else if char == "{" {
+                depth += 1
+            } else if char == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return String(text[start...index])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            index = text.index(after: index)
+        }
+        return String(text[start...]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -240,7 +272,7 @@ struct AlleycatAddServerSheet: View {
         HStack {
             Button("从剪贴板粘贴") {
                 if let clipboard = UIPasteboard.general.string {
-                    pasteJSON = clipboard
+                    pasteJSON = PairPayloadInput.normalized(clipboard)
                 }
             }
             .litterFont(.footnote)
@@ -419,6 +451,13 @@ struct AlleycatAddServerSheet: View {
     private func handleScannedPayload(_ raw: String) {
         let trimmed = PairPayloadInput.normalized(raw)
         guard !trimmed.isEmpty else { return }
+        guard trimmed.first == "{" else {
+            parsedParams = nil
+            agents = []
+            selectedAgentNames = []
+            parseError = "未找到配对 JSON。请复制以 { 开头的配对 JSON，或直接扫描二维码。"
+            return
+        }
         do {
             let params = try alleycat.parsePairPayload(json: trimmed)
             parsedParams = params

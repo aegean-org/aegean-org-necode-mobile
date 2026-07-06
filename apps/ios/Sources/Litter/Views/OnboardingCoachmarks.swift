@@ -61,8 +61,8 @@ struct OnboardingCoachmarksView: View {
     private let items: [Item] = [
         Item(
             id: .addServer,
-            primary: "add a remote computer",
-            secondary: "if you have one",
+            primary: "连接远程电脑",
+            secondary: "如果你有一台",
             position: UnitPoint(x: 0.55, y: 0.20),
             labelWidth: 200,
             labelAlignment: .center,
@@ -71,7 +71,7 @@ struct OnboardingCoachmarksView: View {
         ),
         Item(
             id: .search,
-            primary: "see all\nyour threads",
+            primary: "查看全部\n会话",
             secondary: nil,
             position: UnitPoint(x: 0.92, y: 0.62),
             labelWidth: 110,
@@ -81,8 +81,8 @@ struct OnboardingCoachmarksView: View {
         ),
         Item(
             id: .newThread,
-            primary: "start a new thread",
-            secondary: "or just type a message",
+            primary: "新建会话",
+            secondary: "也可以直接输入消息",
             position: UnitPoint(x: 0.50, y: 0.70),
             labelWidth: 220,
             labelAlignment: .center,
@@ -91,8 +91,8 @@ struct OnboardingCoachmarksView: View {
         ),
         Item(
             id: .voice,
-            primary: "realtime voice",
-            secondary: "needs OpenAI key in Settings",
+            primary: "语音输入",
+            secondary: "说话后转成文字发送",
             position: UnitPoint(x: 0.20, y: 0.78),
             labelWidth: 160,
             labelAlignment: .leading,

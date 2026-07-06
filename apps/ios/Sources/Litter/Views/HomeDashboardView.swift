@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 /// Which chrome layer the dashboard renders with.
 ///
@@ -1795,7 +1796,6 @@ private struct EmptyHomeFatCatView: View {
     @State private var transmissionFrameIndex = 0
     @State private var pressTask: Task<Void, Never>?
 
-    private static let entranceDurationNs: UInt64 = 11_100_000_000
     private static let frameDurationNs: UInt64 = 82_000_000
     private static let longPressDelayNs: UInt64 = 450_000_000
     private static let transmissionFrames = (1...6).map { index in
@@ -1810,22 +1810,24 @@ private struct EmptyHomeFatCatView: View {
                 .position(x: proxy.size.width / 2, y: proxy.size.height * 0.42)
                 .gesture(pressGesture)
         }
-        .task { await playEntranceOnce() }
         .task(id: transmissionActive) { await animateTransmissionFrames() }
         .onDisappear { cancelPress() }
         .accessibilityHidden(true)
     }
 
     private var fatCatImage: some View {
-        FatCatAssetView(name: currentAssetName, contentMode: transmissionActive ? .scaleAspectFill : .scaleAspectFit)
-            .clipShape(Rectangle())
-    }
-
-    private var currentAssetName: String {
-        if transmissionActive {
-            return Self.transmissionFrames[transmissionFrameIndex]
+        Group {
+            if transmissionActive {
+                FatCatAssetView(name: Self.transmissionFrames[transmissionFrameIndex], contentMode: .scaleAspectFill)
+            } else {
+                AlphaAnimatedAssetView(
+                    assetName: showingLoop ? "home_cat_apng" : "home_cat_entrance_apng",
+                    repeatCount: showingLoop ? 0 : 1,
+                    onFinished: showingLoop ? nil : { showingLoop = true }
+                )
+            }
         }
-        return showingLoop ? "home_cat" : "home_cat_entrance"
+            .clipShape(Rectangle())
     }
 
     private var pressGesture: some Gesture {
@@ -1837,13 +1839,6 @@ private struct EmptyHomeFatCatView: View {
     private func catSize(in container: CGSize) -> CGSize {
         let width = min(max(container.width * 0.55, 180), 260)
         return CGSize(width: width, height: width * 202 / 360)
-    }
-
-    private func playEntranceOnce() async {
-        guard !showingLoop else { return }
-        try? await Task.sleep(nanoseconds: Self.entranceDurationNs)
-        guard !Task.isCancelled else { return }
-        showingLoop = true
     }
 
     private func animateTransmissionFrames() async {
@@ -1888,6 +1883,133 @@ private struct FatCatAssetView: UIViewRepresentable {
         imageView.contentMode = contentMode
         imageView.image = UIImage(named: name)
         imageView.startAnimating()
+    }
+}
+
+private struct AlphaAnimatedAssetView: UIViewRepresentable {
+    let assetName: String
+    var repeatCount: Int = 0
+    var onFinished: (() -> Void)?
+
+    func makeUIView(context: Context) -> UIImageView {
+        let imageView = UIImageView()
+        imageView.backgroundColor = .clear
+        imageView.isOpaque = false
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = false
+        context.coordinator.configure(
+            imageView,
+            assetName: assetName,
+            repeatCount: repeatCount,
+            onFinished: onFinished
+        )
+        return imageView
+    }
+
+    func updateUIView(_ imageView: UIImageView, context: Context) {
+        context.coordinator.configure(
+            imageView,
+            assetName: assetName,
+            repeatCount: repeatCount,
+            onFinished: onFinished
+        )
+    }
+
+    static func dismantleUIView(_ imageView: UIImageView, coordinator: Coordinator) {
+        coordinator.stop()
+        imageView.image = nil
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, CAAnimationDelegate {
+        private static let animationKey = "alphaFrames"
+        private var configuredAssetName: String?
+        private var configuredRepeatCount: Int?
+        private var onFinished: (() -> Void)?
+        private weak var imageView: UIImageView?
+        private var finishedFired = false
+
+        func configure(
+            _ imageView: UIImageView,
+            assetName: String,
+            repeatCount: Int,
+            onFinished: (() -> Void)?
+        ) {
+            self.onFinished = onFinished
+            self.imageView = imageView
+            guard configuredAssetName != assetName || configuredRepeatCount != repeatCount else { return }
+            configuredAssetName = assetName
+            configuredRepeatCount = repeatCount
+            finishedFired = false
+            imageView.layer.removeAnimation(forKey: Self.animationKey)
+            let animation = AlphaAnimatedAssetView.animation(named: assetName)
+            guard let first = animation.frames.first else {
+                imageView.image = nil
+                return
+            }
+            imageView.image = UIImage(cgImage: first)
+            guard animation.frames.count > 1, animation.duration > 0 else {
+                finishIfNeeded(repeatCount: repeatCount)
+                return
+            }
+            let keyAnim = CAKeyframeAnimation(keyPath: "contents")
+            keyAnim.values = animation.frames.map { $0 as Any }
+            keyAnim.keyTimes = ([0.0] + animation.frameEndTimes.map { $0 / animation.duration })
+                .map(NSNumber.init(value:))
+            keyAnim.duration = animation.duration
+            keyAnim.repeatCount = repeatCount > 0 ? Float(repeatCount) : .infinity
+            keyAnim.calculationMode = .discrete
+            keyAnim.fillMode = .forwards
+            keyAnim.isRemovedOnCompletion = false
+            keyAnim.delegate = self
+            imageView.layer.add(keyAnim, forKey: Self.animationKey)
+        }
+
+        func stop() {
+            imageView?.layer.removeAnimation(forKey: Self.animationKey)
+        }
+
+        func animationDidStop(_ anim: CAAnimation, finished: Bool) {
+            guard finished, let repeatCount = configuredRepeatCount else { return }
+            finishIfNeeded(repeatCount: repeatCount)
+        }
+
+        private func finishIfNeeded(repeatCount: Int) {
+            guard repeatCount > 0, !finishedFired else { return }
+            finishedFired = true
+            onFinished?()
+        }
+    }
+
+    private struct Animation {
+        let frames: [CGImage]
+        let frameEndTimes: [TimeInterval]
+        let duration: TimeInterval
+    }
+
+    private static let playbackFrameDuration: TimeInterval = 1.0 / 15.0
+
+    private static func animation(named assetName: String) -> Animation {
+        guard let data = NSDataAsset(name: assetName)?.data,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return Animation(frames: [], frameEndTimes: [], duration: 0)
+        }
+        let count = CGImageSourceGetCount(source)
+        var frames: [CGImage] = []
+        var ends: [TimeInterval] = []
+        var cumulative: TimeInterval = 0
+        frames.reserveCapacity(count)
+        ends.reserveCapacity(count)
+        for index in 0..<count {
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
+            frames.append(cgImage)
+            cumulative += playbackFrameDuration
+            ends.append(cumulative)
+        }
+        return Animation(frames: frames, frameEndTimes: ends, duration: max(cumulative, 0.1))
     }
 }
 
