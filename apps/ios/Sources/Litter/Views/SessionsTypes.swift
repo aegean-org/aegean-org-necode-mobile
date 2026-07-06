@@ -15,7 +15,7 @@ extension AppSessionSummary: Identifiable {
             return trimmedTitle
         }
 
-        return "Untitled session"
+        return "未命名会话"
     }
 
     var sessionTitle: String {
@@ -50,11 +50,11 @@ enum WorkspaceSortMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .mostRecent:
-            return "Most Recent"
+            return "最近使用"
         case .name:
-            return "Name"
+            return "名称"
         case .date:
-            return "Date"
+            return "日期"
         }
     }
 }

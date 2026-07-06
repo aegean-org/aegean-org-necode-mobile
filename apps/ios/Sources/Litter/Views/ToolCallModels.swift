@@ -130,10 +130,10 @@ enum ToolCallKind: String, Equatable {
 extension ToolCallStatus {
     var label: String {
         switch self {
-        case .inProgress: return "In Progress"
-        case .completed: return "Completed"
-        case .failed: return "Failed"
-        case .unknown: return "Unknown"
+        case .inProgress: return "进行中"
+        case .completed: return "已完成"
+        case .failed: return "失败"
+        case .unknown: return "未知"
         }
     }
 }
@@ -155,17 +155,17 @@ extension AppOperationStatus {
     var displayLabel: String {
         switch self {
         case .unknown:
-            return "Unknown"
+            return "未知"
         case .pending:
-            return "Pending"
+            return "等待中"
         case .inProgress:
-            return "In Progress"
+            return "进行中"
         case .completed:
-            return "Completed"
+            return "已完成"
         case .failed:
-            return "Failed"
+            return "失败"
         case .declined:
-            return "Declined"
+            return "已拒绝"
         }
     }
 }

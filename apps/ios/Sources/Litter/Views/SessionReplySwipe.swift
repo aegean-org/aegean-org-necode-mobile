@@ -23,7 +23,7 @@ struct SessionReplySwipeWrapper<Content: View>: View {
             HStack(spacing: 6) {
                 Image(systemName: "arrowshape.turn.up.left.fill")
                     .font(.system(size: 14, weight: .semibold))
-                Text("reply")
+            Text("回复")
                     .litterMonoFont(size: 12, weight: .semibold)
             }
             .foregroundStyle(LitterTheme.accent)

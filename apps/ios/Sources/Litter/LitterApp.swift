@@ -437,7 +437,6 @@ struct ContentView: View {
     @State private var appState = AppState()
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
-    @State private var petOverlay = PetOverlayController.shared
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
     @Environment(\.colorScheme) private var colorScheme
@@ -591,16 +590,6 @@ struct ContentView: View {
 
     @ViewBuilder
     private var standardOverlays: some View {
-        if petOverlay.visible, let pet = petOverlay.selectedPet {
-            PetOverlayView(
-                pet: pet,
-                state: petOverlay.avatarState(snapshot: appModel.snapshot),
-                message: petOverlay.avatarMessage(snapshot: appModel.snapshot),
-                reduceMotion: UIAccessibility.isReduceMotionEnabled
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-
         if let approval = appModel.snapshot?.pendingApprovals.first(where: {
             $0.kind != .mcpElicitation
         }) {
@@ -1072,13 +1061,13 @@ private struct HomeNavigationView: View {
             )
             .environment(appModel)
         }
-        .alert("Home Action Failed", isPresented: Binding(
+        .alert("主页操作失败", isPresented: Binding(
             get: { actionErrorMessage != nil },
             set: { if !$0 { actionErrorMessage = nil } }
         )) {
-            Button("OK", role: .cancel) { actionErrorMessage = nil }
+            Button("确定", role: .cancel) { actionErrorMessage = nil }
         } message: {
-            Text(actionErrorMessage ?? "Unknown error")
+            Text(actionErrorMessage ?? "未知错误")
         }
     }
 
@@ -1269,7 +1258,7 @@ private struct HomeNavigationView: View {
             openedKey = nil
         }
         guard let openedKey else {
-            actionErrorMessage = actionErrorMessage ?? "Failed to open conversation."
+            actionErrorMessage = actionErrorMessage ?? "打开会话失败。"
             return
         }
         openConversation(openedKey)
@@ -1320,7 +1309,7 @@ private struct HomeNavigationView: View {
 
         guard let resolvedKey = await appModel.ensureThreadLoaded(key: startedKey)
             ?? appModel.snapshot?.threadSnapshot(for: startedKey)?.key else {
-            actionErrorMessage = appModel.lastError ?? "Failed to load the new session."
+            actionErrorMessage = appModel.lastError ?? "加载新会话失败。"
             return
         }
 
@@ -2045,7 +2034,7 @@ private struct ConversationDestinationScreen: View {
                     Spacer()
                     ProgressView()
                         .tint(LitterTheme.accent)
-                    Text("Loading thread...")
+                    Text("正在加载会话...")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textMuted)
                     Spacer()
@@ -2144,7 +2133,7 @@ private struct ReplayDestinationScreen: View {
                     Spacer()
                     ProgressView()
                         .tint(LitterTheme.accent)
-                    Text(recorder.isReplaying ? "Replaying..." : "Starting replay...")
+                    Text(recorder.isReplaying ? "正在回放..." : "正在开始回放...")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textMuted)
                     Spacer()
@@ -2153,7 +2142,7 @@ private struct ReplayDestinationScreen: View {
                 .background(LitterTheme.backgroundGradient.ignoresSafeArea())
             }
         }
-        .navigationTitle("Replay")
+        .navigationTitle("回放")
         .navigationBarTitleDisplayMode(.inline)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .bottom)
@@ -2224,7 +2213,7 @@ private struct ApprovalPromptView: View {
                                     onViewThread?(ThreadKey(serverId: approval.serverId, threadId: threadId))
                                 } label: {
                                     HStack(spacing: 3) {
-                                        Text("View Thread")
+                                        Text("查看会话")
                                             .litterFont(.caption, weight: .medium)
                                         Image(systemName: "arrow.right")
                                             .litterFont(size: 9, weight: .semibold)
@@ -2239,7 +2228,7 @@ private struct ApprovalPromptView: View {
 
                         if let command = approval.command, !command.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Command")
+                                Text("命令")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textMuted)
                                 Text(command)
@@ -2254,13 +2243,13 @@ private struct ApprovalPromptView: View {
                         }
 
                         if let cwd = approval.cwd, !cwd.isEmpty {
-                            Text("CWD: \(cwd)")
+                            Text("工作目录：\(cwd)")
                                 .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textMuted)
                         }
 
                         if let grantRoot = approval.grantRoot, !grantRoot.isEmpty {
-                            Text("Grant Root: \(grantRoot)")
+                            Text("授权根目录：\(grantRoot)")
                                 .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textMuted)
                         }
@@ -2269,22 +2258,22 @@ private struct ApprovalPromptView: View {
                 }
 
                 VStack(spacing: 8) {
-                    Button("Allow Once") { onDecision(.accept) }
+                    Button("仅允许一次") { onDecision(.accept) }
                         .buttonStyle(.borderedProminent)
                         .tint(LitterTheme.accent)
                         .frame(maxWidth: .infinity)
 
-                    Button("Allow for Session") { onDecision(.acceptForSession) }
+                    Button("本会话允许") { onDecision(.acceptForSession) }
                         .buttonStyle(.bordered)
                         .frame(maxWidth: .infinity)
 
                     HStack(spacing: 8) {
-                        Button("Deny") { onDecision(.decline) }
+                        Button("拒绝") { onDecision(.decline) }
                             .buttonStyle(.bordered)
                             .foregroundColor(.red)
                             .frame(maxWidth: .infinity)
 
-                        Button("Abort") { onDecision(.cancel) }
+                        Button("中止") { onDecision(.cancel) }
                             .buttonStyle(.bordered)
                             .frame(maxWidth: .infinity)
                     }
@@ -2310,7 +2299,7 @@ struct LaunchView: View {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             VStack(spacing: 24) {
                 BrandLogo(size: 132)
-                Text("AI coding agent on iOS")
+                Text("移动端 AI 编程助手")
                     .litterFont(.body)
                     .foregroundColor(LitterTheme.textMuted)
             }

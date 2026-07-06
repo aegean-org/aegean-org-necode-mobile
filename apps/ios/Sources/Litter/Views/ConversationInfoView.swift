@@ -86,17 +86,17 @@ struct ConversationInfoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(isServerOnly ? "Server Info" : "Info")
+                Text(isServerOnly ? "主机信息" : "详情")
                     .litterFont(size: 16, weight: .semibold)
                     .foregroundStyle(LitterTheme.textPrimary)
             }
         }
         .onAppear { computeData() }
         .onChange(of: thread?.hydratedConversationItems.count) { computeData() }
-        .alert("Rename Thread", isPresented: $isRenaming) {
-            TextField("Thread name", text: $renameText)
-            Button("Save") { saveRename() }
-            Button("Cancel", role: .cancel) { }
+        .alert("重命名会话", isPresented: $isRenaming) {
+            TextField("会话名称", text: $renameText)
+            Button("保存") { saveRename() }
+            Button("取消", role: .cancel) { }
         }
         .sheet(isPresented: $isShowingMountedFolders) {
             MountedFoldersView()
@@ -107,11 +107,11 @@ struct ConversationInfoView: View {
 
     private var serverOnlyActionRow: some View {
         HStack(spacing: 0) {
-            actionCircle(icon: "paintbrush", label: "Appearance") {
+            actionCircle(icon: "paintbrush", label: "外观") {
                 onOpenWallpaper?()
             }
             if let onOpenShell {
-                actionCircle(icon: "terminal", label: "Shell") {
+                actionCircle(icon: "terminal", label: "终端") {
                     onOpenShell()
                 }
             }
@@ -127,7 +127,7 @@ struct ConversationInfoView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 10, height: 10)
-                Text(thread?.displayTitle ?? "Untitled session")
+                Text(thread?.displayTitle ?? "未命名会话")
                     .litterFont(size: 22, weight: .bold)
                     .foregroundStyle(LitterTheme.textPrimary)
                     .lineLimit(2)
@@ -218,13 +218,13 @@ struct ConversationInfoView: View {
 
     private var actionButtonsRow: some View {
         HStack(spacing: 0) {
-            actionCircle(icon: "paintbrush", label: "Appearance") {
+            actionCircle(icon: "paintbrush", label: "外观") {
                 onOpenWallpaper?()
             }
-            actionCircle(icon: "arrow.branch", label: "Fork") {
+            actionCircle(icon: "arrow.branch", label: "分叉") {
                 Task { await forkConversation() }
             }
-            actionCircle(icon: "pencil", label: "Rename") {
+            actionCircle(icon: "pencil", label: "重命名") {
                 renameText = thread?.info.title ?? ""
                 isRenaming = true
             }
@@ -271,11 +271,11 @@ struct ConversationInfoView: View {
 
     private var statusLabel: String {
         switch thread?.info.status {
-        case .active: return "Active"
-        case .idle: return "Idle"
-        case .systemError: return "Error"
-        case .notLoaded: return "Not Loaded"
-        default: return "Unknown"
+        case .active: return "运行中"
+        case .idle: return "空闲"
+        case .systemError: return "错误"
+        case .notLoaded: return "未加载"
+        default: return "未知"
         }
     }
 
@@ -287,7 +287,7 @@ struct ConversationInfoView: View {
                 let percent = Double(used) / Double(window)
                 VStack(spacing: 8) {
                     HStack {
-                        Text("Context Window")
+                        Text("上下文窗口")
                             .litterFont(size: 14, weight: .semibold)
                             .foregroundStyle(LitterTheme.textPrimary)
                         Spacer()
@@ -343,7 +343,7 @@ struct ConversationInfoView: View {
 
     private var conversationStatsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Conversation Stats")
+            Text("会话统计")
                 .litterFont(size: 14, weight: .semibold)
                 .foregroundStyle(LitterTheme.textPrimary)
 
@@ -351,12 +351,12 @@ struct ConversationInfoView: View {
                 GridItem(.flexible(), spacing: 12),
                 GridItem(.flexible(), spacing: 12)
             ], spacing: 12) {
-                statCard("Messages", value: "\(stats?.totalMessages ?? 0)", detail: "\(stats?.userMessageCount ?? 0) user · \(stats?.assistantMessageCount ?? 0) assistant")
-                statCard("Turns", value: "\(stats?.turnCount ?? 0)")
-                statCard("Commands", value: "\(stats?.commandsExecuted ?? 0)", detail: "\(stats?.commandsSucceeded ?? 0) ok · \(stats?.commandsFailed ?? 0) fail")
-                statCard("Files Changed", value: "\(stats?.filesChanged ?? 0)", detail: "+\(stats?.diffAdditions ?? 0) / -\(stats?.diffDeletions ?? 0)")
-                statCard("MCP Calls", value: "\(stats?.mcpToolCallCount ?? 0)")
-                statCard("Exec Time", value: formatDuration(Int64(stats?.totalCommandDurationMs ?? 0)))
+                statCard("消息", value: "\(stats?.totalMessages ?? 0)", detail: "\(stats?.userMessageCount ?? 0) 用户 · \(stats?.assistantMessageCount ?? 0) 助手")
+                statCard("轮次", value: "\(stats?.turnCount ?? 0)")
+                statCard("命令", value: "\(stats?.commandsExecuted ?? 0)", detail: "\(stats?.commandsSucceeded ?? 0) 成功 · \(stats?.commandsFailed ?? 0) 失败")
+                statCard("文件变更", value: "\(stats?.filesChanged ?? 0)", detail: "+\(stats?.diffAdditions ?? 0) / -\(stats?.diffDeletions ?? 0)")
+                statCard("MCP 调用", value: "\(stats?.mcpToolCallCount ?? 0)")
+                statCard("执行耗时", value: formatDuration(Int64(stats?.totalCommandDurationMs ?? 0)))
             }
         }
         .padding(16)
@@ -395,7 +395,7 @@ struct ConversationInfoView: View {
 
     private var serverChartsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Server Usage")
+            Text("主机用量")
                 .litterFont(size: 14, weight: .semibold)
                 .foregroundStyle(LitterTheme.textPrimary)
 
@@ -423,21 +423,21 @@ struct ConversationInfoView: View {
 
     private func tokenUsageChart(_ usage: AppServerUsageStats) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Token Usage by Conversation")
+            Text("按会话统计 Token")
                 .litterFont(size: 12, weight: .medium)
                 .foregroundStyle(LitterTheme.textSecondary)
 
             Chart(Array(usage.tokensByThread.enumerated()), id: \.offset) { _, entry in
                 AreaMark(
-                    x: .value("Thread", entry.threadTitle),
-                    y: .value("Tokens", entry.tokens)
+                    x: .value("会话", entry.threadTitle),
+                    y: .value("Token", entry.tokens)
                 )
                 .foregroundStyle(LitterTheme.accent.opacity(0.3))
                 .interpolationMethod(.catmullRom)
 
                 LineMark(
-                    x: .value("Thread", entry.threadTitle),
-                    y: .value("Tokens", entry.tokens)
+                    x: .value("会话", entry.threadTitle),
+                    y: .value("Token", entry.tokens)
                 )
                 .foregroundStyle(LitterTheme.accent)
                 .interpolationMethod(.catmullRom)
@@ -464,14 +464,14 @@ struct ConversationInfoView: View {
 
     private func activityChart(_ usage: AppServerUsageStats) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Activity Timeline")
+            Text("活跃时间线")
                 .litterFont(size: 12, weight: .medium)
                 .foregroundStyle(LitterTheme.textSecondary)
 
             Chart(Array(usage.activityByDay.enumerated()), id: \.offset) { _, entry in
                 BarMark(
-                    x: .value("Date", Date(timeIntervalSince1970: TimeInterval(entry.dateEpoch)), unit: .day),
-                    y: .value("Activity", entry.turnCount)
+                    x: .value("日期", Date(timeIntervalSince1970: TimeInterval(entry.dateEpoch)), unit: .day),
+                    y: .value("活跃度", entry.turnCount)
                 )
                 .foregroundStyle(LitterTheme.accent.opacity(0.7))
                 .cornerRadius(2)
@@ -498,14 +498,14 @@ struct ConversationInfoView: View {
 
     private func modelBreakdownChart(_ usage: AppServerUsageStats) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Model Usage")
+            Text("模型使用")
                 .litterFont(size: 12, weight: .medium)
                 .foregroundStyle(LitterTheme.textSecondary)
 
             Chart(Array(usage.modelUsage.enumerated()), id: \.offset) { _, entry in
                 BarMark(
-                    x: .value("Count", entry.threadCount),
-                    y: .value("Model", entry.model)
+                    x: .value("数量", entry.threadCount),
+                    y: .value("模型", entry.model)
                 )
                 .foregroundStyle(LitterTheme.accent.opacity(0.7))
                 .cornerRadius(2)
@@ -532,16 +532,16 @@ struct ConversationInfoView: View {
 
     private func rateLimitGauge(_ rateLimits: RateLimitSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Rate Limits")
+            Text("速率限制")
                 .litterFont(size: 12, weight: .medium)
                 .foregroundStyle(LitterTheme.textSecondary)
 
             HStack(spacing: 16) {
                 if let primary = rateLimits.primary {
-                    rateLimitRing(label: "Primary", window: primary)
+                    rateLimitRing(label: "主限制", window: primary)
                 }
                 if let secondary = rateLimits.secondary {
-                    rateLimitRing(label: "Secondary", window: secondary)
+                    rateLimitRing(label: "次限制", window: secondary)
                 }
             }
         }
@@ -578,17 +578,17 @@ struct ConversationInfoView: View {
 
     private var serverInfoSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Server")
+            Text("主机")
                 .litterFont(size: 14, weight: .semibold)
                 .foregroundStyle(LitterTheme.textPrimary)
 
             if let server {
-                infoRow("Name", value: server.displayName)
-                infoRow("Address", value: "\(server.host):\(server.port)")
-                infoRow("Mode", value: server.connectionModeLabel)
+                infoRow("名称", value: server.displayName)
+                infoRow("地址", value: "\(server.host):\(server.port)")
+                infoRow("模式", value: server.connectionModeLabel)
 
                 HStack(spacing: 6) {
-                    Text("Health")
+                    Text("状态")
                         .litterFont(size: 12)
                         .foregroundStyle(LitterTheme.textMuted)
                     Spacer()
@@ -606,7 +606,7 @@ struct ConversationInfoView: View {
 
                 if let models = server.availableModels, !models.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Available Models")
+                        Text("可用模型")
                             .litterFont(size: 12)
                             .foregroundStyle(LitterTheme.textMuted)
                         ForEach(models.prefix(8), id: \.id) { model in
@@ -615,7 +615,7 @@ struct ConversationInfoView: View {
                                 .foregroundStyle(LitterTheme.textSecondary)
                         }
                         if models.count > 8 {
-                            Text("+\(models.count - 8) more")
+                            Text("还有 \(models.count - 8) 个")
                                 .litterFont(size: 11)
                                 .foregroundStyle(LitterTheme.textMuted)
                         }
@@ -630,7 +630,7 @@ struct ConversationInfoView: View {
                             Image(systemName: "externaldrive.badge.icloud")
                                 .litterFont(size: 12)
                                 .foregroundStyle(LitterTheme.accent)
-                            Text("Mounted folders")
+                            Text("已挂载文件夹")
                                 .litterFont(size: 12)
                                 .foregroundStyle(LitterTheme.textSecondary)
                             Spacer()
@@ -670,17 +670,17 @@ struct ConversationInfoView: View {
 
     private func healthLabel(_ health: AppServerHealth) -> String {
         switch health {
-        case .connected: return "Connected"
-        case .connecting: return "Connecting"
-        case .disconnected: return "Disconnected"
-        case .unresponsive: return "Unresponsive"
-        case .unknown: return "Unknown"
+        case .connected: return "已连接"
+        case .connecting: return "连接中"
+        case .disconnected: return "已断开"
+        case .unresponsive: return "无响应"
+        case .unknown: return "未知"
         }
     }
 
     private func accountRow(_ account: Account) -> some View {
         HStack {
-            Text("Account")
+            Text("账号")
                 .litterFont(size: 12)
                 .foregroundStyle(LitterTheme.textMuted)
             Spacer()
@@ -712,7 +712,7 @@ struct ConversationInfoView: View {
         case .business: return "Business"
         case .enterprise: return "Enterprise"
         case .edu: return "Edu"
-        case .unknown: return "Unknown"
+        case .unknown: return "未知"
         }
     }
 

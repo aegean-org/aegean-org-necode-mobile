@@ -1,11 +1,11 @@
 import AppIntents
 import Foundation
 
-/// AppIntent entity for one Codex server known to the watch. Built from
+/// AppIntent entity for one NeCode server known to the watch. Built from
 /// the most recent `WatchAppStore.tasks` push so the Shortcuts/Action
 /// Button picker only offers servers the user actually has.
 struct WatchServerEntity: AppEntity {
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Codex Server")
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "NeCode 主机")
     static let defaultQuery = WatchServerEntityQuery()
 
     let id: String
@@ -49,13 +49,13 @@ struct WatchServerEntityQuery: EntityQuery {
 /// or — if there's a focused task on that server — drills directly into
 /// it. Assignable to the Ultra Action Button via Settings → Action Button.
 struct OpenServerOnWatchIntent: AppIntent {
-    static let title: LocalizedStringResource = "Open Server"
+    static let title: LocalizedStringResource = "打开主机"
     static let description = IntentDescription(
-        "Open the Litter watch app focused on a specific Codex server."
+        "打开 NeCode 手表端并定位到指定主机。"
     )
     static let openAppWhenRun: Bool = true
 
-    @Parameter(title: "Server")
+    @Parameter(title: "主机")
     var server: WatchServerEntity
 
     func perform() async throws -> some IntentResult {
@@ -70,9 +70,9 @@ struct OpenServerOnWatchIntent: AppIntent {
 /// Opens the watch app directly into the realtime voice screen.
 /// Assignable to the Ultra Action Button.
 struct StartVoiceOnWatchIntent: AppIntent {
-    static let title: LocalizedStringResource = "Start Voice"
+    static let title: LocalizedStringResource = "开始语音"
     static let description = IntentDescription(
-        "Open Litter and switch to the realtime voice screen."
+        "打开 NeCode 并切换到实时语音页面。"
     )
     static let openAppWhenRun: Bool = true
 

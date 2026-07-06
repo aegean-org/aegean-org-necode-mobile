@@ -11,19 +11,19 @@ enum LitterFeature: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .realtimeVoice: return "Realtime"
+        case .realtimeVoice: return "实时语音"
         case .appleWatch: return "Apple Watch"
-        case .thinkingMinigame: return "Thinking minigame"
-        case .terminal: return "Terminal"
+        case .thinkingMinigame: return "思考小游戏"
+        case .terminal: return "终端"
         }
     }
 
     var description: String {
         switch self {
-        case .realtimeVoice: return "Show the realtime voice launcher on the home screen."
-        case .appleWatch: return "Push server, task, and approval state to a paired Apple Watch. Requires the Litter watch app to be installed."
-        case .thinkingMinigame: return "Tap the Thinking shimmer while the assistant generates to play a tiny generated minigame."
-        case .terminal: return "Show the local and remote terminal launcher on the home screen."
+        case .realtimeVoice: return "在首页显示实时语音入口。"
+        case .appleWatch: return "将主机、任务和审批状态同步到已配对的 Apple Watch。需要安装 NeCode Watch 应用。"
+        case .thinkingMinigame: return "助手思考时点击闪烁区域，可玩一个临时生成的小游戏。"
+        case .terminal: return "在首页显示本地和远程终端入口。"
         }
     }
 

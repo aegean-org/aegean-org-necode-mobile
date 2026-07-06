@@ -38,7 +38,7 @@ struct WallpaperAdjustView: View {
                     Button {
                         onDone?()
                     } label: {
-                        Text("Cancel")
+                        Text("取消")
                             .litterFont(size: 15, weight: .medium)
                             .foregroundStyle(LitterTheme.textPrimary)
                             .padding(.horizontal, 14)
@@ -129,7 +129,7 @@ struct WallpaperAdjustView: View {
             Spacer()
             HStack {
                 Spacer()
-                Text("Refactor the auth middleware")
+                Text("重构登录中间件")
                     .litterFont(size: 14)
                     .foregroundStyle(LitterTheme.textPrimary)
                     .padding(.horizontal, 14)
@@ -139,7 +139,7 @@ struct WallpaperAdjustView: View {
             .padding(.horizontal, 16)
 
             HStack {
-                Text("I'll review the auth middleware and refactor it for better separation of concerns.")
+                Text("我会检查登录中间件，并把职责边界整理得更清晰。")
                     .litterFont(size: 14)
                     .foregroundStyle(LitterTheme.textPrimary)
                     .padding(.horizontal, 14)
@@ -164,8 +164,8 @@ struct WallpaperAdjustView: View {
 
             // Toggles
             HStack(spacing: 24) {
-                toggleOption(label: "Blurred", isOn: $isBlurred)
-                toggleOption(label: "Motion", isOn: $motionEnabled)
+                toggleOption(label: "模糊", isOn: $isBlurred)
+                toggleOption(label: "动态", isOn: $motionEnabled)
             }
             .padding(.horizontal, 16)
 
@@ -188,7 +188,7 @@ struct WallpaperAdjustView: View {
                     Button {
                         applyWallpaper(scope: .thread(threadKey))
                     } label: {
-                        Text("Apply for This Thread")
+                        Text("应用到当前会话")
                             .litterFont(size: 15, weight: .semibold)
                             .foregroundStyle(LitterTheme.textOnAccent)
                             .frame(maxWidth: .infinity)
@@ -202,7 +202,7 @@ struct WallpaperAdjustView: View {
                     Button {
                         applyWallpaper(scope: .server(resolvedServerId))
                     } label: {
-                        Text("Apply for This Server")
+                        Text("应用到这台主机")
                             .litterFont(size: 15, weight: .medium)
                             .foregroundStyle(LitterTheme.textPrimary)
                             .frame(maxWidth: .infinity)

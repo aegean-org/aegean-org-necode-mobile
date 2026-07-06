@@ -193,11 +193,11 @@ extension AppSandboxMode {
     var displayTitle: String {
         switch self {
         case .readOnly:
-            return "Read only"
+            return "只读"
         case .workspaceWrite:
-            return "Workspace write"
+            return "工作区可写"
         case .dangerFullAccess:
-            return "Full access"
+            return "完全访问"
         }
     }
 }
@@ -223,13 +223,13 @@ extension AppSandboxPolicy {
     var displayTitle: String {
         switch self {
         case .dangerFullAccess:
-            return "Full access"
+            return "完全访问"
         case .readOnly:
-            return "Read only"
+            return "只读"
         case .workspaceWrite:
-            return "Workspace write"
+            return "工作区可写"
         case .externalSandbox:
-            return "External sandbox"
+            return "外部沙箱"
         }
     }
 }
@@ -238,13 +238,13 @@ extension AppThreadPermissionPreset {
     var title: String {
         switch self {
         case .supervised:
-            return "Supervised"
+            return "需确认"
         case .fullAccess:
-            return "Full Access"
+            return "完全访问"
         case .custom:
-            return "Custom"
+            return "自定义"
         case .unknown:
-            return "Unknown"
+            return "未知"
         }
     }
 }

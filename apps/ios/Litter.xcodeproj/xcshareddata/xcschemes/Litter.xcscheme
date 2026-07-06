@@ -88,10 +88,7 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
       </CommandLineArguments>
-         <StoreKitConfigurationFileReference
-         identifier = "../../Sources/Litter/Resources/TipJarProducts.storekit">
-      </StoreKitConfigurationFileReference>
-   </LaunchAction>
+</LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
       shouldUseLaunchSchemeArgsEnv = "YES"

@@ -16,8 +16,8 @@ struct HomeScreen: View {
             } else if store.tasks.isEmpty {
                 WatchEmptyState(
                     icon: "sparkles",
-                    title: "no tasks yet",
-                    subtitle: "start a conversation on iphone."
+                    title: "还没有任务",
+                    subtitle: "在 iPhone 上开始一个会话。"
                 )
             } else {
                 pagedTasks
@@ -35,8 +35,8 @@ struct HomeScreen: View {
             }
             WatchEmptyState(
                 icon: store.isReachable ? "iphone.gen3" : "iphone.slash",
-                title: store.isReachable ? "syncing…" : "open litter on iphone",
-                subtitle: store.isReachable ? nil : "the watch shows what the phone knows."
+                title: store.isReachable ? "同步中…" : "请在 iPhone 上打开 NeCode",
+                subtitle: store.isReachable ? nil : "手表会显示手机同步过来的状态。"
             )
         }
         .tabViewStyle(.verticalPage)
@@ -111,10 +111,10 @@ private struct HiddenFooterPage: View {
                                 .fill(theme.surfaceLight)
                                 .overlay(Circle().stroke(theme.borderHi, lineWidth: 1))
                         )
-                    Text("\(count) hidden")
+                    Text("已隐藏 \(count)")
                         .font(WatchTheme.scaled(12, for: watchSize, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
-                    Text("tap to manage")
+                    Text("点按管理")
                         .font(WatchTheme.scaled(10, for: watchSize))
                         .foregroundStyle(theme.textSecondary)
                 }
@@ -154,7 +154,7 @@ private struct TaskPage: View {
                     threadId: task.threadId
                 )
             } label: {
-                Label("Hide", systemImage: "eye.slash")
+                Label("隐藏", systemImage: "eye.slash")
             }
         }
     }
@@ -292,7 +292,7 @@ private struct TaskPage: View {
 
     private var telemetryLine: String? {
         var parts: [String] = []
-        if let t = task.turnCount, t > 0 { parts.append("\(t) turns") }
+        if let t = task.turnCount, t > 0 { parts.append("\(t) 轮") }
         let adds = task.diffAdditions ?? 0
         let rems = task.diffDeletions ?? 0
         if adds > 0 || rems > 0 { parts.append("+\(adds) −\(rems)") }
@@ -324,10 +324,10 @@ private struct NewTaskPage: View {
                                                startPoint: .top, endPoint: .bottom)
                             )
                         )
-                    Text("new task")
+                    Text("新任务")
                         .font(WatchTheme.scaled(13, for: watchSize, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
-                    Text("dictate a prompt")
+                    Text("语音输入指令")
                         .font(WatchTheme.scaled(10, for: watchSize))
                         .foregroundStyle(theme.textSecondary)
                 }
@@ -385,10 +385,10 @@ private struct StatusChip: View {
 
     private var label: String {
         switch status {
-        case .running:       return "running"
-        case .needsApproval: return "approval"
-        case .idle:          return "idle"
-        case .error:         return "error"
+        case .running:       return "运行中"
+        case .needsApproval: return "审批"
+        case .idle:          return "空闲"
+        case .error:         return "错误"
         }
     }
 

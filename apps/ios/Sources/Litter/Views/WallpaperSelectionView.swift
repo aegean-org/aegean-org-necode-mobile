@@ -95,7 +95,7 @@ struct WallpaperSelectionView: View {
                     Button {
                         onClose?()
                     } label: {
-                        Text("Close")
+                        Text("关闭")
                             .litterFont(size: 15, weight: .medium)
                             .foregroundStyle(LitterTheme.textPrimary)
                             .padding(.horizontal, 14)
@@ -114,11 +114,11 @@ struct WallpaperSelectionView: View {
                 .ignoresSafeArea()
         }
         .navigationBarBackButtonHidden(true)
-        .alert("Video Error", isPresented: Binding(
+        .alert("视频错误", isPresented: Binding(
             get: { videoErrorMessage != nil },
             set: { if !$0 { videoErrorMessage = nil } }
         )) {
-            Button("OK") { videoErrorMessage = nil }
+            Button("好") { videoErrorMessage = nil }
         } message: {
             Text(videoErrorMessage ?? "")
         }
@@ -182,7 +182,7 @@ struct WallpaperSelectionView: View {
             // User bubble
             HStack {
                 Spacer()
-                Text("Fix the login bug on the profile page")
+                Text("修复个人资料页的登录问题")
                     .litterFont(size: 14)
                     .foregroundStyle(LitterTheme.textPrimary)
                     .padding(.horizontal, 14)
@@ -263,7 +263,7 @@ struct WallpaperSelectionView: View {
                         Image(systemName: "photo.on.rectangle")
                             .font(.system(size: 16))
                             .foregroundStyle(LitterTheme.accent)
-                        Text("Choose Wallpaper from Photos")
+                        Text("从相册选择壁纸")
                             .litterFont(size: 14)
                             .foregroundStyle(LitterTheme.textPrimary)
                         Spacer()
@@ -283,7 +283,7 @@ struct WallpaperSelectionView: View {
                         Image(systemName: "video.fill")
                             .font(.system(size: 16))
                             .foregroundStyle(LitterTheme.accent)
-                        Text("Choose Video from Photos")
+                        Text("从相册选择视频")
                             .litterFont(size: 14)
                             .foregroundStyle(LitterTheme.textPrimary)
                         Spacer()
@@ -308,7 +308,7 @@ struct WallpaperSelectionView: View {
                     Image(systemName: "link")
                         .font(.system(size: 16))
                         .foregroundStyle(LitterTheme.accent)
-                    TextField("Paste video URL", text: $videoURLText)
+                    TextField("粘贴视频 URL", text: $videoURLText)
                         .litterFont(size: 14)
                         .foregroundStyle(LitterTheme.textPrimary)
                         .textContentType(.URL)
@@ -320,7 +320,7 @@ struct WallpaperSelectionView: View {
                         Button {
                             Task { await loadVideoFromURL() }
                         } label: {
-                            Text("Go")
+                            Text("开始")
                                 .litterFont(size: 13, weight: .semibold)
                                 .foregroundStyle(LitterTheme.accent)
                         }
@@ -376,7 +376,7 @@ struct WallpaperSelectionView: View {
                         .stroke(selectedThemeSlug == nil && previewConfig?.type == .none ? LitterTheme.accent : LitterTheme.border, lineWidth: 2)
                 )
 
-                Text("None")
+                Text("无")
                     .litterFont(size: 10)
                     .foregroundStyle(LitterTheme.textSecondary)
                     .lineLimit(1)
@@ -420,7 +420,7 @@ struct WallpaperSelectionView: View {
             Image(systemName: "paintpalette")
                 .font(.system(size: 16))
                 .foregroundStyle(LitterTheme.accent)
-            Text("Set a Color")
+            Text("设置颜色")
                 .litterFont(size: 14)
                 .foregroundStyle(LitterTheme.textPrimary)
             Spacer()
@@ -466,18 +466,18 @@ struct WallpaperSelectionView: View {
 
     private var typingEffectSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Typing Effect")
+            Text("输入动效")
                 .litterFont(size: 16, weight: .semibold)
                 .foregroundStyle(LitterTheme.textPrimary)
                 .padding(.horizontal, 16)
 
             // Effect picker
             HStack {
-                Text("Effect")
+                Text("效果")
                     .litterFont(size: 13, weight: .medium)
                     .foregroundStyle(LitterTheme.textSecondary)
                 Spacer()
-                Picker("Effect", selection: Binding(
+                Picker("效果", selection: Binding(
                     get: { selectedEffect?.rawValue ?? "" },
                     set: { newValue in
                         if newValue.isEmpty {
@@ -487,9 +487,9 @@ struct WallpaperSelectionView: View {
                         }
                     }
                 )) {
-                    Text("None").tag("")
+                    Text("无").tag("")
                     ForEach(StreamingEffectKind.allCases) { kind in
-                        Text(kind.rawValue).tag(kind.rawValue)
+                        Text(kind.displayName).tag(kind.rawValue)
                     }
                 }
                 .pickerStyle(.menu)
@@ -499,7 +499,7 @@ struct WallpaperSelectionView: View {
 
             // Speed slider
             VStack(alignment: .leading, spacing: 6) {
-                Text("Reveal Speed")
+                Text("显示速度")
                     .litterFont(size: 13, weight: .medium)
                     .foregroundStyle(LitterTheme.textSecondary)
 
@@ -557,7 +557,7 @@ struct WallpaperSelectionView: View {
                         typingEffectConfig.revealMode = mode
                         persistTypingEffect()
                     } label: {
-                        Text(mode)
+                        Text(mode == "Linear" ? "线性" : "连续")
                             .litterFont(size: 12, weight: typingEffectConfig.revealMode == mode ? .semibold : .regular)
                             .foregroundStyle(typingEffectConfig.revealMode == mode ? LitterTheme.textOnAccent : LitterTheme.textSecondary)
                             .frame(maxWidth: .infinity)
@@ -692,8 +692,8 @@ private enum WallpaperTab: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .background: "Background"
-        case .typingEffect: "Typing Effect"
+        case .background: "背景"
+        case .typingEffect: "输入动效"
         }
     }
 }
@@ -706,9 +706,9 @@ private struct StreamingEffectPreview: View {
     @State private var feedTask: Task<Void, Never>?
 
     private static let sampleText = """
-    Found the issue — the `SessionManager` was **dropping the refresh token** on every cold start because `loadCredentials()` ran before the keychain unlock callback.
+    找到问题了：`SessionManager` 在每次冷启动时都会**丢掉刷新令牌**，因为 `loadCredentials()` 比钥匙串解锁回调更早执行。
 
-    I moved the credential load into the `didBecomeActive` handler and added a retry with exponential backoff:
+    我把凭据加载移到了 `didBecomeActive` 处理里，并加了指数退避重试：
 
     ```swift
     func restoreSession() async throws {
@@ -717,7 +717,7 @@ private struct StreamingEffectPreview: View {
     }
     ```
 
-    This also fixes the **"phantom logout"** bug users reported on iOS 18. The token was valid but got discarded before the refresh exchange could complete.
+    这也修复了 iOS 18 上用户反馈的**“假退出登录”**问题。令牌本身有效，只是刷新流程完成前被提前丢弃了。
     """
 
     init(config: TypingEffectConfig) {

@@ -37,7 +37,7 @@ enum WatchProjection {
             // a small secondary chip.
             let subtitle: String?
             if status == .needsApproval, let first = threadApprovals.first {
-                subtitle = "awaiting approval: \(approvalLabel(first))"
+                subtitle = "等待审批：\(approvalLabel(first))"
             } else if let lastResp = summary.lastResponsePreview, !lastResp.isEmpty {
                 subtitle = compact(lastResp, max: 100)
             } else if let lastTool = summary.lastToolLabel, !lastTool.isEmpty {
@@ -263,7 +263,7 @@ enum WatchProjection {
         if !summary.preview.isEmpty {
             return compact(summary.preview, max: 50)
         }
-        return "untitled task"
+        return "未命名任务"
     }
 
     private static func rank(_ status: WatchTask.Status) -> Int {
@@ -287,7 +287,7 @@ enum WatchProjection {
         guard let updatedAt else { return "" }
         let updatedDate = Date(timeIntervalSince1970: TimeInterval(updatedAt))
         let delta = Date().timeIntervalSince(updatedDate)
-        if delta < 60 { return "now" }
+        if delta < 60 { return "刚刚" }
         if delta < 3600 { return "\(Int(delta) / 60)m" }
         if delta < 86400 { return "\(Int(delta) / 3600)h" }
         if delta < 7 * 86400 { return "\(Int(delta) / 86400)d" }
@@ -349,7 +349,7 @@ enum WatchProjection {
         // its own row instead of fusing onto a half-rendered diff line.
         let lastNewline = head.lastIndex(of: "\n")
         let body = lastNewline.map { String(head[..<$0]) } ?? head
-        return (body + "\n… (truncated)", true)
+        return (body + "\n…（已截断）", true)
     }
 
     private static func deriveSteps(from items: [HydratedConversationItem]) -> [WatchTaskStep] {
@@ -422,17 +422,17 @@ enum WatchProjection {
 
     private static func approvalLabel(_ approval: PendingApproval) -> String {
         switch approval.kind {
-        case .command:        return compact(approval.command ?? "command", max: 32)
-        case .fileChange:     return compact(approval.path ?? "file change", max: 32)
-        case .permissions:    return "permissions"
-        case .mcpElicitation: return "mcp input"
+        case .command:        return compact(approval.command ?? "命令", max: 32)
+        case .fileChange:     return compact(approval.path ?? "文件变更", max: 32)
+        case .permissions:    return "权限"
+        case .mcpElicitation: return "MCP 输入"
         }
     }
 
     private static func describe(_ approval: PendingApproval) -> (command: String, target: String, diff: String) {
         switch approval.kind {
         case .command:
-            let cmd = approval.command ?? "command"
+            let cmd = approval.command ?? "命令"
             return (
                 command: compact(cmd, max: 60),
                 target: approval.cwd ?? "",

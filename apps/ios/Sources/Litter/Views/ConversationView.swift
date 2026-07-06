@@ -171,13 +171,13 @@ struct ConversationView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .alert("Conversation Action Error", isPresented: Binding(
+        .alert("会话操作失败", isPresented: Binding(
             get: { messageActionError != nil },
             set: { if !$0 { messageActionError = nil } }
         )) {
-            Button("OK", role: .cancel) { messageActionError = nil }
+            Button("好", role: .cancel) { messageActionError = nil }
         } message: {
-            Text(messageActionError ?? "Unknown error")
+            Text(messageActionError ?? "未知错误")
         }
         .onAppear {
             guard !hasLoggedFirstRender else { return }
@@ -290,7 +290,7 @@ struct ConversationView: View {
                     throw NSError(
                         domain: "Litter",
                         code: 1020,
-                        userInfo: [NSLocalizedDescriptionKey: "Only user messages can be edited"]
+                        userInfo: [NSLocalizedDescriptionKey: "只能编辑用户消息"]
                     )
                 }
                 let result = try await appModel.store.editMessage(
@@ -312,7 +312,7 @@ struct ConversationView: View {
                     throw NSError(
                         domain: "Litter",
                         code: 1016,
-                        userInfo: [NSLocalizedDescriptionKey: "Fork from here is only supported for user messages"]
+                        userInfo: [NSLocalizedDescriptionKey: "只能从用户消息处分叉"]
                     )
                 }
                 let nextKey = try await appModel.store.forkThreadFromMessage(
@@ -469,13 +469,13 @@ private struct ConversationBottomChrome: View {
                 await loadCollaborationModes()
             }
         }
-        .alert("Collaboration Mode", isPresented: Binding(
+        .alert("协作模式", isPresented: Binding(
             get: { collaborationModeError != nil },
             set: { if !$0 { collaborationModeError = nil } }
         )) {
-            Button("OK", role: .cancel) { collaborationModeError = nil }
+            Button("好", role: .cancel) { collaborationModeError = nil }
         } message: {
-            Text(collaborationModeError ?? "Unable to update collaboration mode.")
+            Text(collaborationModeError ?? "无法更新协作模式。")
         }
     }
 
@@ -497,13 +497,13 @@ private struct ConversationBottomChrome: View {
         [
             AppCollaborationModePreset(
                 kind: .`default`,
-                name: "Default",
+                name: "默认",
                 model: nil,
                 reasoningEffort: nil
             ),
             AppCollaborationModePreset(
                 kind: .plan,
-                name: "Plan",
+                name: "规划",
                 model: nil,
                 reasoningEffort: .medium
             )
@@ -674,14 +674,14 @@ private struct ConversationMessageList: View {
                     VStack(alignment: .leading, spacing: 0) {
                         LazyVStack(alignment: .leading, spacing: 10) {
                             if !initialTurnsLoaded && hasOlderTurns && !turns.isEmpty {
-                                ConversationLoadingIndicator(label: "Loading earlier messages...")
+                                ConversationLoadingIndicator(label: "正在加载更早消息...")
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
                             } else if hasOlderTurns {
                                 Button {
                                     onLoadOlderTurns(activeThreadKey)
                                 } label: {
-                                    Text("Load earlier messages")
+                                    Text("加载更早消息")
                                         .litterFont(.caption, weight: .semibold)
                                         .foregroundColor(LitterTheme.accent)
                                         .frame(maxWidth: .infinity)
@@ -731,7 +731,7 @@ private struct ConversationMessageList: View {
                         .animation(.spring(response: 0.22, dampingFraction: 0.9), value: textSizeStep)
 
                         if isWaitingForData {
-                            ConversationLoadingIndicator(label: "Loading conversation...")
+                            ConversationLoadingIndicator(label: "正在加载会话...")
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 40)
                         }
@@ -1188,7 +1188,7 @@ private struct ConversationTurnRow: View, Equatable {
                 .animation(nil)
 
             if canCollapse {
-                Button("Show Less", systemImage: "chevron.up", action: onToggleExpansion)
+                Button("收起", systemImage: "chevron.up", action: onToggleExpansion)
                     .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textSecondary)
                     .buttonStyle(.plain)
@@ -1316,11 +1316,11 @@ private struct ConversationTurnRow: View, Equatable {
     private var accessibilitySummary: String {
         var parts = [turn.preview.primaryText]
         if let secondaryPreviewText { parts.append(secondaryPreviewText) }
-        if let durationText = turn.preview.durationText { parts.append("Duration \(durationText)") }
-        if turn.preview.toolCallCount > 0 { parts.append("\(turn.preview.toolCallCount) tool \(turn.preview.toolCallCount == 1 ? "call" : "calls")") }
-        if turn.preview.widgetCount > 0 { parts.append("\(turn.preview.widgetCount) \(turn.preview.widgetCount == 1 ? "widget" : "widgets")") }
-        if turn.preview.eventCount > 0 { parts.append("\(turn.preview.eventCount) \(turn.preview.eventCount == 1 ? "event" : "events")") }
-        if turn.preview.imageCount > 0 { parts.append("\(turn.preview.imageCount) \(turn.preview.imageCount == 1 ? "image" : "images")") }
+        if let durationText = turn.preview.durationText { parts.append("耗时 \(durationText)") }
+        if turn.preview.toolCallCount > 0 { parts.append("\(turn.preview.toolCallCount) 次工具调用") }
+        if turn.preview.widgetCount > 0 { parts.append("\(turn.preview.widgetCount) 个组件") }
+        if turn.preview.eventCount > 0 { parts.append("\(turn.preview.eventCount) 个事件") }
+        if turn.preview.imageCount > 0 { parts.append("\(turn.preview.imageCount) 张图片") }
         return parts.joined(separator: ". ")
     }
 }
@@ -1359,7 +1359,7 @@ private struct ScrollToBottomIndicator: View {
                     .litterFont(.caption, weight: .bold)
                     .offset(y: bob ? 1.5 : -1.5)
                     .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: bob)
-                Text("Latest")
+                Text("最新")
                     .litterFont(.caption, weight: .semibold)
             }
             .foregroundColor(LitterTheme.textPrimary)
@@ -1761,18 +1761,19 @@ private struct ConversationInputBar: View {
 
     private func stopVoiceRecording() {
         Task {
-            let auth = try? await appModel.client.authStatus(
-                serverId: snapshot.threadKey.serverId,
-                params: AuthStatusRequest(includeToken: true, refreshToken: false)
-            )
             if let text = await voiceManager.stopAndTranscribe(
-                authMethod: auth?.authMethod,
-                authToken: auth?.authToken
+                appModel: appModel,
+                options: voiceTranscriptionOptions(
+                    appModel: appModel,
+                    serverId: snapshot.threadKey.serverId
+                )
             ), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 insertTranscriptAtCursor(text)
                 DispatchQueue.main.async {
                     isComposerFocused = true
                 }
+            } else if let error = voiceManager.error {
+                slashErrorMessage = error
             }
         }
     }
@@ -2090,7 +2091,7 @@ private struct ConversationInputBar: View {
             let initialName = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if initialName.isEmpty {
                 let currentTitle = snapshot.threadPreview.trimmingCharacters(in: .whitespacesAndNewlines)
-                renameCurrentThreadTitle = currentTitle.isEmpty ? "Untitled thread" : currentTitle
+                renameCurrentThreadTitle = currentTitle.isEmpty ? "未命名会话" : currentTitle
                 renameDraft = ""
                 showRenamePrompt = true
             } else {
@@ -2142,7 +2143,7 @@ private struct ConversationInputBar: View {
                     params: AppThreadGoalGetRequest(threadId: snapshot.threadKey.threadId)
                 )
                 guard let goal else {
-                    slashErrorMessage = "No goal is set for this thread."
+                    slashErrorMessage = "当前会话还没有设置目标。"
                     return
                 }
                 slashErrorMessage = goalSummary(goal)
@@ -2189,24 +2190,24 @@ private struct ConversationInputBar: View {
 
     private func goalSummary(_ goal: AppThreadGoal) -> String {
         var lines = [
-            "Goal: \(goal.objective)",
-            "Status: \(goalStatusLabel(goal.status))",
-            "Tokens used: \(goal.tokensUsed)"
+            "目标：\(goal.objective)",
+            "状态：\(goalStatusLabel(goal.status))",
+            "已用 Token：\(goal.tokensUsed)"
         ]
         if let tokenBudget = goal.tokenBudget {
-            lines.append("Token budget: \(tokenBudget)")
+            lines.append("Token 预算：\(tokenBudget)")
         }
         return lines.joined(separator: "\n")
     }
 
     private func goalStatusLabel(_ status: AppThreadGoalStatus) -> String {
         switch status {
-        case .active: return "active"
-        case .paused: return "paused"
-        case .blocked: return "blocked"
-        case .usageLimited: return "limited by usage"
-        case .budgetLimited: return "limited by budget"
-        case .complete: return "complete"
+        case .active: return "进行中"
+        case .paused: return "已暂停"
+        case .blocked: return "已阻塞"
+        case .usageLimited: return "用量受限"
+        case .budgetLimited: return "预算受限"
+        case .complete: return "已完成"
         }
     }
 
@@ -2320,7 +2321,7 @@ private struct ConversationInputBar: View {
     private func loadExperimentalFeatures() async {
         guard appModel.snapshot?.servers.first(where: { $0.serverId == snapshot.threadKey.serverId })?.canUseTransportActions == true else {
             experimentalFeatures = []
-            slashErrorMessage = "Not connected to a server"
+            slashErrorMessage = "尚未连接主机"
             return
         }
         experimentalFeaturesLoading = true
@@ -2346,7 +2347,7 @@ private struct ConversationInputBar: View {
 
     private func setExperimentalFeature(named featureName: String, enabled: Bool) async {
         guard appModel.snapshot?.servers.first(where: { $0.serverId == snapshot.threadKey.serverId })?.canUseTransportActions == true else {
-            slashErrorMessage = "Not connected to a server"
+            slashErrorMessage = "尚未连接主机"
             return
         }
         guard let currentIndex = experimentalFeatures.firstIndex(where: { $0.name == featureName }) else {
@@ -2400,7 +2401,7 @@ private struct ConversationInputBar: View {
             skills = []
             mentionSkillPathsByName = [:]
             if showErrors {
-                slashErrorMessage = "Not connected to a server"
+                slashErrorMessage = "尚未连接主机"
             }
             return
         }
@@ -2597,7 +2598,7 @@ private struct CollaborationModeSelectorSheet: View {
                 if isLoading && presets.isEmpty {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Loading modes…")
+                        Text("正在加载模式...")
                             .litterFont(.body)
                             .foregroundStyle(LitterTheme.textSecondary)
                     }
@@ -2630,27 +2631,27 @@ private struct CollaborationModeSelectorSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(LitterTheme.surface)
-            .navigationTitle("Collaboration Mode")
+            .navigationTitle("协作模式")
         }
     }
 }
 
 private func collaborationModeEffortLabel(_ effort: ReasoningEffort) -> String {
     switch effort {
-    case .none:
-        return "None"
-    case .minimal:
-        return "Minimal"
-    case .low:
-        return "Low"
-    case .medium:
-        return "Medium"
-    case .high:
-        return "High"
-    case .xHigh:
-        return "XHigh"
-    case .max:
-        return "Max"
+        case .none:
+            return "无"
+        case .minimal:
+            return "极低"
+        case .low:
+            return "低"
+        case .medium:
+            return "中"
+        case .high:
+            return "高"
+        case .xHigh:
+            return "很高"
+        case .max:
+            return "最高"
     }
 }
 
@@ -2685,17 +2686,17 @@ enum ComposerSlashCommand: CaseIterable {
 
     var description: String {
         switch self {
-        case .plan: return "switch collaboration mode"
-        case .model: return "choose what model and reasoning effort to use"
-        case .permissions: return "choose what Codex is allowed to do"
-        case .experimental: return "toggle experimental features"
-        case .skills: return "use skills to improve how Codex performs specific tasks"
-        case .review: return "review my current changes and find issues"
-        case .goal: return "set or manage the current thread goal"
-        case .rename: return "rename the current thread"
-        case .new: return "start a new chat during a conversation"
-        case .fork: return "fork the current conversation into a new session"
-        case .resume: return "resume a saved chat"
+        case .plan: return "切换协作模式"
+        case .model: return "选择模型和思考强度"
+        case .permissions: return "选择 NeCode 可以执行的操作"
+        case .experimental: return "开关实验功能"
+        case .skills: return "使用技能优化特定任务表现"
+        case .review: return "审查当前改动并找出问题"
+        case .goal: return "设置或管理当前会话目标"
+        case .rename: return "重命名当前会话"
+        case .new: return "在对话中开启新会话"
+        case .fork: return "将当前对话分叉为新会话"
+        case .resume: return "继续一个已保存会话"
         }
     }
 
@@ -2728,21 +2729,21 @@ enum ComposerApprovalOption: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .default: return "Default"
-        case .untrusted: return "Untrusted"
-        case .onFailure: return "On failure"
-        case .onRequest: return "On request"
-        case .never: return "Never"
+        case .default: return "默认"
+        case .untrusted: return "不信任"
+        case .onFailure: return "失败时询问"
+        case .onRequest: return "请求时询问"
+        case .never: return "从不询问"
         }
     }
 
     var description: String {
         switch self {
-        case .default: return "Use the thread or server default"
-        case .untrusted: return "Always ask before taking action"
-        case .onFailure: return "Ask only when a command fails"
-        case .onRequest: return "Ask when escalation is requested"
-        case .never: return "Run without asking for approval"
+        case .default: return "使用会话或主机默认设置"
+        case .untrusted: return "执行操作前始终询问"
+        case .onFailure: return "仅在命令失败时询问"
+        case .onRequest: return "请求提升权限时询问"
+        case .never: return "无需确认直接执行"
         }
     }
 
@@ -2767,19 +2768,19 @@ enum ComposerSandboxOption: CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .default: return "Default"
-        case .readOnly: return "Read only"
-        case .workspaceWrite: return "Workspace write"
-        case .fullAccess: return "Full access"
+        case .default: return "默认"
+        case .readOnly: return "只读"
+        case .workspaceWrite: return "工作区可写"
+        case .fullAccess: return "完全访问"
         }
     }
 
     var description: String {
         switch self {
-        case .default: return "Use the thread or server default"
-        case .readOnly: return "Can read files, but cannot edit them"
-        case .workspaceWrite: return "Can edit files, but only in this workspace"
-        case .fullAccess: return "Can edit files outside this workspace"
+        case .default: return "使用会话或主机默认设置"
+        case .readOnly: return "可以读取文件，但不能编辑"
+        case .workspaceWrite: return "只能编辑当前工作区文件"
+        case .fullAccess: return "可以编辑工作区外的文件"
         }
     }
 
@@ -3038,9 +3039,9 @@ struct PendingUserInputPromptView: View {
     private var promptTitle: String {
         let firstQuestion = request.questions.first?.question.lowercased() ?? ""
         if firstQuestion.contains("implement") && firstQuestion.contains("plan") {
-            return "Implement Plan"
+            return "执行计划"
         }
-        return "Input Required"
+        return "需要输入"
     }
 
     private var requesterLabel: String? {
@@ -3076,7 +3077,7 @@ struct PendingUserInputPromptView: View {
                         .foregroundColor(LitterTheme.textMuted)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss input request")
+                .accessibilityLabel("关闭输入请求")
             }
 
             if let requesterLabel {
@@ -3098,7 +3099,7 @@ struct PendingUserInputPromptView: View {
                         .foregroundColor(LitterTheme.textPrimary)
 
                     if question.isSecret || (!question.isOtherAllowed && question.options.isEmpty) {
-                        Text("This prompt type is not fully supported in the current iOS client.")
+                        Text("当前 iOS 客户端暂不完整支持这种输入请求。")
                             .litterFont(.caption2)
                             .foregroundColor(LitterTheme.textSecondary)
                     } else {
@@ -3134,7 +3135,7 @@ struct PendingUserInputPromptView: View {
 
                             if question.isOtherAllowed {
                                 TextField(
-                                    question.options.isEmpty ? "Enter response" : "Other response",
+                                    question.options.isEmpty ? "输入回复" : "其他回复",
                                     text: otherAnswerBinding(for: question)
                                 )
                                 .litterFont(.caption2)
@@ -3150,7 +3151,7 @@ struct PendingUserInputPromptView: View {
             }
 
             if canSubmit {
-                Button("Submit") {
+                Button("提交") {
                     let answers = request.questions.reduce(into: [String: [String]]()) { result, question in
                         let answer = resolvedAnswer(for: question)
                         guard !answer.isEmpty else { return }
@@ -3204,13 +3205,13 @@ struct PlanImplementationPromptView: View {
             HStack(spacing: 8) {
                 Image(systemName: "list.bullet.clipboard.fill")
                     .foregroundColor(LitterTheme.accent)
-                Text("Implement Plan")
+                Text("执行计划")
                     .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
             }
 
-            Text("Switch to Default mode and implement the plan?")
+            Text("切换到默认模式并执行计划？")
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textSecondary)
 
@@ -3218,7 +3219,7 @@ struct PlanImplementationPromptView: View {
                 Button {
                     onImplement()
                 } label: {
-                    Text("Implement")
+                                    Text("执行")
                         .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(Color.black)
                         .padding(.horizontal, 10)
@@ -3231,7 +3232,7 @@ struct PlanImplementationPromptView: View {
                 Button {
                     onDismiss()
                 } label: {
-                    Text("Stay in Plan")
+                    Text("留在规划模式")
                         .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                         .padding(.horizontal, 10)
@@ -3259,7 +3260,7 @@ struct QueuedFollowUpsPreviewView: View {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(LitterTheme.accent)
-                Text("Queued Next")
+                Text("下一条已排队")
                     .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
@@ -3302,12 +3303,12 @@ struct QueuedFollowUpsPreviewView: View {
                                 if preview.kind == .pendingSteer {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 12, weight: .semibold))
-                                    Text("Steering")
+                                    Text("正在调整")
                                         .litterFont(.caption, weight: .semibold)
                                 } else {
                                     Image(systemName: "arrow.turn.down.right")
                                         .font(.system(size: 12, weight: .semibold))
-                                    Text("Steer")
+                                    Text("调整")
                                         .litterFont(.caption, weight: .semibold)
                                 }
                             }
@@ -3356,7 +3357,7 @@ private struct QueuedFollowUpPreviewStyle {
         case .message:
             let tint = LitterTheme.accent
             return Self(
-                title: "Queued message",
+                title: "已排队消息",
                 symbol: "text.bubble.fill",
                 tint: tint,
                 background: tint.opacity(0.08),
@@ -3365,7 +3366,7 @@ private struct QueuedFollowUpPreviewStyle {
         case .pendingSteer:
             let tint = LitterTheme.accentStrong
             return Self(
-                title: "Steer queued",
+                title: "调整排队消息",
                 symbol: "arrowshape.turn.up.right.fill",
                 tint: tint,
                 background: tint.opacity(0.10),
@@ -3374,7 +3375,7 @@ private struct QueuedFollowUpPreviewStyle {
         case .retryingSteer:
             let tint = LitterTheme.warning
             return Self(
-                title: "Retrying steer",
+                title: "正在重试调整",
                 symbol: "arrow.clockwise",
                 tint: tint,
                 background: tint.opacity(0.10),
@@ -3429,7 +3430,7 @@ private struct MinigameLaunchButton: View {
                 .shadow(color: Color.black.opacity(0.15), radius: 4, x: 0, y: 2)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Play a minigame while waiting")
+        .accessibilityLabel("等待时打开小游戏")
     }
 }
 
@@ -3437,7 +3438,7 @@ struct TypingIndicator: View {
     @State private var shimmerOffset: CGFloat = -1
 
     var body: some View {
-        Text("Thinking")
+        Text("思考中")
             .litterFont(.body, weight: .medium)
             .foregroundStyle(
                 LinearGradient(
@@ -3501,7 +3502,7 @@ private struct SubagentBreadcrumbBar: View {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
                         .litterFont(size: 10, weight: .semibold)
-                    Text("Parent")
+                    Text("上级")
                         .litterFont(.caption, weight: .medium)
                 }
                 .foregroundColor(LitterTheme.accent)
@@ -3516,7 +3517,7 @@ private struct SubagentBreadcrumbBar: View {
                 Image(systemName: "person.fill")
                     .litterFont(size: 10, weight: .semibold)
                     .foregroundColor(LitterTheme.success)
-                Text(thread.agentDisplayLabel ?? "Agent")
+                Text(thread.agentDisplayLabel ?? "智能体")
                     .litterFont(.caption, weight: .medium)
                     .foregroundColor(LitterTheme.textPrimary)
                     .lineLimit(1)
@@ -3604,7 +3605,7 @@ private struct DebugPopoverContent: View {
     var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Debug")
+            Text("调试")
                 .litterFont(.subheadline, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
 
@@ -3612,7 +3613,7 @@ private struct DebugPopoverContent: View {
                 get: { debugSettings.disableMarkdown },
                 set: { debugSettings.disableMarkdown = $0 }
             )) {
-                Text("Disable Markdown")
+                Text("禁用 Markdown")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textPrimary)
             }
@@ -3622,7 +3623,7 @@ private struct DebugPopoverContent: View {
                 get: { debugSettings.showTurnMetrics },
                 set: { debugSettings.showTurnMetrics = $0 }
             )) {
-                Text("Turn Metrics")
+                Text("轮次指标")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textPrimary)
             }
@@ -3632,7 +3633,7 @@ private struct DebugPopoverContent: View {
                 Divider().background(LitterTheme.border)
 
                 // MARK: Recording controls
-                Text("Recording")
+                Text("录制")
                     .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
 
@@ -3642,7 +3643,7 @@ private struct DebugPopoverContent: View {
                             recorder.stopRecording(store: appModel.store)
                             recordings = recorder.listRecordings()
                         } label: {
-                            Label("Stop", systemImage: "stop.fill")
+                            Label("停止", systemImage: "stop.fill")
                                 .litterFont(.caption, weight: .medium)
                                 .foregroundColor(.red)
                         }
@@ -3651,7 +3652,7 @@ private struct DebugPopoverContent: View {
                         Button {
                             recorder.stopReplay()
                         } label: {
-                            Label("Stop", systemImage: "stop.fill")
+                            Label("停止", systemImage: "stop.fill")
                                 .litterFont(.caption, weight: .medium)
                                 .foregroundColor(.orange)
                         }
@@ -3660,7 +3661,7 @@ private struct DebugPopoverContent: View {
                         Button {
                             recorder.startRecording(store: appModel.store)
                         } label: {
-                            Label("Record", systemImage: "record.circle")
+                            Label("录制", systemImage: "record.circle")
                                 .litterFont(.caption, weight: .medium)
                                 .foregroundColor(.red)
                         }

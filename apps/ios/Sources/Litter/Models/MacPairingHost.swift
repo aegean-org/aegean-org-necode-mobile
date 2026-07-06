@@ -302,11 +302,11 @@ final class MacPairingHost: NSObject {
         }()
         let distanceSuffix = distanceM.map { String(format: " (~%.1fm)", $0) } ?? ""
         let alert = UIAlertController(
-            title: "Pair with \(deviceLabel)?",
-            message: "\(deviceLabel)\(distanceSuffix) wants to pair with this Mac as its Litter home base.",
+            title: "与 \(deviceLabel) 配对？",
+            message: "\(deviceLabel)\(distanceSuffix) 想将这台 Mac 作为 NeCode 连接主机。",
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "Accept", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "接受", style: .default) { [weak self] _ in
             guard let self else { return }
             let lanIp = Self.resolveLANIPv4() ?? "127.0.0.1"
             Task {
@@ -324,7 +324,7 @@ final class MacPairingHost: NSObject {
                 }
             }
         })
-        alert.addAction(UIAlertAction(title: "Decline", style: .cancel) { _ in
+        alert.addAction(UIAlertAction(title: "拒绝", style: .cancel) { _ in
             Task {
                 do {
                     try await host.acceptPairRequest(

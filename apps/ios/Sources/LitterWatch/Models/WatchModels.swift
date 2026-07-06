@@ -259,7 +259,7 @@ enum WatchPreviewFixtures {
             serverId: "studio.lan",
             serverName: "studio.lan",
             title: "deploy staging",
-            subtitle: "awaiting approval: git push",
+            subtitle: "等待审批：git push",
             status: .needsApproval,
             relativeTime: "2m",
             steps: [],

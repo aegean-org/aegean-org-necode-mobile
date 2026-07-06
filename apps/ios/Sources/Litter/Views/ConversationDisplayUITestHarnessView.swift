@@ -22,7 +22,7 @@ struct ConversationDisplayUITestHarnessView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Conversation Display Test")
+            Text("会话显示测试")
                         .litterFont(.title3, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                         .accessibilityIdentifier("conversationDisplayHarness.title")
@@ -46,7 +46,7 @@ struct ConversationDisplayUITestHarnessView: View {
                 .padding(16)
             }
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Display Harness")
+        .navigationTitle("显示测试")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -55,7 +55,7 @@ struct ConversationDisplayUITestHarnessView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
-                    .accessibilityLabel("Settings")
+        .accessibilityLabel("设置")
                     .accessibilityIdentifier("conversationDisplayHarness.settingsButton")
                 }
             }

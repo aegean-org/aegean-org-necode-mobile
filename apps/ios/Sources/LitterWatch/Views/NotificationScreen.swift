@@ -25,17 +25,17 @@ struct NotificationScreen: View {
                     RoundedRectangle(cornerRadius: 5)
                         .fill(theme.accent)
                         .frame(width: 18, height: 18)
-                    Text("L")
+                    Text("N")
                         .font(WatchTheme.mono(10, weight: .bold))
                         .foregroundStyle(theme.textOnAccent)
                 }
-                Text("litter")
+                Text("NeCode")
                     .font(WatchTheme.mono(10))
                     .foregroundStyle(theme.textSecondary)
                 Spacer(minLength: 0)
             }
 
-            Text(content?.title ?? "codex update")
+            Text(content?.title ?? "NeCode 更新")
                 .font(WatchTheme.mono(14, weight: .bold))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -169,19 +169,19 @@ struct CodexTurnLiveActivity: Widget {
 
     private func statusText(_ state: CodexTurnAttributes.ContentState) -> String {
         switch state.phase {
-        case .thinking: return "Thinking..."
-        case .toolCall: return state.toolName ?? "Running tool..."
-        case .completed: return "Done"
-        case .failed: return "Failed"
+        case .thinking: return "思考中..."
+        case .toolCall: return state.toolName ?? "正在执行工具..."
+        case .completed: return "已完成"
+        case .failed: return "失败"
         }
     }
 
     private func phaseBadgeText(_ state: CodexTurnAttributes.ContentState) -> String {
         switch state.phase {
-        case .thinking: return "thinking"
-        case .toolCall: return "tool"
-        case .completed: return "done"
-        case .failed: return "failed"
+        case .thinking: return "思考中"
+        case .toolCall: return "工具"
+        case .completed: return "完成"
+        case .failed: return "失败"
         }
     }
 

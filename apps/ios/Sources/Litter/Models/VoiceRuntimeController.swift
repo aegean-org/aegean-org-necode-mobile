@@ -115,7 +115,7 @@ final class VoiceRuntimeController: VoiceActions {
             }
         } catch {
             voiceStopRequestedThreadKey = nil
-            failVoiceSession("Failed to hang up: \(error.localizedDescription)")
+            failVoiceSession("挂断失败：\(error.localizedDescription)")
         }
     }
 
@@ -487,7 +487,7 @@ final class VoiceRuntimeController: VoiceActions {
                 LLog.info("voice", "applyAnswer completed")
             } catch {
                 LLog.error("voice", "applyAnswer failed", error: error)
-                self?.failVoiceSession("Failed to apply realtime answer: \(error.localizedDescription)")
+                self?.failVoiceSession("应用实时回答失败：\(error.localizedDescription)")
             }
         }
     }
@@ -789,8 +789,8 @@ final class VoiceRuntimeController: VoiceActions {
         session.isSpeaking = false
         session.inputLevel = 0
         session.outputLevel = 0
-        session.transcriptSpeaker = "System"
-        session.transcriptText = "Hanging up..."
+        session.transcriptSpeaker = "系统"
+        session.transcriptText = "正在挂断..."
         session.lastError = nil
         activeVoiceSession = session
         syncVoiceCallActivity()
@@ -1022,9 +1022,9 @@ private extension VoiceRuntimeController {
     func voiceSpeakerLabel(_ speaker: AppVoiceSpeaker) -> String {
         switch speaker {
         case .user:
-            return "You"
+            return "你"
         case .assistant:
-            return "Codex"
+            return "NeCode"
         }
     }
 

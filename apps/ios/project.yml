@@ -91,15 +91,6 @@ targets:
     resources:
       - path: Sources/Litter/Resources/Fonts
       - path: Sources/Litter/Resources/Themes
-      - path: Sources/Litter/Resources/TipJarProducts.storekit
-      - path: Sources/Litter/Resources/home_cat.png
-      - path: Sources/Litter/Resources/home_cat_entrance.png
-      - path: Sources/Litter/Resources/cat_transmission_01.png
-      - path: Sources/Litter/Resources/cat_transmission_02.png
-      - path: Sources/Litter/Resources/cat_transmission_03.png
-      - path: Sources/Litter/Resources/cat_transmission_04.png
-      - path: Sources/Litter/Resources/cat_transmission_05.png
-      - path: Sources/Litter/Resources/cat_transmission_06.png
     dependencies:
       - sdk: CarPlay.framework
       - sdk: CoreGraphics.framework
@@ -125,6 +116,7 @@ targets:
         embed: true
     settings:
       base:
+        PRODUCT_NAME: NeCode
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter
         INFOPLIST_FILE: Sources/Litter/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Litter/Bridge/codex_bridge_objc.h
@@ -200,15 +192,6 @@ targets:
     resources:
       - path: Sources/Litter/Resources/Fonts
       - path: Sources/Litter/Resources/Themes
-      - path: Sources/Litter/Resources/TipJarProducts.storekit
-      - path: Sources/Litter/Resources/home_cat.png
-      - path: Sources/Litter/Resources/home_cat_entrance.png
-      - path: Sources/Litter/Resources/cat_transmission_01.png
-      - path: Sources/Litter/Resources/cat_transmission_02.png
-      - path: Sources/Litter/Resources/cat_transmission_03.png
-      - path: Sources/Litter/Resources/cat_transmission_04.png
-      - path: Sources/Litter/Resources/cat_transmission_05.png
-      - path: Sources/Litter/Resources/cat_transmission_06.png
     dependencies:
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
@@ -221,7 +204,7 @@ targets:
         product: NukeUI
     settings:
       base:
-        PRODUCT_NAME: Litter
+        PRODUCT_NAME: NeCode
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
         INFOPLIST_FILE: Sources/Litter/Info-Catalyst.plist
@@ -281,6 +264,7 @@ targets:
       - path: Sources/LitterLiveActivity/Assets.xcassets
     settings:
       base:
+        PRODUCT_NAME: NeCode 实时活动
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.liveactivity
         INFOPLIST_FILE: Sources/LitterLiveActivity/Info.plist
       configs:
@@ -320,6 +304,7 @@ targets:
         embed: true
     settings:
       base:
+        PRODUCT_NAME: NeCode
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp
         INFOPLIST_FILE: Sources/LitterWatch/Info.plist
         TARGETED_DEVICE_FAMILY: "4"
@@ -363,6 +348,7 @@ targets:
       - path: Sources/LitterWatchComplications/Assets.xcassets
     settings:
       base:
+        PRODUCT_NAME: NeCode 表盘组件
         PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp.complications
         INFOPLIST_FILE: Sources/LitterWatchComplications/Info.plist
         GENERATE_INFOPLIST_FILE: NO

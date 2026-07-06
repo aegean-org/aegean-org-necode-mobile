@@ -41,7 +41,7 @@ struct TaskDetailScreen: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "exclamationmark.circle.fill")
                                     .foregroundStyle(theme.warning)
-                                Text("review approval")
+                                Text("查看审批")
                                     .font(WatchTheme.mono(11, weight: .bold))
                                     .foregroundStyle(theme.textPrimary)
                                 Spacer()
@@ -61,7 +61,7 @@ struct TaskDetailScreen: View {
                     }
 
                     if !current.steps.isEmpty {
-                        WatchEyebrow(text: "recent", size: 9)
+                        WatchEyebrow(text: "最近", size: 9)
                             .padding(.top, 4)
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(current.steps) { step in
@@ -79,14 +79,14 @@ struct TaskDetailScreen: View {
                         NavigationLink {
                             TranscriptScreen()
                         } label: {
-                            actionLabel("transcript", icon: "text.bubble")
+                            actionLabel("记录", icon: "text.bubble")
                         }
                         .buttonStyle(.plain)
 
                         NavigationLink {
                             VoiceScreen()
                         } label: {
-                            actionLabel("reply", icon: "mic.fill", accent: true)
+                            actionLabel("回复", icon: "mic.fill", accent: true)
                         }
                         .buttonStyle(.plain)
                     }
@@ -111,24 +111,24 @@ struct TaskDetailScreen: View {
                 } else {
                     PulsingDot(color: theme.accent, size: 7)
                 }
-                Text("running")
+                Text("运行中")
                     .font(WatchTheme.mono(10, weight: .bold))
                     .foregroundStyle(isAOD ? theme.textSecondary : theme.accent)
             case .needsApproval:
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(isAOD ? theme.textSecondary : theme.warning)
-                Text("needs approval")
+                Text("待审批")
                     .font(WatchTheme.mono(10, weight: .bold))
                     .foregroundStyle(isAOD ? theme.textSecondary : theme.warning)
             case .idle:
                 Circle().fill(theme.textSecondary).frame(width: 6, height: 6)
-                Text("idle")
+                Text("空闲")
                     .font(WatchTheme.mono(10, weight: .bold))
                     .foregroundStyle(theme.textSecondary)
             case .error:
                 Circle().fill(isAOD ? theme.textSecondary : theme.danger).frame(width: 6, height: 6)
-                Text("error")
+                Text("错误")
                     .font(WatchTheme.mono(10, weight: .bold))
                     .foregroundStyle(isAOD ? theme.textSecondary : theme.danger)
             }
@@ -187,7 +187,7 @@ private struct DiffsLink: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(theme.accent)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("diffs")
+                    Text("差异")
                         .font(WatchTheme.mono(11, weight: .bold))
                         .foregroundStyle(theme.textPrimary)
                     Text(filesLabel)
@@ -233,7 +233,7 @@ private struct DiffsLink: View {
         if count == 1, let only = diffs.first {
             return (only.path as NSString).lastPathComponent
         }
-        return "\(count) files"
+        return "\(count) 个文件"
     }
 }
 

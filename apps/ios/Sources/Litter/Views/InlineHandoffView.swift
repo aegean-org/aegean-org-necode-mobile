@@ -58,7 +58,7 @@ struct InlineHandoffView: View {
                 ProgressView()
                     .scaleEffect(0.7)
                     .tint(Color.white.opacity(0.7))
-                Text("Running...")
+                Text("运行中...")
                     .font(LitterFont.styled(.caption))
                     .foregroundColor(.white.opacity(0.7))
             }
@@ -134,7 +134,7 @@ private struct InlineHandoffEntry: Identifiable {
         case .codeReview(let data):
             guard let first = data.findings.first else { return nil }
             self.id = item.id
-            self.text = "Review: \(first.title)"
+            self.text = "审查：\(first.title)"
             self.style = .assistant
         case .reasoning(let data):
             let summary = (data.summary + data.content)
@@ -142,21 +142,21 @@ private struct InlineHandoffEntry: Identifiable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !summary.isEmpty else { return nil }
             self.id = item.id
-            self.text = "Thinking: \(summary)"
+            self.text = "思考：\(summary)"
             self.style = .status
         case .todoList(let data):
             guard !data.steps.isEmpty else { return nil }
             self.id = item.id
-            self.text = "Plan: \(data.completedCount)/\(data.steps.count) done"
+            self.text = "计划：已完成 \(data.completedCount)/\(data.steps.count)"
             self.style = .status
         case .proposedPlan:
             self.id = item.id
-            self.text = "Planning…"
+            self.text = "正在规划..."
             self.style = .status
         case .commandExecution(let data):
             self.id = item.id
             self.text = InlineHandoffEntry.statusText(
-                label: data.command.isEmpty ? "Working" : data.command,
+                label: data.command.isEmpty ? "执行中" : data.command,
                 status: data.status.displayLabel
             )
             self.style = .status
@@ -164,13 +164,13 @@ private struct InlineHandoffEntry: Identifiable {
             self.id = item.id
             let count = data.changes.count
             self.text = InlineHandoffEntry.statusText(
-                label: count > 0 ? "Changed \(count) file\(count == 1 ? "" : "s")" : "Applying changes",
+                label: count > 0 ? "已修改 \(count) 个文件" : "正在应用修改",
                 status: data.status.displayLabel
             )
             self.style = .status
         case .turnDiff:
             self.id = item.id
-            self.text = "Comparing changes"
+            self.text = "正在对比变更"
             self.style = .status
         case .mcpToolCall(let data):
             self.id = item.id
@@ -186,30 +186,30 @@ private struct InlineHandoffEntry: Identifiable {
             self.style = .status
         case .webSearch(let data):
             self.id = item.id
-            self.text = data.query.isEmpty ? "Searching web" : "Searching: \(data.query)"
+            self.text = data.query.isEmpty ? "正在联网搜索" : "正在搜索：\(data.query)"
             self.style = .status
         case .imageView(let data):
             self.id = item.id
-            self.text = "Viewed image: \(workspaceTitle(for: data.path))"
+            self.text = "查看图片：\(workspaceTitle(for: data.path))"
             self.style = .status
         case .imageGeneration(let data):
             self.id = item.id
             switch data.status {
             case .completed:
-                self.text = "Generated image"
+                self.text = "图片已生成"
                 self.style = .status
             case .failed:
-                self.text = "Image generation failed"
+                self.text = "图片生成失败"
                 self.style = .error
             default:
-                self.text = "Generating image"
+                self.text = "正在生成图片"
                 self.style = .status
             }
         case .widget:
             return nil
         case .userInputResponse:
             self.id = item.id
-            self.text = "Waiting for user input"
+            self.text = "等待用户输入"
             self.style = .status
         case .divider(let kind):
             guard let text = InlineHandoffEntry.dividerText(kind) else { return nil }
@@ -238,7 +238,7 @@ private struct InlineHandoffEntry: Identifiable {
     private static func statusText(label: String, status: String) -> String {
         let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanStatus = status.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanLabel.isEmpty else { return cleanStatus.isEmpty ? "Working" : cleanStatus }
+        guard !cleanLabel.isEmpty else { return cleanStatus.isEmpty ? "执行中" : cleanStatus }
         guard !cleanStatus.isEmpty else { return cleanLabel }
         return "\(cleanLabel) (\(cleanStatus))"
     }
@@ -246,13 +246,13 @@ private struct InlineHandoffEntry: Identifiable {
     private static func dividerText(_ kind: ConversationDividerKind) -> String? {
         switch kind {
         case .contextCompaction(let isComplete):
-            return isComplete ? "Context compacted" : "Compacting context"
+            return isComplete ? "上下文已压缩" : "正在压缩上下文"
         case .modelRerouted(_, let toModel, _):
-            return "Switched to \(toModel)"
+            return "已切换到 \(toModel)"
         case .reviewEntered(let review):
-            return "Entered \(review)"
+            return "进入 \(review)"
         case .reviewExited(let review):
-            return "Exited \(review)"
+            return "退出 \(review)"
         case .workedFor(let duration):
             return duration
         case .generic(let title, let detail):

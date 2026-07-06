@@ -33,7 +33,7 @@ struct ConversationComposerExpandedView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if inputText.isEmpty {
-                    Text("Message litter...")
+                    Text("输入消息...")
                         .font(LitterFont.styled(size: 17))
                         .foregroundColor(LitterTheme.textMuted)
                         .padding(.leading, 24)
@@ -53,7 +53,7 @@ struct ConversationComposerExpandedView: View {
                             .font(LitterFont.styled(size: 15, weight: .semibold))
                             .foregroundColor(LitterTheme.textPrimary)
                     }
-                    .accessibilityLabel("Collapse composer")
+                    .accessibilityLabel("收起输入框")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -65,7 +65,7 @@ struct ConversationComposerExpandedView: View {
                             .foregroundColor(canSend ? LitterTheme.accent : LitterTheme.textMuted)
                     }
                     .disabled(!canSend)
-                    .accessibilityLabel("Send")
+                    .accessibilityLabel("发送")
                 }
             }
             .task {

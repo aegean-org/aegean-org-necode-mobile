@@ -269,7 +269,7 @@ private struct ConversationComposerFileChipStrip: View {
                                 .background(Circle().fill(LitterTheme.accent.opacity(0.18)))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Remove file \(file.label)")
+                        .accessibilityLabel("移除文件 \(file.label)")
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
@@ -309,7 +309,7 @@ private struct ConversationComposerPluginChipStrip: View {
                                 .background(Circle().fill(LitterTheme.accent.opacity(0.18)))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Remove plugin \(plugin.displayTitle)")
+                        .accessibilityLabel("移除插件 \(plugin.displayTitle)")
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -330,9 +330,9 @@ struct ConversationComposerModeChip: View {
     private var label: String {
         switch mode {
         case .plan:
-            return "Plan"
+            return "规划"
         case .`default`:
-            return "Default"
+            return "默认"
         }
     }
 
@@ -372,7 +372,7 @@ private struct ConversationComposerPlanProgressView: View {
     private var currentStepText: String {
         guard let step = currentStep?.step.trimmingCharacters(in: .whitespacesAndNewlines),
               !step.isEmpty else {
-            return progress.plan.isEmpty ? "No plan task" : "Plan complete"
+            return progress.plan.isEmpty ? "没有计划任务" : "计划已完成"
         }
         return step
     }
@@ -396,7 +396,7 @@ private struct ConversationComposerPlanProgressView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isExpanded ? "Collapse plan progress" : "Expand plan progress")
+            .accessibilityLabel(isExpanded ? "收起计划进度" : "展开计划进度")
 
             if isExpanded {
                 expandedContent
@@ -416,7 +416,7 @@ private struct ConversationComposerPlanProgressView: View {
             Image(systemName: "list.bullet.clipboard")
                 .litterFont(size: 12, weight: .semibold)
                 .foregroundStyle(LitterTheme.accent)
-            Text(isExpanded ? "Plan Progress" : "Plan")
+            Text(isExpanded ? "计划进度" : "计划")
                 .litterFont(.caption, weight: .semibold)
                 .foregroundStyle(LitterTheme.textPrimary)
             Text("\(completedCount)/\(progress.plan.count)")
@@ -537,7 +537,7 @@ private struct ConversationComposerGoalRowView: View {
                         draftObjective = goal.objective
                         showEditSheet = true
                     }
-                    .accessibilityHint("Tap to edit objective")
+                    .accessibilityHint("点按编辑目标")
 
                 overflowMenu
             }
@@ -554,34 +554,34 @@ private struct ConversationComposerGoalRowView: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(GoalCardChromeModifier(statusTint: statusTint, cornerRadius: cornerRadius))
-        .alert("Edit Goal", isPresented: $showEditSheet) {
-            TextField("Objective", text: $draftObjective, axis: .vertical)
-            Button("Save") {
+        .alert("编辑目标", isPresented: $showEditSheet) {
+            TextField("目标", text: $draftObjective, axis: .vertical)
+            Button("保存") {
                 let trimmed = draftObjective.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { actions.setObjective(trimmed) }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         }
-        .alert("Token Budget", isPresented: $showBudgetSheet) {
-            TextField("e.g. 50000", text: $draftBudget)
+        .alert("Token 预算", isPresented: $showBudgetSheet) {
+                TextField("例如 50000", text: $draftBudget)
                 .keyboardType(.numberPad)
-            Button("Save") {
+            Button("保存") {
                 let trimmed = draftBudget.trimmingCharacters(in: .whitespaces)
                 if let value = Int64(trimmed), value > 0 {
                     actions.setBudget(value)
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         } message: {
-            Text("Set a token cap for this goal. The agent will pause when the cap is reached.")
+            Text("为这个目标设置 Token 上限，达到上限后会暂停。")
         }
         .confirmationDialog(
-            "Clear this goal?",
+            "清除这个目标？",
             isPresented: $showClearConfirm,
             titleVisibility: .visible
         ) {
-            Button("Clear Goal", role: .destructive) { actions.clear() }
-            Button("Cancel", role: .cancel) {}
+            Button("清除目标", role: .destructive) { actions.clear() }
+            Button("取消", role: .cancel) {}
         }
         .onAppear {
             animatedProgress = budgetProgress ?? 0
@@ -640,21 +640,21 @@ private struct ConversationComposerGoalRowView: View {
                 draftObjective = goal.objective
                 showEditSheet = true
             } label: {
-                Label("Edit Objective", systemImage: "pencil")
+                Label("编辑目标", systemImage: "pencil")
             }
 
             Button {
                 draftBudget = goal.tokenBudget.map { String($0) } ?? ""
                 showBudgetSheet = true
             } label: {
-                Label("Set Token Budget", systemImage: "gauge.with.dots.needle.50percent")
+                Label("设置 Token 预算", systemImage: "gauge.with.dots.needle.50percent")
             }
 
             if goal.status != .complete {
                 Button {
                     actions.markComplete()
                 } label: {
-                    Label("Mark Complete", systemImage: "checkmark.circle")
+                    Label("标记完成", systemImage: "checkmark.circle")
                 }
             }
 
@@ -663,7 +663,7 @@ private struct ConversationComposerGoalRowView: View {
             Button(role: .destructive) {
                 showClearConfirm = true
             } label: {
-                Label("Clear Goal", systemImage: "trash")
+                Label("清除目标", systemImage: "trash")
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -672,7 +672,7 @@ private struct ConversationComposerGoalRowView: View {
                 .frame(width: 24, height: 22)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel("Goal actions")
+        .accessibilityLabel("目标操作")
     }
 
     private func budgetGauge(progress: Double) -> some View {
@@ -719,22 +719,22 @@ private struct ConversationComposerGoalRowView: View {
 
     private var pauseToggleAccessibilityLabel: String {
         switch goal.status {
-        case .active: return "Pause goal"
-        case .paused: return "Resume goal"
-        case .blocked: return "Resume goal (override block)"
-        case .usageLimited: return "Resume goal (override usage cap)"
-        case .budgetLimited: return "Resume goal (override budget cap)"
-        case .complete: return "Goal complete"
+        case .active: return "暂停目标"
+        case .paused: return "继续目标"
+        case .blocked: return "继续目标（忽略阻塞）"
+        case .usageLimited: return "继续目标（忽略用量上限）"
+        case .budgetLimited: return "继续目标（忽略预算上限）"
+        case .complete: return "目标已完成"
         }
     }
 
     private var pauseResumeMenuItem: (label: String, systemImage: String)? {
         switch goal.status {
-        case .active: return ("Pause Goal", "pause.circle")
-        case .paused: return ("Resume Goal", "play.circle")
-        case .blocked: return ("Resume Goal (override block)", "play.circle")
-        case .usageLimited: return ("Resume Goal (override usage cap)", "play.circle")
-        case .budgetLimited: return ("Resume Goal (override cap)", "play.circle")
+        case .active: return ("暂停目标", "pause.circle")
+        case .paused: return ("继续目标", "play.circle")
+        case .blocked: return ("继续目标（忽略阻塞）", "play.circle")
+        case .usageLimited: return ("继续目标（忽略用量上限）", "play.circle")
+        case .budgetLimited: return ("继续目标（忽略上限）", "play.circle")
         case .complete: return nil
         }
     }
@@ -750,12 +750,12 @@ private struct ConversationComposerGoalRowView: View {
 
     private var statusLabel: String {
         switch goal.status {
-        case .active: return "active"
-        case .paused: return "paused"
-        case .blocked: return "blocked"
-        case .usageLimited: return "usage limit"
-        case .budgetLimited: return "limited"
-        case .complete: return "complete"
+        case .active: return "进行中"
+        case .paused: return "已暂停"
+        case .blocked: return "已阻塞"
+        case .usageLimited: return "用量受限"
+        case .budgetLimited: return "预算受限"
+        case .complete: return "已完成"
         }
     }
 

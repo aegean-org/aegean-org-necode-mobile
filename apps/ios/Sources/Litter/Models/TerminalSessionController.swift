@@ -67,7 +67,7 @@ final class TerminalSessionController {
             sessionId = id
             appStore.setActiveTerminalId(id: id)
             guard let session = appStore.terminalSessionHandle(id: id) else {
-                phase = .failed("Session disappeared after open")
+                phase = .failed("终端会话打开后丢失")
                 sessionId = nil
                 return
             }
@@ -80,7 +80,7 @@ final class TerminalSessionController {
             sessionId = nil
             if let challenge = Self.sshHostTrustChallenge(from: error, backend: backend) {
                 sshTrustChallenge = challenge
-                phase = .failed("Unknown SSH host key \(challenge.fingerprint)")
+                phase = .failed("未知 SSH 主机密钥 \(challenge.fingerprint)")
             } else {
                 phase = .failed(error.localizedDescription)
             }

@@ -195,7 +195,6 @@ struct HomeDashboardView: View {
                     selectedSearchRuntimeKind = nil
                 }
             }
-            .task { await TipJarStore.shared.loadProducts() }
             .onAppear { autoHydrateIfNeeded() }
             .onChange(of: visibleSessions.map { hydrationId($0.key) }) { _, _ in
                 autoHydrateIfNeeded()
@@ -234,27 +233,27 @@ struct HomeDashboardView: View {
                 }
             }
             .background(dashboardBackground)
-            .alert("Delete Session?", isPresented: Binding(
+            .alert("删除会话？", isPresented: Binding(
                 get: { deleteTargetThread != nil },
                 set: { if !$0 { deleteTargetThread = nil } }
             )) {
-                Button("Cancel", role: .cancel) { deleteTargetThread = nil }
-                Button("Delete", role: .destructive) {
+                Button("取消", role: .cancel) { deleteTargetThread = nil }
+                Button("删除", role: .destructive) {
                     if let thread = deleteTargetThread {
                         Task { await onDeleteThread?(thread.key) }
                     }
                     deleteTargetThread = nil
                 }
             } message: {
-                Text("This will permanently delete \"\(deleteTargetThread?.sessionTitle ?? "this session")\".")
+                Text("这会永久删除「\(deleteTargetThread?.sessionTitle ?? "这个会话")」。")
             }
-            .alert("Rename server", isPresented: Binding(
+            .alert("重命名主机", isPresented: Binding(
                 get: { renameServerTarget != nil },
                 set: { if !$0 { renameServerTarget = nil } }
             )) {
-                TextField("Server name", text: $renameServerText)
-                Button("Cancel", role: .cancel) { renameServerTarget = nil }
-                Button("Save") {
+                TextField("主机名称", text: $renameServerText)
+                Button("取消", role: .cancel) { renameServerTarget = nil }
+                Button("保存") {
                     if let server = renameServerTarget {
                         let trimmed = renameServerText.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
@@ -298,14 +297,14 @@ struct HomeDashboardView: View {
                         Image(systemName: "square.grid.2x2")
                             .foregroundColor(LitterTheme.textSecondary)
                     }
-                    .accessibilityLabel("Apps")
+                    .accessibilityLabel("应用")
                 }
                 if let onShowTerminal {
                     Button(action: onShowTerminal) {
                         Image(systemName: "terminal")
                             .foregroundColor(LitterTheme.textSecondary)
                     }
-                    .accessibilityLabel("Terminal")
+                    .accessibilityLabel("终端")
                 }
             }
         }
@@ -313,11 +312,7 @@ struct HomeDashboardView: View {
             if chrome == .sidebar {
                 AnimatedLogo(size: 44)
             } else {
-                HStack(spacing: 4) {
-                    SupporterKittyBadges(tierIndices: 0..<2)
-                    AnimatedLogo(size: 64)
-                    SupporterKittyBadges(tierIndices: 2..<4)
-                }
+                AnimatedLogo(size: 56)
             }
         }
         if chrome == .full {
@@ -332,7 +327,7 @@ struct HomeDashboardView: View {
                     Image(systemName: "square.and.pencil")
                         .foregroundColor(LitterTheme.accent)
                 }
-                .accessibilityLabel("New thread")
+                .accessibilityLabel("新建会话")
             }
         }
     }
@@ -358,7 +353,7 @@ struct HomeDashboardView: View {
             Image(systemName: zoomIcon)
                 .foregroundColor(LitterTheme.textSecondary)
         }
-        .accessibilityLabel("Zoom")
+        .accessibilityLabel("缩放")
     }
 
     /// The sidebar chrome on a Mac (Catalyst or iOS-on-Mac) sits inside
@@ -421,7 +416,7 @@ struct HomeDashboardView: View {
         }
         .overlay {
             if showOnboardingCoachmarks {
-                emptyHomeFatCat
+                emptyHomeBrandLogo
                     .transition(.opacity)
             }
         }
@@ -567,7 +562,7 @@ struct HomeDashboardView: View {
                     cancellingKeys: cancellingKeys,
                     openingKey: openingRecentSessionKey,
                     zoomLevel: $zoomLevel,
-                    showCatFooter: chrome == .full,
+                    showBrandFooter: chrome == .full,
                     topInset: 48,
                     bottomInset: chrome == .full ? 140 : 24,
                     callbacks: HomeSessionsScrollView.Callbacks(
@@ -609,40 +604,14 @@ struct HomeDashboardView: View {
         Color.clear.frame(height: 1)
     }
 
-    /// Fat cat illustration shown on the empty home screen. Positioned in
-    /// the middle vertical band — between the addServer label (y≈0.20) and
-    /// the search/newThread labels (y≈0.62/0.70) — so it never collides
-    /// with the coachmark arrows or labels. Plays the entrance APNG once
-    /// then crossfades to the looping APNG, matching the cat footer.
-    private var emptyHomeFatCat: some View {
+    /// Brand mark shown on the empty home screen.
+    private var emptyHomeBrandLogo: some View {
         GeometryReader { proxy in
             let h = proxy.size.height
             let w = proxy.size.width
-            let catWidth = min(max(180, w * 0.55), 260)
-            let catHeight = catWidth * 202.0 / 360.0
-            EmptyHomeFatCatView()
-                .frame(width: catWidth, height: catHeight)
+            let logoSize = min(max(96, w * 0.26), 132)
+            BrandLogo(size: logoSize)
                 .position(x: w / 2, y: h * 0.42)
-        }
-    }
-}
-
-private struct EmptyHomeFatCatView: View {
-    @State private var showingLoop = false
-
-    private let entranceURL = Bundle.main.url(forResource: "home_cat_entrance", withExtension: "png")
-    private let loopURL = Bundle.main.url(forResource: "home_cat", withExtension: "png")
-
-    var body: some View {
-        CatTransmissionPressView {
-            if let imageURL = showingLoop ? loopURL : (entranceURL ?? loopURL) {
-                AlphaAnimatedImageView(
-                    fileURL: imageURL,
-                    repeatCount: showingLoop ? 0 : 1,
-                    onFinished: showingLoop ? nil : { showingLoop = true }
-                )
-                .accessibilityHidden(true)
-            }
         }
     }
 }
@@ -940,7 +909,7 @@ struct SessionCanvasLine: View {
                     .truncationMode(.tail)
             }
         } else {
-            Text("thinking")
+            Text("思考中")
                 .foregroundStyle(LitterTheme.accent)
         }
     }
@@ -976,7 +945,7 @@ struct SessionCanvasLine: View {
                 branchChip(lineage: lineage)
             } else if session.isFork {
                 Text("\u{00b7}").foregroundStyle(LitterTheme.textMuted.opacity(0.5))
-                Text("fork")
+                Text("分支")
                     .foregroundStyle(LitterTheme.warning.opacity(0.8))
             }
             if session.isSubagent, let agent = session.agentLabel {
@@ -1168,7 +1137,7 @@ struct SessionCanvasLine: View {
     private func goalBanner(goal: AppThreadGoal) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text("GOAL")
+                Text("目标")
                     .litterMonoFont(size: 9, weight: .semibold)
                     .tracking(1.2)
                     .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
@@ -1374,7 +1343,7 @@ struct SessionCanvasLine: View {
 
     @ViewBuilder
     private var activityHeader: some View {
-        Text("RECENT ACTIVITY")
+        Text("最近活动")
             .litterMonoFont(size: 9, weight: .semibold)
             .tracking(1.2)
             .foregroundStyle(LitterTheme.textMuted.opacity(0.65))
@@ -1400,7 +1369,7 @@ struct SessionCanvasLine: View {
                     Circle()
                         .fill(LitterTheme.accent)
                         .frame(width: 4, height: 4)
-                    Text("Working")
+                    Text("进行中")
                         .litterMonoFont(size: 9, weight: .semibold)
                         .foregroundStyle(LitterTheme.accent.opacity(0.85))
                 }
@@ -1612,7 +1581,7 @@ struct SessionCanvasLine: View {
                 .stroke(LitterTheme.border.opacity(0.6), lineWidth: 1)
         )
         .clipShape(Capsule())
-        .accessibilityLabel("Branch \(lineage.branchIndex) of \(lineage.branchTotal)")
+        .accessibilityLabel("第 \(lineage.branchIndex) 个分支，共 \(lineage.branchTotal) 个")
     }
 
     /// Inline meta-line replacement for the old `fork` warning text. Carries
@@ -1623,7 +1592,7 @@ struct SessionCanvasLine: View {
         HStack(spacing: 3) {
             Image(systemName: "arrow.triangle.branch")
                 .litterFont(size: 7, weight: .semibold)
-            Text("branch \(lineage.branchIndex)/\(lineage.branchTotal)")
+            Text("分支 \(lineage.branchIndex)/\(lineage.branchTotal)")
         }
         .foregroundStyle(LitterTheme.accent.opacity(0.85))
     }

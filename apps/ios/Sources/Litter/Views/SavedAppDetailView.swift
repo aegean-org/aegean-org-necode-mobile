@@ -113,16 +113,16 @@ struct SavedAppDetailView: View {
                 .presentationDetents([.medium])
         }
         .alert(
-            "Delete \"\(payload?.app.title ?? "")\"?",
+            "删除“\(payload?.app.title ?? "")”？",
             isPresented: $showDeleteConfirm
         ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) {
                 try? store.delete(id: appId)
                 dismiss()
             }
         } message: {
-            Text("This removes the app, its saved HTML, and its persisted state.")
+            Text("这会删除应用、已保存的 HTML 和本地状态。")
         }
     }
 
@@ -161,7 +161,7 @@ struct SavedAppDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .modifier(GlassCircleModifier())
-                .accessibilityLabel("Back")
+                .accessibilityLabel("返回")
 
                 Button {
                     renameText = app.title
@@ -185,12 +185,12 @@ struct SavedAppDetailView: View {
                         renameText = app.title
                         showRenameSheet = true
                     } label: {
-                        Label("Rename", systemImage: "pencil")
+                        Label("重命名", systemImage: "pencil")
                     }
                     Button(role: .destructive) {
                         showDeleteConfirm = true
                     } label: {
-                        Label("Delete", systemImage: "trash")
+                        Label("删除", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -200,7 +200,7 @@ struct SavedAppDetailView: View {
                         .contentShape(Circle())
                 }
                 .modifier(GlassCircleModifier())
-                .accessibilityLabel("App options")
+                .accessibilityLabel("应用选项")
 
                 if let threadId = app.originThreadId, threadExists(threadId) {
                     Button {
@@ -215,7 +215,7 @@ struct SavedAppDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .modifier(GlassCircleModifier())
-                    .accessibilityLabel("View Conversation")
+                    .accessibilityLabel("查看会话")
                 }
 
                 Button {
@@ -225,7 +225,7 @@ struct SavedAppDetailView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .litterFont(size: 12, weight: .semibold)
-                        Text("Update")
+                        Text("更新")
                             .litterFont(size: 13, weight: .semibold)
                     }
                     .foregroundColor(LitterTheme.accent)
@@ -274,10 +274,10 @@ struct SavedAppDetailView: View {
             Image(systemName: "exclamationmark.triangle")
                 .litterFont(.largeTitle)
                 .foregroundColor(LitterTheme.warning)
-            Text("This app's files are missing")
+            Text("这个应用的文件缺失")
                 .litterFont(.title3, weight: .semibold)
                 .foregroundColor(.white)
-            Text("Delete it to clear the entry.")
+            Text("删除它即可清理这条记录。")
                 .litterFont(.footnote)
                 .foregroundColor(.white.opacity(0.7))
 
@@ -285,7 +285,7 @@ struct SavedAppDetailView: View {
                 try? store.delete(id: appId)
                 dismiss()
             } label: {
-                Text("Delete App")
+                Text("删除应用")
                     .litterFont(.body, weight: .semibold)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -299,11 +299,11 @@ struct SavedAppDetailView: View {
 
     private var renameSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename App")
+            Text("重命名应用")
                 .litterFont(.title3, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
 
-            TextField("Title", text: $renameText)
+            TextField("标题", text: $renameText)
                 .litterFont(size: 15)
                 .padding(10)
                 .background(LitterTheme.surfaceLight.opacity(0.6))
@@ -311,10 +311,10 @@ struct SavedAppDetailView: View {
                 .foregroundColor(LitterTheme.textPrimary)
 
             HStack {
-                Button("Cancel") { showRenameSheet = false }
+                Button("取消") { showRenameSheet = false }
                     .foregroundColor(LitterTheme.textSecondary)
                 Spacer()
-                Button("Save") {
+                Button("保存") {
                     let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { showRenameSheet = false; return }
                     _ = try? store.rename(id: appId, title: trimmed)
@@ -393,7 +393,7 @@ struct SavedAppDetailView: View {
             showUpdateOverlay = false
             updateError = nil
             reloadPayload()
-            withAnimation { updateSuccessMessage = "Updated" }
+            withAnimation { updateSuccessMessage = "已更新" }
             Task {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
                 withAnimation { updateSuccessMessage = nil }

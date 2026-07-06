@@ -29,7 +29,7 @@ struct VoiceScreen: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(theme.accent)
                     WatchEyebrow(
-                        text: store.focusedTask.map { "dictate · \($0.serverName)" } ?? "dictate",
+                        text: store.focusedTask.map { "语音输入 · \($0.serverName)" } ?? "语音输入",
                         size: 9
                     )
                     Spacer(minLength: 0)
@@ -56,21 +56,21 @@ struct VoiceScreen: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Start dictation")
+                .accessibilityLabel("开始语音输入")
 
                 Group {
                     switch status {
                     case .idle:
-                        Text("tap to speak")
+                        Text("点按说话")
                             .font(WatchTheme.mono(11, weight: .bold))
                             .foregroundStyle(theme.accent)
                     case .sending:
-                        Text("sending…")
+                        Text("发送中…")
                             .font(WatchTheme.mono(11))
                             .foregroundStyle(theme.textSecondary)
                     case .sent:
                         (
-                            Text("sent ")
+                            Text("已发送 ")
                                 .foregroundStyle(theme.successSoft)
                             + Text(lastPrompt ?? "")
                                 .foregroundStyle(theme.textSecondary)
@@ -80,7 +80,7 @@ struct VoiceScreen: View {
                         .lineLimit(3)
                     case .queued:
                         (
-                            Text("queued ")
+                            Text("已排队 ")
                                 .foregroundStyle(theme.accent)
                             + Text(lastPrompt ?? "")
                                 .foregroundStyle(theme.textSecondary)
@@ -98,7 +98,7 @@ struct VoiceScreen: View {
                 .padding(.horizontal, 4)
 
                 if !store.isReachable {
-                    Text("iphone unreachable — will queue")
+                    Text("iPhone 未连接，将稍后发送")
                         .font(WatchTheme.mono(9))
                         .foregroundStyle(theme.textSecondary)
                         .multilineTextAlignment(.center)
@@ -128,7 +128,7 @@ struct VoiceScreen: View {
             case .cancelled:
                 status = .idle
             case .unavailable:
-                status = .failed("dictation unavailable")
+                status = .failed("语音输入不可用")
             }
         }
     }

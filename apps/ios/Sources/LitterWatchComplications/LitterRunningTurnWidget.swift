@@ -17,8 +17,8 @@ struct LitterRunningTurnWidget: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .supportedFamilies([.accessoryRectangular, .accessoryInline])
-        .configurationDisplayName("Codex Running")
-        .description("Mirrors the iPhone Live Activity for the active task.")
+        .configurationDisplayName("NeCode 运行中")
+        .description("显示当前任务的运行状态。")
     }
 }
 
@@ -31,11 +31,11 @@ struct LitterRunningTurnEntry: TimelineEntry {
         date: .now,
         snapshot: RunningTurnSnapshot(
             taskId: "preview:t1",
-            title: "fix auth token expiry",
+            title: "修复登录过期",
             serverName: "macbook-pro",
             model: "gpt-5-codex",
             startedAtMs: Int64((Date.now.timeIntervalSince1970 - 42) * 1000),
-            lastTool: "edit_file src/auth.go"
+            lastTool: "编辑 src/auth.go"
         )
     )
 
@@ -117,11 +117,11 @@ struct LitterRunningTurnView: View {
                         .fill(LitterComplicationTint.ginger)
                         .frame(width: 10, height: 10)
                         .overlay(
-                            Text("L")
+                            Text("N")
                                 .font(.system(size: 7, weight: .bold, design: .monospaced))
                                 .foregroundStyle(.black)
                         )
-                    Text("CODEX · \(elapsedLabel(for: snapshot))")
+                    Text("NeCode · \(elapsedLabel(for: snapshot))")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .tracking(1.0)
                         .foregroundStyle(LitterComplicationTint.ginger)
@@ -154,9 +154,9 @@ struct LitterRunningTurnView: View {
     @ViewBuilder
     private var inlineBody: some View {
         if let snapshot = entry.snapshot {
-            Text("codex \(elapsedLabel(for: snapshot)) — \(snapshot.title)")
+            Text("NeCode \(elapsedLabel(for: snapshot)) - \(snapshot.title)")
         } else {
-            Text("codex idle")
+            Text("NeCode 空闲")
         }
     }
 

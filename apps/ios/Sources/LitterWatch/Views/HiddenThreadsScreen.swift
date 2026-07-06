@@ -15,8 +15,8 @@ struct HiddenThreadsScreen: View {
             if store.hiddenTasks.isEmpty {
                 WatchEmptyState(
                     icon: "eye",
-                    title: "nothing hidden",
-                    subtitle: "swipe a task on home to hide it."
+                    title: "没有隐藏任务",
+                    subtitle: "在首页隐藏的任务会显示在这里。"
                 )
             } else {
                 List {
@@ -27,7 +27,7 @@ struct HiddenThreadsScreen: View {
                         }
                     } header: {
                         HStack {
-                            WatchEyebrow(text: "hidden", color: theme.textSecondary, size: 10)
+                            WatchEyebrow(text: "已隐藏", color: theme.textSecondary, size: 10)
                             Spacer()
                             Text("\(store.hiddenTasks.count)")
                                 .font(WatchTheme.scaled(10, for: watchSize))
@@ -38,7 +38,7 @@ struct HiddenThreadsScreen: View {
                 .listStyle(.carousel)
             }
         }
-        .navigationTitle("hidden")
+        .navigationTitle("已隐藏")
         .containerBackground(theme.backgroundGradient, for: .navigation)
     }
 }
@@ -88,7 +88,7 @@ private struct HiddenRow: View {
                     )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Unhide task")
+            .accessibilityLabel("取消隐藏任务")
         }
         .padding(.vertical, 2)
     }

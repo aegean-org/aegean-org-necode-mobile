@@ -29,18 +29,18 @@ struct ProjectPickerSheet: View {
                 list
             }
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Projects")
+            .navigationTitle("项目")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") { dismiss() }
+                    Button("关闭") { dismiss() }
                         .foregroundStyle(LitterTheme.textSecondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         onCreateNew()
                     } label: {
-                        Label("New Project", systemImage: "plus")
+                        Label("新建项目", systemImage: "plus")
                             .foregroundStyle(LitterTheme.accent)
                     }
                 }
@@ -52,7 +52,7 @@ struct ProjectPickerSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LitterTheme.textMuted)
-            TextField("Search projects", text: $query)
+            TextField("搜索项目", text: $query)
                 .litterFont(.body)
                 .foregroundStyle(LitterTheme.textPrimary)
                 .tint(LitterTheme.accent)
@@ -129,10 +129,10 @@ struct ProjectPickerSheet: View {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 32, weight: .light))
                 .foregroundStyle(LitterTheme.textMuted)
-            Text("No projects yet")
+            Text("暂无项目")
                 .litterFont(.body, weight: .medium)
                 .foregroundStyle(LitterTheme.textSecondary)
-            Text("Tap + to pick a directory and start your first thread.")
+            Text("点击 + 选择目录并开始第一个会话。")
                 .litterFont(.footnote)
                 .foregroundStyle(LitterTheme.textMuted)
                 .multilineTextAlignment(.center)
@@ -140,7 +140,7 @@ struct ProjectPickerSheet: View {
             Button {
                 onCreateNew()
             } label: {
-                Text("New Project")
+                Text("新建项目")
                     .litterFont(.footnote, weight: .semibold)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)

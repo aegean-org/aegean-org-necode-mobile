@@ -10,11 +10,11 @@ enum LocalAccountLoginFlowError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .localServerUnavailable:
-            return "Local Codex isn't running. ChatGPT login requires the local bridge."
+            return "本地 NeCode 未运行，ChatGPT 登录需要本地桥接服务。"
         case .remoteServer:
-            return "ChatGPT login is only available for the local server."
+            return "ChatGPT 登录仅支持本地主机。"
         case .loginDidNotAttach:
-            return "ChatGPT login completed, but the local account did not attach."
+            return "ChatGPT 登录已完成，但本地账号未成功挂载。"
         }
     }
 }
@@ -1857,6 +1857,95 @@ final class AppModel {
             lastError = error.localizedDescription
             throw error
         }
+    }
+
+    func transcribeVoice(
+        options: VoiceTranscriptionOptions,
+        request: AppVoiceTranscriptionRequest
+    ) async throws -> String {
+        do {
+            try await reconnectBeforeVoiceTranscriptionIfNeeded(serverId: options.serverId)
+            return try await submitVoiceTranscription(options: options, request: request)
+        } catch {
+            guard shouldRetryVoiceTranscriptionAfterReconnect(error) else {
+                lastError = error.localizedDescription
+                throw error
+            }
+            return try await retryVoiceTranscriptionAfterReconnect(
+                options: options,
+                request: request,
+                cause: error
+            )
+        }
+    }
+
+    private func submitVoiceTranscription(
+        options: VoiceTranscriptionOptions,
+        request: AppVoiceTranscriptionRequest
+    ) async throws -> String {
+        let response = try await client.transcribeVoice(
+            serverId: options.serverId,
+            params: request
+        )
+        lastError = nil
+        return response.text
+    }
+
+    private func reconnectBeforeVoiceTranscriptionIfNeeded(serverId: String) async throws {
+        guard let server = snapshot?.serverSnapshot(for: serverId) else { return }
+        if shouldReconnectBeforeVoiceTranscription(server.transportState) {
+            try await reconnectServerForVoiceTranscription(serverId: serverId, cause: nil)
+        }
+    }
+
+    private func retryVoiceTranscriptionAfterReconnect(
+        options: VoiceTranscriptionOptions,
+        request: AppVoiceTranscriptionRequest,
+        cause: Error
+    ) async throws -> String {
+        do {
+            try await reconnectServerForVoiceTranscription(
+                serverId: options.serverId,
+                cause: cause
+            )
+            return try await submitVoiceTranscription(options: options, request: request)
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
+    private func reconnectServerForVoiceTranscription(
+        serverId: String,
+        cause: Error?
+    ) async throws {
+        LLog.info(
+            "voice",
+            "reconnecting server before voice transcription",
+            fields: [
+                "serverId": serverId,
+                "cause": cause?.localizedDescription ?? "preflight"
+            ]
+        )
+        reconnectController.setMultiClankerAndQuicEnabled(enabled: true)
+        reconnectController.syncSavedServers(
+            servers: SavedServerStore.reconnectRecords(
+                localDisplayName: resolvedLocalServerDisplayName()
+            )
+        )
+        let result = await reconnectController.reconnectServer(serverId: serverId)
+        guard result.success else {
+            throw VoiceTranscriptionReconnectError.failed(
+                result.errorMessage ?? "语音转写前重新连接 NeCode 主机失败。"
+            )
+        }
+        await refreshSnapshot()
+        if result.needsLocalAuthRestore {
+            await restoreStoredLocalAuthState(serverId: result.serverId)
+        }
+        await restoreMissingLocalAuthStateIfNeeded()
+        await refreshSnapshot()
+        AppRuntimeController.shared.persistAlleycatSecretKeyIfNeeded()
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {

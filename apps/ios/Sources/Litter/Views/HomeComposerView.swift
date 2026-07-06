@@ -324,21 +324,23 @@ struct HomeComposerView: View {
     private func stopVoiceRecording() {
         guard let serverId = resolvedTranscriptionServerId else {
             voiceManager.cancelRecording()
+            errorMessage = "语音输入前请先连接或选择 NeCode 主机。"
             return
         }
         Task {
-            let auth = try? await appModel.client.authStatus(
-                serverId: serverId,
-                params: AuthStatusRequest(includeToken: true, refreshToken: false)
-            )
             if let text = await voiceManager.stopAndTranscribe(
-                authMethod: auth?.authMethod,
-                authToken: auth?.authToken
+                appModel: appModel,
+                options: voiceTranscriptionOptions(
+                    appModel: appModel,
+                    serverId: serverId
+                )
             ), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 insertTranscriptAtCursor(text)
                 DispatchQueue.main.async {
                     isComposerFocused = true
                 }
+            } else if let error = voiceManager.error {
+                errorMessage = error
             }
         }
     }
@@ -488,7 +490,7 @@ private struct HomePluginAutocompletePopup: View {
     var body: some View {
         VStack(spacing: 0) {
             if plugins.isEmpty {
-                Text("No plugins")
+                Text("没有插件")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

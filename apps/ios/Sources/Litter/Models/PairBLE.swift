@@ -66,10 +66,10 @@ enum PairBLE {
         var label: String {
             switch self {
             case .unknown: return "—"
-            case .far: return "far"
-            case .medium: return "medium"
-            case .near: return "near"
-            case .veryClose: return "very close"
+            case .far: return "较远"
+            case .medium: return "中等"
+            case .near: return "较近"
+            case .veryClose: return "很近"
             }
         }
     }

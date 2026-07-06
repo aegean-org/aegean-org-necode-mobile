@@ -4,15 +4,15 @@ extension AppServerHealth {
     var displayLabel: String {
         switch self {
         case .connected:
-            return "Connected"
+            return "已连接"
         case .connecting:
-            return "Connecting…"
+            return "连接中..."
         case .unresponsive:
-            return "Unresponsive"
+            return "无响应"
         case .disconnected:
-            return "Disconnected"
+            return "已断开"
         case .unknown:
-            return "Unknown"
+            return "未知"
         }
     }
 
@@ -32,15 +32,15 @@ extension AppServerTransportState {
     var displayLabel: String {
         switch self {
         case .connected:
-            return "Connected"
+            return "已连接"
         case .connecting:
-            return "Connecting…"
+            return "连接中..."
         case .unresponsive:
-            return "Unresponsive"
+            return "无响应"
         case .disconnected:
-            return "Disconnected"
+            return "已断开"
         case .unknown:
-            return "Unknown"
+            return "未知"
         }
     }
 

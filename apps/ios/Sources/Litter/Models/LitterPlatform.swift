@@ -135,16 +135,16 @@ enum LitterPlatform {
         for candidate in [
             ProcessInfo.processInfo.hostName,
             ProcessInfo.processInfo.environment["HOSTNAME"],
-            "Local Mac"
+            "本机 Mac"
         ] {
             if let displayName = normalizedHostDisplayName(candidate) {
                 return displayName
             }
         }
-        return "Local Mac"
+        return "本机 Mac"
 #else
         let device = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return device.isEmpty ? "This Device" : device
+        return device.isEmpty ? "本机" : device
 #endif
     }
 

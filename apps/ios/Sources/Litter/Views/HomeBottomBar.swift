@@ -118,7 +118,7 @@ struct HomeBottomBar: View {
                 .allowsHitTesting(false)
         )
         .glassMorphID(plusID, in: ns)
-        .accessibilityLabel("New message")
+        .accessibilityLabel("新消息")
         .coachmarkAnchor(.newThread)
     }
 
@@ -141,7 +141,7 @@ struct HomeBottomBar: View {
                 .allowsHitTesting(false)
         )
         .glassMorphID(searchID, in: ns)
-        .accessibilityLabel("Search threads")
+        .accessibilityLabel("搜索会话")
         .coachmarkAnchor(.search)
     }
 
@@ -190,7 +190,7 @@ struct HomeBottomBar: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LitterTheme.accent)
 
-            TextField("search threads", text: $searchQuery)
+            TextField("搜索会话", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .submitLabel(.search)
                 .autocorrectionDisabled(true)

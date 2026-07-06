@@ -32,33 +32,33 @@ enum ChatGPTOAuthError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidAuthorizeURL:
-            return "Failed to build the ChatGPT login URL."
+            return "生成 ChatGPT 登录地址失败。"
         case .invalidCallbackURL:
-            return "ChatGPT login returned an invalid callback."
+            return "ChatGPT 登录返回了无效回调。"
         case .missingAuthorizationCode:
-            return "ChatGPT login did not return an authorization code."
+            return "ChatGPT 登录未返回授权码。"
         case .oauthError(let message):
             return message
         case .stateMismatch:
-            return "ChatGPT login state did not match the original request."
+            return "ChatGPT 登录状态与原始请求不一致。"
         case .unableToStartSession:
-            return "Unable to start the ChatGPT login session."
+            return "无法启动 ChatGPT 登录会话。"
         case .cancelled:
-            return "ChatGPT login was cancelled."
+            return "ChatGPT 登录已取消。"
         case .callbackTimedOut:
-            return "ChatGPT login timed out before returning to Litter."
+            return "ChatGPT 登录回调超时。"
         case .missingRefreshToken:
-            return "No ChatGPT refresh token is available."
+            return "没有可用的 ChatGPT 刷新令牌。"
         case .missingStoredTokens:
-            return "No stored ChatGPT login is available to refresh."
+            return "没有可刷新的 ChatGPT 登录记录。"
         case .missingAccountID:
-            return "ChatGPT login did not include an account identifier."
+            return "ChatGPT 登录未包含账号标识。"
         case .tokenExchangeFailed(let status, let message):
-            return "ChatGPT token exchange failed (\(status)): \(message)"
+            return "ChatGPT 令牌交换失败（\(status)）：\(message)"
         case .refreshAccountMismatch:
-            return "ChatGPT refresh returned a different account than expected."
+            return "ChatGPT 刷新结果返回了不一致的账号。"
         case .keychain(let status):
-            return "Keychain error (\(status))"
+            return "钥匙串错误（\(status)）"
         }
     }
 
@@ -439,7 +439,7 @@ enum ChatGPTOAuth {
         ])
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw ChatGPTOAuthError.tokenExchangeFailed(status: -1, message: "missing HTTP response")
+            throw ChatGPTOAuthError.tokenExchangeFailed(status: -1, message: "缺少 HTTP 响应")
         }
         let responseText = String(decoding: data, as: UTF8.self)
         LLog.info("auth", "ChatGPT token exchange response", fields: [
@@ -481,7 +481,7 @@ enum ChatGPTOAuth {
         ])
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw ChatGPTOAuthError.tokenExchangeFailed(status: -1, message: "missing HTTP response")
+            throw ChatGPTOAuthError.tokenExchangeFailed(status: -1, message: "缺少 HTTP 响应")
         }
         let responseText = String(decoding: data, as: UTF8.self)
         LLog.info("auth", "ChatGPT access-token exchange response", fields: [
@@ -1030,7 +1030,7 @@ private final class ChatGPTOAuthLoopbackServer: @unchecked Sendable {
             ])
             sendResponse(
                 statusLine: "HTTP/1.1 404 Not Found",
-                body: "<html><body><h3>Not found</h3></body></html>",
+                body: "<html><body><h3>未找到</h3></body></html>",
                 on: connection
             )
             return
@@ -1038,7 +1038,7 @@ private final class ChatGPTOAuthLoopbackServer: @unchecked Sendable {
 
         sendResponse(
             statusLine: "HTTP/1.1 200 OK",
-            body: "<html><body><h3>Login complete</h3><p>You can return to Litter.</p></body></html>",
+            body: "<html><body><h3>登录完成</h3><p>可以返回 NeCode。</p></body></html>",
             on: connection
         )
         LLog.info("auth", "ChatGPT auth callback accepted", fields: [

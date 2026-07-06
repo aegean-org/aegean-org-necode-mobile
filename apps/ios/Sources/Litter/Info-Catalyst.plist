@@ -55,15 +55,15 @@
 		<string>_litter-pair._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Litter can import image files for conversations.</string>
+	<string>NeCode 可导入图片文件并发送到会话。</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Codex discovers coding agents and SSH servers on your local network.</string>
+	<string>NeCode 会在本地网络中发现可连接的桌面端服务。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Litter uses the microphone for voice-to-text input.</string>
+	<string>NeCode 需要使用麦克风录音，并通过桌面端转写为文字。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Litter advertises a short-range Bluetooth beacon so nearby iPhones can find this Mac to pair with.</string>
+	<string>NeCode 会使用短距离蓝牙信标帮助附近设备发现并配对。</string>
 	<key>NSNearbyInteractionUsageDescription</key>
-	<string>Litter uses Nearby Interaction to confirm your iPhone and Mac are close before pairing.</string>
+	<string>NeCode 会确认手机和桌面端距离较近后再完成配对。</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>BerkeleyMono-Regular.otf</string>

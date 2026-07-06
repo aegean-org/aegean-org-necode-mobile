@@ -81,11 +81,11 @@ struct SSHAgentPickerSheet: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Remote Agents")
+            .navigationTitle("远程 Agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
+                    Button("取消") {
                         onCancel()
                         dismiss()
                     }
@@ -155,10 +155,10 @@ struct SSHAgentPickerSheet: View {
             }
         } header: {
             HStack {
-                Text("Agents")
+            Text("智能体")
                 Spacer()
                 if !availableBridgeKinds.isEmpty {
-                    Button(selectedKinds.count == availableBridgeKinds.count ? "None" : "All") {
+                    Button(selectedKinds.count == availableBridgeKinds.count ? "全不选" : "全选") {
                         if selectedKinds.count == availableBridgeKinds.count {
                             selectedKinds = []
                         } else {
@@ -184,14 +184,14 @@ struct SSHAgentPickerSheet: View {
                     if isConnecting {
                         ProgressView().tint(LitterTheme.accent)
                     }
-                    Text("Connect")
+                    Text("连接")
                         .foregroundColor(LitterTheme.accent)
                         .litterFont(.subheadline)
                 }
             }
             .disabled(isConnecting || selectedKinds.isEmpty)
 
-            Button("Use Codex SSH") {
+            Button("使用 Codex SSH")
                 onUseCodex()
                 dismiss()
             }
@@ -284,11 +284,11 @@ private func runtimeSortRank(_ kind: AgentRuntimeKind) -> Int {
 private func statusLabel(_ status: AgentAvailabilityStatus, kind: AgentRuntimeKind) -> String {
     switch status {
     case .available:
-        return "Available"
+        return "可用"
     case .agentCliMissing:
-        return "CLI missing"
+        return "CLI 未安装"
     case .windowsNotYetSupported:
-        return "Windows not supported"
+        return "暂不支持 Windows"
     }
 }
 

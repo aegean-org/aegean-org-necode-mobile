@@ -70,13 +70,13 @@ struct ThreadSearchResultsView: View {
                 if isLoading {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small).tint(LitterTheme.accent)
-                        Text("Loading threads…")
+                        Text("正在加载会话…")
                             .litterFont(.footnote)
                             .foregroundStyle(LitterTheme.textMuted)
                     }
                     .padding(.vertical, 24)
                 } else if filtered.isEmpty {
-                    Text(sessions.isEmpty ? "No threads yet" : "No matches")
+                    Text(sessions.isEmpty ? "还没有会话" : "没有匹配结果")
                         .litterFont(.footnote)
                         .foregroundStyle(LitterTheme.textMuted)
                         .padding(.vertical, 24)
@@ -125,7 +125,7 @@ struct ThreadSearchResultsView: View {
         if runtimeKinds.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    runtimeFilterPill(label: "All", kind: nil)
+                    runtimeFilterPill(label: "全部", kind: nil)
                     ForEach(runtimeKinds, id: \.self) { kind in
                         runtimeFilterPill(label: kind.titleDisplayLabel, kind: kind)
                     }
@@ -324,7 +324,7 @@ private struct ThreadSearchClusterRow: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(cluster.members.count) branches")
+        .accessibilityLabel("\(cluster.members.count) 个分支")
     }
 
     private var childrenList: some View {
@@ -348,7 +348,7 @@ private struct ThreadSearchClusterRow: View {
                                     .litterFont(size: 12.5, weight: isPinned ? .semibold : .regular)
                                     .foregroundStyle(isPinned ? LitterTheme.accent : LitterTheme.textPrimary.opacity(0.92))
                                 if isRoot {
-                                    Text("root")
+                                    Text("根会话")
                                         .litterMonoFont(size: 9, weight: .regular)
                                         .foregroundStyle(LitterTheme.textMuted.opacity(0.7))
                                 }

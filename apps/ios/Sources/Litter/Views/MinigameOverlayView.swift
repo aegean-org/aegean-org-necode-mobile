@@ -78,7 +78,7 @@ struct MinigameOverlayView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Close minigame")
+        .accessibilityLabel("关闭小游戏")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -133,7 +133,7 @@ struct MinigameOverlayView: View {
     private func failureCard(message: String) -> some View {
         VStack(spacing: 12) {
             Spacer()
-            Text("Couldn't generate a minigame.")
+            Text("无法生成小游戏。")
                 .litterFont(.body, weight: .medium)
                 .foregroundStyle(LitterTheme.textPrimary)
             Text(message)
@@ -142,7 +142,7 @@ struct MinigameOverlayView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Button(action: onRetry) {
-                Text("Try again")
+            Text("重试")
                     .litterFont(.caption, weight: .semibold)
                     .foregroundStyle(LitterTheme.accent)
                     .padding(.horizontal, 14)

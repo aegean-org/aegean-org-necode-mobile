@@ -21,9 +21,9 @@ struct DiffsScreen: View {
             if diffs.isEmpty {
                 WatchEmptyState(
                     icon: "doc.text.magnifyingglass",
-                    title: "no diffs yet",
-                    subtitle: task.map { "\($0.title) hasn't edited any files." }
-                        ?? "edits will show up here once the task touches a file."
+                    title: "暂无差异",
+                    subtitle: task.map { "\($0.title) 还没有修改文件。" }
+                        ?? "任务修改文件后会显示在这里。"
                 )
             } else {
                 TabView {
@@ -130,7 +130,7 @@ private struct DiffPage: View {
         HStack(spacing: 4) {
             Image(systemName: "ellipsis")
                 .font(.system(size: 9, weight: .bold))
-            Text("diff trimmed for watch")
+            Text("差异内容已为手表截断")
                 .font(WatchTheme.mono(9))
         }
         .foregroundStyle(theme.textMuted)

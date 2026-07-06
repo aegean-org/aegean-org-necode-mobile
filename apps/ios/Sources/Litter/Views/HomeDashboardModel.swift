@@ -313,7 +313,7 @@ final class HomeDashboardModel {
                 ?? AgentRuntimeMetadataProvider.all?().first?.name
                 ?? "",
             isLocal: server.isLocal,
-            sessionTitle: "Loading thread",
+            sessionTitle: "正在加载会话",
             preview: "",
             cwd: "",
             model: "",

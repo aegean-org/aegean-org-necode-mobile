@@ -8,26 +8,26 @@ struct LitterWatchShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: SendPromptIntent(),
             phrases: [
-                "Send a task to \(.applicationName)"
+                "发送任务给 \(.applicationName)"
             ],
-            shortTitle: "Send Task",
+            shortTitle: "发送任务",
             systemImageName: "mic.circle.fill"
         )
         AppShortcut(
             intent: OpenServerOnWatchIntent(),
             phrases: [
-                "Open a server in \(.applicationName)",
-                "Open \(\.$server) in \(.applicationName)"
+                "在 \(.applicationName) 打开主机",
+                "在 \(.applicationName) 打开 \(\.$server)"
             ],
-            shortTitle: "Open Server",
+            shortTitle: "打开主机",
             systemImageName: "server.rack"
         )
         AppShortcut(
             intent: StartVoiceOnWatchIntent(),
             phrases: [
-                "Start voice in \(.applicationName)"
+                "在 \(.applicationName) 开始语音"
             ],
-            shortTitle: "Start Voice",
+            shortTitle: "开始语音",
             systemImageName: "waveform.circle.fill"
         )
     }

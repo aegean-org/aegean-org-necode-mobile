@@ -22,11 +22,11 @@ struct MountedFoldersView: View {
                     list
                 }
             }
-            .navigationTitle("Mounted folders")
+            .navigationTitle("挂载文件夹")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
+                    Button("完成") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -60,10 +60,10 @@ struct MountedFoldersView: View {
             titleVisibility: .visible,
             presenting: pendingRemoval
         ) { mount in
-            Button("Remove", role: .destructive) {
+            Button("移除", role: .destructive) {
                 Task { await store.remove(id: mount.id) }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         }
     }
 
@@ -102,13 +102,13 @@ struct MountedFoldersView: View {
                         Button {
                             pickerMode = .reconnect(mount.id)
                         } label: {
-                            Label("Reconnect", systemImage: "arrow.clockwise")
+                            Label("重新连接", systemImage: "arrow.clockwise")
                         }
                     }
                     Button(role: .destructive) {
                         pendingRemoval = mount
                     } label: {
-                        Label("Remove", systemImage: "trash")
+                        Label("移除", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -139,7 +139,7 @@ struct MountedFoldersView: View {
     }
 
     private var footerExplainer: some View {
-        Text("Mounts persist across launches. Removing only detaches the mount inside iSH; files in the source folder are not deleted.")
+        Text("挂载会在重启应用后保留。移除只会断开 iSH 内部挂载，不会删除源文件夹里的文件。")
             .litterFont(.caption)
             .foregroundColor(LitterTheme.textMuted)
             .padding(.horizontal, 4)
@@ -153,10 +153,10 @@ struct MountedFoldersView: View {
             Image(systemName: "externaldrive.badge.icloud")
                 .font(.system(size: 44, weight: .light))
                 .foregroundColor(LitterTheme.accent)
-            Text("No folders mounted")
+            Text("还没有挂载文件夹")
                 .litterFont(.headline)
                 .foregroundColor(LitterTheme.textPrimary)
-            Text("Pick a folder from Files (iCloud Drive, On My iPhone, or a third-party provider) to make it available inside iSH at /mnt/<name>.")
+            Text("从“文件”里选择一个文件夹，让它在 iSH 的 /mnt/<name> 下可用。")
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -164,7 +164,7 @@ struct MountedFoldersView: View {
             Button {
                 pickerMode = .add
             } label: {
-                Text("Add folder")
+                Text("添加文件夹")
                     .litterFont(.subheadline)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
@@ -215,9 +215,9 @@ struct MountedFoldersView: View {
     private func statusDetail(for status: MountStatus?) -> String? {
         switch status {
         case .resolutionFailed(let message):
-            return "Couldn't reach this folder: \(message)"
+            return "无法访问这个文件夹：\(message)"
         case .mountFailed(let rc, let message):
-            return "Mount failed (rc=\(rc)): \(message)"
+            return "挂载失败（rc=\(rc)）：\(message)"
         case .mounted, nil:
             return nil
         }
@@ -232,9 +232,9 @@ struct MountedFoldersView: View {
 
     private var removalPrompt: String {
         if let pendingRemoval {
-            return "Remove \(pendingRemoval.name)?"
+            return "移除 \(pendingRemoval.name)？"
         }
-        return "Remove mount?"
+        return "移除挂载？"
     }
 }
 

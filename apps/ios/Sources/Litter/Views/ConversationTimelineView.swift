@@ -552,7 +552,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
         case .error(let data):
             return AnyView(
                 ConversationSystemCardRow(
-                    title: data.title.isEmpty ? "Error" : data.title,
+                    title: data.title.isEmpty ? "错误" : data.title,
                     content: [data.message, data.details].compactMap { $0 }.joined(separator: "\n\n"),
                     accent: LitterTheme.danger,
                     iconName: "exclamationmark.triangle.fill",
@@ -612,18 +612,18 @@ private struct ConversationTimelineItemRow: View, Equatable {
         UserBubble(text: data.text, images: data.images)
             .contextMenu {
                 if !data.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button("Copy") {
+                    Button("复制") {
                         UIPasteboard.general.string = data.text
                     }
                 }
 
                 if item.isFromUserTurnBoundary {
-                    Button("Edit Message") {
+                    Button("编辑消息") {
                         onEditUserItem(item)
                     }
                     .disabled(messageActionsDisabled)
 
-                    Button("Fork From Here") {
+                    Button("从这里分叉") {
                         onForkFromUserItem(item)
                     }
                     .disabled(messageActionsDisabled)
@@ -677,16 +677,16 @@ private struct ConversationTimelineItemRow: View, Equatable {
 
         var sections: [ToolCallSection] = []
         if diffSections.isEmpty, !changedPaths.isEmpty {
-            sections.append(.list(label: "Files", items: changedPaths.map(workspaceTitle(for:))))
+            sections.append(.list(label: "文件", items: changedPaths.map(workspaceTitle(for:))))
         }
         sections.append(contentsOf: diffSections)
         if let outputDelta = data.outputDelta?.trimmingCharacters(in: .whitespacesAndNewlines), !outputDelta.isEmpty {
-            sections.append(.text(label: "Output", content: outputDelta))
+            sections.append(.text(label: "输出", content: outputDelta))
         }
 
         return ToolCallCardModel(
             kind: .fileChange,
-            title: "File Change",
+            title: "文件变更",
             summary: summary.plainText,
             attributedSummary: summary.attributedText,
             status: data.status.toolCallStatus,
@@ -697,7 +697,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
 
     private func fileChangeSummary(for data: ConversationFileChangeData) -> (plainText: String, attributedText: AttributedString?) {
         guard !data.changes.isEmpty else {
-            return ("File changes", nil)
+            return ("文件变更", nil)
         }
 
         let additions = data.changes.reduce(0) { $0 + $1.additions }
@@ -735,11 +735,11 @@ private struct ConversationTimelineItemRow: View, Equatable {
         }
 
         guard hasCountSummary else {
-            return ("Changed \(data.changes.count) files", nil)
+            return ("变更 \(data.changes.count) 个文件", nil)
         }
 
-        let plainText = "Changed \(data.changes.count) files +\(additions) -\(deletions)"
-        var attributed = AttributedString("Changed \(data.changes.count) files")
+        let plainText = "变更 \(data.changes.count) 个文件 +\(additions) -\(deletions)"
+        var attributed = AttributedString("变更 \(data.changes.count) 个文件")
         attributed.foregroundColor = LitterTheme.textSystem
 
         var additionsText = AttributedString(" +\(additions)")
@@ -756,35 +756,35 @@ private struct ConversationTimelineItemRow: View, Equatable {
     private func fileChangeVerb(for kind: String) -> String {
         switch kind.lowercased() {
         case "add":
-            return "Added"
+            return "新增"
         case "delete":
-            return "Deleted"
+            return "删除"
         case "update":
-            return "Edited"
+            return "编辑"
         default:
-            return "Changed"
+            return "变更"
         }
     }
 
     private func makeMcpModel(_ data: ConversationMcpToolCallData) -> ToolCallCardModel {
         var sections: [ToolCallSection] = []
         if let arguments = data.argumentsJSON, !arguments.isEmpty {
-            sections.append(.json(label: "Arguments", content: arguments))
+            sections.append(.json(label: "参数", content: arguments))
         }
         if let contentSummary = data.contentSummary, !contentSummary.isEmpty {
-            sections.append(.text(label: "Result", content: contentSummary))
+            sections.append(.text(label: "结果", content: contentSummary))
         }
         if let structured = data.structuredContentJSON, !structured.isEmpty {
-            sections.append(.json(label: "Structured", content: structured))
+            sections.append(.json(label: "结构化内容", content: structured))
         }
         if let raw = data.rawOutputJSON, !raw.isEmpty {
-            sections.append(.json(label: "Raw Output", content: raw))
+            sections.append(.json(label: "原始输出", content: raw))
         }
         if !data.progressMessages.isEmpty {
-            sections.append(.progress(label: "Progress", items: data.progressMessages))
+            sections.append(.progress(label: "进度", items: data.progressMessages))
         }
         if let error = data.errorMessage, !error.isEmpty {
-            sections.append(.text(label: "Error", content: error))
+            sections.append(.text(label: "错误", content: error))
         }
 
         let summary = data.server.isEmpty
@@ -793,7 +793,7 @@ private struct ConversationTimelineItemRow: View, Equatable {
 
         return ToolCallCardModel(
             kind: .mcpToolCall,
-            title: "MCP Tool Call",
+            title: "MCP 工具调用",
             summary: summary,
             status: data.status.toolCallStatus,
             duration: formatDuration(data.durationMs),
@@ -810,21 +810,21 @@ private struct ConversationTimelineItemRow: View, Equatable {
             })
         }
         if let namespace = data.namespace, !namespace.isEmpty {
-            metadata.append(ToolCallKeyValue(key: "Namespace", value: namespace))
+            metadata.append(ToolCallKeyValue(key: "命名空间", value: namespace))
         }
         if let success = data.success {
-            metadata.append(ToolCallKeyValue(key: "Success", value: success ? "true" : "false"))
+            metadata.append(ToolCallKeyValue(key: "成功", value: success ? "是" : "否"))
         }
         if !metadata.isEmpty {
-            sections.append(.kv(label: "Metadata", entries: metadata))
+            sections.append(.kv(label: "元数据", entries: metadata))
         }
         if let arguments = data.argumentsJSON, !arguments.isEmpty {
-            sections.append(.json(label: "Arguments", content: arguments))
+            sections.append(.json(label: "参数", content: arguments))
         }
         if let contentSummary = data.contentSummary, !contentSummary.isEmpty {
-            sections.append(.text(label: "Result", content: contentSummary))
+            sections.append(.text(label: "结果", content: contentSummary))
         }
-        let title = data.display?.title ?? "Dynamic Tool Call"
+        let title = data.display?.title ?? "工具调用"
         let summary = data.display?.summary
             ?? data.namespace.map { "\($0).\(data.tool)" }
             ?? data.tool
@@ -842,15 +842,15 @@ private struct ConversationTimelineItemRow: View, Equatable {
     private func makeWebSearchModel(_ data: ConversationWebSearchData) -> ToolCallCardModel {
         var sections: [ToolCallSection] = []
         if !data.query.isEmpty {
-            sections.append(.text(label: "Query", content: data.query))
+            sections.append(.text(label: "查询", content: data.query))
         }
         if let action = data.actionJSON, !action.isEmpty {
-            sections.append(.json(label: "Action", content: action))
+            sections.append(.json(label: "动作", content: action))
         }
         return ToolCallCardModel(
             kind: .webSearch,
-            title: "Web Search",
-            summary: data.query.isEmpty ? "Web search" : "Web search for \(data.query)",
+            title: "网页搜索",
+            summary: data.query.isEmpty ? "网页搜索" : "搜索 \(data.query)",
             status: data.isInProgress ? .inProgress : .completed,
             duration: nil,
             sections: sections
@@ -862,14 +862,14 @@ private struct ConversationTimelineItemRow: View, Equatable {
         let displayName = workspaceTitle(for: trimmedPath)
         return ToolCallCardModel(
             kind: .imageView,
-            title: "Image View",
-            summary: displayName.isEmpty ? "Image" : displayName,
+            title: "图片查看",
+            summary: displayName.isEmpty ? "图片" : displayName,
             status: .completed,
             duration: nil,
             sections: [
                 .kv(
-                    label: "Metadata",
-                    entries: [ToolCallKeyValue(key: "Path", value: trimmedPath)]
+                    label: "元数据",
+                    entries: [ToolCallKeyValue(key: "路径", value: trimmedPath)]
                 )
             ],
             initiallyExpanded: true
@@ -984,7 +984,7 @@ private struct ConversationExplorationGroupRow: View {
     }
 
     private var summaryText: String {
-        let prefix = isActive ? "Exploring" : "Explored"
+        let prefix = isActive ? "探索中" : "已探索"
         return explorationSummaryText(prefix: prefix)
     }
 
@@ -1082,20 +1082,20 @@ private struct ConversationExplorationGroupRow: View {
 
         var parts: [String] = []
         if readCount > 0 {
-            parts.append("\(readCount) \(readCount == 1 ? "file" : "files")")
+            parts.append("读取 \(readCount) 个文件")
         }
         if searchCount > 0 {
-            parts.append("\(searchCount) \(searchCount == 1 ? "search" : "searches")")
+            parts.append("搜索 \(searchCount) 次")
         }
         if listingCount > 0 {
-            parts.append("\(listingCount) \(listingCount == 1 ? "listing" : "listings")")
+            parts.append("列出 \(listingCount) 次")
         }
         if fallbackCount > 0 {
-            parts.append("\(fallbackCount) \(fallbackCount == 1 ? "step" : "steps")")
+            parts.append("\(fallbackCount) 个步骤")
         }
         if parts.isEmpty {
             let count = explorationEntries.count
-            return count == 1 ? "\(prefix) 1 exploration step" : "\(prefix) \(count) exploration steps"
+            return "\(prefix) \(count) 个探索步骤"
         }
         return "\(prefix) \(parts.joined(separator: ", "))"
     }
@@ -1104,17 +1104,17 @@ private struct ConversationExplorationGroupRow: View {
         let suffix = explorationCommandSuffix(for: action)
         switch action.kind {
         case .read:
-            return action.path.map { "Read \(workspaceTitle(for: $0))\(suffix)" } ?? fallback
+            return action.path.map { "读取 \(workspaceTitle(for: $0))\(suffix)" } ?? fallback
         case .search:
             if let query = action.query, let path = action.path {
-                return "Searched for \(query) in \(workspaceTitle(for: path))\(suffix)"
+                return "在 \(workspaceTitle(for: path)) 中搜索 \(query)\(suffix)"
             }
             if let query = action.query {
-                return "Searched for \(query)\(suffix)"
+                return "搜索 \(query)\(suffix)"
             }
             return fallback
         case .listFiles:
-            return action.path.map { "Listed files in \(workspaceTitle(for: $0))\(suffix)" } ?? fallback
+            return action.path.map { "列出 \(workspaceTitle(for: $0)) 中的文件\(suffix)" } ?? fallback
         case .unknown:
             return fallback
         }
@@ -1167,7 +1167,7 @@ private struct ConversationReasoningRow: View {
                     Image(systemName: "brain.head.profile")
                         .litterFont(size: 12, weight: .semibold)
                         .foregroundColor(LitterTheme.textSecondary)
-                    Text("Thinking")
+                    Text("思考")
                         .litterFont(.caption, weight: .semibold)
                         .foregroundColor(LitterTheme.textSecondary)
                     if !expanded {
@@ -1213,7 +1213,7 @@ private struct ConversationReasoningRow: View {
         let itemCount = (data.summary + data.content).filter {
             !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }.count
-        return itemCount == 1 ? "Internal reasoning" : "\(itemCount) reasoning notes"
+        return itemCount == 1 ? "内部推理" : "\(itemCount) 条推理记录"
     }
 
     private func toggleExpanded() {
@@ -1236,7 +1236,7 @@ private struct ConversationTodoListRow: View {
                     Image(systemName: headerIconName)
                         .litterFont(size: 12, weight: .semibold)
                         .foregroundColor(headerTint)
-                    Text("To Do")
+                    Text("待办")
                         .litterFont(.caption, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                     Text(summaryText)
@@ -1315,7 +1315,7 @@ private struct ConversationTodoListRow: View {
     }
 
     private var summaryText: String {
-        "\(completedCount) out of \(data.steps.count) task\(data.steps.count == 1 ? "" : "s") completed"
+        "已完成 \(completedCount) / \(data.steps.count) 个任务"
     }
 
     private var progressTint: Color {
@@ -1363,7 +1363,7 @@ private struct ConversationProposedPlanRow: View {
                     Image(systemName: "list.bullet.rectangle.portrait.fill")
                         .litterFont(size: 12, weight: .semibold)
                         .foregroundColor(LitterTheme.accent)
-                    Text("Plan")
+                    Text("计划")
                         .litterFont(.caption, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
@@ -1387,7 +1387,7 @@ private struct ConversationTurnDiffRow: View {
         Button {
             presented = PresentedDiff(
                 id: "turn-diff",
-                title: "Turn Diff",
+                title: "本轮变更",
                 diff: data.diff,
                 stats: DiffStats(additions: data.additions, deletions: data.deletions),
                 sections: presentedDiffSections(from: data.diff)
@@ -1500,12 +1500,12 @@ private struct ConversationCommandExecutionRow: View {
         if !trimmed.isEmpty {
             return trimmed
         }
-        return data.isInProgress ? "Waiting for output…" : "No output"
+        return data.isInProgress ? "等待输出..." : "暂无输出"
     }
 
     private var displayedCommand: String {
         let trimmed = data.command.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "command" : trimmed
+        return trimmed.isEmpty ? "命令" : trimmed
     }
 
     private var collapsedCommand: String {
@@ -1513,7 +1513,7 @@ private struct ConversationCommandExecutionRow: View {
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        return collapsed.isEmpty ? "command" : collapsed
+        return collapsed.isEmpty ? "命令" : collapsed
     }
 
     private var statusColor: Color { data.status.toolCallStatus.themeColor }
@@ -1521,11 +1521,11 @@ private struct ConversationCommandExecutionRow: View {
     private func durationAccessibilityLabel(_ duration: String) -> String {
         switch data.status.toolCallStatus {
         case .completed:
-            return "\(duration), completed"
+            return "\(duration)，已完成"
         case .inProgress:
-            return "\(duration), in progress"
+            return "\(duration)，进行中"
         case .failed:
-            return "\(duration), failed"
+            return "\(duration)，失败"
         case .unknown:
             return duration
         }
@@ -1627,12 +1627,12 @@ private struct ConversationCommandOutputViewport: View {
                             expandedLongOutput.toggle()
                         }
                     } label: {
-                        Text(expandedLongOutput ? "Show less" : "Show more")
+                        Text(expandedLongOutput ? "收起" : "查看更多")
                             .litterFont(.caption2, weight: .semibold)
                             .foregroundColor(LitterTheme.accent)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(expandedLongOutput ? "Show less command output" : "Show more command output")
+                    .accessibilityLabel(expandedLongOutput ? "收起命令输出" : "查看更多命令输出")
                 }
             }
         }
@@ -1666,11 +1666,11 @@ private struct ConversationCommandOutputViewport: View {
     private func durationAccessibilityLabel(_ duration: String) -> String {
         switch status {
         case .completed:
-            return "\(duration), completed"
+            return "\(duration)，已完成"
         case .inProgress:
-            return "\(duration), in progress"
+            return "\(duration)，进行中"
         case .failed:
-            return "\(duration), failed"
+            return "\(duration)，失败"
         case .unknown:
             return duration
         }
@@ -1769,22 +1769,22 @@ private struct ConversationDividerRow: View {
     private var title: String {
         switch kind {
         case .contextCompaction:
-            return effectiveContextCompactionComplete ? "Context compacted" : "Compacting context"
+            return effectiveContextCompactionComplete ? "上下文已压缩" : "正在压缩上下文"
         case .modelRerouted(let fromModel, let toModel, let reason):
-            let base = fromModel.map { "\($0) -> \(toModel)" } ?? "Routed to \(toModel)"
+            let base = fromModel.map { "\($0) -> \(toModel)" } ?? "已切换到 \(toModel)"
             if let reason, !reason.isEmpty {
                 return "\(base) · \(reason)"
             }
             return base
         case .reviewEntered(let review):
-            return review.isEmpty ? "Entered review" : "Entered review: \(review)"
+            return review.isEmpty ? "进入审查" : "进入审查：\(review)"
         case .reviewExited(let review):
-            return review.isEmpty ? "Exited review" : "Exited review: \(review)"
+            return review.isEmpty ? "退出审查" : "退出审查：\(review)"
         case .workedFor(let duration):
             return duration
         case .generic(let title, let detail):
             if let detail, !detail.isEmpty {
-                return "\(title): \(detail)"
+                return "\(title)：\(detail)"
             }
             return title
         }
@@ -1865,7 +1865,7 @@ private struct ConversationCodeReviewFindingCard: View {
                     .foregroundColor(LitterTheme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button("Dismiss", action: onDismiss)
+                Button("忽略", action: onDismiss)
                     .buttonStyle(.plain)
                     .litterFont(.callout, weight: .medium)
                     .foregroundColor(LitterTheme.textSecondary)
@@ -2012,7 +2012,7 @@ struct ConversationPinnedContextStrip: View {
         }
         return PresentedDiff(
             id: "session-diff",
-            title: "Session Diff",
+            title: "会话变更",
             diff: nil,
             stats: stats,
             sections: sections
@@ -2026,9 +2026,9 @@ struct ConversationPinnedContextStrip: View {
             let total = data.steps.count
             let summary: String = {
                 if completed == 0 {
-                    return "To do list created with \(total) tasks"
+                    return "已创建包含 \(total) 个任务的待办列表"
                 }
-                return "\(completed) out of \(total) tasks completed"
+                return "已完成 \(completed) / \(total) 个任务"
             }()
 
             VStack(alignment: .leading, spacing: 0) {
@@ -2190,7 +2190,7 @@ private struct DiffIndicatorLabel: View {
                         .foregroundColor(LitterTheme.danger)
                 }
             } else {
-                Text("Diff")
+                Text("变更")
                     .litterFont(.caption2, weight: .semibold)
                     .foregroundColor(LitterTheme.textSecondary)
             }
@@ -2205,9 +2205,9 @@ private struct DiffIndicatorLabel: View {
 
     private var accessibilityLabel: String {
         if stats.hasChanges {
-            return "Show diff details. \(stats.additions) additions, \(stats.deletions) deletions."
+            return "显示变更详情。新增 \(stats.additions) 行，删除 \(stats.deletions) 行。"
         }
-        return "Show diff details."
+        return "显示变更详情。"
     }
 }
 
@@ -2311,7 +2311,7 @@ private struct ConversationDiffDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
+                    Button("完成") {
                         dismiss()
                     }
                 }

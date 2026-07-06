@@ -92,10 +92,10 @@ struct LockScreenCardView: View {
     private var displayText: String {
         if let snippet = state.outputSnippet, !snippet.isEmpty { return snippet }
         switch state.phase {
-        case .thinking: return "Thinking..."
-        case .toolCall: return state.toolName ?? "Running tool..."
-        case .completed: return "Done"
-        case .failed: return "Failed"
+        case .thinking: return "思考中..."
+        case .toolCall: return state.toolName ?? "正在执行工具..."
+        case .completed: return "已完成"
+        case .failed: return "失败"
         }
     }
 
@@ -111,10 +111,10 @@ struct LockScreenCardView: View {
     private var phaseBadge: some View {
         let text: String = {
             switch state.phase {
-            case .thinking: return "thinking"
-            case .toolCall: return "tool"
-            case .completed: return "done"
-            case .failed: return "failed"
+            case .thinking: return "思考中"
+            case .toolCall: return "工具"
+            case .completed: return "完成"
+            case .failed: return "失败"
             }
         }()
         let fg: Color = {

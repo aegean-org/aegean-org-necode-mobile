@@ -31,7 +31,7 @@ struct UWBDebugView: View {
             }
             .scrollContentBackground(.hidden)
         }
-        .navigationTitle("Proximity Debug")
+        .navigationTitle("近场调试")
         .navigationBarTitleDisplayMode(.inline)
         .onReceive(tick) { now = $0 }
         .onDisappear { pairing.stopDebug() }
@@ -40,31 +40,31 @@ struct UWBDebugView: View {
     // MARK: - Sections
 
     private var capabilitiesCard: some View {
-        card(title: "Device") {
-            row("NISession.isSupported", value: capabilities.isSupported ? "yes" : "no")
-            row("Precise distance", value: capabilities.preciseDistance.label)
-            row("Direction", value: capabilities.direction.label)
-            row("Camera assistance", value: capabilities.cameraAssistance.label)
-            row("Extended distance", value: capabilities.extendedDistance.label)
+        card(title: "设备") {
+            row("NISession 支持", value: capabilities.isSupported ? "是" : "否")
+            row("精确距离", value: capabilities.preciseDistance.label)
+            row("方向", value: capabilities.direction.label)
+            row("摄像头辅助", value: capabilities.cameraAssistance.label)
+            row("扩展距离", value: capabilities.extendedDistance.label)
         }
     }
 
     private var statusCard: some View {
-        card(title: "Session") {
-            row("Running", value: pairing.isRunning ? "yes" : "no")
-            row("State", value: stateLabel(pairing.state))
+        card(title: "会话") {
+            row("运行中", value: pairing.isRunning ? "是" : "否")
+            row("状态", value: stateLabel(pairing.state))
             row("Mac", value: pairing.discoveredMacName ?? "—")
             if let last = pairing.lastUpdate {
                 let delta = max(0, now.timeIntervalSince(last))
-                row("Last sample", value: String(format: "%.2fs ago", delta))
+                row("最近采样", value: String(format: "%.2f 秒前", delta))
             } else {
-                row("Last sample", value: "—")
+                row("最近采样", value: "—")
             }
         }
     }
 
     private var distanceCard: some View {
-        card(title: "Distance") {
+        card(title: "距离") {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(pairing.lastDistance.map { String(format: "%.2f", $0) } ?? "—")
                     .litterFont(size: 36, weight: .semibold)
@@ -78,7 +78,7 @@ struct UWBDebugView: View {
     }
 
     private var directionCard: some View {
-        card(title: "Direction") {
+        card(title: "方向") {
             HStack(spacing: 16) {
                 CompassView(direction: pairing.lastDirection,
                             horizontalAngle: pairing.lastHorizontalAngle)
@@ -90,13 +90,13 @@ struct UWBDebugView: View {
                         row("z", value: String(format: "%+.3f", dir.z))
                         let az = atan2(dir.x, -dir.z) * 180 / .pi
                         let el = asin(max(-1, min(1, dir.y))) * 180 / .pi
-                        row("azimuth", value: String(format: "%+.1f°", az))
-                        row("elevation", value: String(format: "%+.1f°", el))
+                        row("方位角", value: String(format: "%+.1f°", az))
+                        row("仰角", value: String(format: "%+.1f°", el))
                     } else {
-                        row("vector", value: "—")
+                        row("向量", value: "—")
                     }
                     if let h = pairing.lastHorizontalAngle {
-                        row("horizontal∠", value: String(format: "%+.1f°", h * 180 / .pi))
+                        row("水平角", value: String(format: "%+.1f°", h * 180 / .pi))
                     }
                 }
             }
@@ -104,11 +104,11 @@ struct UWBDebugView: View {
     }
 
     private var bleCard: some View {
-        card(title: "BLE Proximity") {
-            row("Last RSSI", value: pairing.lastRssi.map { "\($0) dBm" } ?? "—")
-            row("Smoothed", value: pairing.smoothedRssi.map { String(format: "%.1f dBm", $0) } ?? "—")
-            row("Bucket", value: pairing.bleProximity.label)
-            row("Est. distance", value: pairing.bleEstimatedDistance.map { String(format: "%.1f m", $0) } ?? "—")
+        card(title: "BLE 近场") {
+            row("最近 RSSI", value: pairing.lastRssi.map { "\($0) dBm" } ?? "—")
+            row("平滑值", value: pairing.smoothedRssi.map { String(format: "%.1f dBm", $0) } ?? "—")
+            row("分档", value: pairing.bleProximity.label)
+            row("估算距离", value: pairing.bleEstimatedDistance.map { String(format: "%.1f m", $0) } ?? "—")
         }
     }
 
@@ -120,7 +120,7 @@ struct UWBDebugView: View {
                 pairing.startForDebug()
             }
         } label: {
-            Text(pairing.isRunning ? "Stop" : "Start")
+            Text(pairing.isRunning ? "停止" : "开始")
                 .litterFont(.body, weight: .semibold)
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity)
@@ -135,13 +135,13 @@ struct UWBDebugView: View {
 
     private func stateLabel(_ s: NearbyMacPairingState) -> String {
         switch s {
-        case .searching: return "searching"
-        case .connecting: return "connecting"
-        case .handshaking: return "ranging"
-        case .awaitingConfirm: return "awaiting confirm"
-        case .paired: return "paired"
-        case .rejected: return "rejected"
-        case .failed: return "failed"
+        case .searching: return "搜索中"
+        case .connecting: return "连接中"
+        case .handshaking: return "测距中"
+        case .awaitingConfirm: return "等待确认"
+        case .paired: return "已配对"
+        case .rejected: return "已拒绝"
+        case .failed: return "失败"
         }
     }
 
@@ -217,7 +217,7 @@ private struct CompassView: View {
             }
             .stroke(LitterTheme.border.opacity(0.4), lineWidth: 0.5)
             arrow
-            Text("front")
+            Text("正前方")
                 .litterFont(size: 9)
                 .foregroundColor(LitterTheme.textMuted)
                 .offset(y: -52)
@@ -264,8 +264,8 @@ private struct CapabilitiesSummary {
     enum Tri { case yes, no, unknown
         var label: String {
             switch self {
-            case .yes: return "yes"
-            case .no: return "no"
+            case .yes: return "是"
+            case .no: return "否"
             case .unknown: return "—"
             }
         }

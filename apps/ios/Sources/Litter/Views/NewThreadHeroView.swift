@@ -48,7 +48,7 @@ struct NewThreadHeroView: View {
                 Spacer(minLength: 0)
 
                 if !isSending {
-                    Text("What should we build in litter?")
+                    Text("今天想让 NeCode 做什么？")
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(LitterTheme.textPrimary)
                         .multilineTextAlignment(.center)
@@ -94,7 +94,7 @@ struct NewThreadHeroView: View {
         .toolbar {
             if let onCancel {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { onCancel() }
+                    Button("取消") { onCancel() }
                         .foregroundStyle(LitterTheme.textSecondary)
                 }
             }
@@ -126,7 +126,7 @@ struct NewThreadHeroView: View {
         let server = launchableServers.first { $0.id == activeServerId }
         Menu {
             if launchableServers.isEmpty {
-                Text("No servers connected")
+                Text("未连接主机")
             } else {
                 ForEach(launchableServers, id: \.id) { s in
                     Button(s.displayName) {
@@ -138,7 +138,7 @@ struct NewThreadHeroView: View {
             HStack(spacing: 6) {
                 Image(systemName: "server.rack")
                     .font(.system(size: 10, weight: .semibold))
-                Text(server?.displayName ?? "Server")
+                Text(server?.displayName ?? "主机")
                     .litterMonoFont(size: 12, weight: .regular)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))

@@ -112,7 +112,7 @@ struct HomeModelChip: View {
                         .lineLimit(1)
                 }
                 if isPlanMode {
-                    Text("plan")
+            Text("计划")
                         .litterMonoFont(size: 10, weight: .bold)
                         .foregroundStyle(.black)
                         .padding(.horizontal, 5)

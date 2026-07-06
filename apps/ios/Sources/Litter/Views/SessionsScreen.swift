@@ -174,15 +174,15 @@ struct SessionsScreen: View {
 
     private func attachSheetAndAlerts<Content: View>(to content: Content) -> some View {
         content
-            .alert("Session Action Failed", isPresented: Binding(
+            .alert("会话操作失败", isPresented: Binding(
                 get: { sessionActionErrorMessage != nil },
                 set: { if !$0 { sessionActionErrorMessage = nil } }
             )) {
-                Button("OK", role: .cancel) { sessionActionErrorMessage = nil }
+                Button("好", role: .cancel) { sessionActionErrorMessage = nil }
             } message: {
-                Text(sessionActionErrorMessage ?? "Unknown error")
+                Text(sessionActionErrorMessage ?? "未知错误")
             }
-            .alert("Rename Session", isPresented: Binding(
+            .alert("重命名会话", isPresented: Binding(
                 get: { renamingThreadKey != nil },
                 set: {
                     if !$0 {
@@ -192,18 +192,18 @@ struct SessionsScreen: View {
                     }
                 }
             )) {
-                TextField("New session title", text: $renameDraft)
-                Button("Save") { Task { await submitRename() } }
-                Button("Cancel", role: .cancel) {
+                TextField("新的会话标题", text: $renameDraft)
+                Button("保存") { Task { await submitRename() } }
+                Button("取消", role: .cancel) {
                     renamingThreadKey = nil
                     renameCurrentTitle = ""
                     renameDraft = ""
                 }
             } message: {
-                Text("Current session title:\n\(renameCurrentTitle)")
+                Text("当前会话标题：\n\(renameCurrentTitle)")
             }
             .confirmationDialog(
-                "Delete session?",
+                "删除会话？",
                 isPresented: Binding(
                     get: { archiveTargetKey != nil },
                     set: { if !$0 { archiveTargetKey = nil } }
@@ -211,12 +211,12 @@ struct SessionsScreen: View {
                 titleVisibility: Visibility.visible,
                 presenting: archiveTargetThread
             ) { thread in
-                Button("Delete \"\(thread.sessionTitle)\"", role: .destructive) {
+                Button("删除「\(thread.sessionTitle)」", role: .destructive) {
                     Task { await confirmArchiveSession() }
                 }
-                Button("Cancel", role: .cancel) { archiveTargetKey = nil }
+                Button("取消", role: .cancel) { archiveTargetKey = nil }
             } message: { _ in
-                Text("This removes the session from the list.")
+                Text("这会把该会话从列表中移除。")
             }
     }
 
@@ -232,7 +232,7 @@ struct SessionsScreen: View {
                 if isLoading {
                     ProgressView().tint(LitterTheme.accent).frame(maxWidth: .infinity)
                 } else {
-                    Text("No sessions yet")
+                    Text("还没有会话")
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                         .frame(maxWidth: .infinity)
@@ -244,7 +244,7 @@ struct SessionsScreen: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(LitterTheme.accent)
-                        Text("Loading more sessions...")
+                        Text("正在加载更多会话...")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textMuted)
                         Spacer(minLength: 0)
@@ -259,7 +259,7 @@ struct SessionsScreen: View {
                 Divider().background(LitterTheme.separator)
                 if derived.filteredThreads.isEmpty {
                     Spacer()
-                    Text("No matches for \"\(trimmedSessionSearchQuery)\"")
+                    Text("没有匹配“\(trimmedSessionSearchQuery)”的会话")
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                         .frame(maxWidth: .infinity)
@@ -359,7 +359,7 @@ struct SessionsScreen: View {
                 } else {
                     Image(systemName: "plus")
                         .litterFont(.subheadline, weight: .medium)
-                    Text("New Session")
+                    Text("新建会话")
                         .litterFont(.subheadline)
                 }
             }
@@ -398,7 +398,7 @@ struct SessionsScreen: View {
             }
         }
         .disabled(isLoading || connectedServers.isEmpty)
-        .accessibilityLabel("Refresh sessions")
+        .accessibilityLabel("刷新会话")
         .accessibilityIdentifier("sessions.refreshButton")
     }
 
@@ -439,12 +439,12 @@ struct SessionsScreen: View {
                 Image(systemName: "xmark.circle")
                     .foregroundColor(LitterTheme.textMuted)
                     .frame(width: 20)
-                Text("Not connected")
+                Text("未连接")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                     .fixedSize(horizontal: true, vertical: false)
                 if useSpacer { Spacer() }
-                Button("Connect") {
+                Button("连接") {
                     appState.showServerPicker = true
                 }
                 .accessibilityIdentifier("sessions.connectButton")
@@ -455,12 +455,12 @@ struct SessionsScreen: View {
                 Image(systemName: "server.rack")
                     .foregroundColor(LitterTheme.accent)
                     .frame(width: 20)
-                Text("\(connected.count) server\(connected.count == 1 ? "" : "s")")
+                Text("\(connected.count) 台主机")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textPrimary)
                     .fixedSize(horizontal: true, vertical: false)
                 if useSpacer { Spacer() }
-                Button("Add") {
+                Button("添加") {
                     appState.showServerPicker = true
                 }
                 .accessibilityIdentifier("sessions.addServerButton")
@@ -476,7 +476,7 @@ struct SessionsScreen: View {
                                 .controlSize(.small)
                                 .tint(LitterTheme.accent)
                         } else {
-                            Text("Fork")
+                            Text("分叉")
                         }
                     }
                     .disabled(isForkingActiveThread || (activeThreadEphemeralState?.hasTurnActive ?? activeThread.hasActiveTurn))
@@ -497,7 +497,7 @@ struct SessionsScreen: View {
             if runtimeKinds.count > 1 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        runtimeKindPill(label: "All", icon: "square.grid.2x2", kind: nil)
+                        runtimeKindPill(label: "全部", icon: "square.grid.2x2", kind: nil)
                         ForEach(orderedRuntimeKinds(present: runtimeKinds), id: \.self) { kind in
                             runtimeKindPill(
                                 label: runtimeKindLabel(kind),
@@ -561,7 +561,7 @@ struct SessionsScreen: View {
                 .foregroundColor(LitterTheme.textMuted)
                 .litterFont(.caption)
 
-            TextField("Search sessions", text: $sessionSearchQuery)
+            TextField("搜索会话", text: $sessionSearchQuery)
                 .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
@@ -593,7 +593,7 @@ struct SessionsScreen: View {
     private var sessionFilterRow: some View {
         HStack(spacing: 8) {
             Menu {
-                Button("All servers") { selectedServerFilterId = nil }
+                Button("全部主机") { selectedServerFilterId = nil }
                 ForEach(connectedServerOptions, id: \.id) { option in
                     Button(option.name) { selectedServerFilterId = option.id }
                 }
@@ -610,7 +610,7 @@ struct SessionsScreen: View {
                 showOnlyForks.toggle()
             } label: {
                 filterChip(
-                    title: "Forks",
+                    title: "分叉",
                     isActive: showOnlyForks,
                     icon: "arrow.triangle.branch"
                 )
@@ -631,7 +631,7 @@ struct SessionsScreen: View {
             .buttonStyle(.plain)
 
             if selectedServerFilterId != nil || showOnlyForks {
-                Button("Clear") {
+                Button("清除") {
                     selectedServerFilterId = nil
                     showOnlyForks = false
                 }
@@ -645,8 +645,8 @@ struct SessionsScreen: View {
     }
 
     private var selectedServerFilterTitle: String {
-        guard let selectedServerFilterId else { return "All servers" }
-        return connectedServerOptions.first(where: { $0.id == selectedServerFilterId })?.name ?? "All servers"
+        guard let selectedServerFilterId else { return "全部主机" }
+        return connectedServerOptions.first(where: { $0.id == selectedServerFilterId })?.name ?? "全部主机"
     }
 
     private func filterChip(title: String, isActive: Bool, icon: String) -> some View {
@@ -767,7 +767,7 @@ struct SessionsScreen: View {
                                         Button {
                                             Task { await forkThread(thread) }
                                         } label: {
-                                            Label("Fork", systemImage: "arrow.triangle.branch")
+                                            Label("分叉", systemImage: "arrow.triangle.branch")
                                         }
                                         .tint(LitterTheme.accent)
                                     }
@@ -775,7 +775,7 @@ struct SessionsScreen: View {
                                         Button(role: .destructive) {
                                             archiveTargetKey = thread.key
                                         } label: {
-                                            Label("Delete", systemImage: "trash")
+                                            Label("删除", systemImage: "trash")
                                         }
                                     }
                                 }
@@ -812,19 +812,19 @@ struct SessionsScreen: View {
             renameCurrentTitle = thread.sessionTitle
             renameDraft = ""
         } label: {
-            Label("Rename", systemImage: "pencil")
+            Label("重命名", systemImage: "pencil")
         }
 
         Button {
             Task { await forkThread(thread) }
         } label: {
-            Label("Fork", systemImage: "arrow.triangle.branch")
+            Label("分叉", systemImage: "arrow.triangle.branch")
         }
 
         Button(role: .destructive) {
             archiveTargetKey = thread.key
         } label: {
-            Label("Delete", systemImage: "trash")
+            Label("删除", systemImage: "trash")
         }
     }
 
@@ -883,7 +883,7 @@ struct SessionsScreen: View {
                                 HStack(spacing: 3) {
                                     Image(systemName: "person.2.fill")
                                         .litterFont(size: 8, weight: .semibold)
-                                    Text(thread.agentDisplayLabel ?? "Agent")
+                                Text(thread.agentDisplayLabel ?? "Agent")
                                         .litterFont(.caption2)
                                 }
                                 .foregroundColor(LitterTheme.textOnAccent)
@@ -892,7 +892,7 @@ struct SessionsScreen: View {
                                 .background(LitterTheme.success)
                                 .cornerRadius(4)
                             } else if thread.isFork {
-                                Text("Fork")
+                                Text("分叉")
                                     .litterFont(.caption2)
                                     .foregroundColor(LitterTheme.textOnAccent)
                                     .padding(.horizontal, 5)
@@ -922,7 +922,7 @@ struct SessionsScreen: View {
                             if let parent {
                                 Text("•")
                                     .foregroundColor(LitterTheme.textMuted)
-                                Text("from \(parent.sessionTitle)")
+                                Text("来自 \(parent.sessionTitle)")
                                     .foregroundColor(LitterTheme.textMuted)
                             }
                         }
@@ -970,7 +970,7 @@ struct SessionsScreen: View {
                             Button {
                                 Task { await resumeSession(parent) }
                             } label: {
-                                lineageChip(title: "Parent", count: 1, isInteractive: true)
+                                lineageChip(title: "父会话", count: 1, isInteractive: true)
                             }
                             .buttonStyle(.plain)
                         }
@@ -983,7 +983,7 @@ struct SessionsScreen: View {
                                     }
                                 }
                             } label: {
-                                lineageChip(title: "Siblings", count: siblings.count, isInteractive: true)
+                                lineageChip(title: "同级", count: siblings.count, isInteractive: true)
                             }
                         }
 
@@ -995,7 +995,7 @@ struct SessionsScreen: View {
                                     }
                                 }
                             } label: {
-                                lineageChip(title: "Children", count: children.count, isInteractive: true)
+                                lineageChip(title: "子会话", count: children.count, isInteractive: true)
                             }
                         }
 
@@ -1219,7 +1219,7 @@ struct SessionsScreen: View {
         }
         resumingKey = nil
         guard let openedKey else {
-            sessionActionErrorMessage = sessionActionErrorMessage ?? "Failed to open conversation."
+            sessionActionErrorMessage = sessionActionErrorMessage ?? "打开会话失败。"
             return
         }
         onOpenConversation(openedKey)

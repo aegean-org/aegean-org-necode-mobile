@@ -79,7 +79,7 @@ struct DiscoveryView: View {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             chooserContent
         }
-        .navigationTitle("Add Server")
+        .navigationTitle("添加主机")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -123,27 +123,27 @@ struct DiscoveryView: View {
             )
         }
         .confirmationDialog(
-            connectionChoiceServer.map { "Connect to \($0.name)" } ?? "Choose Connection",
+            connectionChoiceServer.map { "连接到 \($0.name)" } ?? "选择连接方式",
             isPresented: connectionChoicePresented,
             titleVisibility: .visible
         ) {
             if let server = connectionChoiceServer {
                 ForEach(server.availableDirectCodexPorts, id: \.self) { port in
-                    Button("Use Codex (\(port))") {
+                    Button("使用 Codex (\(port))") {
                         let preferredServer = server.withConnectionPreference(.directCodex, codexPort: port)
                         connectionChoiceServer = nil
                         Task { await connectToServer(preferredServer) }
                     }
                 }
                 if server.canConnectViaSSH {
-                    Button("Connect via SSH") {
+                    Button("通过 SSH 连接") {
                         let preferredServer = server.withConnectionPreference(.ssh)
                         connectionChoiceServer = nil
                         sshServer = preferredServer
                     }
                 }
             }
-            Button("Cancel", role: .cancel) {
+            Button("取消", role: .cancel) {
                 connectionChoiceServer = nil
             }
         } message: {
@@ -187,18 +187,18 @@ struct DiscoveryView: View {
                 connectError = message
             }
         }
-        .alert("Connection Failed", isPresented: showConnectError, actions: {
-            Button("OK") { connectError = nil }
+        .alert("连接失败", isPresented: showConnectError, actions: {
+            Button("好") { connectError = nil }
         }, message: {
-            Text(connectError ?? "Unable to connect.")
+            Text(connectError ?? "无法连接。")
         })
-        .alert("Rename Server", isPresented: Binding(
+        .alert("重命名主机", isPresented: Binding(
             get: { renameTarget != nil },
             set: { if !$0 { renameTarget = nil } }
         )) {
-            TextField("Name", text: $renameText)
-            Button("Cancel", role: .cancel) { renameTarget = nil }
-            Button("Save") {
+            TextField("名称", text: $renameText)
+            Button("取消", role: .cancel) { renameTarget = nil }
+            Button("保存") {
                 if let server = renameTarget {
                     let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let newName = trimmed.isEmpty ? server.hostname : trimmed
@@ -238,7 +238,7 @@ struct DiscoveryView: View {
                 renameTarget = nil
             }
         } message: {
-            Text("Enter a new name for this server.")
+            Text("输入新的主机名称。")
         }
     }
 
@@ -248,17 +248,17 @@ struct DiscoveryView: View {
     private var chooserContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Pick how you want to connect.")
+                Text("选择连接电脑的方式。")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
                     .padding(.top, 8)
 
                 chooserCard(
-                    title: "Pair with kittylitter",
-                    subtitle: "Run npx kittylitter on the host, then scan the QR code it prints.",
-                    badge: "RECOMMENDED",
+                    title: "连接 NeCode Mobile",
+                    subtitle: "在电脑端运行 necode mobile，然后用手机扫描二维码。",
+                    badge: "推荐",
                     icon: "qrcode.viewfinder",
-                    supportedAgents: Self.kittylitterAgents,
+                    supportedAgents: Self.necodeMobileAgents,
                     isRecommended: true,
                     accessibilityID: "discovery.chooser.kittylitter"
                 ) {
@@ -266,8 +266,8 @@ struct DiscoveryView: View {
                 }
 
                 chooserCard(
-                    title: "Connected Computer",
-                    subtitle: "Connect to a computer already signed in and running Codex for this ChatGPT account.",
+                    title: "已连接电脑",
+                    subtitle: "连接当前账号下已经在线的电脑。",
                     badge: nil,
                     icon: "desktopcomputer",
                     supportedAgents: [AgentRuntimeKind.codex],
@@ -278,8 +278,8 @@ struct DiscoveryView: View {
                 }
 
                 chooserCard(
-                    title: "SSH or Codex URL",
-                    subtitle: "Connect over SSH or paste a ws:// codex URL.",
+                    title: "SSH 或 NeCode 服务地址",
+                    subtitle: "通过 SSH 连接，或粘贴 ws:// 服务地址。",
                     badge: nil,
                     icon: "terminal",
                     supportedAgents: [AgentRuntimeKind.codex],
@@ -303,7 +303,8 @@ struct DiscoveryView: View {
     /// consistent. New agents added in the alleycat manifest still
     /// surface on connected hosts via the real metadata store; this list
     /// only seeds the pre-pair preview.
-    private static let kittylitterAgents: [AgentRuntimeKind] = [
+    private static let necodeMobileAgents: [AgentRuntimeKind] = [
+        "necode",
         "codex",
         "pi",
         "amp",
@@ -402,7 +403,7 @@ struct DiscoveryView: View {
     @ViewBuilder
     private func supportedAgentsStrip(_ agents: [AgentRuntimeKind]) -> some View {
         HStack(spacing: 8) {
-            Text("Works with")
+            Text("支持")
                 .litterFont(.caption2)
                 .foregroundColor(LitterTheme.textMuted)
                 .tracking(0.4)
@@ -429,18 +430,18 @@ struct DiscoveryView: View {
                 if discovery.isInitialLoad {
                     HStack {
                         ProgressView().tint(LitterTheme.textMuted).scaleEffect(0.7)
-                        Text("Scanning...")
+                        Text("正在扫描...")
                             .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textMuted)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("No servers found")
+                        Text("没有发现主机")
                             .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textMuted)
                         if discovery.isScanning {
-                            Text("Still searching network...")
+                            Text("仍在搜索网络...")
                                 .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
@@ -467,7 +468,7 @@ struct DiscoveryView: View {
         } header: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text("Servers")
+                    Text("主机")
                         .foregroundColor(LitterTheme.textSecondary)
                     Spacer()
                     if discovery.isScanning, let label = discovery.scanProgressLabel {
@@ -543,7 +544,7 @@ struct DiscoveryView: View {
                     renameText = server.name
                     renameTarget = server
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    Label("重命名", systemImage: "pencil")
                 }
             }
         }
@@ -560,7 +561,7 @@ struct DiscoveryView: View {
     }
 
     private func serverSubtitle(_ server: DiscoveredServer) -> String {
-        if server.source == .local { return "In-process server" }
+        if server.source == .local { return "本机服务" }
         let snapshot = connectedSnapshot(for: server)
         if let progressDetail = snapshot?.connectionProgressDetail,
            !progressDetail.isEmpty {
@@ -575,7 +576,7 @@ struct DiscoveryView: View {
         }
         let directPorts = server.availableDirectCodexPorts.map(String.init)
         if !directPorts.isEmpty {
-            parts.append(" - codex \(directPorts.joined(separator: ", "))")
+            parts.append(" - NeCode \(directPorts.joined(separator: ", "))")
         }
         if server.canConnectViaSSH {
             parts.append(" - ssh \(server.resolvedSSHPort)")
@@ -960,7 +961,7 @@ struct DiscoveryView: View {
         if appModel.snapshot?.servers.first(where: { $0.serverId == connectedServerId })?.health == .connected {
             navigateAfterConnect(server)
         } else {
-            connectError = "Failed to connect"
+            connectError = "连接失败"
         }
     }
 
@@ -1199,7 +1200,7 @@ struct DiscoveryView: View {
                             HStack(spacing: 10) {
                                 ProgressView()
                                     .tint(LitterTheme.accent)
-                                Text("Loading connected computers...")
+                                Text("正在加载已连接电脑...")
                                     .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
@@ -1208,14 +1209,14 @@ struct DiscoveryView: View {
                                 Text(slingshotError)
                                     .litterFont(.footnote)
                                     .foregroundColor(LitterTheme.textSecondary)
-                                Button("Retry") {
+                                Button("重试") {
                                     Task { await loadSlingshotEnvironments() }
                                 }
                                 .foregroundColor(LitterTheme.accent)
                                 .litterFont(.footnote, weight: .semibold)
                             }
                         } else if slingshotEnvironments.isEmpty {
-                            Text("No connected computers were found for this account.")
+                            Text("当前账号没有找到已连接电脑。")
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textSecondary)
                         } else {
@@ -1231,10 +1232,10 @@ struct DiscoveryView: View {
                             }
                         }
                     } header: {
-                        Text("Connected Computers")
+                        Text("已连接电脑")
                             .foregroundColor(LitterTheme.textSecondary)
                     } footer: {
-                        Text("These computers come from ChatGPT using your signed-in account. Start Codex on the computer first so it appears here.")
+                        Text("这些电脑来自当前登录账号。请先在电脑上启动 NeCode，再回到这里刷新。")
                             .litterFont(.caption2)
                             .foregroundColor(LitterTheme.textMuted)
                     }
@@ -1242,18 +1243,18 @@ struct DiscoveryView: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Connected Computers")
+            .navigationTitle("已连接电脑")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Refresh") {
+                    Button("刷新") {
                         Task { await loadSlingshotEnvironments() }
                     }
                     .disabled(slingshotIsLoading)
                     .foregroundColor(LitterTheme.accent)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { showSlingshotHosts = false }
+                    Button("取消") { showSlingshotHosts = false }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -1280,7 +1281,7 @@ struct DiscoveryView: View {
             }
             Spacer()
             statusTag(
-                label: environment.online ? (environment.busy ? "busy" : "online") : "offline",
+                label: environment.online ? (environment.busy ? "忙碌" : "在线") : "离线",
                 color: environment.online ? (environment.busy ? .orange : LitterTheme.accent) : LitterTheme.textMuted
             )
         }
@@ -1314,11 +1315,11 @@ struct DiscoveryView: View {
     @MainActor
     private func connectSlingshotEnvironment(_ environment: AppSlingshotEnvironment) async {
         guard environment.online else {
-            connectError = "\(environment.displayName) is offline."
+            connectError = "\(environment.displayName) 当前离线。"
             return
         }
         guard let server = slingshotServer(for: environment) else {
-            connectError = "Could not prepare this connected computer."
+            connectError = "无法准备这台已连接电脑。"
             return
         }
         await connectToServer(server)
@@ -1390,37 +1391,37 @@ struct DiscoveryView: View {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
                 Form {
                     Section {
-                        Picker("Connection Type", selection: $manualConnectionMode) {
+                        Picker("连接类型", selection: $manualConnectionMode) {
                             ForEach(ManualConnectionMode.allCases) { mode in
                                 Text(mode.label).tag(mode)
                             }
                         }
                         .pickerStyle(.segmented)
                     } header: {
-                        Text("Connection")
+                        Text("连接")
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
 
                     Section {
                         if manualConnectionMode == .codex {
-                            TextField("ws://host:port or wss://...", text: $manualCodexURL)
+                            TextField("ws://主机:端口 或 wss://...", text: $manualCodexURL)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled(true)
                                 .keyboardType(.URL)
                         } else {
-                            TextField("hostname or IP", text: $manualHost)
+                            TextField("主机名或 IP", text: $manualHost)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled(true)
-                            TextField("ssh port", text: $manualSSHPort)
+                            TextField("SSH 端口", text: $manualSSHPort)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .keyboardType(.numberPad)
-                            TextField("wake MAC (optional)", text: $manualWakeMAC)
+                            TextField("唤醒 MAC（可选）", text: $manualWakeMAC)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                                 .textInputAutocapitalization(.never)
@@ -1431,7 +1432,7 @@ struct DiscoveryView: View {
                             .foregroundColor(LitterTheme.textSecondary)
                     } footer: {
                         if manualConnectionMode == .codex {
-                            Text("Prefer the SSH flow — it bootstraps codex on the remote bound to 127.0.0.1 and forwards the port over SSH.\nIf you run it manually, bind loopback and tunnel yourself: codex app-server --listen ws://127.0.0.1:8390\nFor reverse proxies: wss://example.com/ws?token=SECRET\nDo not bind 0.0.0.0 or expose directly to the internet unless you know what you are doing.")
+                            Text("建议优先使用 SSH。若手动连接 NeCode 服务，请先在主机上启动服务，例如：\nnecode app-server --listen ws://127.0.0.1:8390\n也可以填写 wss://example.com/ws?token=SECRET。除非非常清楚风险，不要直接暴露到公网。")
                                 .litterFont(.caption2)
                                 .foregroundColor(LitterTheme.textMuted)
                         }
@@ -1449,11 +1450,11 @@ struct DiscoveryView: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Add Server")
+            .navigationTitle("添加主机")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { showManualEntry = false }
+                    Button("取消") { showManualEntry = false }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -1575,7 +1576,7 @@ struct DiscoveryView: View {
             host = raw
             port = 8390
         } else {
-            connectError = "Enter a ws:// URL or host:port"
+            connectError = "请输入 ws:// 地址或 host:port"
             return
         }
 
@@ -1603,12 +1604,12 @@ struct DiscoveryView: View {
         let wakeInput = manualWakeMAC.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedWakeMAC = DiscoveredServer.normalizeWakeMAC(wakeInput)
         if !wakeInput.isEmpty && normalizedWakeMAC == nil {
-            connectError = "Wake MAC must look like aa:bb:cc:dd:ee:ff"
+            connectError = "Wake MAC 格式应类似 aa:bb:cc:dd:ee:ff"
             return
         }
 
         guard let sshPort = UInt16(manualSSHPort) else {
-            connectError = "SSH port must be a valid number"
+            connectError = "SSH 端口必须是有效数字"
             return
         }
         pendingSSHServer = DiscoveredServer(
@@ -1639,12 +1640,12 @@ struct DiscoveryView: View {
     private func connectionChoiceMessage(for server: DiscoveredServer) -> String {
         let directPorts = server.availableDirectCodexPorts.map(String.init)
         if directPorts.isEmpty {
-            return "Use SSH to bootstrap Codex on \(server.hostname)."
+            return "通过 SSH 在 \(server.hostname) 上启动 NeCode。"
         }
         if server.canConnectViaSSH {
-            return "Codex is available on ports \(directPorts.joined(separator: ", ")) and SSH is also available on port \(server.resolvedSSHPort)."
+            return "NeCode 服务可用端口为 \(directPorts.joined(separator: ", "))，SSH 也可使用 \(server.resolvedSSHPort) 端口。"
         }
-        return "Choose a Codex app-server port on \(server.hostname)."
+        return "选择 \(server.hostname) 上的 NeCode 服务端口。"
     }
 
     private func progressTag(
@@ -1696,7 +1697,7 @@ private enum ManualConnectionMode: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .codex:
-            return "Codex"
+            return "NeCode 服务"
         case .ssh:
             return "SSH"
         }
@@ -1705,18 +1706,18 @@ private enum ManualConnectionMode: String, CaseIterable, Identifiable {
     var formHeader: String {
         switch self {
         case .codex:
-            return "Codex Server"
+            return "NeCode 服务地址"
         case .ssh:
-            return "SSH Bootstrap"
+            return "SSH 启动"
         }
     }
 
     var primaryButtonTitle: String {
         switch self {
         case .codex:
-            return "Connect"
+            return "连接"
         case .ssh:
-            return "Continue to SSH Login"
+            return "继续 SSH 登录"
         }
     }
 }

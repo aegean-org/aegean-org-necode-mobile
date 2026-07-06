@@ -48,7 +48,7 @@ struct SavedAppUpdateOverlay: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Describe the change")
+                Text("描述要修改的内容")
                     .litterFont(.subheadline, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
@@ -59,7 +59,7 @@ struct SavedAppUpdateOverlay: View {
                 }
             }
 
-            TextField("e.g. make the buttons bigger", text: $prompt, axis: .vertical)
+            TextField("例如：把按钮调大一点", text: $prompt, axis: .vertical)
                 .litterFont(size: 15)
                 .focused($fieldFocused)
                 .padding(12)
@@ -79,7 +79,7 @@ struct SavedAppUpdateOverlay: View {
                 Button(action: submit) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.up.circle.fill")
-                        Text("Update")
+                        Text("更新")
                     }
                     .litterFont(.subheadline, weight: .semibold)
                     .padding(.horizontal, 14)
@@ -102,7 +102,7 @@ struct SavedAppUpdateOverlay: View {
     private var progressCard: some View {
         HStack(spacing: 10) {
             ProgressView().tint(LitterTheme.accent)
-            Text("Working on your update…")
+            Text("正在处理更新…")
                 .litterFont(.subheadline, weight: .medium)
                 .foregroundColor(LitterTheme.textPrimary)
             Spacer(minLength: 0)

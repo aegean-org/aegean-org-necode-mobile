@@ -41,31 +41,31 @@ struct ServerPill: View {
             Button {
                 onReconnect()
             } label: {
-                Label("Reconnect", systemImage: "arrow.clockwise")
+                Label("重新连接", systemImage: "arrow.clockwise")
             }
             Button {
                 onRestartAppServer()
             } label: {
-                Label("Restart app server", systemImage: "arrow.triangle.2.circlepath")
+                Label("重启服务", systemImage: "arrow.triangle.2.circlepath")
             }
             if server.isLocal {
                 Button {
                     onShowMountedFolders()
                 } label: {
-                    Label("Mounted folders", systemImage: "externaldrive.badge.icloud")
+                    Label("挂载目录", systemImage: "externaldrive.badge.icloud")
                 }
             }
             if !server.isLocal {
                 Button {
                     onRename()
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    Label("重命名", systemImage: "pencil")
                 }
             }
             Button(role: .destructive) {
                 onRemove()
             } label: {
-                Label("Remove", systemImage: "trash")
+                Label("移除", systemImage: "trash")
             }
         }
     }
@@ -168,7 +168,7 @@ struct AddServerPill: View {
             HStack(spacing: 4) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .semibold))
-                Text("server")
+                Text("主机")
                     .litterMonoFont(size: 13, weight: .semibold)
             }
             .foregroundStyle(LitterTheme.accent)

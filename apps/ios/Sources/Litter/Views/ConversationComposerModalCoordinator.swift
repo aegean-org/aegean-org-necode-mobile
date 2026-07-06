@@ -85,19 +85,19 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
     }
 
     private var selectedApprovalLabel: String {
-        ComposerApprovalOption.allCases.first { $0.wireValue == selectedApprovalValue }?.title ?? "Custom"
+        ComposerApprovalOption.allCases.first { $0.wireValue == selectedApprovalValue }?.title ?? "自定义"
     }
 
     private var selectedApprovalDescription: String {
-        ComposerApprovalOption.allCases.first { $0.wireValue == selectedApprovalValue }?.description ?? "This approval policy is managed by the server."
+        ComposerApprovalOption.allCases.first { $0.wireValue == selectedApprovalValue }?.description ?? "这个审批策略由服务端管理。"
     }
 
     private var selectedSandboxLabel: String {
-        ComposerSandboxOption.allCases.first { $0.wireValue == selectedSandboxValue }?.title ?? "Custom"
+        ComposerSandboxOption.allCases.first { $0.wireValue == selectedSandboxValue }?.title ?? "自定义"
     }
 
     private var selectedSandboxDescription: String {
-        ComposerSandboxOption.allCases.first { $0.wireValue == selectedSandboxValue }?.description ?? "This sandbox setting is managed by the server."
+        ComposerSandboxOption.allCases.first { $0.wireValue == selectedSandboxValue }?.description ?? "这个沙盒设置由服务端管理。"
     }
 
     private var currentThread: AppThreadSnapshot? {
@@ -119,12 +119,12 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
 
     private var currentApprovalLabel: String {
         guard hasAuthoritativeThreadPermissions else { return "Syncing..." }
-        return currentThread?.effectiveApprovalPolicy?.displayTitle ?? "Syncing..."
+        return currentThread?.effectiveApprovalPolicy?.displayTitle ?? "同步中..."
     }
 
     private var currentSandboxLabel: String {
         guard hasAuthoritativeThreadPermissions else { return "Syncing..." }
-        return currentThread?.effectiveSandboxPolicy?.displayTitle ?? "Syncing..."
+        return currentThread?.effectiveSandboxPolicy?.displayTitle ?? "同步中..."
     }
 
     private var usesThreadDefaults: Bool {
@@ -206,7 +206,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             .sheet(isPresented: $showSkillsSheet) {
                 skillsSheetContent
             }
-            .alert("Rename Thread", isPresented: Binding(
+            .alert("重命名会话", isPresented: Binding(
                 get: { showRenamePrompt },
                 set: { isPresented in
                     showRenamePrompt = isPresented
@@ -216,31 +216,31 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                     }
                 }
             )) {
-                TextField("New thread title", text: $renameDraft)
-                Button("Cancel", role: .cancel) {
+                TextField("新的会话标题", text: $renameDraft)
+                Button("取消", role: .cancel) {
                     showRenamePrompt = false
                 }
-                Button("Rename") {
+                Button("重命名") {
                     let nextName = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !nextName.isEmpty else { return }
                     Task { await onRenameThread(nextName) }
                 }
             } message: {
-                Text("Current thread title:\n\(renameCurrentThreadTitle)")
+                Text("当前会话标题：\n\(renameCurrentThreadTitle)")
             }
-            .alert("Slash Command Error", isPresented: Binding(
+            .alert("斜杠命令错误", isPresented: Binding(
                 get: { slashErrorMessage != nil },
                 set: { if !$0 { slashErrorMessage = nil } }
             )) {
-                Button("OK", role: .cancel) { slashErrorMessage = nil }
+                Button("好", role: .cancel) { slashErrorMessage = nil }
             } message: {
-                Text(slashErrorMessage ?? "Unknown error")
+                Text(slashErrorMessage ?? "未知错误")
             }
-            .alert("Microphone Access", isPresented: $showMicPermissionAlert) {
-                Button("Open Settings", action: onOpenSettings)
-                Button("Cancel", role: .cancel) {}
+            .alert("麦克风权限", isPresented: $showMicPermissionAlert) {
+                Button("打开设置", action: onOpenSettings)
+                Button("取消", role: .cancel) {}
             } message: {
-                Text("Microphone permission is required for voice input. Enable it in Settings.")
+                Text("语音输入需要麦克风权限，请在系统设置中开启。")
             }
     }
 
@@ -252,15 +252,15 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .center) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Thread permissions")
+                                Text("会话权限")
                                     .foregroundStyle(LitterTheme.textPrimary)
                                     .litterFont(.headline)
-                                Text(currentRuntimeSupportsPermissionOverrides ? "Changes apply on your next turn and later turns." : "This runtime controls its own permissions.")
+                                Text(currentRuntimeSupportsPermissionOverrides ? "修改会从下一轮对话开始生效。" : "当前运行时会自行管理权限。")
                                     .foregroundStyle(LitterTheme.textMuted)
                                     .litterFont(.caption)
                             }
                             Spacer(minLength: 12)
-                            Text(currentRuntimeSupportsPermissionOverrides ? (usesThreadDefaults ? "Using defaults" : "Custom override") : "Runtime managed")
+                            Text(currentRuntimeSupportsPermissionOverrides ? (usesThreadDefaults ? "使用默认值" : "自定义覆盖") : "运行时管理")
                                 .foregroundStyle(usesThreadDefaults ? LitterTheme.textSecondary : LitterTheme.accentStrong)
                                 .litterFont(size: 11, weight: .semibold)
                                 .padding(.horizontal, 10)
@@ -273,13 +273,13 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
 
                         HStack(spacing: 10) {
                             permissionSummaryTile(
-                                title: "Next turn",
+                                title: "下一轮",
                                 approval: selectedApprovalLabel,
                                 sandbox: selectedSandboxLabel,
                                 accent: LitterTheme.accentStrong
                             )
                             permissionSummaryTile(
-                                title: "Current thread",
+                                title: "当前会话",
                                 approval: currentApprovalLabel,
                                 sandbox: currentSandboxLabel,
                                 accent: hasAuthoritativeThreadPermissions ? LitterTheme.textSecondary : LitterTheme.warning
@@ -298,8 +298,8 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
 
                     if currentRuntimeSupportsPermissionOverrides {
                         permissionSection(
-                            title: "Approval policy",
-                            subtitle: "Choose when Codex asks for approval"
+                            title: "审批策略",
+                            subtitle: "选择 NeCode 何时请求确认"
                         ) {
                             permissionDropdown(
                                 title: selectedApprovalLabel,
@@ -322,8 +322,8 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                         }
 
                         permissionSection(
-                            title: "Sandbox settings",
-                            subtitle: "Choose how much Codex can do when running commands"
+                            title: "沙盒设置",
+                            subtitle: "选择 NeCode 运行命令时可执行的范围"
                         ) {
                             permissionDropdown(
                                 title: selectedSandboxLabel,
@@ -352,11 +352,11 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 .padding(.bottom, 28)
             }
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Permissions")
+            .navigationTitle("权限")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showPermissionsSheet = false }
+                    Button("完成") { showPermissionsSheet = false }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -368,11 +368,11 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             HStack(spacing: 8) {
                 Image(systemName: "info.circle.fill")
                     .foregroundStyle(LitterTheme.accentStrong)
-                Text("Runtime-managed permissions")
+                Text("运行时管理权限")
                     .foregroundStyle(LitterTheme.textPrimary)
                     .litterFont(.subheadline, weight: .semibold)
             }
-            Text("This agent does not support Litter-side thread permission overrides, so approval and sandbox choices are not sent for this session.")
+            Text("当前 Agent 不支持移动端覆盖会话权限，因此本会话不会下发审批和沙盒设置。")
                 .foregroundStyle(LitterTheme.textMuted)
                 .litterFont(.caption)
         }
@@ -399,8 +399,8 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 .foregroundStyle(LitterTheme.textSecondary)
                 .litterFont(size: 11, weight: .semibold)
             VStack(alignment: .leading, spacing: 8) {
-                permissionSummaryRow(label: "Approval", value: approval, accent: accent)
-                permissionSummaryRow(label: "Sandbox", value: sandbox, accent: accent)
+                permissionSummaryRow(label: "审批", value: approval, accent: accent)
+                permissionSummaryRow(label: "沙盒", value: sandbox, accent: accent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -530,7 +530,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 if experimentalFeaturesLoading {
                     ProgressView().tint(LitterTheme.accent)
                 } else if experimentalFeatures.isEmpty {
-                    Text("No experimental features available")
+                    Text("没有可用的实验功能")
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                 } else {
@@ -566,15 +566,15 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Experimental")
+            .navigationTitle("实验功能")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Reload") { Task { await onLoadExperimentalFeatures() } }
+                    Button("重新加载") { Task { await onLoadExperimentalFeatures() } }
                         .foregroundColor(LitterTheme.accent)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showExperimentalSheet = false }
+                    Button("完成") { showExperimentalSheet = false }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -588,7 +588,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                 if skillsLoading {
                     ProgressView().tint(LitterTheme.accent)
                 } else if skills.isEmpty {
-                    Text("No skills available for this workspace")
+                    Text("当前工作区没有可用技能")
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textMuted)
                 } else {
@@ -601,7 +601,7 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                         .foregroundColor(LitterTheme.textPrimary)
                                     Spacer()
                                     if skill.enabled {
-                                        Text("enabled")
+                                        Text("已启用")
                                             .litterFont(.caption2)
                                             .foregroundColor(LitterTheme.accent)
                                     }
@@ -621,15 +621,15 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Skills")
+            .navigationTitle("技能")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Reload") { Task { await onLoadSkills(true, true) } }
+                    Button("重新加载") { Task { await onLoadSkills(true, true) } }
                         .foregroundColor(LitterTheme.accent)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showSkillsSheet = false }
+                    Button("完成") { showSkillsSheet = false }
                         .foregroundColor(LitterTheme.accent)
                 }
             }

@@ -17,12 +17,12 @@ struct LitterCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Session") {
+            Button("新建会话") {
                 NotificationCenter.default.post(name: .litterCommandNewSession, object: nil)
             }
             .keyboardShortcut("n", modifiers: [.command])
 
-            Button("New Window") {
+            Button("新建窗口") {
                 openNewWindow()
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -30,18 +30,18 @@ struct LitterCommands: Commands {
 
         SidebarCommands()
 
-        CommandMenu("Session") {
-            Button("Send") {
+        CommandMenu("会话") {
+            Button("发送") {
                 NotificationCenter.default.post(name: .litterCommandSendComposer, object: nil)
             }
             .keyboardShortcut(.return, modifiers: [.command])
 
-            Button("Back") {
+            Button("后退") {
                 NotificationCenter.default.post(name: .litterCommandNavigateBack, object: nil)
             }
             .keyboardShortcut("[", modifiers: [.command])
 
-            Button("Forward") {
+            Button("前进") {
                 NotificationCenter.default.post(name: .litterCommandNavigateForward, object: nil)
             }
             .keyboardShortcut("]", modifiers: [.command])
@@ -75,8 +75,8 @@ private struct SessionShortcutsMenu: View {
     }
 
     private func label(for summary: AppSessionSummary?, index: Int) -> String {
-        guard let summary else { return "Session \(index + 1)" }
-        return "Session \(index + 1): \(summary.displayTitle)"
+        guard let summary else { return "会话 \(index + 1)" }
+        return "会话 \(index + 1)：\(summary.displayTitle)"
     }
 }
 

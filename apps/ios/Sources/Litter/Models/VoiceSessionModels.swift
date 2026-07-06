@@ -36,17 +36,17 @@ enum VoiceSessionPhase: String, Equatable {
     var displayTitle: String {
         switch self {
         case .connecting:
-            return "Connecting"
+            return "连接中"
         case .listening:
-            return "Listening"
+            return "正在聆听"
         case .thinking:
-            return "Thinking"
+            return "思考中"
         case .speaking:
-            return "Codex Speaking"
+            return "正在回复"
         case .handoff:
-            return "Executing Tools"
+            return "执行工具中"
         case .error:
-            return "Session Ended"
+            return "会话已结束"
         }
     }
 
@@ -73,7 +73,7 @@ enum VoiceSessionAudioRoute: Equatable {
     var label: String {
         switch self {
         case .speaker:
-            return "Speaker"
+            return "扬声器"
         case .receiver:
             return "iPhone"
         case .headphones(let name), .bluetooth(let name), .airPlay(let name),

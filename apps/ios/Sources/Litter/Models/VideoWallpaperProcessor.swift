@@ -14,15 +14,15 @@ final class VideoWallpaperProcessor {
         var errorDescription: String? {
             switch self {
             case .durationExceedsLimit(let duration):
-                return "Video is \(Int(duration))s — maximum is 30s"
+                return "视频时长为 \(Int(duration)) 秒，最长支持 30 秒"
             case .noVideoTrack:
-                return "No video track found"
+                return "未找到视频轨道"
             case .transcodeFailed(let reason):
-                return "Transcode failed: \(reason)"
+                return "转码失败：\(reason)"
             case .downloadFailed(let reason):
-                return "Download failed: \(reason)"
+                return "下载失败：\(reason)"
             case .fileTooLarge(let bytes):
-                return "Video is \(bytes / 1_000_000)MB — maximum is 50MB"
+                return "视频大小为 \(bytes / 1_000_000)MB，最大支持 50MB"
             }
         }
     }

@@ -110,12 +110,12 @@ struct TerminalScreen: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Back")
+                .accessibilityLabel("返回")
 
                 Spacer(minLength: 0)
             }
 
-            Text("Terminal")
+            Text("终端")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundColor(.white)
         }
@@ -165,13 +165,13 @@ struct TerminalScreen: View {
                 }
                 if backendOptions.count <= 1 {
                     Divider()
-                    Button("No remote terminal servers") {}
+                    Button("没有远程终端主机") {}
                         .disabled(true)
                 }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: selectedBackend?.systemImage ?? "terminal")
-                    Text(selectedBackend?.title ?? "Local iSH")
+                    Text(selectedBackend?.title ?? "本机 iSH")
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .bold))
@@ -184,7 +184,7 @@ struct TerminalScreen: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
-            Text(selectedBackend?.subtitle ?? "On device")
+            Text(selectedBackend?.subtitle ?? "本机设备")
                 .font(.custom("SFMono-Regular", size: 11))
                 .foregroundColor(.white.opacity(0.48))
                 .lineLimit(1)
@@ -203,7 +203,7 @@ struct TerminalScreen: View {
                     .background(Color.white.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            .accessibilityLabel("Theme and font")
+            .accessibilityLabel("主题和字体")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -309,7 +309,7 @@ struct TerminalScreen: View {
                                 Button {
                                     Task { await controller.trustUnknownSshHostAndRetry() }
                                 } label: {
-                                    Label("Trust \(challenge.fingerprint)", systemImage: "key.fill")
+                                    Label("信任 \(challenge.fingerprint)", systemImage: "key.fill")
                                         .font(.custom("SFMono-Regular", size: 12))
                                         .foregroundColor(.black)
                                         .lineLimit(1)
@@ -375,13 +375,13 @@ struct TerminalScreen: View {
         }
         switch controller.phase {
         case .idle, .connecting:
-            return "Connecting...\n"
+            return "连接中...\n"
         case .running:
             return ""
         case .exited(let code):
-            return "\n[process exited \(code)]\n"
+            return "\n[进程已退出 \(code)]\n"
         case .failed(let message):
-            return "\n[terminal failed: \(message)]\n"
+            return "\n[终端失败：\(message)]\n"
         }
     }
 
@@ -417,11 +417,11 @@ struct TerminalScreen: View {
 
     private var phaseLabel: String {
         switch controller.phase {
-        case .idle: return "idle"
-        case .connecting: return "connecting"
-        case .running: return selectedBackend?.runningLabel ?? "running"
-        case .exited(let code): return "exited \(code)"
-        case .failed: return "failed"
+        case .idle: return "空闲"
+        case .connecting: return "连接中"
+        case .running: return selectedBackend?.runningLabel ?? "运行中"
+        case .exited(let code): return "已退出 \(code)"
+        case .failed: return "失败"
         }
     }
 
@@ -647,7 +647,7 @@ private enum TerminalThemeChoice: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .litterDark: return "Litter Dark"
+        case .litterDark: return "NeCode Dark"
         case .catppuccinFrappe: return "Catppuccin Frappé"
         case .catppuccinFrappeLight: return "Catppuccin Frappé Light"
         case .solarizedDark: return "Solarized Dark"
@@ -699,10 +699,10 @@ private struct TerminalConfigSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Font") {
+                Section("字体") {
                     Stepper(value: $draftFontSize, in: 10...24, step: 1) {
                         HStack {
-                            Text("Size")
+                            Text("大小")
                                 .font(.custom("SFMono-Regular", size: 13))
                             Spacer()
                             Text("\(Int(draftFontSize)) pt")
@@ -715,14 +715,14 @@ private struct TerminalConfigSheet: View {
                         in: 10...24,
                         step: 1
                     ) {
-                        Text("Size")
+                        Text("大小")
                     }
                 }
                 .onChange(of: draftFontSize) { _, _ in
                     applyDraft()
                 }
-                Section("Theme") {
-                    Picker("Theme", selection: $draftThemeId) {
+                Section("主题") {
+                    Picker("主题", selection: $draftThemeId) {
                         ForEach(TerminalThemeChoice.allCases) { choice in
                             Text(choice.title).tag(choice.id)
                         }
@@ -730,16 +730,16 @@ private struct TerminalConfigSheet: View {
                     .pickerStyle(.inline)
                     .onChange(of: draftThemeId) { _, _ in applyDraft() }
                 }
-                Section("Cursor") {
-                    Toggle("Blink", isOn: $draftCursorBlink)
+                Section("光标") {
+                    Toggle("闪烁", isOn: $draftCursorBlink)
                         .onChange(of: draftCursorBlink) { _, _ in applyDraft() }
                 }
             }
-            .navigationTitle("Terminal")
+            .navigationTitle("终端")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                    Button("完成") {
                         applyDraft()
                         appliedForDismiss = true
                         dismiss()
@@ -775,12 +775,12 @@ private struct TerminalBackendOption: Identifiable, Hashable {
     static func localIsh(cwd: String?) -> TerminalBackendOption {
         TerminalBackendOption(
             id: "local-ish",
-            title: "Local iSH",
+            title: "本机 iSH",
             subtitle: cwd?.isEmpty == false ? cwd! : "/root",
             systemImage: "iphone",
             alleycatNodeId: nil,
             supportsResize: true,
-            runningLabel: "running",
+            runningLabel: "运行中",
             backend: .localIsh(cwd: normalized(cwd))
         )
     }
@@ -793,12 +793,12 @@ private struct TerminalBackendOption: Identifiable, Hashable {
     ) -> TerminalBackendOption {
         TerminalBackendOption(
             id: "alleycat-\(nodeId)",
-            title: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Remote shell" : name,
+            title: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "远程 Shell" : name,
             subtitle: shortNodeId(nodeId),
             systemImage: "server.rack",
             alleycatNodeId: nodeId,
             supportsResize: true,
-            runningLabel: "remote",
+            runningLabel: "远程",
             backend: .remoteAlleycat(
                 nodeId: nodeId,
                 token: token,

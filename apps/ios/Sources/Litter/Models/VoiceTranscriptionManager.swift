@@ -1,6 +1,24 @@
 import AVFoundation
 import Observation
 
+struct VoiceTranscriptionOptions: Equatable {
+    let serverId: String
+    let agentRuntimeKind: AgentRuntimeKind?
+    let asrModel: String?
+    let language: String?
+}
+
+enum VoiceTranscriptionReconnectError: LocalizedError {
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .failed(let message):
+            return message
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class VoiceTranscriptionManager {
@@ -14,7 +32,6 @@ final class VoiceTranscriptionManager {
     @ObservationIgnored private nonisolated(unsafe) var lastLevelUpdate: CFAbsoluteTime = 0
 
     private static let targetSampleRate: Double = 24000
-    private static let transcribeModel = "gpt-4o-mini-transcribe"
 
     func requestMicPermission() async -> Bool {
         await AVAudioApplication.requestRecordPermission()
@@ -29,7 +46,7 @@ final class VoiceTranscriptionManager {
             try session.setCategory(.playAndRecord, options: .defaultToSpeaker)
             try session.setActive(true)
         } catch {
-            self.error = "Failed to configure audio session."
+            self.error = "无法配置录音会话。"
             return
         }
 
@@ -51,7 +68,7 @@ final class VoiceTranscriptionManager {
         do {
             try engine.start()
         } catch {
-            self.error = "Failed to start audio engine."
+            self.error = "无法启动录音。"
             return
         }
 
@@ -59,17 +76,15 @@ final class VoiceTranscriptionManager {
         isRecording = true
     }
 
-    func stopAndTranscribe(authMethod: AuthMode?, authToken: String?) async -> String? {
+    func stopAndTranscribe(
+        appModel: AppModel,
+        options: VoiceTranscriptionOptions
+    ) async -> String? {
         guard isRecording else { return nil }
         teardownEngine()
 
         guard let wav = encodeWAV() else {
-            error = "Failed to encode audio."
-            return nil
-        }
-
-        guard let authToken, !authToken.isEmpty else {
-            error = "Not logged in."
+            error = "录音太短或音频编码失败。"
             return nil
         }
 
@@ -77,7 +92,10 @@ final class VoiceTranscriptionManager {
         defer { isTranscribing = false }
 
         do {
-            return try await transcribe(wav: wav, authMethod: authMethod, token: authToken)
+            return try await appModel.transcribeVoice(
+                options: options,
+                request: voiceRequest(wav: wav, options: options)
+            )
         } catch let err {
             self.error = err.localizedDescription
             return nil
@@ -154,46 +172,18 @@ final class VoiceTranscriptionManager {
         return wav
     }
 
-    private func transcribe(wav: Data, authMethod: AuthMode?, token: String) async throws -> String {
-        let isChatGPT = authMethod == .chatgpt || authMethod == .chatgptAuthTokens
-
-        let url: URL
-        if isChatGPT {
-            url = URL(string: "https://chatgpt.com/backend-api/transcribe")!
-        } else {
-            url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-        }
-
-        let boundary = UUID().uuidString
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
-        body.append(wav)
-        body.append("\r\n".data(using: .utf8)!)
-        if !isChatGPT {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(Self.transcribeModel)\r\n".data(using: .utf8)!)
-        }
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw NSError(domain: "Transcription", code: status, userInfo: [
-                NSLocalizedDescriptionKey: "Transcription failed (\(status))"
-            ])
-        }
-
-        struct TranscriptionResponse: Decodable { let text: String }
-        return try JSONDecoder().decode(TranscriptionResponse.self, from: data).text
+    private func voiceRequest(
+        wav: Data,
+        options: VoiceTranscriptionOptions
+    ) -> AppVoiceTranscriptionRequest {
+        AppVoiceTranscriptionRequest(
+            audioBytes: [UInt8](wav),
+            mimeType: "audio/wav",
+            fileName: "audio.wav",
+            model: options.asrModel?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            language: options.language?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            agentRuntimeKind: options.agentRuntimeKind
+        )
     }
 
     private static func floatToInt16(_ v: Float) -> Int16 {
@@ -207,6 +197,12 @@ final class VoiceTranscriptionManager {
         var sum: Float = 0
         for i in 0..<count { sum += data[i] * data[i] }
         return min(sqrtf(sum / Float(count)) * 3, 1.0)
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

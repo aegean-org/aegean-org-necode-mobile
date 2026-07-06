@@ -9,11 +9,11 @@ enum AlleycatCredentialStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .encodingFailed:
-            return "Failed to encode Alleycat token"
+            return "保存 NeCode 连接凭据失败"
         case .decodingFailed:
-            return "Failed to decode saved Alleycat token"
+            return "读取已保存的 NeCode 连接凭据失败"
         case .keychain(let status):
-            return "Keychain error (\(status))"
+            return "钥匙串错误（\(status)）"
         }
     }
 }

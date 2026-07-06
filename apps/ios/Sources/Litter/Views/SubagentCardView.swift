@@ -201,7 +201,7 @@ struct SubagentCardView: View {
                             sheetThreadKey = ThreadKey(serverId: serverId, threadId: threadId)
                         }
                     } label: {
-                        Text("Open")
+                        Text("打开")
                             .litterFont(.caption)
                             .foregroundColor(resolvedKey != nil ? LitterTheme.textSecondary : LitterTheme.textMuted)
                     }
@@ -349,7 +349,7 @@ private struct SubagentDetailSheet: View {
                                 Spacer().frame(height: 40)
                                 ProgressView()
                                     .tint(LitterTheme.accent)
-                                Text(isLoading ? "Loading thread..." : "Waiting for agent output...")
+                                Text(isLoading ? "正在加载会话..." : "等待智能体输出...")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textMuted)
                                 Spacer()
@@ -380,10 +380,10 @@ private struct SubagentDetailSheet: View {
                         Image(systemName: "person.fill.questionmark")
                             .litterFont(size: 32)
                             .foregroundColor(LitterTheme.textMuted)
-                        Text("Thread not available yet")
+                        Text("会话暂不可用")
                             .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textSecondary)
-                        Text("The agent may still be initializing.")
+                        Text("智能体可能仍在初始化。")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textMuted)
                         Spacer()
@@ -405,7 +405,7 @@ private struct SubagentDetailSheet: View {
                     .litterFont(.callout, weight: .semibold)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("完成") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }

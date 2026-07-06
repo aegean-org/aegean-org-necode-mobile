@@ -510,14 +510,14 @@ final class NetworkDiscovery {
         }
 
         if let urlError = error as? URLError, urlError.code == .timedOut {
-            return "Tailscale peer discovery timed out. Add a server manually with its MagicDNS name or Tailscale IP. Saved servers will still appear here."
+            return "Tailscale 节点发现超时。可以使用 MagicDNS 名称或 Tailscale IP 手动添加主机；已保存的主机仍会显示在这里。"
         }
 
         if let parseError = error as? TailscalePeerParseError, parseError == .unsupportedSurface {
-            return "Tailscale returned its web UI instead of a peer list, so peer discovery is unavailable here. Add a server manually with its MagicDNS name or Tailscale IP. Saved servers will still appear here."
+            return "Tailscale 返回了 Web 界面而不是节点列表，因此当前无法自动发现节点。可以使用 MagicDNS 名称或 Tailscale IP 手动添加主机；已保存的主机仍会显示在这里。"
         }
 
-        return "Tailscale peer discovery is unavailable right now. Add a server manually with its MagicDNS name or Tailscale IP. Saved servers will still appear here."
+        return "Tailscale 节点发现暂不可用。可以使用 MagicDNS 名称或 Tailscale IP 手动添加主机；已保存的主机仍会显示在这里。"
     }
 
     nonisolated private static func probeTailscaleDiscoveryNotice(

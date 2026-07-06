@@ -70,9 +70,9 @@ private struct ActiveBody: View {
         if let serverName = store.tasks.first(where: {
             $0.serverId == voice.serverId
         })?.serverName {
-            return "voice · \(serverName)"
+            return "语音 · \(serverName)"
         }
-        return voice.serverId.map { "voice · \($0)" } ?? "voice"
+        return voice.serverId.map { "语音 · \($0)" } ?? "语音"
     }
 
     private var turns: some View {
@@ -92,7 +92,7 @@ private struct ActiveBody: View {
                     WKInterfaceDevice.current().play(.failure)
                     WatchSessionBridge.shared.sendVoiceStop()
                 } label: {
-                    Text("stop")
+                    Text("停止")
                         .font(WatchTheme.mono(11, weight: .bold))
                         .foregroundStyle(theme.danger)
                         .frame(maxWidth: .infinity, minHeight: 30)
@@ -107,7 +107,7 @@ private struct ActiveBody: View {
                     WKInterfaceDevice.current().play(.click)
                     WatchSessionBridge.shared.sendVoiceBargeIn()
                 } label: {
-                    Text("barge in")
+                    Text("打断")
                         .font(WatchTheme.mono(11, weight: .bold))
                         .foregroundStyle(theme.textOnAccent)
                         .frame(maxWidth: .infinity, minHeight: 30)
@@ -119,7 +119,7 @@ private struct ActiveBody: View {
             NavigationLink {
                 VoiceScreen()
             } label: {
-                Label("type instead", systemImage: "keyboard")
+                Label("改用文字", systemImage: "keyboard")
                     .font(WatchTheme.mono(10))
                     .foregroundStyle(theme.textSecondary)
             }
@@ -205,7 +205,7 @@ private struct MicRing: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isMuted ? "Unmute" : "Mute")
+        .accessibilityLabel(isMuted ? "取消静音" : "静音")
     }
 
     private var outerDiameter: CGFloat { 96 * watchSize.fontScale }
@@ -253,11 +253,11 @@ private struct StatusPill: View {
 
     private var label: String {
         switch mode {
-        case .idle:      return "idle"
-        case .listening: return "listening"
-        case .speaking:  return "speaking"
-        case .thinking:  return "thinking"
-        case .error:     return "error"
+        case .idle:      return "空闲"
+        case .listening: return "聆听"
+        case .speaking:  return "回复"
+        case .thinking:  return "思考"
+        case .error:     return "错误"
         }
     }
 
@@ -282,9 +282,9 @@ private struct IdleBody: View {
         VStack(spacing: 10) {
             WatchEmptyState(
                 icon: "waveform",
-                title: "voice off",
-                subtitle: store.focusedTask.map { "tap to start on \($0.serverName)." }
-                    ?? "focus a task to start voice."
+                title: "语音未开启",
+                subtitle: store.focusedTask.map { "点按后在 \($0.serverName) 开始。" }
+                    ?? "先选择一个任务再开始语音。"
             )
 
             if let task = store.focusedTask {
@@ -295,7 +295,7 @@ private struct IdleBody: View {
                         threadId: task.threadId
                     )
                 } label: {
-                    Label("start voice", systemImage: "mic.fill")
+                    Label("开始语音", systemImage: "mic.fill")
                         .font(WatchTheme.mono(12, weight: .bold))
                         .foregroundStyle(theme.textOnAccent)
                         .frame(maxWidth: .infinity, minHeight: 32)
@@ -308,7 +308,7 @@ private struct IdleBody: View {
             NavigationLink {
                 VoiceScreen()
             } label: {
-                Label("type instead", systemImage: "keyboard")
+                Label("改用文字", systemImage: "keyboard")
                     .font(WatchTheme.mono(10))
                     .foregroundStyle(theme.textSecondary)
             }

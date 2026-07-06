@@ -90,7 +90,7 @@ struct ConversationComposerEntryRowView: View {
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
                 .transition(.scale.combined(with: .opacity))
-                .accessibilityLabel("Attach")
+                .accessibilityLabel("添加附件")
                 .zIndex(1)
             }
 
@@ -107,7 +107,7 @@ struct ConversationComposerEntryRowView: View {
                     )
 
                     if inputText.isEmpty {
-                        Text("Message litter...")
+                        Text("输入消息...")
                             .font(LitterFont.styled(size: 17))
                             .foregroundColor(LitterTheme.textMuted)
                             .padding(.leading, 16)
@@ -130,7 +130,7 @@ struct ConversationComposerEntryRowView: View {
                     }
                     .buttonStyle(.plain)
                     .hoverEffect(.highlight)
-                    .accessibilityLabel("Stop recording")
+                    .accessibilityLabel("停止录音")
                 } else if voiceManager.isTranscribing {
                     ProgressView()
                         .tint(LitterTheme.accent)
@@ -145,7 +145,7 @@ struct ConversationComposerEntryRowView: View {
                     }
                     .buttonStyle(.plain)
                     .hoverEffect(.highlight)
-                    .accessibilityLabel("Dictate")
+                    .accessibilityLabel("语音输入")
                 }
             }
             .frame(maxWidth: .infinity, minHeight: Metrics.controlSize)
@@ -164,7 +164,7 @@ struct ConversationComposerEntryRowView: View {
                     .hoverEffect(.highlight)
                     .padding(.top, 2)
                     .padding(.trailing, 6)
-                    .accessibilityLabel("Expand composer")
+                    .accessibilityLabel("展开输入框")
                     .transition(.opacity.combined(with: .scale))
                 }
             }
@@ -182,13 +182,13 @@ struct ConversationComposerEntryRowView: View {
                 .hoverEffect(.highlight)
                 .disabled(voiceManager.isRecording || voiceManager.isTranscribing)
                 .opacity(voiceManager.isRecording || voiceManager.isTranscribing ? 0.45 : 1)
-                .accessibilityLabel("Send")
+                .accessibilityLabel("发送")
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
 
             if isTurnActive && !canSend {
                 Button(action: onInterrupt) {
-                    Text("Cancel")
+                    Text("取消")
                         .font(LitterFont.styled(size: 15, weight: .medium))
                         .foregroundColor(LitterTheme.textPrimary)
                         .padding(.horizontal, 14)

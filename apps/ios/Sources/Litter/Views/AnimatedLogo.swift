@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Compact animated logo — wraps AnimatedSplashView in a fixed-size frame
-/// with no background or tagline. Just the kittens.
+/// Compact logo wrapper used by the home dashboard.
 struct AnimatedLogo: View {
     var size: CGFloat = 44
 

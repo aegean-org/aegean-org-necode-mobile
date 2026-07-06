@@ -21,7 +21,7 @@ struct AppsListView: View {
                 }
             }
         }
-        .navigationTitle("Apps")
+        .navigationTitle("应用")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .onAppear {
@@ -44,21 +44,21 @@ struct AppsListView: View {
                 .presentationDetents([.medium])
         }
         .alert(
-            "Delete \"\(deleteTarget?.title ?? "")\"?",
+            "删除“\(deleteTarget?.title ?? "")”？",
             isPresented: Binding(
                 get: { deleteTarget != nil },
                 set: { if !$0 { deleteTarget = nil } }
             )
         ) {
-            Button("Cancel", role: .cancel) { deleteTarget = nil }
-            Button("Delete", role: .destructive) {
+            Button("取消", role: .cancel) { deleteTarget = nil }
+            Button("删除", role: .destructive) {
                 if let target = deleteTarget {
                     try? store.delete(id: target.id)
                 }
                 deleteTarget = nil
             }
         } message: {
-            Text("This removes the app, its saved HTML, and its persisted state.")
+            Text("这会删除应用、已保存的 HTML 和本地状态。")
         }
     }
 
@@ -76,13 +76,13 @@ struct AppsListView: View {
                     Button(role: .destructive) {
                         deleteTarget = app
                     } label: {
-                        Label("Delete", systemImage: "trash")
+                        Label("删除", systemImage: "trash")
                     }
                     Button {
                         renameText = app.title
                         renameTarget = app
                     } label: {
-                        Label("Rename", systemImage: "pencil")
+                        Label("重命名", systemImage: "pencil")
                     }
                     .tint(LitterTheme.accent)
                 }
@@ -153,7 +153,7 @@ struct AppsListView: View {
         let date = Date(timeIntervalSince1970: TimeInterval(app.updatedAtMs) / 1000.0)
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return "Updated \(formatter.localizedString(for: date, relativeTo: Date()))"
+        return "更新于 \(formatter.localizedString(for: date, relativeTo: Date()))"
     }
 
     private var emptyState: some View {
@@ -161,10 +161,10 @@ struct AppsListView: View {
             Image(systemName: "square.grid.2x2")
                 .litterFont(.largeTitle)
                 .foregroundColor(LitterTheme.textMuted)
-            Text("No apps yet")
+            Text("暂无应用")
                 .litterFont(.title3, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
-            Text("When the AI generates an interactive widget with an app_id, it saves here automatically.")
+            Text("当模型生成带 app_id 的交互组件时，会自动保存到这里。")
                 .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -174,11 +174,11 @@ struct AppsListView: View {
 
     private func renameSheet(for app: SavedApp) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename App")
+            Text("重命名应用")
                 .litterFont(.title3, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
 
-            TextField("Title", text: $renameText)
+            TextField("标题", text: $renameText)
                 .litterFont(size: 15)
                 .padding(10)
                 .background(LitterTheme.surfaceLight.opacity(0.6))
@@ -186,10 +186,10 @@ struct AppsListView: View {
                 .foregroundColor(LitterTheme.textPrimary)
 
             HStack {
-                Button("Cancel") { renameTarget = nil }
+                Button("取消") { renameTarget = nil }
                     .foregroundColor(LitterTheme.textSecondary)
                 Spacer()
-                Button("Save") {
+                Button("保存") {
                     let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { renameTarget = nil; return }
                     _ = try? store.rename(id: app.id, title: trimmed)

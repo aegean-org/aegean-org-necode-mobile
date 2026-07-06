@@ -17,8 +17,8 @@ struct LitterRectangularComplication: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .supportedFamilies([.accessoryRectangular])
-        .configurationDisplayName("Codex Modular")
-        .description("Full task summary: title + current tool call.")
+        .configurationDisplayName("NeCode 模块")
+        .description("显示任务标题和当前工具调用。")
     }
 }
 
@@ -32,7 +32,7 @@ struct LitterRectangularView: View {
                     .fill(LitterComplicationTint.ginger)
                     .frame(width: 10, height: 10)
                     .overlay(
-                        Text("L")
+                        Text("N")
                             .font(.system(size: 7, weight: .bold, design: .monospaced))
                             .foregroundStyle(.black)
                     )
@@ -63,8 +63,8 @@ struct LitterRectangularView: View {
 
     private var eyebrow: String {
         entry.mode == .running
-            ? "CODEX · \(entry.runtimeLabel(at: entry.date))"
-            : "CODEX · \(entry.serverCount) READY"
+            ? "NeCode · \(entry.runtimeLabel(at: entry.date))"
+            : "NeCode · \(entry.serverCount) 就绪"
     }
 }
 

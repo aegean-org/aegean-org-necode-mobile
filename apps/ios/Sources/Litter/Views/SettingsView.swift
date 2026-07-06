@@ -33,22 +33,20 @@ struct SettingsView: View {
             ZStack {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
                 Form {
-                    supportSection
                     appearanceSection
                     fontSection
                     conversationSection
-                    petSection
                     experimentalSection
                     accountSection
                     serversSection
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Settings")
+            .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("完成") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -85,13 +83,13 @@ struct SettingsView: View {
                     }
                 }
             }
-            .alert("Server Update Failed", isPresented: Binding(
+            .alert("主机更新失败", isPresented: Binding(
                 get: { serverEditError != nil },
                 set: { if !$0 { serverEditError = nil } }
             )) {
-                Button("OK") { serverEditError = nil }
+                Button("好") { serverEditError = nil }
             } message: {
-                Text(serverEditError ?? "Unable to update this server.")
+                Text(serverEditError ?? "无法更新这台主机。")
             }
         }
     }
@@ -107,14 +105,14 @@ struct SettingsView: View {
                     Image(systemName: "paintbrush")
                         .foregroundColor(LitterTheme.accent)
                         .frame(width: 20)
-                    Text("Appearance")
+                    Text("外观")
                         .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
-            Text("Theme")
+            Text("主题")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -129,10 +127,10 @@ struct SettingsView: View {
                         .foregroundColor(LitterTheme.accent)
                         .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Collapse Turns")
+                        Text("折叠历史轮次")
                             .litterFont(.subheadline)
                             .foregroundColor(LitterTheme.textPrimary)
-                        Text("Collapse previous turns into cards")
+                        Text("把之前的对话轮次折叠为卡片")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
@@ -142,27 +140,27 @@ struct SettingsView: View {
             .listRowBackground(LitterTheme.surface.opacity(0.6))
 
             transcriptDisplayPicker(
-                title: "Internal Thinking",
-                subtitle: "Reasoning and analysis blocks",
+                title: "思考内容",
+                subtitle: "推理和分析内容块",
                 systemImage: "brain.head.profile",
                 selection: $reasoningDisplayMode
             )
 
             transcriptDisplayPicker(
-                title: "Commands",
-                subtitle: "Shell commands and command output",
+                title: "命令",
+                subtitle: "Shell 命令和命令输出",
                 systemImage: "terminal",
                 selection: $commandDisplayMode
             )
 
             transcriptDisplayPicker(
-                title: "Tools",
-                subtitle: "MCP, web, image, and file-change cards",
+                title: "工具",
+                subtitle: "MCP、网页、图片和文件变更卡片",
                 systemImage: "wrench.and.screwdriver",
                 selection: $toolDisplayMode
             )
         } header: {
-            Text("Conversation")
+            Text("会话")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -211,7 +209,7 @@ struct SettingsView: View {
                             Text(option.displayName)
                                 .litterFont(.subheadline)
                                 .foregroundColor(LitterTheme.textPrimary)
-                            Text("The quick brown fox")
+                            Text("你好，NeCode")
                                 .font(LitterFont.sampleFont(family: option, size: 14))
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
@@ -226,37 +224,7 @@ struct SettingsView: View {
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
         } header: {
-            Text("Font")
-                .foregroundColor(LitterTheme.textSecondary)
-        }
-    }
-
-    // MARK: - Experimental Section
-
-    private var petSection: some View {
-        Section {
-            NavigationLink {
-                PetSettingsView()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "pawprint.fill")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Wake Pet")
-                            .litterFont(.subheadline)
-                            .foregroundColor(LitterTheme.textPrimary)
-                        if let pet = PetOverlayController.shared.selectedPet {
-                            Text(pet.displayName)
-                                .litterFont(.caption)
-                                .foregroundColor(LitterTheme.textSecondary)
-                        }
-                    }
-                }
-            }
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
-        } header: {
-            Text("Pet")
+            Text("字体")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -272,37 +240,14 @@ struct SettingsView: View {
                     Image(systemName: "flask")
                         .foregroundColor(LitterTheme.accent)
                         .frame(width: 20)
-                    Text("Experimental Features")
+                    Text("实验功能")
                         .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                 }
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
-            Text("Experimental")
-                .foregroundColor(LitterTheme.textSecondary)
-        }
-    }
-
-    // MARK: - Support Section
-
-    private var supportSection: some View {
-        Section {
-            NavigationLink {
-                TipJarView()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "pawprint.fill")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 20)
-                    Text("Tip the Kitty")
-                        .litterFont(.subheadline)
-                        .foregroundColor(LitterTheme.textPrimary)
-                }
-            }
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
-        } header: {
-            Text("Support")
+            Text("实验")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -324,7 +269,7 @@ struct SettingsView: View {
     private var serversSection: some View {
         Section {
             if connectedServers.isEmpty {
-                Text("No servers connected")
+                Text("没有已连接主机")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -350,7 +295,7 @@ struct SettingsView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        Button("Remove") {
+                        Button("移除") {
                             removeServer(conn)
                         }
                         .litterFont(.caption)
@@ -368,7 +313,7 @@ struct SettingsView: View {
                     Image(systemName: "plus.circle.fill")
                         .foregroundColor(LitterTheme.accent)
                         .frame(width: 20)
-                    Text("Add Server")
+                    Text("添加主机")
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.accent)
                     Spacer()
@@ -376,7 +321,7 @@ struct SettingsView: View {
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
-            Text("Servers")
+            Text("主机")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -580,11 +525,11 @@ private enum SettingsServerConnectionMode: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .local:
-            return "Local"
+            return "本机"
         case .ssh:
             return "SSH"
         case .directCodex:
-            return "Codex"
+            return "NeCode"
         case .websocket:
             return "WebSocket"
         }
@@ -593,13 +538,13 @@ private enum SettingsServerConnectionMode: String, CaseIterable, Identifiable {
     var formHeader: String {
         switch self {
         case .local:
-            return "Local Runtime"
+            return "本机运行时"
         case .ssh:
-            return "SSH Host"
+            return "SSH 主机"
         case .directCodex:
-            return "Codex Server"
+            return "NeCode 服务"
         case .websocket:
-            return "Codex URL"
+            return "NeCode URL"
         }
     }
 }
@@ -616,17 +561,17 @@ private enum SettingsServerConnectionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptyName:
-            return "Server name cannot be empty."
+            return "主机名称不能为空。"
         case .emptyHost:
-            return "Host cannot be empty."
+            return "主机地址不能为空。"
         case .invalidCodexPort, .missingCodexPort:
-            return "Codex port must be a valid number."
+            return "NeCode 端口必须是有效数字。"
         case .invalidSSHPort:
-            return "SSH port must be a valid number."
+            return "SSH 端口必须是有效数字。"
         case .invalidWakeMAC:
-            return "Wake MAC must look like aa:bb:cc:dd:ee:ff."
+            return "唤醒 MAC 格式应类似 aa:bb:cc:dd:ee:ff。"
         case .invalidWebsocketURL:
-            return "Enter a valid ws:// or wss:// URL."
+            return "请输入有效的 ws:// 或 wss:// URL。"
         }
     }
 }
@@ -711,32 +656,32 @@ private struct SettingsServerConnectionEditor: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Edit Server")
+            .navigationTitle("编辑主机")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
+                    Button("取消") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
-            .alert("Invalid Server", isPresented: Binding(
+            .alert("主机配置无效", isPresented: Binding(
                 get: { validationError != nil },
                 set: { if !$0 { validationError = nil } }
             )) {
-                Button("OK") { validationError = nil }
+                Button("确定") { validationError = nil }
             } message: {
-                Text(validationError ?? "Check the server details.")
+                Text(validationError ?? "请检查主机配置。")
             }
         }
     }
 
     private var nameSection: some View {
         Section {
-            TextField("Server name", text: $displayName)
+            TextField("主机名称", text: $displayName)
                 .litterFont(.footnote)
                 .foregroundColor(LitterTheme.textPrimary)
         } header: {
-            Text("Name")
+            Text("名称")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -745,15 +690,15 @@ private struct SettingsServerConnectionEditor: View {
     private var connectionSection: some View {
         Section {
             if isSpecialPairedServer {
-                Text("This paired server uses saved pairing metadata. Edit its display name here, or remove and add it again to change the pairing.")
+                Text("这台已配对主机使用保存的配对信息。这里只能修改显示名称；如需更换配对，请移除后重新添加。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textSecondary)
             } else if connectionMode == .local {
-                Text("This device's local runtime is managed automatically.")
+                Text("本机运行时会自动管理。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textSecondary)
             } else {
-                Picker("Connection Type", selection: $connectionMode) {
+                Picker("连接类型", selection: $connectionMode) {
                     ForEach(availableModes) { mode in
                         Text(mode.label).tag(mode)
                     }
@@ -765,23 +710,23 @@ private struct SettingsServerConnectionEditor: View {
                     EmptyView()
                 case .ssh:
                     hostField
-                    TextField("ssh port", text: $sshPort)
+                    TextField("SSH 端口", text: $sshPort)
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textPrimary)
                         .keyboardType(.numberPad)
-                    TextField("wake MAC (optional)", text: $wakeMAC)
+                    TextField("唤醒 MAC（可选）", text: $wakeMAC)
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textPrimary)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                 case .directCodex:
                     hostField
-                    TextField("codex port", text: $codexPort)
+                    TextField("NeCode 端口", text: $codexPort)
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textPrimary)
                         .keyboardType(.numberPad)
                 case .websocket:
-                    TextField("ws://host:port or wss://...", text: $websocketURL)
+                    TextField("ws://主机:端口 或 wss://...", text: $websocketURL)
                         .litterFont(.footnote)
                         .foregroundColor(LitterTheme.textPrimary)
                         .textInputAutocapitalization(.never)
@@ -794,7 +739,7 @@ private struct SettingsServerConnectionEditor: View {
                 .foregroundColor(LitterTheme.textSecondary)
         } footer: {
             if !isSpecialPairedServer, connectionMode == .websocket {
-                Text("Prefer SSH when possible. If you run codex manually, bind loopback and tunnel it yourself; do not expose it directly to the internet unless you know what you are doing.")
+                Text("建议优先使用 SSH。若手动运行 NeCode 服务，请只绑定本机回环地址并自行配置隧道；除非非常清楚风险，不要直接暴露到公网。")
                     .litterFont(.caption2)
                     .foregroundColor(LitterTheme.textMuted)
             }
@@ -803,7 +748,7 @@ private struct SettingsServerConnectionEditor: View {
     }
 
     private var hostField: some View {
-        TextField("hostname or IP", text: $host)
+        TextField("主机名或 IP", text: $host)
             .litterFont(.footnote)
             .foregroundColor(LitterTheme.textPrimary)
             .textInputAutocapitalization(.never)
@@ -812,14 +757,14 @@ private struct SettingsServerConnectionEditor: View {
 
     private var actionSection: some View {
         Section {
-            Button("Save") {
+            Button("保存") {
                 submit(reconnect: false)
             }
             .foregroundColor(LitterTheme.accent)
             .litterFont(.subheadline)
 
             if !isSpecialPairedServer {
-                Button(connectionMode == .local ? "Save & Restart" : "Save & Reconnect") {
+                Button(connectionMode == .local ? "保存并重启" : "保存并重连") {
                     submit(reconnect: true)
                 }
                 .foregroundColor(LitterTheme.accent)
@@ -1010,7 +955,7 @@ private struct SettingsConnectionAccountSection: View {
                 }
                 Spacer()
                 if server.isLocal, server.account != nil {
-                    Button("Logout") {
+                    Button("退出") {
                         Task { await logout() }
                     }
                     .litterFont(.caption)
@@ -1020,14 +965,14 @@ private struct SettingsConnectionAccountSection: View {
             .listRowBackground(LitterTheme.surface.opacity(0.6))
 
             if server.isLocal, hasStoredApiKey {
-                Text("Local OpenAI API key is saved.")
+                Text("本机 OpenAI API Key 已保存。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
             if server.isLocal, hasStoredBaseURL {
-                Text("OpenAI-compatible base URL is saved.")
+                Text("OpenAI 兼容 Base URL 已保存。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -1046,7 +991,7 @@ private struct SettingsConnectionAccountSection: View {
                             ProgressView().tint(LitterTheme.textPrimary).scaleEffect(0.8)
                         }
                         Image(systemName: "person.crop.circle.badge.checkmark")
-                        Text("Login with ChatGPT")
+                        Text("使用 ChatGPT 登录")
                             .litterFont(.subheadline)
                     }
                     .foregroundColor(LitterTheme.accent)
@@ -1059,11 +1004,11 @@ private struct SettingsConnectionAccountSection: View {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 6) {
                         if hasStoredApiKey {
-                            Text("OpenAI API key saved in the local environment.")
+                            Text("OpenAI API Key 已保存到本机环境。")
                                 .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textSecondary)
                         } else if isChatGPTAccount {
-                            Text("Save an API key in the local Codex environment.")
+                            Text("将 API Key 保存到本机 NeCode 环境。")
                                 .litterFont(.caption)
                                 .foregroundColor(LitterTheme.textSecondary)
                         }
@@ -1082,7 +1027,7 @@ private struct SettingsConnectionAccountSection: View {
                             isAuthWorking = false
                         }
                     } label: {
-                        Text(hasStoredApiKey ? "Update API Key" : "Save API Key")
+                            Text(hasStoredApiKey ? "更新 API Key" : "保存 API Key")
                     }
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
@@ -1092,16 +1037,16 @@ private struct SettingsConnectionAccountSection: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     if hasStoredBaseURL {
-                        Text("Custom OpenAI-compatible endpoint saved for the local Codex server.")
+                        Text("本机 NeCode 服务已保存自定义 OpenAI 兼容地址。")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     } else {
-                        Text("Optional OpenAI-compatible endpoint for local models.")
+                        Text("可选：为本地模型配置 OpenAI 兼容地址。")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     HStack(spacing: 8) {
-                        TextField("http://host:port/v1", text: $openAIBaseURL)
+                        TextField("http://主机:端口/v1", text: $openAIBaseURL)
                             .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textPrimary)
                             .textInputAutocapitalization(.never)
@@ -1115,14 +1060,14 @@ private struct SettingsConnectionAccountSection: View {
                                 isAuthWorking = false
                             }
                         } label: {
-                            Text(hasStoredBaseURL ? "Update Base URL" : "Save Base URL")
+                            Text(hasStoredBaseURL ? "更新 Base URL" : "保存 Base URL")
                         }
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.accent)
                         .disabled(openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthWorking)
                     }
                     if hasStoredBaseURL {
-                        Button("Clear Base URL") {
+                        Button("清除 Base URL") {
                             Task {
                                 isAuthWorking = true
                                 await clearBaseURL()
@@ -1144,7 +1089,7 @@ private struct SettingsConnectionAccountSection: View {
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
         } header: {
-            Text("Account")
+            Text("账号")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .task(id: server.serverId) {
@@ -1194,20 +1139,20 @@ private struct SettingsConnectionAccountSection: View {
         case nil where server.isLocal && hasStoredApiKey:
             return "API Key"
         case nil:
-            return "Not logged in"
+            return "未登录"
         }
     }
 
     private var authSubtitle: String? {
         switch server.account {
         case .chatgpt?:
-            return "ChatGPT account"
+            return "ChatGPT 账号"
         case .apiKey?:
-            return "OpenAI API key"
+            return "OpenAI API Key"
         case nil where server.isLocal && hasStoredChatGPTTokens:
-            return "Stored locally; restoring session"
+            return "已保存到本机，正在恢复会话"
         case nil where server.isLocal && hasStoredApiKey:
-            return "Saved locally; refreshing local account"
+            return "已保存到本机，正在刷新本机账号"
         case nil:
             return nil
         }
@@ -1215,7 +1160,7 @@ private struct SettingsConnectionAccountSection: View {
 
     private func loginWithChatGPT() async {
         guard server.isLocal else {
-            authError = "Settings login is only available for the local server."
+            authError = "只能为本机服务在设置中登录。"
             return
         }
         do {
@@ -1263,7 +1208,7 @@ private struct SettingsConnectionAccountSection: View {
 
     private func saveApiKey(_ key: String) async {
         guard server.isLocal else {
-            authError = "API keys can only be saved for the local server."
+            authError = "API Key 只能保存到本机服务。"
             return
         }
         do {
@@ -1275,7 +1220,7 @@ private struct SettingsConnectionAccountSection: View {
             try await appModel.restartLocalServer()
             refreshStoredCredentialFlags()
             guard hasStoredApiKey else {
-                authError = "API key did not persist locally."
+                authError = "API Key 未能保存到本机。"
                 return
             }
         } catch {
@@ -1285,11 +1230,11 @@ private struct SettingsConnectionAccountSection: View {
 
     private func saveBaseURL(_ rawBaseURL: String) async {
         guard server.isLocal else {
-            authError = "Base URL can only be saved for the local server."
+            authError = "Base URL 只能保存到本机服务。"
             return
         }
         guard let baseURL = normalizedOpenAIBaseURL(rawBaseURL) else {
-            authError = "Enter a valid http or https base URL."
+            authError = "请输入有效的 http 或 https Base URL。"
             return
         }
         do {
@@ -1298,7 +1243,7 @@ private struct SettingsConnectionAccountSection: View {
             try await appModel.restartLocalServer()
             refreshStoredCredentialFlags()
             guard hasStoredBaseURL else {
-                authError = "Base URL did not persist locally."
+                authError = "Base URL 未能保存到本机。"
                 return
             }
             openAIBaseURL = ""
@@ -1309,7 +1254,7 @@ private struct SettingsConnectionAccountSection: View {
 
     private func clearBaseURL() async {
         guard server.isLocal else {
-            authError = "Base URL can only be cleared for the local server."
+            authError = "Base URL 只能从本机服务清除。"
             return
         }
         do {
@@ -1336,7 +1281,7 @@ private struct SettingsConnectionAccountSection: View {
 
     private func logout() async {
         guard server.isLocal else {
-            authError = "Settings logout is only available for the local server."
+            authError = "只能为本机服务在设置中退出登录。"
             return
         }
         do {
@@ -1355,12 +1300,12 @@ private struct SettingsConnectionAccountSection: View {
 private struct SettingsDisconnectedAccountSection: View {
     var body: some View {
         Section {
-            Text("Local Codex isn't running. ChatGPT login and API key entry require the local bridge.")
+            Text("本机 NeCode 尚未运行。ChatGPT 登录和 API Key 配置需要先启动本机桥接服务。")
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
-            Text("Account")
+            Text("账号")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }

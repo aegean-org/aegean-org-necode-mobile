@@ -36,22 +36,22 @@ final class CarPlayVoiceManager {
     // MARK: - Tab Templates
 
     func buildVoiceTab() -> CPGridTemplate {
-        let template = CPGridTemplate(title: "Voice", gridButtons: voiceGridButtons())
+        let template = CPGridTemplate(title: "语音", gridButtons: voiceGridButtons())
         template.tabImage = UIImage(systemName: "waveform")
-        template.tabTitle = "Voice"
+        template.tabTitle = "语音"
         voiceTabTemplate = template
         return template
     }
 
     func buildSessionsTab() -> CPListTemplate {
         let template = CPListTemplate(
-            title: "Sessions",
+            title: "会话",
             sections: [sessionsSection()]
         )
         template.tabImage = UIImage(systemName: "list.bullet")
-        template.tabTitle = "Sessions"
-        template.emptyViewTitleVariants = ["No recent sessions"]
-        template.emptyViewSubtitleVariants = ["Start a voice session to see it here"]
+        template.tabTitle = "会话"
+        template.emptyViewTitleVariants = ["暂无最近会话"]
+        template.emptyViewSubtitleVariants = ["启动语音会话后会显示在这里"]
         sessionsTabTemplate = template
         return template
     }
@@ -96,7 +96,7 @@ final class CarPlayVoiceManager {
             })
         } else {
             buttons.append(makeGridButton(
-                titles: ["Tap to Talk"],
+                titles: ["点击说话"],
                 systemImage: "mic.fill"
             ) { [weak self] _ in
                 self?.handleStart()
@@ -106,7 +106,7 @@ final class CarPlayVoiceManager {
         // Continue last session (visible when no active voice session but a recent one exists)
         if session == nil, let recent = mostRecentResumable() {
             buttons.append(makeGridButton(
-                titles: ["Continue", String(recent.displayTitle.prefix(24))],
+                titles: ["继续", String(recent.displayTitle.prefix(24))],
                 systemImage: "arrow.uturn.backward.circle.fill"
             ) { [weak self] _ in
                 self?.handleResume(recent.key)
@@ -115,7 +115,7 @@ final class CarPlayVoiceManager {
 
         // Sessions shortcut
         buttons.append(makeGridButton(
-            titles: ["Sessions"],
+            titles: ["会话"],
             systemImage: "list.bullet.rectangle.portrait"
         ) { [weak self] _ in
             self?.openSessionsTab()
@@ -124,7 +124,7 @@ final class CarPlayVoiceManager {
         // Transcript (only meaningful during an active session)
         if session != nil {
             buttons.append(makeGridButton(
-                titles: ["Transcript"],
+                titles: ["转写"],
                 systemImage: "text.bubble.fill"
             ) { [weak self] _ in
                 self?.openActiveSession()
@@ -136,11 +136,11 @@ final class CarPlayVoiceManager {
 
     private func primaryActionLabel(for phase: VoiceSessionPhase) -> String {
         switch phase {
-        case .connecting: return "Cancel"
-        case .listening:  return "Stop"
-        case .thinking, .handoff: return "Interrupt"
-        case .speaking:   return "Done"
-        case .error:      return "Tap to Talk"
+        case .connecting: return "取消"
+        case .listening:  return "停止"
+        case .thinking, .handoff: return "中断"
+        case .speaking:   return "完成"
+        case .error:      return "点击说话"
         }
     }
 
@@ -175,8 +175,8 @@ final class CarPlayVoiceManager {
         }
         if items.isEmpty {
             let placeholder = CPListItem(
-                text: "No recent sessions",
-                detailText: "Start a voice session from the Voice tab",
+                text: "暂无最近会话",
+                detailText: "请从语音页启动会话",
                 image: UIImage(systemName: "waveform")
             )
             items.append(placeholder)
@@ -269,8 +269,8 @@ final class CarPlayVoiceManager {
             .compactMap { transcriptRow(for: $0) }
         if items.isEmpty {
             let empty = CPListItem(
-                text: "No messages yet",
-                detailText: "Tap the mic to start speaking",
+                text: "还没有消息",
+                detailText: "点击麦克风开始说话",
                 image: UIImage(systemName: "text.bubble")
             )
             return CPListSection(items: [empty])
@@ -281,26 +281,26 @@ final class CarPlayVoiceManager {
     private func transcriptRow(for item: HydratedConversationItem) -> CPListItem? {
         switch item.content {
         case .user(let data):
-            return messageRow(role: "YOU", body: data.text)
+            return messageRow(role: "你", body: data.text)
         case .assistant(let data):
-            return messageRow(role: "CODEX", body: data.text)
+            return messageRow(role: "NeCode", body: data.text)
         case .reasoning(let data):
             let body = data.summary.first ?? data.content.first ?? ""
-            return messageRow(role: "REASONING", body: body)
+            return messageRow(role: "思考", body: body)
         case .commandExecution(let data):
-            return messageRow(role: "COMMAND", body: data.command)
+            return messageRow(role: "命令", body: data.command)
         case .fileChange(let data):
             let firstPath = data.changes.first?.path ?? ""
-            let extra = data.changes.count > 1 ? " +\(data.changes.count - 1) more" : ""
-            return messageRow(role: "EDIT", body: firstPath + extra)
+            let extra = data.changes.count > 1 ? " +\(data.changes.count - 1) 个" : ""
+            return messageRow(role: "编辑", body: firstPath + extra)
         case .mcpToolCall(let data):
-            return messageRow(role: "TOOL", body: "\(data.server) · \(data.tool)")
+            return messageRow(role: "工具", body: "\(data.server) · \(data.tool)")
         case .dynamicToolCall(let data):
-            return messageRow(role: "TOOL", body: data.tool)
+            return messageRow(role: "工具", body: data.tool)
         case .webSearch(let data):
-            return messageRow(role: "SEARCH", body: data.query)
+            return messageRow(role: "搜索", body: data.query)
         case .error(let data):
-            return messageRow(role: "ERROR", body: data.message)
+            return messageRow(role: "错误", body: data.message)
         default:
             return nil
         }
@@ -333,16 +333,16 @@ final class CarPlayVoiceManager {
 
     private func sessionDetail(_ summary: AppSessionSummary, isActive: Bool) -> String {
         let server = summary.key.serverId == VoiceRuntimeController.localServerID
-            ? "local"
+            ? "本机"
             : summary.serverDisplayName
         let modelLabel = summary.sessionModelLabel ?? summary.model
         let state: String = {
-            if isActive { return "now" }
-            if summary.hasActiveTurn { return "working" }
+            if isActive { return "现在" }
+            if summary.hasActiveTurn { return "处理中" }
             if let updated = summary.updatedAt {
                 return relativeTime(fromEpoch: updated)
             }
-            return "idle"
+            return "空闲"
         }()
         var parts = [server]
         if !modelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -455,7 +455,7 @@ final class CarPlayVoiceManager {
         }
         let statusSection = CPListSection(
             items: [statusItem],
-            header: "status",
+            header: "状态",
             sectionIndexTitle: nil
         )
 
@@ -471,7 +471,7 @@ final class CarPlayVoiceManager {
         if let live = session.transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines),
            !live.isEmpty {
             let speaker = (session.transcriptSpeaker?.uppercased() ?? "…")
-            let item = CPListItem(text: truncate(live, max: 110), detailText: speaker + " · live")
+            let item = CPListItem(text: truncate(live, max: 110), detailText: speaker + " · 实时")
             item.isPlaying = true
             item.playingIndicatorLocation = .leading
             transcriptItems.insert(item, at: 0)
@@ -484,7 +484,7 @@ final class CarPlayVoiceManager {
         }
         let transcriptSection = CPListSection(
             items: transcriptItems,
-            header: "transcript",
+            header: "转写",
             sectionIndexTitle: nil
         )
 
@@ -504,12 +504,12 @@ final class CarPlayVoiceManager {
 
     private func emptyTranscriptText(_ phase: VoiceSessionPhase) -> String {
         switch phase {
-        case .connecting: return "Connecting…"
-        case .listening:  return "Listening — say something"
-        case .thinking:   return "Codex is thinking"
-        case .handoff:    return "Running tools"
-        case .speaking:   return "Codex is speaking"
-        case .error:      return "Session ended"
+        case .connecting: return "连接中…"
+        case .listening:  return "正在聆听，可以开始说话"
+        case .thinking:   return "NeCode 正在思考"
+        case .handoff:    return "正在执行工具"
+        case .speaking:   return "NeCode 正在回复"
+        case .error:      return "会话已结束"
         }
     }
 
@@ -678,7 +678,7 @@ final class CarPlayVoiceManager {
     }
 
     private func showError(_ message: String) {
-        let action = CPAlertAction(title: "OK", style: .cancel) { _ in }
+        let action = CPAlertAction(title: "好", style: .cancel) { _ in }
         let alert = CPAlertTemplate(
             titleVariants: [message],
             actions: [action]
@@ -729,9 +729,9 @@ final class CarPlayVoiceManager {
     private func relativeTime(fromEpoch epoch: Int64) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(epoch))
         let delta = Date().timeIntervalSince(date)
-        if delta < 60 { return "now" }
-        if delta < 3600 { return "\(Int(delta / 60))m ago" }
-        if delta < 86400 { return "\(Int(delta / 3600))h ago" }
-        return "\(Int(delta / 86400))d ago"
+        if delta < 60 { return "刚刚" }
+        if delta < 3600 { return "\(Int(delta / 60)) 分钟前" }
+        if delta < 86400 { return "\(Int(delta / 3600)) 小时前" }
+        return "\(Int(delta / 86400)) 天前"
     }
 }

@@ -49,11 +49,11 @@ private struct AccountConnectionView: View {
                     .padding(.top, 20)
                 }
             }
-            .navigationTitle("Account")
+            .navigationTitle("账号")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("完成") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -66,7 +66,7 @@ private struct AccountConnectionView: View {
 
     private var currentAccountSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("CURRENT ACCOUNT")
+            Text("当前账号")
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .padding(.horizontal, 20)
@@ -87,7 +87,7 @@ private struct AccountConnectionView: View {
                 }
                 Spacer()
                 if server.isLocal, server.account != nil {
-                    Button("Logout") {
+                    Button("退出") {
                         Task { await logout() }
                     }
                     .litterFont(.footnote)
@@ -101,7 +101,7 @@ private struct AccountConnectionView: View {
             .padding(.horizontal, 16)
 
             if server.isLocal, hasStoredApiKey {
-                Text("Local OpenAI API key is saved.")
+                Text("本机 OpenAI API Key 已保存。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
                     .padding(.horizontal, 20)
@@ -111,7 +111,7 @@ private struct AccountConnectionView: View {
 
     private var loginSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("LOGIN")
+            Text("登录")
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textMuted)
                 .padding(.horizontal, 20)
@@ -129,7 +129,7 @@ private struct AccountConnectionView: View {
                             ProgressView().tint(LitterTheme.textOnAccent).scaleEffect(0.8)
                         }
                         Image(systemName: "person.crop.circle.badge.checkmark")
-                        Text("Login with ChatGPT")
+                        Text("使用 ChatGPT 登录")
                             .litterFont(.subheadline)
                     }
                     .foregroundColor(LitterTheme.textOnAccent)
@@ -143,19 +143,19 @@ private struct AccountConnectionView: View {
             }
 
             if server.isLocal, allowsLocalEnvApiKey {
-                Text("— or save an API key for the local environment —")
+                Text("或为本机环境保存 API Key")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
                     .frame(maxWidth: .infinity)
 
                 VStack(alignment: .leading, spacing: 8) {
                     if hasStoredApiKey {
-                        Text("OpenAI API key saved in the local environment.")
+                        Text("OpenAI API Key 已保存到本机环境。")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                             .padding(.horizontal, 16)
                     } else if isChatGPTAccount {
-                        Text("Save an OpenAI API key in the local Codex environment.")
+                        Text("将 OpenAI API Key 保存到本机 NeCode 环境。")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                             .padding(.horizontal, 16)
@@ -180,7 +180,7 @@ private struct AccountConnectionView: View {
                             isWorking = false
                         }
                     } label: {
-                        Text(hasStoredApiKey ? "Update API Key" : "Save API Key")
+                        Text(hasStoredApiKey ? "更新 API Key" : "保存 API Key")
                             .litterFont(.subheadline)
                             .foregroundColor(LitterTheme.textPrimary)
                             .frame(maxWidth: .infinity)
@@ -223,16 +223,16 @@ private struct AccountConnectionView: View {
         case .apiKey?:
             return "API Key"
         case nil:
-            return "Not logged in"
+            return "未登录"
         }
     }
 
     private var authSubtitle: String? {
         switch server.account {
         case .chatgpt?:
-            return "ChatGPT account"
+            return "ChatGPT 账号"
         case .apiKey?:
-            return "OpenAI API key"
+            return "OpenAI API Key"
         case nil:
             return nil
         }
@@ -253,7 +253,7 @@ private struct AccountConnectionView: View {
 
     private func loginWithChatGPT() async {
         guard server.isLocal else {
-            authError = "Account login is only available for the local server."
+            authError = "只能为本机服务登录账号。"
             return
         }
         do {
@@ -268,7 +268,7 @@ private struct AccountConnectionView: View {
 
     private func saveApiKey(_ key: String) async {
         guard server.isLocal else {
-            authError = "API keys can only be saved for the local server."
+            authError = "API Key 只能保存到本机服务。"
             return
         }
         do {
@@ -280,7 +280,7 @@ private struct AccountConnectionView: View {
             try await appModel.restartLocalServer()
             hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
             guard hasStoredApiKey else {
-                authError = "API key did not persist locally."
+                authError = "API Key 未能保存到本机。"
                 return
             }
             dismiss()
@@ -291,7 +291,7 @@ private struct AccountConnectionView: View {
 
     private func logout() async {
         guard server.isLocal else {
-            authError = "Account logout is only available for the local server."
+            authError = "只能为本机服务退出登录。"
             return
         }
         do {
@@ -314,10 +314,10 @@ private struct AccountDisconnectedView: View {
             ZStack {
                 LitterTheme.backgroundGradient.ignoresSafeArea()
                 VStack(spacing: 16) {
-                    Text("Local Codex isn't running")
+                    Text("本机 NeCode 尚未运行")
                         .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
-                    Text("ChatGPT login and API key entry require the local Codex bridge.")
+                    Text("ChatGPT 登录和 API Key 配置需要先启动本机桥接服务。")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                         .multilineTextAlignment(.center)
@@ -325,11 +325,11 @@ private struct AccountDisconnectedView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("Account")
+            .navigationTitle("账号")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("完成") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }

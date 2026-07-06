@@ -94,7 +94,7 @@ struct RealtimeVoiceScreen: View {
 
         let speaker = session.transcriptSpeaker?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? session.transcriptSpeaker!
-            : (session.phase == .speaking ? "Codex" : "You")
+            : (session.phase == .speaking ? "NeCode" : "你")
         let liveId = session.transcriptLiveMessageID ?? "live-\(speaker.lowercased())"
         let timestamp = entries.first(where: { $0.id == liveId })?.timestamp ?? Date()
         let entry = VoiceSessionTranscriptEntry(
@@ -269,8 +269,8 @@ struct RealtimeVoiceScreen: View {
         isLive: Bool,
         recencyIndex: Int
     ) -> some View {
-        let isUser = entry.speaker == "You"
-        let isSystem = entry.speaker == "System"
+        let isUser = entry.speaker == "你" || entry.speaker == "You"
+        let isSystem = entry.speaker == "系统" || entry.speaker == "System"
         let opacity: Double = switch recencyIndex {
         case 0:
             isLive ? 1.0 : 0.96
@@ -329,11 +329,11 @@ struct RealtimeVoiceScreen: View {
 
     private var realtimeApiKeyPrompt: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Realtime needs an API key")
+            Text("实时语音需要 API Key")
                 .font(LitterFont.styled(.headline, weight: .semibold))
                 .foregroundColor(primaryTextColor)
 
-            Text("Enter your OpenAI API key for this device. Litter will store it in the local Codex environment as OPENAI_API_KEY.")
+            Text("输入本设备使用的 OpenAI API Key。NeCode 会把它保存到本机环境的 OPENAI_API_KEY。")
                 .font(LitterFont.styled(.caption))
                 .foregroundColor(secondaryTextColor)
                 .fixedSize(horizontal: false, vertical: true)
@@ -374,7 +374,7 @@ struct RealtimeVoiceScreen: View {
     private func saveApiKeyAndRetry() {
         guard !trimmedApiKey.isEmpty, !isSavingApiKey else { return }
         guard server?.isLocal == true else {
-            apiKeyError = "API keys are only saved on the local server."
+            apiKeyError = "API Key 只能保存到本机服务。"
             return
         }
 
@@ -393,7 +393,7 @@ struct RealtimeVoiceScreen: View {
                 try await appModel.restartLocalServer()
                 let persisted = OpenAIApiKeyStore.shared.hasStoredKey
                 guard persisted else {
-                    authError = "API key did not persist locally."
+                    authError = "API Key 没有成功保存到本机。"
                     throw CancellationError()
                 }
                 apiKeySaved = true
@@ -430,7 +430,7 @@ struct RealtimeVoiceScreen: View {
                 }
                 if !apiKeySaved {
                     isRetryingAfterAuthSave = false
-                    apiKeyError = authError ?? "Failed to save API key"
+                    apiKeyError = authError ?? "保存 API Key 失败"
                 }
             }
         }
@@ -463,7 +463,7 @@ struct RealtimeVoiceScreen: View {
                     .tint(primaryTextColor)
                     .scaleEffect(0.85)
             }
-            Text(isSavingApiKey ? "Saving…" : "Save API Key")
+            Text(isSavingApiKey ? "保存中…" : "保存 API Key")
                 .font(LitterFont.styled(.subheadline, weight: .semibold))
         }
         .foregroundColor(primaryTextColor)

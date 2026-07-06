@@ -116,7 +116,7 @@ final class StreamingPiPController: NSObject {
     func start() {
         guard !isActive else { return }
         guard isSupported else {
-            lastErrorMessage = "PiP not supported on this device."
+            lastErrorMessage = "当前设备不支持画中画。"
             LLog.warn("pip", "start: device does not support PiP")
             return
         }

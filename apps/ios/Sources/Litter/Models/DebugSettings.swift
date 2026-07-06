@@ -19,6 +19,23 @@ enum StreamingEffectKind: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var displayName: String {
+        switch self {
+        case .fadeEdge: return "边缘淡出"
+        case .sparkle: return "闪光"
+        case .glowCursor: return "光标发光"
+        case .wave: return "波浪"
+        case .scalePop: return "弹出缩放"
+        case .rainbow: return "彩虹"
+        case .fireTrail: return "火焰轨迹"
+        case .explosion: return "爆炸"
+        case .nyanCat: return "彩虹猫"
+        case .matrixDecode: return "矩阵解码"
+        case .phosphorCRT: return "荧光 CRT"
+        case .shockwave: return "冲击波"
+        }
+    }
+
     var effect: any StreamingTextEffect {
         let accent = Color(red: 0, green: 1, blue: 0.612)
         switch self {

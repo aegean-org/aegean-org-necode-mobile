@@ -71,7 +71,7 @@ struct VoiceCallView: View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
                 CompactSpeakerIndicator(
-                    title: "You",
+                    title: "你",
                     level: visualWaveformLevel(
                         session.inputLevel,
                         active: session.phase == .listening || session.inputLevel > 0.01
@@ -81,7 +81,7 @@ struct VoiceCallView: View {
                 )
 
                 CompactSpeakerIndicator(
-                    title: "Codex",
+                    title: "NeCode",
                     level: visualWaveformLevel(
                         session.outputLevel,
                         active: session.phase == .speaking || session.isSpeaking
@@ -147,7 +147,7 @@ struct VoiceCallView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "phone.down.fill")
                         .font(.system(size: 16, weight: .semibold))
-                    Text(session.phase == .error ? "Close" : "Hang Up")
+                    Text(session.phase == .error ? "关闭" : "挂断")
                         .font(LitterFont.styled(.callout, weight: .semibold))
                 }
                 .foregroundColor(.white)
@@ -345,10 +345,10 @@ private struct VoiceCreditsTranscriptView: View {
 
     private var placeholder: some View {
         VStack(spacing: 10) {
-            Text("Voice Transcript")
+            Text("语音转写")
                 .font(LitterFont.monospaced(.caption, weight: .semibold))
                 .foregroundColor(LitterTheme.textMuted)
-            Text("The live conversation, tool calls, and other text output will appear here.")
+            Text("实时对话、工具调用和其他输出会显示在这里。")
                 .font(LitterFont.styled(.body, scale: textScale))
                 .foregroundColor(LitterTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -417,7 +417,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
                 self = VoiceTranscriptEntry(
                     id: item.id,
                     kind: .user,
-                    title: "YOU",
+                    title: "你",
                     body: "",
                     media: .userImages(data.images)
                 )
@@ -425,7 +425,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
                 self = VoiceTranscriptEntry(
                     id: item.id,
                     kind: .user,
-                    title: "YOU",
+                    title: "你",
                     body: body,
                     media: data.images.isEmpty ? nil : .userImages(data.images)
                 )
@@ -439,7 +439,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             let label = AgentLabelFormatter.format(
                 nickname: data.agentNickname,
                 role: data.agentRole
-            ) ?? "CODEX"
+            ) ?? "NeCode"
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .assistant,
@@ -454,7 +454,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .assistant,
-                title: "CODE REVIEW",
+                title: "代码审查",
                 body: body
             )
 
@@ -466,7 +466,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .reasoning,
-                title: "REASONING",
+                title: "思考",
                 body: chunks.joined(separator: "\n\n")
             )
 
@@ -476,14 +476,14 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "PLAN",
+                title: "计划",
                 body: lines.joined(separator: "\n")
             )
 
         case .proposedPlan(let data):
             let body = data.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !body.isEmpty else { return nil }
-            self = VoiceTranscriptEntry(id: item.id, kind: .tool, title: "PLAN", body: body)
+            self = VoiceTranscriptEntry(id: item.id, kind: .tool, title: "计划", body: body)
 
         case .commandExecution(let data):
             let chunks = [data.command, data.status.displayLabel, data.output]
@@ -493,12 +493,12 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "COMMAND",
+                title: "命令",
                 body: chunks.joined(separator: "\n\n")
             )
 
         case .fileChange(let data):
-            var chunks = ["Status: \(data.status.displayLabel)"]
+            var chunks = ["状态：\(data.status.displayLabel)"]
             let changeSummaries = data.changes.map { "\($0.kind.uppercased()) \($0.path)\n\($0.diff)" }
             chunks.append(contentsOf: changeSummaries)
             if let outputDelta = data.outputDelta?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -508,7 +508,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "FILE CHANGES",
+                title: "文件变更",
                 body: chunks.joined(separator: "\n\n")
             )
 
@@ -518,7 +518,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(id: item.id, kind: .tool, title: "DIFF", body: body)
 
         case .mcpToolCall(let data):
-            var chunks = ["\(data.server) / \(data.tool)", "Status: \(data.status.displayLabel)"]
+            var chunks = ["\(data.server) / \(data.tool)", "状态：\(data.status.displayLabel)"]
             if let summary = data.contentSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
                !summary.isEmpty {
                 chunks.append(summary)
@@ -529,13 +529,13 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "MCP TOOL",
+                title: "MCP 工具",
                 body: chunks.joined(separator: "\n\n"),
                 media: data.computerUse.map { .computerUse(data, $0) }
             )
 
         case .dynamicToolCall(let data):
-            var chunks = [data.tool, "Status: \(data.status.displayLabel)"]
+            var chunks = [data.tool, "状态：\(data.status.displayLabel)"]
             if let summary = data.contentSummary?.trimmingCharacters(in: .whitespacesAndNewlines),
                !summary.isEmpty {
                 chunks.append(summary)
@@ -543,18 +543,18 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "TOOL",
+                title: "工具",
                 body: chunks.joined(separator: "\n\n")
             )
 
         case .multiAgentAction(let data):
-            var chunks = ["Tool: \(data.tool)", "Status: \(data.status.displayLabel)"]
+            var chunks = ["工具：\(data.tool)", "状态：\(data.status.displayLabel)"]
             if let prompt = data.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
                !prompt.isEmpty {
                 chunks.append(prompt)
             }
             if !data.targets.isEmpty {
-                chunks.append("Targets: \(data.targets.joined(separator: ", "))")
+                chunks.append("目标：\(data.targets.joined(separator: ", "))")
             }
             if !data.agentStates.isEmpty {
                 let states = data.agentStates.map { "\($0.targetId): \($0.status)\($0.message.map { " - \($0)" } ?? "")" }
@@ -563,7 +563,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "COLLABORATION",
+                title: "协作",
                 body: chunks.joined(separator: "\n\n")
             )
 
@@ -571,7 +571,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "WEB SEARCH",
+                title: "网页搜索",
                 body: [data.query, data.actionJSON].compactMap { $0 }.joined(separator: "\n\n")
             )
 
@@ -579,16 +579,16 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "IMAGE VIEW",
+                title: "查看图片",
                 body: data.path
             )
 
         case .imageGeneration(let data):
             let statusWord: String = {
                 switch data.status {
-                case .completed: return "Completed"
-                case .failed: return "Failed"
-                default: return "Generating"
+                case .completed: return "已完成"
+                case .failed: return "失败"
+                default: return "生成中"
                 }
             }()
             let body = [statusWord, data.revisedPrompt ?? ""]
@@ -598,7 +598,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "IMAGE GENERATION",
+                title: "生成图片",
                 body: body.isEmpty ? statusWord : body,
                 media: .imageGeneration(data)
             )
@@ -607,8 +607,8 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .tool,
-                title: "WIDGET",
-                body: "Interactive widget rendered: \(data.widgetState.title)"
+                title: "组件",
+                body: "已渲染交互组件：\(data.widgetState.title)"
             )
 
         case .userInputResponse(let data):
@@ -619,7 +619,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .system,
-                title: "USER INPUT",
+                title: "用户输入",
                 body: chunks.joined(separator: "\n\n")
             )
 
@@ -627,7 +627,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .system,
-                title: "SYSTEM",
+                title: "系统",
                 body: Self.dividerText(kind)
             )
 
@@ -637,7 +637,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .error,
-                title: data.title.isEmpty ? "ERROR" : data.title.uppercased(),
+                title: data.title.isEmpty ? "错误" : data.title,
                 body: parts.joined(separator: "\n\n")
             )
 
@@ -650,7 +650,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
             self = VoiceTranscriptEntry(
                 id: item.id,
                 kind: .note,
-                title: data.title.isEmpty ? "NOTE" : data.title.uppercased(),
+                title: data.title.isEmpty ? "备注" : data.title,
                 body: body
             )
         }
@@ -661,9 +661,9 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
         guard !text.isEmpty else { return nil }
         let speaker = session.transcriptSpeaker?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? session.transcriptSpeaker!
-            : (session.phase == .speaking ? "Codex" : "You")
-        let kind: VoiceTranscriptEntryKind = speaker == "Codex" ? .liveAssistant : .liveUser
-        let title = speaker == "Codex" ? "CODEX LIVE" : "YOU LIVE"
+            : (session.phase == .speaking ? "NeCode" : "你")
+        let kind: VoiceTranscriptEntryKind = speaker == "NeCode" || speaker == "Codex" ? .liveAssistant : .liveUser
+        let title = speaker == "NeCode" || speaker == "Codex" ? "NeCode 实时" : "你 实时"
         return VoiceTranscriptEntry(
             id: "live-\(speaker.lowercased())",
             kind: kind,
@@ -675,7 +675,7 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
     private static func dividerText(_ kind: ConversationDividerKind) -> String {
         switch kind {
         case .contextCompaction(let isComplete):
-            return isComplete ? "Context compaction completed." : "Context compaction in progress."
+            return isComplete ? "上下文压缩已完成。" : "上下文压缩中。"
         case .modelRerouted(let fromModel, let toModel, let reason):
             return [fromModel, toModel, reason].compactMap { $0 }.joined(separator: " -> ")
         case .reviewEntered(let detail),
@@ -691,11 +691,11 @@ private struct VoiceTranscriptEntry: Identifiable, Equatable {
 private func planStepLabel(_ status: HydratedPlanStepStatus) -> String {
     switch status {
     case .pending:
-        return "pending"
+        return "待处理"
     case .inProgress:
-        return "in_progress"
+        return "进行中"
     case .completed:
-        return "completed"
+        return "已完成"
     }
 }
 
@@ -855,11 +855,11 @@ private struct VoiceCallDebugSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Voice Debug")
+            .navigationTitle("语音调试")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
+                    Button("完成") {
                         dismiss()
                     }
                 }

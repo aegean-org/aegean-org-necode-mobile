@@ -155,12 +155,12 @@ struct UserBubble: View {
                                     expandedLongText.toggle()
                                 }
                             } label: {
-                                Text(expandedLongText ? "Show less" : "Show more")
+                                Text(expandedLongText ? "收起" : "展开更多")
                                     .litterFont(.caption2, weight: .semibold)
                                     .foregroundColor(LitterTheme.accent)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(expandedLongText ? "Show less user message" : "Show more user message")
+                            .accessibilityLabel(expandedLongText ? "收起用户消息" : "展开更多用户消息")
                         }
                     }
                 }
@@ -626,18 +626,18 @@ struct MessageBubbleView: View {
         UserBubble(text: message.text, images: message.images)
             .contextMenu {
                 if canCopyMessageText {
-                    Button("Copy Message") {
+                    Button("复制消息") {
                         UIPasteboard.general.string = message.text
                     }
                 }
 
                 if supportsUserActions {
-                    Button("Edit Message") {
+                    Button("编辑消息") {
                         onEditUserMessage?(message)
                     }
                     .disabled(actionsDisabled || onEditUserMessage == nil)
 
-                    Button("Fork From Here") {
+                    Button("从这里分支") {
                         onForkFromUserMessage?(message)
                     }
                     .disabled(actionsDisabled || onForkFromUserMessage == nil)
@@ -665,7 +665,7 @@ struct MessageBubbleView: View {
         }
         .contextMenu {
             if canCopyMessageText {
-                Button("Copy Message") {
+                Button("复制消息") {
                     UIPasteboard.general.string = message.text
                 }
             }
@@ -689,7 +689,7 @@ struct MessageBubbleView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 if canCopyMessageText {
-                    Button("Copy Message") {
+                    Button("复制消息") {
                         UIPasteboard.general.string = message.text
                     }
                 }
@@ -735,7 +735,7 @@ struct MessageBubbleView: View {
     private var genericSystemBubble: some View {
         let (title, body) = extractSystemTitleAndBody(message.text)
         let markdown = title == nil ? message.text : body
-        let displayTitle = title ?? "System"
+        let displayTitle = title ?? "系统"
 
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
@@ -770,7 +770,7 @@ struct MessageBubbleView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contextMenu {
             if canCopyMessageText {
-                Button("Copy Message") {
+                Button("复制消息") {
                     UIPasteboard.general.string = message.text
                 }
             }
@@ -1008,7 +1008,7 @@ private struct CodeBlockTerminalContextMenu: ViewModifier {
             Button {
                 UIPasteboard.general.string = code
             } label: {
-                Label("Copy", systemImage: "doc.on.doc")
+                Label("复制", systemImage: "doc.on.doc")
             }
             if AppModel.shared.store.activeTerminalId() != nil {
                 Button {
@@ -1017,7 +1017,7 @@ private struct CodeBlockTerminalContextMenu: ViewModifier {
                         _ = try? await AppModel.shared.store.writeToActiveTerminal(bytes: bytes)
                     }
                 } label: {
-                    Label("Run in Terminal", systemImage: "terminal")
+                    Label("在终端运行", systemImage: "terminal")
                 }
             }
         }

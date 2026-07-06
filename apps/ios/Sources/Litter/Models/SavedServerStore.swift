@@ -117,37 +117,11 @@ enum SavedServerStore {
         localDisplayName: String,
         rememberedOnly: Bool = false
     ) -> [SavedServerRecord] {
+        _ = localDisplayName
         let saved = rememberedOnly ? rememberedServers() : load()
-        var records = saved.map { $0.toRecord() }
-        if LitterPlatform.supportsLocalRuntime,
-           records.contains(where: { $0.id == "local" || $0.source == ServerSource.local.rawValue }) == false {
-            records.append(
-                SavedServerRecord(
-                    id: "local",
-                    name: localDisplayName,
-                    hostname: "127.0.0.1",
-                    port: 0,
-                    codexPorts: [],
-                    sshPort: nil,
-                    source: ServerSource.local.rawValue,
-                    hasCodexServer: true,
-                    wakeMac: nil,
-                    preferredConnectionMode: nil,
-                    preferredCodexPort: nil,
-                    sshPortForwardingEnabled: nil,
-                    websocketUrl: nil,
-                    rememberedByUser: true,
-                    alleycatHost: nil,
-                    alleycatUdpPort: nil,
-                    alleycatNodeId: nil,
-                    alleycatToken: nil,
-                    alleycatRelay: nil,
-                    alleycatAgentName: nil,
-                    alleycatAgentWire: nil
-                )
-            )
-        }
-        return records
+        // NeCode Mobile is paired-host first; do not auto-inject the legacy
+        // local Codex placeholder into the reconnect list.
+        return saved.map { $0.toRecord() }
     }
 
     static func remove(serverId: String) {
@@ -256,11 +230,11 @@ enum SavedServerStore {
     private static func alleycatFallbackDisplayName(_ server: SavedServer) -> String {
         guard let nodeId = server.alleycatNodeId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !nodeId.isEmpty else {
-            return "Alleycat"
+            return "NeCode 主机"
         }
         if nodeId.count <= 16 {
-            return "Alleycat \(nodeId)"
+            return "NeCode \(nodeId)"
         }
-        return "Alleycat \(nodeId.prefix(8))...\(nodeId.suffix(8))"
+        return "NeCode \(nodeId.prefix(8))...\(nodeId.suffix(8))"
     }
 }

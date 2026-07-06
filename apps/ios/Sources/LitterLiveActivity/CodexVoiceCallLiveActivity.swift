@@ -30,7 +30,7 @@ struct CodexVoiceCallLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 8) {
-                        Text(context.state.phase.rawValue)
+                        Text(voicePhaseText(context.state.phase))
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.75))
                         Spacer()
@@ -52,6 +52,16 @@ struct CodexVoiceCallLiveActivity: Widget {
                 Image(systemName: "waveform")
                     .foregroundStyle(.white.opacity(0.85))
             }
+        }
+    }
+
+    private func voicePhaseText(_ phase: CodexVoiceCallAttributes.ContentState.Phase) -> String {
+        switch phase {
+        case .connecting: return "连接中"
+        case .listening: return "聆听"
+        case .thinking: return "思考中"
+        case .speaking: return "回复中"
+        case .error: return "已结束"
         }
     }
 }

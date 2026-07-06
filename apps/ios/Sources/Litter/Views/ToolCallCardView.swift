@@ -375,12 +375,12 @@ struct ToolCallCardView: View {
                     }
                 }
             } label: {
-                Text(expandedLongTextIDs.contains(id) ? "Show less" : "Show more")
+                Text(expandedLongTextIDs.contains(id) ? "收起" : "展开更多")
                     .litterFont(.caption2, weight: .semibold)
                     .foregroundColor(LitterTheme.accent)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(expandedLongTextIDs.contains(id) ? "Show less text" : "Show more text")
+            .accessibilityLabel(expandedLongTextIDs.contains(id) ? "收起文本" : "展开更多文本")
         }
     }
 
@@ -556,7 +556,7 @@ private struct ToolCallImagePreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("IMAGE")
+            Text("图片")
                 .litterFont(.caption2, weight: .bold)
                 .foregroundColor(LitterTheme.textSecondary)
 
@@ -581,7 +581,7 @@ private struct ToolCallImagePreview: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 32)
                 } else {
-                    Text(loadError ?? "Image unavailable")
+                    Text(loadError ?? "图片不可用")
                         .litterFont(.caption)
                         .foregroundColor(loadError == nil ? LitterTheme.textSecondary : LitterTheme.danger)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -661,7 +661,7 @@ private enum ToolCallImageError: LocalizedError {
 
     static func message(for error: Error) -> String {
         let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        return message.isEmpty ? "Image unavailable" : message
+        return message.isEmpty ? "图片不可用" : message
     }
 }
 

@@ -15,8 +15,8 @@ struct ApprovalScreen: View {
             } else {
                 WatchEmptyState(
                     icon: "checkmark.shield",
-                    title: "no pending approvals",
-                    subtitle: "codex will ping you when it needs a yes/no."
+                    title: "暂无待审批",
+                    subtitle: "NeCode 需要确认时会提醒你。"
                 )
             }
         }
@@ -73,7 +73,7 @@ private struct ApprovalBody: View {
 
                 HStack(spacing: 4) {
                     Button { tap(approve: false) } label: {
-                        Text("deny")
+                        Text("拒绝")
                             .font(WatchTheme.scaled(12, for: watchSize, weight: .bold))
                             .foregroundStyle(theme.textPrimary)
                             .frame(maxWidth: .infinity, minHeight: approvalButtonHeight)
@@ -86,7 +86,7 @@ private struct ApprovalBody: View {
                     .disabled(store.approvalInFlight)
 
                     Button { tap(approve: true) } label: {
-                        Text(store.approvalInFlight ? "sending…" : "allow")
+                        Text(store.approvalInFlight ? "发送中…" : "允许")
                             .font(WatchTheme.scaled(12, for: watchSize, weight: .bold))
                             .foregroundStyle(theme.textOnAccent)
                             .frame(maxWidth: .infinity, minHeight: approvalButtonHeight)
@@ -145,10 +145,10 @@ private struct ApprovalBody: View {
 
     private var approvalLabel: String {
         switch approval.kind {
-        case .command:        return "run command"
-        case .fileChange:     return "file change"
-        case .permissions:    return "permissions"
-        case .mcpElicitation: return "mcp input"
+        case .command:        return "执行命令"
+        case .fileChange:     return "文件变更"
+        case .permissions:    return "权限"
+        case .mcpElicitation: return "MCP 输入"
         }
     }
 }

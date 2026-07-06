@@ -7,24 +7,24 @@ struct ConversationComposerAttachSheet: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("Attach")
+            Text("添加附件")
                 .litterFont(.headline, weight: .semibold)
                 .foregroundColor(LitterTheme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: onPickPhotoLibrary) {
-                sheetButtonLabel("Photo Library", systemImage: "photo.on.rectangle")
+                    sheetButtonLabel("照片图库", systemImage: "photo.on.rectangle")
             }
 
             if let onChooseFile {
                 Button(action: onChooseFile) {
-                    sheetButtonLabel("Choose File", systemImage: "folder")
+                    sheetButtonLabel("选择文件", systemImage: "folder")
                 }
             }
 
             if let onTakePhoto {
                 Button(action: onTakePhoto) {
-                    sheetButtonLabel("Take Photo", systemImage: "camera")
+                    sheetButtonLabel("拍照", systemImage: "camera")
                 }
             }
 

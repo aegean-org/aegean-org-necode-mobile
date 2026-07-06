@@ -346,101 +346,101 @@ struct TranscriptTurn: Identifiable, Equatable {
     }
 
     private static func previewText(for item: ConversationItem?) -> String {
-        guard let item else { return "Conversation turn" }
+        guard let item else { return "对话回合" }
 
         switch item.content {
         case .user(let data):
             let trimmed = data.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return collapsedExcerpt(from: trimmed) }
             if !data.images.isEmpty {
-                return data.images.count == 1 ? "Shared 1 image" : "Shared \(data.images.count) images"
+                return data.images.count == 1 ? "已发送 1 张图片" : "已发送 \(data.images.count) 张图片"
             }
-            return "Conversation turn"
+            return "对话回合"
         case .assistant(let data):
             let trimmed = data.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "Assistant response" : collapsedExcerpt(from: trimmed)
+            return trimmed.isEmpty ? "助手回复" : collapsedExcerpt(from: trimmed)
         case .codeReview(let data):
             if let first = data.findings.first {
-                return "Review: \(collapsedExcerpt(from: first.title))"
+                return "审查：\(collapsedExcerpt(from: first.title))"
             }
-            return "Code review"
+            return "代码审查"
         case .reasoning(let data):
             let body = (data.summary + data.content)
                 .joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return body.isEmpty ? "Reasoning" : "Reasoning: \(collapsedExcerpt(from: body))"
+            return body.isEmpty ? "思考过程" : "思考：\(collapsedExcerpt(from: body))"
         case .todoList(let data):
             if data.steps.isEmpty {
-                return "To do list"
+                return "任务列表"
             }
             let completed = data.completedCount
             let total = data.steps.count
             if completed == 0 {
-                return "To do list: \(total) tasks"
+                return "任务列表：\(total) 项"
             }
-            return "To do list: \(completed) of \(total) done"
+            return "任务列表：已完成 \(completed)/\(total)"
         case .proposedPlan(let data):
             let trimmed = data.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "Plan" : "Plan: \(collapsedExcerpt(from: trimmed))"
+            return trimmed.isEmpty ? "计划" : "计划：\(collapsedExcerpt(from: trimmed))"
         case .commandExecution(let data):
             if let action = data.actions.first {
                 switch action.kind {
                 case .read:
-                    return action.path.map { "Read \(workspaceTitle(for: $0))" } ?? "Read file"
+                    return action.path.map { "读取 \(workspaceTitle(for: $0))" } ?? "读取文件"
                 case .search:
                     if let query = action.query, let path = action.path {
-                        return "Searched for \(query) in \(workspaceTitle(for: path))"
+                        return "在 \(workspaceTitle(for: path)) 中搜索 \(query)"
                     }
                     if let query = action.query {
-                        return "Searched for \(query)"
+                        return "搜索 \(query)"
                     }
-                    return "Searched files"
+                    return "搜索文件"
                 case .listFiles:
-                    return action.path.map { "Listed files in \(workspaceTitle(for: $0))" } ?? "Listed files"
+                    return action.path.map { "列出 \(workspaceTitle(for: $0)) 中的文件" } ?? "列出文件"
                 case .unknown:
                     break
                 }
             }
-            return data.command.isEmpty ? "Ran command" : collapsedExcerpt(from: "Ran \(data.command)")
+            return data.command.isEmpty ? "执行命令" : collapsedExcerpt(from: "执行 \(data.command)")
         case .fileChange(let data):
             if let first = data.changes.first {
-                return "Changed \(workspaceTitle(for: first.path))"
+                return "修改 \(workspaceTitle(for: first.path))"
             }
-            return "File changes"
+            return "文件变更"
         case .turnDiff:
-            return "Turn diff"
+            return "本轮变更"
         case .mcpToolCall(let data):
-            return data.server.isEmpty ? "Called \(data.tool)" : "Called \(data.tool) from \(data.server)"
+            return data.server.isEmpty ? "调用 \(data.tool)" : "从 \(data.server) 调用 \(data.tool)"
         case .dynamicToolCall(let data):
-            return "Called \(data.tool)"
+            return "调用 \(data.tool)"
         case .multiAgentAction(let data):
             let count = max(data.targets.count, data.agentStates.count)
-            return count == 1 ? "\(data.tool) 1 agent" : "\(data.tool) \(count) agents"
+            return "\(data.tool) \(count) 个智能体"
         case .webSearch(let data):
-            return data.query.isEmpty ? "Searched web" : "Searched web for \(data.query)"
+            return data.query.isEmpty ? "联网搜索" : "联网搜索 \(data.query)"
         case .imageView(let data):
-            return "Viewed image: \(workspaceTitle(for: data.path))"
+            return "查看图片：\(workspaceTitle(for: data.path))"
         case .imageGeneration(let data):
             switch data.status {
-            case .completed: return "Generated image"
-            case .failed: return "Image generation failed"
-            default: return "Generating image"
+            case .completed: return "图片已生成"
+            case .failed: return "图片生成失败"
+            default: return "正在生成图片"
             }
         case .widget(let data):
-            return "Widget: \(data.widgetState.title)"
+            return "组件：\(data.widgetState.title)"
         case .userInputResponse(let data):
             let count = data.questions.count
-            return count == 1 ? "Asked 1 question" : "Asked \(count) questions"
+            return count == 1 ? "提出 1 个问题" : "提出 \(count) 个问题"
         case .divider(let divider):
             switch divider {
             case .contextCompaction(let isComplete):
-                return isComplete ? "Context compacted" : "Compacting context"
+                return isComplete ? "上下文已压缩" : "正在压缩上下文"
             case .modelRerouted(_, let toModel, _):
-                return "Routed to \(toModel)"
+                return "已切换到 \(toModel)"
             case .reviewEntered(let review):
-                return "Entered review: \(review)"
+                return "进入审查：\(review)"
             case .reviewExited(let review):
-                return "Exited review: \(review)"
+                return "退出审查：\(review)"
             case .workedFor(let duration):
                 return duration
             case .generic(let title, let detail):

@@ -17,7 +17,7 @@ struct AppearanceSettingsView: View {
             }
             .scrollContentBackground(.hidden)
         }
-        .navigationTitle("Appearance")
+        .navigationTitle("外观")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $activeThemePicker) { pickerKind in
             ThemePickerSheet(
@@ -37,7 +37,7 @@ struct AppearanceSettingsView: View {
     private var appearanceModeSection: some View {
         Section {
             Picker(
-                "Appearance",
+                "外观",
                 selection: Binding(
                     get: { themeManager.appearanceMode },
                     set: { themeManager.setAppearanceMode($0) }
@@ -51,10 +51,10 @@ struct AppearanceSettingsView: View {
             .tint(LitterTheme.accent)
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
-            Text("Mode")
+            Text("模式")
                 .foregroundColor(LitterTheme.textSecondary)
         } footer: {
-            Text("Match the device setting, or keep Litter fixed in light or dark mode.")
+            Text("跟随系统设置，或固定使用浅色/深色模式。")
                 .foregroundColor(LitterTheme.textMuted)
         }
     }
@@ -65,7 +65,7 @@ struct AppearanceSettingsView: View {
         Section {
             VStack(spacing: 12) {
                 HStack {
-                    Text("Font Size")
+                    Text("字体大小")
                         .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.textPrimary)
                     Spacer()
@@ -97,10 +97,10 @@ struct AppearanceSettingsView: View {
             .padding(.vertical, 4)
             .listRowBackground(LitterTheme.surface.opacity(0.6))
         } header: {
-            Text("Font Size")
+            Text("字体大小")
                 .foregroundColor(LitterTheme.textSecondary)
         } footer: {
-            Text("Pinch in conversations to adjust, or use this slider. Applies across the app.")
+            Text("可在会话中双指缩放调整，也可使用此滑块；设置会应用到整个应用。")
                 .foregroundColor(LitterTheme.textMuted)
         }
     }
@@ -110,11 +110,11 @@ struct AppearanceSettingsView: View {
     private var conversationPreviewSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                UserBubble(text: "Hey clanker, why is prod on fire", compact: true)
+                UserBubble(text: "线上环境为什么出问题了？", compact: true)
 
                 ToolCallCardView(model: ToolCallCardModel(
                     kind: .commandExecution,
-                    title: "Command",
+                    title: "命令",
                     summary: "rg 'TODO: fix later' --count",
                     status: .completed,
                     duration: "0.3s",
@@ -123,18 +123,18 @@ struct AppearanceSettingsView: View {
 
                 AssistantBubble(
                     text: """
-                    Found the issue. Someone deployed this:
+                    找到原因了，有人部署了这段代码：
 
                     ```python
                     if is_friday():
                         yolo_deploy(skip_tests=True)
                     ```
-                    I'm not mad, just disappointed.
+                    问题出在这里，需要先撤回这次发布。
                     """,
                     compact: true
                 )
 
-                UserBubble(text: "That was you, clanker", compact: true)
+                UserBubble(text: "明白，先回滚。", compact: true)
             }
             .padding(.vertical, 6)
             .environment(\.textScale, ConversationTextSize.clamped(rawValue: textSizeStep).scale)
@@ -142,7 +142,7 @@ struct AppearanceSettingsView: View {
             .listRowBackground(LitterTheme.backgroundGradient)
             .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
         } header: {
-            Text("Preview")
+            Text("预览")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -157,7 +157,7 @@ struct AppearanceSettingsView: View {
                 pickerKind: .light
             )
         } header: {
-            Text("Light theme")
+            Text("浅色主题")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -172,7 +172,7 @@ struct AppearanceSettingsView: View {
                 pickerKind: .dark
             )
         } header: {
-            Text("Dark theme")
+            Text("深色主题")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
@@ -231,9 +231,9 @@ private enum ThemePickerKind: String, Identifiable {
     var title: String {
         switch self {
         case .light:
-            "Light Theme"
+            "浅色主题"
         case .dark:
-            "Dark Theme"
+            "深色主题"
         }
     }
 }
@@ -256,7 +256,7 @@ private struct ThemePickerRow: View {
                 accentHex: entry?.accentHex ?? "#00FF00"
             )
 
-            Text(entry?.name ?? "Unknown Theme")
+            Text(entry?.name ?? "未知主题")
                 .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
                 .lineLimit(1)
@@ -352,7 +352,7 @@ private struct ThemePickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
+                    Button("完成") {
                         dismiss()
                     }
                     .foregroundColor(LitterTheme.accent)
@@ -367,7 +367,7 @@ private struct ThemePickerSheet: View {
                 .foregroundColor(LitterTheme.textMuted)
                 .litterFont(size: 14, weight: .medium)
 
-            TextField("Search themes", text: $searchQuery)
+            TextField("搜索主题", text: $searchQuery)
                 .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
@@ -401,7 +401,7 @@ private struct ThemePickerSheet: View {
                 .litterFont(size: 18, weight: .medium)
                 .foregroundColor(LitterTheme.textMuted)
 
-            Text("No matching themes")
+            Text("没有匹配的主题")
                 .litterFont(.subheadline)
                 .foregroundColor(LitterTheme.textPrimary)
 

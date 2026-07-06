@@ -64,21 +64,21 @@ struct SSHLoginSheet: View {
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
 
                     Section {
-                        TextField("username", text: $username)
+                        TextField("用户名", text: $username)
                             .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textPrimary)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
                     } header: {
-                        Text("Username")
+                        Text("用户名")
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
 
                     Section {
-                        Picker("Method", selection: $useKey) {
-                            Text("Password").tag(false)
-                            Text("SSH Key").tag(true)
+                        Picker("认证方式", selection: $useKey) {
+                            Text("密码").tag(false)
+                            Text("SSH 密钥").tag(true)
                         }
                         .pickerStyle(.segmented)
                         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -91,7 +91,7 @@ struct SSHLoginSheet: View {
                                 .frame(minHeight: 100)
                                 .overlay(alignment: .topLeading) {
                                     if privateKey.isEmpty {
-                                        Text("Paste private key here...")
+                                        Text("在这里粘贴私钥...")
                                             .litterFont(.caption)
                                             .foregroundColor(LitterTheme.textMuted)
                                             .padding(.top, 8)
@@ -99,7 +99,7 @@ struct SSHLoginSheet: View {
                                             .allowsHitTesting(false)
                                     }
                                 }
-                            SecureField("passphrase (optional)", text: $passphrase)
+                            SecureField("密钥口令（可选）", text: $passphrase)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                         } else {
@@ -107,26 +107,26 @@ struct SSHLoginSheet: View {
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Toggle(isOn: $unlockMacosKeychain) {
-                                    Text("Unlock keychain (macOS)")
+                                    Text("解锁钥匙串（macOS）")
                                         .litterFont(.footnote)
                                         .foregroundColor(LitterTheme.textPrimary)
                                 }
                                 .tint(LitterTheme.accent)
 
-                                Text("Uses your SSH/login password during headless bootstrap. Required for tools like gh CLI auth.")
+                                Text("无界面启动时会使用 SSH/登录密码。gh CLI 授权等工具可能需要它。")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
                         }
                     } header: {
-                        Text("Authentication")
+                        Text("认证")
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
 
                     Section {
                         Toggle(isOn: $rememberCredentials) {
-                            Text("Remember credentials on this device")
+                            Text("在本设备记住凭据")
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
                         }
@@ -136,12 +136,12 @@ struct SSHLoginSheet: View {
                             Button(role: .destructive) {
                                 forgetSavedCredentials()
                             } label: {
-                                Text("Forget saved credentials")
+                                Text("忘记已保存凭据")
                                     .litterFont(.footnote)
                             }
                         }
                     } header: {
-                        Text("Saved Credentials")
+                        Text("已保存凭据")
                             .foregroundColor(LitterTheme.textSecondary)
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -154,7 +154,7 @@ struct SSHLoginSheet: View {
                                 if isConnecting {
                                     ProgressView().tint(LitterTheme.accent)
                                 }
-                                Text("Connect")
+                                Text("连接")
                                     .foregroundColor(LitterTheme.accent)
                                     .litterFont(.subheadline)
                             }
@@ -174,11 +174,11 @@ struct SSHLoginSheet: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("SSH Login")
+            .navigationTitle("SSH 登录")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("取消") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -199,10 +199,10 @@ struct SSHLoginSheet: View {
         HStack(spacing: 8) {
             Group {
                 if isPasswordVisible {
-                    TextField("password", text: $password)
+                    TextField("密码", text: $password)
                         .textContentType(.password)
                 } else {
-                    SecureField("password", text: $password)
+                    SecureField("密码", text: $password)
                         .textContentType(.password)
                 }
             }
@@ -218,7 +218,7 @@ struct SSHLoginSheet: View {
                     .foregroundColor(LitterTheme.textSecondary)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isPasswordVisible ? "Hide password" : "Show password")
+            .accessibilityLabel(isPasswordVisible ? "隐藏密码" : "显示密码")
         }
     }
 

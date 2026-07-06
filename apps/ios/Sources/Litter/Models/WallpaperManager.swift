@@ -50,11 +50,11 @@ enum GranularityKind: String, CaseIterable, Identifiable {
 
     var shortLabel: String {
         switch self {
-        case .character: return "Char"
+        case .character: return "字"
         case .chunk8: return "8"
         case .chunk32: return "32"
-        case .line: return "Line"
-        case .block: return "Block"
+        case .line: return "行"
+        case .block: return "块"
         }
     }
 

@@ -134,13 +134,13 @@ struct ComputerUseToolCallView: View {
                         .stroke(LitterTheme.border.opacity(0.4), lineWidth: 0.5)
                 )
         } else {
-            placeholderTile("Screenshot unavailable", tone: LitterTheme.textSecondary)
+            placeholderTile("截图不可用", tone: LitterTheme.textSecondary)
         }
     }
 
     private func errorBlock(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("ERROR")
+            Text("错误")
                 .litterFont(.caption2, weight: .bold)
                 .foregroundColor(LitterTheme.danger)
             Text(errorExpanded ? message : limitedText(message))
@@ -153,12 +153,12 @@ struct ComputerUseToolCallView: View {
                         errorExpanded.toggle()
                     }
                 } label: {
-                    Text(errorExpanded ? "Show less" : "Show more")
+                    Text(errorExpanded ? "收起" : "展开更多")
                         .litterFont(.caption2, weight: .semibold)
                         .foregroundColor(LitterTheme.accent)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(errorExpanded ? "Show less error text" : "Show more error text")
+                .accessibilityLabel(errorExpanded ? "收起错误文本" : "展开更多错误文本")
             }
         }
     }
@@ -167,7 +167,7 @@ struct ComputerUseToolCallView: View {
     private func accessibilityBlock(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text("ACCESSIBILITY TREE")
+                Text("可访问性树")
                     .litterFont(.caption2, weight: .bold)
                     .foregroundColor(LitterTheme.textSecondary)
                 Spacer()
@@ -176,7 +176,7 @@ struct ComputerUseToolCallView: View {
                         a11yExpanded.toggle()
                     }
                 } label: {
-                    Text(a11yExpanded ? "Show less" : "Show more")
+                    Text(a11yExpanded ? "收起" : "展开更多")
                         .litterFont(.caption2, weight: .medium)
                         .foregroundColor(LitterTheme.accent)
                 }
@@ -212,7 +212,7 @@ struct ComputerUseToolCallView: View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if lines.count <= 6 { return limitedText(text) }
         let head = lines.prefix(6).joined(separator: "\n")
-        return "\(limitedText(head))\n… (\(lines.count - 6) more lines)"
+        return "\(limitedText(head))\n…（还有 \(lines.count - 6) 行）"
     }
 
     private func limitedText(_ text: String) -> String {

@@ -9,12 +9,8 @@
         {
           "blend-mode" : "normal",
           "glass" : true,
-          "image-name" : "litter-icon-layer-cats.svg",
-          "name" : "litter-icon-layer-cats"
-        },
-        {
-          "image-name" : "litter-icon-layer-box.svg",
-          "name" : "litter-icon-layer-box"
+          "image-name" : "necode-icon-layer.svg",
+          "name" : "necode-icon-layer"
         }
       ],
       "shadow" : {

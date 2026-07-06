@@ -15,9 +15,9 @@ struct TranscriptScreen: View {
             if turns.isEmpty {
                 WatchEmptyState(
                     icon: "text.bubble",
-                    title: "no recent turns",
-                    subtitle: task.map { "\($0.title) has no recent turns." }
-                        ?? "start a conversation on iphone."
+                    title: "暂无最近对话",
+                    subtitle: task.map { "\($0.title) 暂无最近对话。" }
+                        ?? "在 iPhone 上开始一个会话。"
                 )
             } else {
                 ScrollView(.vertical) {
@@ -47,7 +47,7 @@ struct TranscriptScreen: View {
         .toolbar {
             ToolbarItem(placement: .bottomBar) {
                 NavigationLink { VoiceScreen() } label: {
-                    Label("reply", systemImage: "mic.fill")
+                    Label("回复", systemImage: "mic.fill")
                         .font(WatchTheme.mono(11, weight: .bold))
                 }
                 .tint(theme.accent)

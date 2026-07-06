@@ -17,7 +17,7 @@ struct BrandLogo: View {
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            Text("litter")
+            Text("NeCode")
                 .litterMonoFont(size: size * 0.32, weight: .bold)
                 .foregroundColor(LitterTheme.accent)
         }

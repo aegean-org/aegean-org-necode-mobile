@@ -538,7 +538,7 @@ struct DirectoryPickerView: View {
             get: { newFolderError != nil },
             set: { if !$0 { newFolderError = nil } }
         )) {
-            Button("OK", role: .cancel) { newFolderError = nil }
+            Button("确定", role: .cancel) { newFolderError = nil }
         } message: {
             Text(newFolderError ?? "")
         }

@@ -24,10 +24,10 @@ struct ExperimentalFeaturesView: View {
                         .listRowBackground(LitterTheme.surface.opacity(0.6))
                     }
                 } header: {
-                    Text("Features")
+                    Text("功能")
                         .foregroundColor(LitterTheme.textSecondary)
                 } footer: {
-                    Text("Experimental features may be unstable or change without notice.")
+                    Text("实验功能可能不稳定，也可能随版本调整。")
                         .foregroundColor(LitterTheme.textMuted)
                 }
 
@@ -41,10 +41,10 @@ struct ExperimentalFeaturesView: View {
                                 .foregroundColor(LitterTheme.accent)
                                 .frame(width: 20)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Debug Mode")
+                                Text("调试模式")
                                     .litterFont(.subheadline)
                                     .foregroundColor(LitterTheme.textPrimary)
-                                Text("Show debug controls in conversations")
+                                Text("在会话中显示调试控制项")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
@@ -62,10 +62,10 @@ struct ExperimentalFeaturesView: View {
                                 .foregroundColor(LitterTheme.accent)
                                 .frame(width: 20)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Pair")
+                                Text("配对")
                                     .litterFont(.subheadline)
                                     .foregroundColor(LitterTheme.textPrimary)
-                                Text("Walk-up pairing with proximity + haptics")
+                                Text("使用近场感应和震动反馈完成配对")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
@@ -83,10 +83,10 @@ struct ExperimentalFeaturesView: View {
                                 .foregroundColor(LitterTheme.accent)
                                 .frame(width: 20)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("UWB Debug")
+                                Text("UWB 调试")
                                     .litterFont(.subheadline)
                                     .foregroundColor(LitterTheme.textPrimary)
-                                Text("Live distance & direction to a paired Mac")
+                                Text("查看与已配对 Mac 的实时距离和方向")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textSecondary)
                             }
@@ -95,13 +95,13 @@ struct ExperimentalFeaturesView: View {
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                     #endif
                 } header: {
-                    Text("Debug")
+                    Text("调试")
                         .foregroundColor(LitterTheme.textSecondary)
                 }
             }
             .scrollContentBackground(.hidden)
         }
-        .navigationTitle("Experimental")
+        .navigationTitle("实验功能")
         .navigationBarTitleDisplayMode(.inline)
     }
 

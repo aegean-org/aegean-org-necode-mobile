@@ -17,7 +17,7 @@ extension AppThreadSnapshot {
             return preview
         }
 
-        return "Untitled session"
+        return "未命名会话"
     }
 
     var hasPreviewOrTitle: Bool {

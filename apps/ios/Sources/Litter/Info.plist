@@ -59,15 +59,15 @@
 		<string>_litter-pair._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Codex discovers coding agents and SSH servers on your local network.</string>
+	<string>NeCode 会在本地网络中发现可连接的桌面端服务。</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Litter uses the camera to capture photos for conversations.</string>
+	<string>NeCode 需要使用相机扫码连接桌面端，也可拍摄图片发送到会话。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Litter uses the microphone for voice-to-text input.</string>
+	<string>NeCode 需要使用麦克风录音，并通过桌面端转写为文字。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Litter uses Bluetooth to detect when your iPhone is near your paired Mac.</string>
+	<string>NeCode 会使用蓝牙发现附近可配对的桌面端。</string>
 	<key>NSNearbyInteractionUsageDescription</key>
-	<string>Litter uses Nearby Interaction to confirm your iPhone and Mac are close before pairing.</string>
+	<string>NeCode 会确认手机和桌面端距离较近后再完成配对。</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>

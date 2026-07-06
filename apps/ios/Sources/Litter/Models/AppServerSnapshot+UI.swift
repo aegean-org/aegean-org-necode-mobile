@@ -15,8 +15,8 @@ extension AppServerSnapshot {
     }
 
     var connectionModeLabel: String {
-        guard !isLocal else { return "local" }
-        return "remote"
+        guard !isLocal else { return "本机" }
+        return "远程"
     }
 
     var currentConnectionStep: AppConnectionStepSnapshot? {
@@ -32,17 +32,17 @@ extension AppServerSnapshot {
         guard let step = currentConnectionStep else { return nil }
         switch step.kind {
         case .connectingToSsh:
-            return "connecting"
+            return "连接中"
         case .findingCodex:
-            return "finding codex"
+            return "查找 NeCode"
         case .installingCodex:
-            return "installing"
+            return "安装中"
         case .startingAppServer:
-            return "starting"
+            return "启动中"
         case .openingTunnel:
-            return "tunneling"
+            return "建立隧道"
         case .connected:
-            return "connected"
+            return "已连接"
         }
     }
 
@@ -55,7 +55,7 @@ extension AppServerSnapshot {
             return connectionProgressLabel
         }
         if transportState == .connected, !isLocal, account == nil {
-            return "Sign in required"
+            return "需要登录"
         }
         return transportState.displayLabel
     }

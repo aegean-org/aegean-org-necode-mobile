@@ -37,7 +37,7 @@ struct SwipeableRow<Content: View>: View {
                     HStack(spacing: 6) {
                         Image(systemName: "eye.slash.fill")
                             .font(.system(size: 15, weight: .semibold))
-                        Text("hide")
+            Text("隐藏")
                             .litterMonoFont(size: 13, weight: .semibold)
                     }
                     .foregroundStyle(Color.white)

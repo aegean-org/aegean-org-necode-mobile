@@ -61,16 +61,16 @@ struct ConversationComposerPopupOverlayView: View {
                 let cappedPlugins = Array(plugins.prefix(6))
                 let cappedFiles = Array(suggestions.prefix(8))
                 if cappedPlugins.isEmpty && loading {
-                    popupStateText("Searching files...")
+                    popupStateText("正在搜索文件...")
                 } else if cappedPlugins.isEmpty && cappedFiles.isEmpty {
                     if let error, !error.isEmpty {
                         popupStateText(error, color: .red)
                     } else {
-                        popupStateText("No matches")
+                        popupStateText("没有匹配结果")
                     }
                 } else {
                     if !cappedPlugins.isEmpty {
-                        sectionHeader("Plugins")
+                        sectionHeader("插件")
                         let indexedPlugins = Array(cappedPlugins.enumerated())
                         ForEach(indexedPlugins, id: \.element.id) { item in
                             let index = item.offset
@@ -111,7 +111,7 @@ struct ConversationComposerPopupOverlayView: View {
 
                     if !cappedFiles.isEmpty {
                         if !cappedPlugins.isEmpty {
-                            sectionHeader("Files")
+                            sectionHeader("文件")
                         }
                         let indexedSuggestions = Array(cappedFiles.enumerated())
                         ForEach(indexedSuggestions, id: \.offset) { item in
@@ -148,9 +148,9 @@ struct ConversationComposerPopupOverlayView: View {
         case .skill(let loading, let suggestions):
             suggestionPopup {
                 if loading && suggestions.isEmpty {
-                    popupStateText("Loading skills...")
+                    popupStateText("正在加载技能...")
                 } else if suggestions.isEmpty {
-                    popupStateText("No skills found")
+                    popupStateText("没有找到技能")
                 } else {
                     let indexedSuggestions = Array(Array(suggestions.prefix(8)).enumerated())
                     ForEach(indexedSuggestions, id: \.offset) { item in

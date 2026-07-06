@@ -100,7 +100,7 @@ struct HeaderView: View {
                 .truncationMode(.middle)
 
             if thread.collaborationMode == .plan {
-                Text("plan")
+                Text("计划")
                     .font(LitterFont.styled(size: 11, weight: .bold))
                     .foregroundColor(.black)
                     .padding(.horizontal, 6)
@@ -501,6 +501,7 @@ func modelPickerDisplayName(_ model: ModelInfo) -> String {
 }
 
 private func isVisibleModelOption(_ model: ModelInfo) -> Bool {
+    if isAsrModelOption(model) { return false }
     guard let modes = visibleModeNames(for: model.agentRuntimeKind) else {
         return true
     }
@@ -606,14 +607,14 @@ struct InlineModelSelectorView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     if self.visibleModels.isEmpty {
-                        Text("Loading models...")
+                        Text("正在加载模型...")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 24)
                     } else if visibleModels.isEmpty {
-                        Text("No matching models")
+                        Text("没有匹配的模型")
                             .litterFont(.caption)
                             .foregroundColor(LitterTheme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -646,7 +647,7 @@ struct InlineModelSelectorView: View {
                                             .litterFont(.footnote)
                                             .foregroundColor(LitterTheme.textPrimary)
                                         if model.isDefault {
-                                            Text("default")
+                                            Text("默认")
                                                 .litterFont(.caption2, weight: .medium)
                                                 .foregroundColor(LitterTheme.accent)
                                                 .padding(.horizontal, 6)
@@ -684,7 +685,7 @@ struct InlineModelSelectorView: View {
             if isReasoningEffortLocked && selectedModelIsAmp {
                 Divider().background(LitterTheme.separator).padding(.horizontal, 12)
 
-                Text("Reasoning effort is locked after the first message.")
+                Text("发送第一条消息后不能再切换推理强度。")
                     .litterFont(.caption2)
                     .foregroundColor(LitterTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -734,7 +735,7 @@ struct InlineModelSelectorView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.text")
                             .litterFont(size: 9, weight: .semibold)
-                        Text("Plan")
+                        Text("规划")
                             .litterFont(.caption2, weight: .medium)
                     }
                     .foregroundColor(effectiveCollaborationMode == .plan ? .black : LitterTheme.textPrimary)
@@ -750,7 +751,7 @@ struct InlineModelSelectorView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "bolt.fill")
                             .litterFont(size: 9, weight: .semibold)
-                        Text("Fast")
+                        Text("快速")
                             .litterFont(.caption2, weight: .medium)
                     }
                     .foregroundColor(fastMode ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
@@ -771,7 +772,7 @@ struct InlineModelSelectorView: View {
                         HStack(spacing: 4) {
                             Image(systemName: isFullAccess ? "lock.open.fill" : "lock.fill")
                                 .litterFont(size: 9, weight: .semibold)
-                            Text(isFullAccess ? "Full Access" : "Supervised")
+                            Text(isFullAccess ? "完全访问" : "需确认")
                                 .litterFont(.caption2, weight: .medium)
                         }
                         .foregroundColor(isFullAccess ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
@@ -810,7 +811,7 @@ struct InlineModelSelectorView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LitterTheme.textMuted)
-            TextField("Search models", text: $modelSearchQuery)
+            TextField("搜索模型", text: $modelSearchQuery)
                 .litterFont(.caption)
                 .foregroundStyle(LitterTheme.textPrimary)
                 .tint(LitterTheme.accent)
@@ -937,14 +938,14 @@ struct ModelSelectorSheet: View {
                 runtimeFilterRow
 
                 if self.visibleModels.isEmpty {
-                    Text("Loading models...")
+                    Text("正在加载模型...")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 24)
                 } else if visibleModels.isEmpty {
-                    Text("No matching models")
+                    Text("没有匹配的模型")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -972,7 +973,7 @@ struct ModelSelectorSheet: View {
                                         .litterFont(.footnote)
                                         .foregroundColor(LitterTheme.textPrimary)
                                     if model.isDefault {
-                                        Text("default")
+                                        Text("默认")
                                             .litterFont(.caption2, weight: .medium)
                                             .foregroundColor(LitterTheme.accent)
                                             .padding(.horizontal, 6)
@@ -1003,7 +1004,7 @@ struct ModelSelectorSheet: View {
                 }
 
                 if isReasoningEffortLocked && selectedModelIsAmp {
-                    Text("Reasoning effort is locked after the first message.")
+                    Text("发送第一条消息后不能再切换推理强度。")
                         .litterFont(.caption2)
                         .foregroundColor(LitterTheme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1040,7 +1041,7 @@ struct ModelSelectorSheet: View {
                         HStack(spacing: 4) {
                             Image(systemName: "bolt.fill")
                                 .litterFont(size: 9, weight: .semibold)
-                            Text("Fast")
+                            Text("快速")
                                 .litterFont(.caption2, weight: .medium)
                         }
                         .foregroundColor(fastMode ? LitterTheme.textOnAccent : LitterTheme.textPrimary)
@@ -1078,7 +1079,7 @@ struct ModelSelectorSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LitterTheme.textMuted)
-            TextField("Search models", text: $modelSearchQuery)
+            TextField("搜索模型", text: $modelSearchQuery)
                 .litterFont(.body)
                 .foregroundStyle(LitterTheme.textPrimary)
                 .tint(LitterTheme.accent)
@@ -1161,7 +1162,7 @@ private struct RuntimeFilterRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 RuntimeFilterPill(
-                    label: "All",
+                    label: "全部",
                     count: totalCount,
                     selected: selectedRuntime == nil,
                     onTap: { onSelect(nil) }

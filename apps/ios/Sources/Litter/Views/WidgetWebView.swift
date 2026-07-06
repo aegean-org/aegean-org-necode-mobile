@@ -654,7 +654,7 @@ struct WidgetContainerView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
                             .litterFont(size: 11, weight: .medium)
-                        Text("Expand")
+                        Text("展开")
                             .litterFont(size: 12, weight: .medium)
                     }
                     .foregroundColor(LitterTheme.textSecondary)
@@ -713,7 +713,7 @@ struct WidgetContainerView: View {
             HStack(spacing: 4) {
                 Image(systemName: "square.grid.2x2.fill")
                     .litterFont(size: 10, weight: .medium)
-                Text("Saved as")
+                Text("已保存为")
                     .litterFont(size: 11, weight: .medium)
                 Text(slug)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))

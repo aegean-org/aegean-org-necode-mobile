@@ -30,7 +30,7 @@ struct PiPContentView: View {
                 .padding(.top, 12)
                 .frame(width: Self.canvasWidth, alignment: .topLeading)
             } else {
-                Text("no active thread")
+            Text("暂无活动会话")
                     .font(.system(size: 13, weight: .regular, design: .monospaced))
                     .foregroundColor(.white.opacity(0.45))
                     .frame(

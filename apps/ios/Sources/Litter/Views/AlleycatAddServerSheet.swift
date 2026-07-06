@@ -69,11 +69,11 @@ struct AlleycatAddServerSheet: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Add Remote Host")
+            .navigationTitle("添加 NeCode 主机")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("取消") { dismiss() }
                         .foregroundColor(LitterTheme.accent)
                 }
             }
@@ -104,14 +104,14 @@ struct AlleycatAddServerSheet: View {
             )
         }
         .alert(
-            "Camera Access Needed",
+            "需要相机权限",
             isPresented: $cameraDenied,
             actions: {
-                Button("Open Settings") { openAppSettings() }
-                Button("Cancel", role: .cancel) {}
+                Button("打开设置") { openAppSettings() }
+                Button("取消", role: .cancel) {}
             },
             message: {
-                Text("Allow camera access in Settings to scan an Alleycat pairing QR code.")
+                Text("请在系统设置中允许相机权限，用于扫描 NeCode Mobile 配对二维码。")
             }
         )
     }
@@ -137,7 +137,7 @@ struct AlleycatAddServerSheet: View {
                 qrPairingControls
             }
         } header: {
-            Text("Pairing")
+            Text("配对")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -145,7 +145,7 @@ struct AlleycatAddServerSheet: View {
 
     @ViewBuilder
     private var pasteJSONPairingControls: some View {
-        Text("Run \(Self.pairCommandLabel) on the host you want to connect to, then paste the JSON it prints below.")
+        Text("在电脑端运行 \(Self.pairCommandLabel)，然后粘贴生成的配对 JSON。")
             .litterFont(.caption)
             .foregroundColor(LitterTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -161,7 +161,7 @@ struct AlleycatAddServerSheet: View {
             HStack {
                 Image(systemName: "qrcode.viewfinder")
                     .foregroundColor(LitterTheme.accent)
-                Text(parsedParams == nil ? "Scan Pairing QR" : "Rescan QR")
+                Text(parsedParams == nil ? "扫描配对二维码" : "重新扫描二维码")
                     .litterFont(.subheadline)
                     .foregroundColor(LitterTheme.accent)
             }
@@ -173,7 +173,7 @@ struct AlleycatAddServerSheet: View {
                 pasteJSONEntryControls(minHeight: 90)
             },
             label: {
-                Text("Paste Pairing JSON")
+                Text("粘贴配对 JSON")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
             }
@@ -199,7 +199,7 @@ struct AlleycatAddServerSheet: View {
             }
 
         HStack {
-            Button("Paste from Clipboard") {
+            Button("从剪贴板粘贴") {
                 if let clipboard = UIPasteboard.general.string {
                     pasteJSON = clipboard
                 }
@@ -209,7 +209,7 @@ struct AlleycatAddServerSheet: View {
 
             Spacer()
 
-            Button(parsedParams == nil ? "Parse JSON" : "Reparse JSON") {
+            Button(parsedParams == nil ? "解析 JSON" : "重新解析 JSON") {
                 handleScannedPayload(pasteJSON)
             }
             .litterFont(.footnote)
@@ -218,7 +218,7 @@ struct AlleycatAddServerSheet: View {
         }
     }
 
-    private static let pairCommandLabel = "npx kittylitter"
+    private static let pairCommandLabel = "necode mobile"
 
     private func previewSection(params: AppAlleycatPairPayload) -> some View {
         Section {
@@ -230,13 +230,13 @@ struct AlleycatAddServerSheet: View {
             if let hostName = params.hostName, !hostName.isEmpty {
                 previewRow(label: "host", value: hostName)
             }
-            TextField("display name (optional)", text: $displayName)
+            TextField("显示名称（可选）", text: $displayName)
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.textPrimary)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
         } header: {
-            Text("Scanned Host")
+            Text("已扫描主机")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -247,12 +247,12 @@ struct AlleycatAddServerSheet: View {
             if isLoadingAgents {
                 HStack {
                     ProgressView().tint(LitterTheme.accent)
-                    Text("Loading agents")
+                    Text("正在加载可用 Agent")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
             } else if agents.isEmpty {
-                Text("No agents are available on this host.")
+                Text("这台主机没有可用 Agent。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
             } else {
@@ -282,7 +282,7 @@ struct AlleycatAddServerSheet: View {
                                 Image(systemName: "checkmark.square.fill")
                                     .foregroundColor(LitterTheme.accent)
                             } else if !agent.available {
-                                Text("Unavailable")
+                                Text("不可用")
                                     .litterFont(.caption)
                                     .foregroundColor(LitterTheme.textMuted)
                             } else {
@@ -296,10 +296,10 @@ struct AlleycatAddServerSheet: View {
             }
         } header: {
             HStack {
-                Text("Agents")
+                        Text("智能体")
                 Spacer()
                 if !availableAgents.isEmpty {
-                    Button(selectedAgents.count == availableAgents.count ? "None" : "All") {
+                    Button(selectedAgents.count == availableAgents.count ? "全不选" : "全选") {
                         if selectedAgents.count == availableAgents.count {
                             selectedAgentNames = []
                         } else {
@@ -338,7 +338,7 @@ struct AlleycatAddServerSheet: View {
                     if isConnecting {
                         ProgressView().tint(LitterTheme.accent)
                     }
-                    Text("Connect")
+                    Text("连接")
                         .foregroundColor(LitterTheme.accent)
                         .litterFont(.subheadline)
                 }
@@ -403,11 +403,12 @@ struct AlleycatAddServerSheet: View {
         Task {
             do {
                 let loaded = try await appModel.serverBridge.listAlleycatAgents(params: params)
+                let sorted = sortedAgentsForNeCode(loaded)
                 await MainActor.run {
                     guard parsedParams?.nodeId == params.nodeId else { return }
-                    agents = loaded
+                    agents = sorted
                     selectedAgentNames = Set(
-                        loaded
+                        sorted
                             .filter { $0.available && !AgentRuntimeKind.isBetaAgentName($0.name, displayName: $0.displayName) }
                             .map(\.name)
                     )
@@ -516,6 +517,22 @@ struct AlleycatAddServerSheet: View {
         return "Alleycat \(shortNodeId(params.nodeId))"
     }
 
+    private func sortedAgentsForNeCode(_ agents: [AppAlleycatAgentInfo]) -> [AppAlleycatAgentInfo] {
+        agents.sorted { lhs, rhs in
+            let lhsPriority = agentPriority(lhs)
+            let rhsPriority = agentPriority(rhs)
+            if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    private func agentPriority(_ agent: AppAlleycatAgentInfo) -> Int {
+        let name = agent.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if name == "necode" { return 0 }
+        if !agent.available { return 3 }
+        return AgentRuntimeKind.isBetaAgentName(agent.name, displayName: agent.displayName) ? 2 : 1
+    }
+
     private func shortNodeId(_ raw: String) -> String {
         if raw.count <= 16 { return raw }
         return "\(raw.prefix(8))...\(raw.suffix(8))"
@@ -539,7 +556,7 @@ private struct QRScannerScreen: View {
     let onCancel: () -> Void
     let onPermissionDenied: () -> Void
 
-    private static let pairCommand = "npx kittylitter"
+    private static let pairCommand = "necode mobile"
 
     @State private var copied = false
 
@@ -579,7 +596,7 @@ private struct QRScannerScreen: View {
         HStack {
             Spacer()
             Button(action: onCancel) {
-                Text("Cancel")
+                Text("取消")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 14)
@@ -593,13 +610,13 @@ private struct QRScannerScreen: View {
 
     private var instructionsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Pair with kittylitter")
+            Text("连接 NeCode Mobile")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
 
-            stepRow(number: "1", title: "On the host you want to connect to, run:")
+            stepRow(number: "1", title: "在要连接的电脑上运行：")
             commandRow
-            stepRow(number: "2", title: "Point this camera at the QR code it prints.")
+            stepRow(number: "2", title: "用 NeCode Mobile 扫描电脑端显示的二维码。")
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -654,7 +671,7 @@ private struct QRScannerScreen: View {
     }
 
     private var framingHint: some View {
-        Text("Hold steady — the QR code is detected automatically.")
+        Text("保持画面对准二维码，识别后会自动连接。")
             .font(.system(size: 12))
             .foregroundColor(.white.opacity(0.75))
             .multilineTextAlignment(.center)

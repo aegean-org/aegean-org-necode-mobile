@@ -90,7 +90,7 @@ struct ProximityPairView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Pair")
+        .navigationTitle("配对")
         .navigationBarTitleDisplayMode(.inline)
         #if targetEnvironment(macCatalyst)
         .onAppear {
@@ -204,7 +204,7 @@ struct ProximityPairView: View {
                     .litterFont(.title3, weight: .semibold)
                     .foregroundColor(LitterTheme.textPrimary)
             } else {
-                Text(frame.phase == .searching ? "Searching…" : "—")
+                Text(frame.phase == .searching ? "搜索中..." : "—")
                     .litterFont(.title3, weight: .semibold)
                     .foregroundColor(LitterTheme.textSecondary)
             }
@@ -267,7 +267,7 @@ struct ProximityPairView: View {
             Button(role: .cancel) {
                 pairing.cancel()
             } label: {
-                Text("Cancel")
+                Text("取消")
                     .litterFont(.body, weight: .semibold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -279,7 +279,7 @@ struct ProximityPairView: View {
                 Button {
                     pairing.retry()
                 } label: {
-                    Text("Retry")
+                    Text("重试")
                         .litterFont(.body, weight: .semibold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -291,7 +291,7 @@ struct ProximityPairView: View {
             #else
             // On the Mac side the host runs continuously; nothing to
             // start/stop from this screen. Show a passive status pill.
-            Text(frame.phase == .paired ? "Paired" : (frame.peerName != nil ? "Connected" : "Broadcasting"))
+            Text(frame.phase == .paired ? "已配对" : (frame.peerName != nil ? "已连接" : "广播中"))
                 .litterFont(.body, weight: .semibold)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)

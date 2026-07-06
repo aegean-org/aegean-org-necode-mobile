@@ -32,7 +32,7 @@ struct QuickReplySheet: View {
                 Divider().background(LitterTheme.separator)
 
                 TextField(
-                    "Reply…",
+                    "回复...",
                     text: $text,
                     axis: .vertical
                 )
@@ -65,7 +65,7 @@ struct QuickReplySheet: View {
                             }
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.system(size: 18, weight: .semibold))
-                            Text("Send")
+                            Text("发送")
                                 .litterFont(.subheadline, weight: .semibold)
                         }
                         .foregroundStyle(canSend ? Color.black : LitterTheme.textMuted)
@@ -81,11 +81,11 @@ struct QuickReplySheet: View {
             }
             .padding(16)
             .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-            .navigationTitle("Reply")
+            .navigationTitle("回复")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
+                    Button("取消") { dismiss() }
                         .tint(LitterTheme.textSecondary)
                 }
             }

@@ -84,11 +84,11 @@ struct VoiceCallLockScreenCardView: View {
             return lastError
         }
         switch state.phase {
-        case .connecting: return "Connecting"
-        case .listening: return "Listening"
-        case .thinking: return "Thinking"
-        case .speaking: return "Codex speaking"
-        case .error: return "Session ended"
+        case .connecting: return "连接中"
+        case .listening: return "正在聆听"
+        case .thinking: return "思考中"
+        case .speaking: return "NeCode 正在回复"
+        case .error: return "会话已结束"
         }
     }
 
@@ -104,7 +104,7 @@ struct VoiceCallLockScreenCardView: View {
     }
 
     private var phaseBadge: some View {
-        Text(statusText.lowercased())
+        Text(statusText)
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(phaseColor)
             .padding(.horizontal, 7)

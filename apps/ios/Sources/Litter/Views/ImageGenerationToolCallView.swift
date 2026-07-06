@@ -93,9 +93,9 @@ struct ImageGenerationToolCallView: View {
 
     private var summary: String {
         switch data.status {
-        case .completed: return "Generated image"
-        case .failed: return "Image generation failed"
-        default: return "Generating image…"
+        case .completed: return "图片已生成"
+        case .failed: return "图片生成失败"
+        default: return "正在生成图片…"
         }
     }
 
@@ -136,12 +136,12 @@ struct ImageGenerationToolCallView: View {
                             Button {
                                 UIPasteboard.general.image = ui
                             } label: {
-                                Label("Copy Image", systemImage: "doc.on.doc")
+                                Label("复制图片", systemImage: "doc.on.doc")
                             }
                             Button {
                                 showShareSheet = true
                             } label: {
-                                Label("Share…", systemImage: "square.and.arrow.up")
+                                Label("分享…", systemImage: "square.and.arrow.up")
                             }
                         }
                         .sheet(isPresented: $showShareSheet) {
@@ -152,16 +152,16 @@ struct ImageGenerationToolCallView: View {
         } else if data.isInProgress {
             ImageGenerationLoadingTile()
         } else if data.status == .failed {
-            placeholderTile(icon: "exclamationmark.triangle.fill", message: "Image unavailable", tone: LitterTheme.danger)
+            placeholderTile(icon: "exclamationmark.triangle.fill", message: "图片不可用", tone: LitterTheme.danger)
         } else {
-            placeholderTile(icon: "photo", message: "Image unavailable", tone: LitterTheme.textSecondary)
+            placeholderTile(icon: "photo", message: "图片不可用", tone: LitterTheme.textSecondary)
         }
     }
 
     private func promptBlock(_ prompt: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text("REVISED PROMPT")
+                Text("修订后的提示词")
                     .litterFont(.caption2, weight: .bold)
                     .foregroundColor(LitterTheme.textSecondary)
                 Spacer()
@@ -171,7 +171,7 @@ struct ImageGenerationToolCallView: View {
                             promptExpanded.toggle()
                         }
                     } label: {
-                        Text(promptExpanded ? "Show less" : "Show more")
+                        Text(promptExpanded ? "收起" : "展开更多")
                             .litterFont(.caption2, weight: .medium)
                             .foregroundColor(LitterTheme.accent)
                     }
@@ -243,7 +243,7 @@ private struct ImageGenerationLoadingTile: View {
             }
 
             VStack(spacing: 5) {
-                Text("Generating image")
+                Text("正在生成图片")
                     .litterFont(.caption, weight: .semibold)
                     .foregroundColor(LitterTheme.textSystem)
 

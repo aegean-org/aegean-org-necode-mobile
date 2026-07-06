@@ -19,8 +19,8 @@ struct LitterCircularComplication: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .supportedFamilies([.accessoryCircular])
-        .configurationDisplayName("Codex Glance")
-        .description("Runtime of the current task, or connected server count when idle.")
+        .configurationDisplayName("NeCode 概览")
+        .description("显示当前任务耗时，空闲时显示已连接主机数量。")
     }
 }
 
@@ -40,7 +40,7 @@ struct LitterCircularView: View {
                 .rotationEffect(.degrees(-90))
 
             VStack(spacing: 0) {
-                Text(entry.mode == .running ? "RUN" : entry.mode == .idle ? "IDLE" : "OFF")
+                Text(entry.mode == .running ? "运行" : entry.mode == .idle ? "空闲" : "离线")
                     .font(.system(size: 7, weight: .bold, design: .monospaced))
                     .tracking(0.8)
                     .foregroundStyle(LitterComplicationTint.ginger)

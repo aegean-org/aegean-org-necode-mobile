@@ -17,8 +17,8 @@ struct LitterCornerComplication: Widget {
                 .containerBackground(.clear, for: .widget)
         }
         .supportedFamilies([.accessoryCorner])
-        .configurationDisplayName("Codex Corner")
-        .description("Task runtime in a corner slot with the task title underneath.")
+        .configurationDisplayName("NeCode 角标")
+        .description("在角落表盘显示任务耗时和标题。")
     }
 }
 

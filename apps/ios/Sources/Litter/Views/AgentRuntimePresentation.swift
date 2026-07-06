@@ -22,6 +22,7 @@ extension AgentRuntimeKind {
     static let codex: AgentRuntimeKind = "codex"
     static let devin: AgentRuntimeKind = "devin"
     static let droid: AgentRuntimeKind = "droid"
+    static let necode: AgentRuntimeKind = "necode"
     static let opencode: AgentRuntimeKind = "opencode"
 
     /// Presentation order surfaced by `AgentMetadataStore` (sorted by
@@ -115,6 +116,8 @@ extension AgentRuntimeKind {
     private static func isStableAgentIdentity(_ name: String, displayName: String) -> Bool {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
             || displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
+            || name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "necode"
+            || displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "necode"
     }
 
     private var titlecased: String {
@@ -173,7 +176,7 @@ struct AgentMonogramView: View {
 
 struct BetaBadge: View {
     var body: some View {
-        Text("BETA")
+                    Text("测试")
             .litterFont(.caption2)
             .foregroundColor(LitterTheme.accent)
             .padding(.horizontal, 5)
