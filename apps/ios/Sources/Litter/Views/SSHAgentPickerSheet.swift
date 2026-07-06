@@ -191,9 +191,11 @@ struct SSHAgentPickerSheet: View {
             }
             .disabled(isConnecting || selectedKinds.isEmpty)
 
-            Button("使用 Codex SSH")
+            Button {
                 onUseCodex()
                 dismiss()
+            } label: {
+                Text("使用 Codex SSH")
             }
             .litterFont(.footnote)
             .foregroundColor(LitterTheme.textSecondary)
