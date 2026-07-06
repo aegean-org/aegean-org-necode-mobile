@@ -194,6 +194,7 @@ enum HomeDashboardSupport {
         activeServerId: String?
     ) -> [HomeDashboardServer] {
         let liveServers = servers
+            .filter { !$0.isLocal }
             .filter { $0.health != .disconnected || $0.connectionProgress != nil }
             .map { server in
                 HomeDashboardServer(
@@ -215,7 +216,7 @@ enum HomeDashboardSupport {
         var seenServerKeys = Set(liveServers.map(\.deduplicationKey))
         var merged = liveServers
 
-        for saved in savedServers where saved.rememberedByUser {
+        for saved in savedServers where saved.rememberedByUser && saved.source != .local {
             let offline = offlineServer(from: saved)
             guard seenServerIds.insert(offline.id).inserted,
                   seenServerKeys.insert(offline.deduplicationKey).inserted else {

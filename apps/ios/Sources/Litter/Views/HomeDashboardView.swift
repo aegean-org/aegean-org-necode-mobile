@@ -416,7 +416,7 @@ struct HomeDashboardView: View {
         }
         .overlay {
             if showOnboardingCoachmarks {
-                emptyHomeBrandLogo
+                EmptyHomeFatCatView()
                     .transition(.opacity)
             }
         }
@@ -604,16 +604,6 @@ struct HomeDashboardView: View {
         Color.clear.frame(height: 1)
     }
 
-    /// Brand mark shown on the empty home screen.
-    private var emptyHomeBrandLogo: some View {
-        GeometryReader { proxy in
-            let h = proxy.size.height
-            let w = proxy.size.width
-            let logoSize = min(max(96, w * 0.26), 132)
-            BrandLogo(size: logoSize)
-                .position(x: w / 2, y: h * 0.42)
-        }
-    }
 }
 
 // MARK: - Session Canvas Layout

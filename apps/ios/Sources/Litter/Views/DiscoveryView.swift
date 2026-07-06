@@ -254,8 +254,8 @@ struct DiscoveryView: View {
                     .padding(.top, 8)
 
                 chooserCard(
-                    title: "连接 NeCode Mobile",
-                    subtitle: "在电脑端运行 necode mobile，然后用手机扫描二维码。",
+                    title: "扫码连接 NeCode",
+                    subtitle: "扫描电脑端 NeCode mobile 显示的配对二维码。",
                     badge: "推荐",
                     icon: "qrcode.viewfinder",
                     supportedAgents: Self.necodeMobileAgents,

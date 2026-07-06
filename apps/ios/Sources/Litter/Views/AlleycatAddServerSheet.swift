@@ -69,7 +69,7 @@ struct AlleycatAddServerSheet: View {
                 }
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("添加 NeCode 主机")
+            .navigationTitle("添加设备")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -214,7 +214,7 @@ struct AlleycatAddServerSheet: View {
             }
             .litterFont(.footnote)
             .foregroundColor(LitterTheme.accent)
-            .disabled(pasteJSON.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(PairPayloadInput.normalized(pasteJSON).isEmpty)
         }
     }
 
@@ -222,13 +222,13 @@ struct AlleycatAddServerSheet: View {
 
     private func previewSection(params: AppAlleycatPairPayload) -> some View {
         Section {
-            previewRow(label: "node", value: shortNodeId(params.nodeId))
-            previewRow(label: "protocol", value: "v\(params.v)")
+            previewRow(label: "节点", value: shortNodeId(params.nodeId))
+            previewRow(label: "协议", value: "v\(params.v)")
             if let relay = params.relay, !relay.isEmpty {
-                previewRow(label: "relay", value: relay)
+                previewRow(label: "中继", value: relay)
             }
             if let hostName = params.hostName, !hostName.isEmpty {
-                previewRow(label: "host", value: hostName)
+                previewRow(label: "主机", value: hostName)
             }
             TextField("显示名称（可选）", text: $displayName)
                 .litterFont(.caption)
@@ -236,7 +236,7 @@ struct AlleycatAddServerSheet: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
         } header: {
-            Text("已扫描主机")
+            Text("已扫描设备")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -247,12 +247,12 @@ struct AlleycatAddServerSheet: View {
             if isLoadingAgents {
                 HStack {
                     ProgressView().tint(LitterTheme.accent)
-                    Text("正在加载可用 Agent")
+                    Text("正在加载 Agent")
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.textSecondary)
                 }
             } else if agents.isEmpty {
-                Text("这台主机没有可用 Agent。")
+                Text("这台设备上暂无可用 Agent。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
             } else {
@@ -296,7 +296,7 @@ struct AlleycatAddServerSheet: View {
             }
         } header: {
             HStack {
-                        Text("智能体")
+                        Text("Agent")
                 Spacer()
                 if !availableAgents.isEmpty {
                     Button(selectedAgents.count == availableAgents.count ? "全不选" : "全选") {
@@ -378,7 +378,7 @@ struct AlleycatAddServerSheet: View {
     }
 
     private func handleScannedPayload(_ raw: String) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = PairPayloadInput.normalized(raw)
         guard !trimmed.isEmpty else { return }
         do {
             let params = try alleycat.parsePairPayload(json: trimmed)
@@ -514,7 +514,7 @@ struct AlleycatAddServerSheet: View {
         if !hostName.isEmpty {
             return hostName
         }
-        return "Alleycat \(shortNodeId(params.nodeId))"
+        return "NeCode \(shortNodeId(params.nodeId))"
     }
 
     private func sortedAgentsForNeCode(_ agents: [AppAlleycatAgentInfo]) -> [AppAlleycatAgentInfo] {
@@ -610,13 +610,13 @@ private struct QRScannerScreen: View {
 
     private var instructionsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("连接 NeCode Mobile")
+            Text("扫码连接 NeCode")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
 
-            stepRow(number: "1", title: "在要连接的电脑上运行：")
+            stepRow(number: "1", title: "在电脑端运行 NeCode mobile，并生成配对二维码。")
             commandRow
-            stepRow(number: "2", title: "用 NeCode Mobile 扫描电脑端显示的二维码。")
+            stepRow(number: "2", title: "用手机摄像头对准这个二维码。")
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -671,7 +671,7 @@ private struct QRScannerScreen: View {
     }
 
     private var framingHint: some View {
-        Text("保持画面对准二维码，识别后会自动连接。")
+        Text("保持稳定，二维码会自动识别。")
             .font(.system(size: 12))
             .foregroundColor(.white.opacity(0.75))
             .multilineTextAlignment(.center)

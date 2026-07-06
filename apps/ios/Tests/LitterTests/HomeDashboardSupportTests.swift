@@ -132,6 +132,27 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertEqual(result.map(\.id), [duplicate.serverId])
     }
 
+    func testSortedConnectedServersHidesLocalRuntimeFromHomeDevicePicker() {
+        let local = makeServerSnapshot(
+            id: "local",
+            name: "本机",
+            host: "127.0.0.1",
+            isLocal: true
+        )
+        let remote = makeServerSnapshot(
+            id: "remote",
+            name: "Mac Studio",
+            host: "192.168.1.167"
+        )
+
+        let result = HomeDashboardSupport.sortedConnectedServers(
+            from: [local, remote],
+            activeServerId: local.serverId
+        )
+
+        XCTAssertEqual(result.map(\.id), [remote.serverId])
+    }
+
     func testHomeDashboardModelRefreshesRecentSessionsWhenObservedSnapshotThreadChanges() async {
         let appModel = AppModel()
         let model = HomeDashboardModel()
