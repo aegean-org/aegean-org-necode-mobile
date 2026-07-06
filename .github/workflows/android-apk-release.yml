@@ -230,7 +230,7 @@ jobs:
 
       - name: Build Rust JNI libs
         env:
-          ANDROID_ABIS: arm64-v8a x86_64
+          ANDROID_ABIS: arm64-v8a
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
         run: make rust-android
 

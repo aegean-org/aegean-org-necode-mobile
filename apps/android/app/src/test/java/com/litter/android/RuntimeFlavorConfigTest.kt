@@ -15,4 +15,9 @@ class RuntimeFlavorConfigTest {
     fun canonicalRuntimeTransportIsPinned() {
         assertEquals("app_bridge_rpc_transport", BuildConfig.APP_RUNTIME_TRANSPORT)
     }
+
+    @Test
+    fun defaultNativeAbiPackagingIsArm64Only() {
+        assertEquals("arm64-v8a", BuildConfig.NATIVE_ABIS)
+    }
 }

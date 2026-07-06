@@ -14,6 +14,22 @@ fun projectPropOrEnv(name: String): String? =
     (findProperty(name) as? String)?.takeIf { it.isNotBlank() }
         ?: System.getenv(name)?.takeIf { it.isNotBlank() }
 
+fun projectPropOrEnv(vararg names: String): String? =
+    names.firstNotNullOfOrNull(::projectPropOrEnv)
+
+fun parseAbiList(value: String?): List<String> =
+    value
+        ?.split(',', ' ', ';')
+        ?.map { it.trim() }
+        ?.filter { it.isNotBlank() }
+        ?.distinct()
+        ?: emptyList()
+
+val defaultPackageAbis = listOf("arm64-v8a")
+val packageAbis = parseAbiList(
+    projectPropOrEnv("NECODE_ANDROID_PACKAGE_ABIS", "LITTER_ANDROID_PACKAGE_ABIS"),
+).ifEmpty { defaultPackageAbis }
+val packageAbiCsv = packageAbis.joinToString(",")
 val uploadStoreFile = projectPropOrEnv("LITTER_UPLOAD_STORE_FILE")
 val uploadStorePassword = projectPropOrEnv("LITTER_UPLOAD_STORE_PASSWORD")
 val uploadKeyAlias = projectPropOrEnv("LITTER_UPLOAD_KEY_ALIAS")
@@ -34,9 +50,14 @@ android {
         buildConfigField("boolean", "ENABLE_ON_DEVICE_BRIDGE", "true")
         buildConfigField("String", "RUNTIME_STARTUP_MODE", "\"hybrid\"")
         buildConfigField("String", "APP_RUNTIME_TRANSPORT", "\"app_bridge_rpc_transport\"")
+        buildConfigField("String", "NATIVE_ABIS", "\"$packageAbiCsv\"")
         manifestPlaceholders["runtimeStartupMode"] = "hybrid"
         manifestPlaceholders["enableOnDeviceBridge"] = "true"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters += packageAbis
+        }
     }
 
     if (hasUploadSigning) {
