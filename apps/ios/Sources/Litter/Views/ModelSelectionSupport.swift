@@ -25,6 +25,7 @@ func isAsrModelOption(_ model: ModelInfo) -> Bool {
         .contains { asrModelKeywords.contains($0) }
 }
 
+@MainActor
 func voiceTranscriptionOptions(
     appModel: AppModel,
     serverId: String
