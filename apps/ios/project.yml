@@ -23,7 +23,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     SWIFT_STRICT_CONCURRENCY: targeted
-    MARKETING_VERSION: "1.5.0"
+    MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_OBJC_BRIDGING_HEADER: Sources/Litter/Bridge/codex_bridge_objc.h
     OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client"
@@ -66,7 +66,7 @@ targets:
         # iCloud capability."
         # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.sigkitten.litter
         com.apple.security.application-groups:
-          - group.com.sigkitten.litter
+          - group.com.aegean.necode.mobile
     attributes:
       SystemCapabilities:
         com.apple.BackgroundModes:
@@ -117,7 +117,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: NeCode
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter
+        PRODUCT_BUNDLE_IDENTIFIER: com.aegean.necode.mobile
         INFOPLIST_FILE: Sources/Litter/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Litter/Bridge/codex_bridge_objc.h
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -153,7 +153,7 @@ targets:
         # because Developer ID apps validate iCloud at runtime, not via profile.
         # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.sigkitten.litter
         com.apple.security.application-groups:
-          - group.com.sigkitten.litter
+          - group.com.aegean.necode.mobile
         com.apple.security.app-sandbox: true
         com.apple.security.device.bluetooth: true
         com.apple.security.files.user-selected.read-write: true
@@ -205,7 +205,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: NeCode
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter
+        PRODUCT_BUNDLE_IDENTIFIER: com.aegean.necode.mobile
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
         INFOPLIST_FILE: Sources/Litter/Info-Catalyst.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIconMac
@@ -252,7 +252,7 @@ targets:
       path: Sources/LitterLiveActivity/LitterLiveActivity.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.sigkitten.litter
+          - group.com.aegean.necode.mobile
     sources:
       - path: Sources/LitterLiveActivity
       - path: Sources/Litter/Models/CodexTurnAttributes.swift
@@ -290,7 +290,7 @@ targets:
       properties:
         aps-environment: production
         com.apple.security.application-groups:
-          - group.com.sigkitten.litter
+          - group.com.aegean.necode.mobile
     sources:
       - path: Sources/LitterWatch
         excludes:
@@ -339,7 +339,7 @@ targets:
       path: Sources/LitterWatchComplications/LitterWatchComplications.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.sigkitten.litter
+          - group.com.aegean.necode.mobile
     sources:
       - path: Sources/LitterWatchComplications
         excludes:
