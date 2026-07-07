@@ -115,9 +115,8 @@ import uniffi.codex_mobile_client.AppPetSummary
 
 /**
  * Settings — hierarchical navigation matching iOS:
- * Top level: Appearance → | Font | Conversation | Experimental → | Account | Servers
+ * Top level: Appearance → | Font | Conversation | Servers
  * Appearance pushes to sub-screen with theme pickers.
- * Experimental pushes to sub-screen with feature toggles.
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -149,7 +148,6 @@ fun SettingsSheet(
         null -> SettingsTopLevel(
             onDismiss = onDismiss,
             onOpenAppearance = { subScreen = SettingsSubScreen.Appearance },
-            onOpenExperimental = { subScreen = SettingsSubScreen.Experimental },
             onOpenDebug = { subScreen = SettingsSubScreen.Debug },
         )
     }
@@ -163,7 +161,6 @@ private enum class SettingsSubScreen { Appearance, Experimental, Pets, TipJar, D
 private fun SettingsTopLevel(
     onDismiss: () -> Unit,
     onOpenAppearance: () -> Unit,
-    onOpenExperimental: () -> Unit,
     onOpenDebug: () -> Unit,
 ) {
     val appModel = LocalAppModel.current
@@ -228,12 +225,6 @@ private fun SettingsTopLevel(
                     )
                 },
             )
-        }
-
-        // ── Experimental ──
-        item { SectionHeader("实验功能") }
-        item {
-            NavRow(icon = Icons.Default.Science, label = "实验功能", onClick = onOpenExperimental)
         }
 
         // ── Debug ──
