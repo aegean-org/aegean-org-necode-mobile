@@ -60,11 +60,11 @@ targets:
         aps-environment: production
         com.apple.developer.carplay-voice-based-conversation: true
         # iCloud KVS sync (Feature C). Re-add when the iCloud container
-        # `iCloud.com.sigkitten.litter` exists in the Apple Developer Portal
+        # `iCloud.com.aegean.necode.mobile` exists in the Apple Developer Portal
         # AND is enabled on the iOS app's provisioning profile. Without
         # both, archive fails: "Provisioning profile doesn't include the
         # iCloud capability."
-        # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.sigkitten.litter
+        # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.aegean.necode.mobile
         com.apple.security.application-groups:
           - group.com.aegean.necode.mobile
     attributes:
@@ -147,11 +147,11 @@ targets:
       properties:
         aps-environment: production
         # iCloud KVS sync (Feature C). Re-add when the iCloud container
-        # `iCloud.com.sigkitten.litter` exists in the Apple Developer Portal
+        # `iCloud.com.aegean.necode.mobile` exists in the Apple Developer Portal
         # AND the Mac App Store profile is regenerated to include the iCloud
         # capability. Direct-dist (DeveloperID entitlements) keeps the key
         # because Developer ID apps validate iCloud at runtime, not via profile.
-        # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.sigkitten.litter
+        # com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)iCloud.com.aegean.necode.mobile
         com.apple.security.application-groups:
           - group.com.aegean.necode.mobile
         com.apple.security.app-sandbox: true
@@ -265,7 +265,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: NeCode 实时活动
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.liveactivity
+        PRODUCT_BUNDLE_IDENTIFIER: com.aegean.necode.mobile.liveactivity
         INFOPLIST_FILE: Sources/LitterLiveActivity/Info.plist
       configs:
         Debug:
@@ -305,7 +305,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: NeCode
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.aegean.necode.mobile.watchkitapp
         INFOPLIST_FILE: Sources/LitterWatch/Info.plist
         TARGETED_DEVICE_FAMILY: "4"
         WATCHOS_DEPLOYMENT_TARGET: "11.0"
@@ -349,7 +349,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: NeCode 表盘组件
-        PRODUCT_BUNDLE_IDENTIFIER: com.sigkitten.litter.watchkitapp.complications
+        PRODUCT_BUNDLE_IDENTIFIER: com.aegean.necode.mobile.watchkitapp.complications
         INFOPLIST_FILE: Sources/LitterWatchComplications/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "4"

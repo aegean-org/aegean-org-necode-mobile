@@ -2661,7 +2661,7 @@
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Sources/LitterWatch/Info.plist;
 				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.watchkitapp;
                 PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(WATCH_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = watchos;
@@ -2694,7 +2694,7 @@
 					"@executable_path/Frameworks",
 				);
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile;
                 PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
@@ -2718,7 +2718,7 @@
 				);
 				LIVE_ACTIVITY_CODE_SIGN_STYLE = Automatic;
 				LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.liveactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.liveactivity;
                 PRODUCT_NAME = "NeCode 实时活动";
 				PROVISIONING_PROFILE_SPECIFIER = "$(LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
@@ -2744,7 +2744,7 @@
 					"@executable_path/Frameworks",
 				);
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile;
                 PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
@@ -2825,7 +2825,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
@@ -2860,7 +2860,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-macabi";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile;
 				PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = auto;
@@ -2890,7 +2890,7 @@
 				LIVE_ACTIVITY_CODE_SIGN_IDENTITY = "";
 				LIVE_ACTIVITY_CODE_SIGN_STYLE = Automatic;
 				LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.liveactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.liveactivity;
                 PRODUCT_NAME = "NeCode 实时活动";
 				PROVISIONING_PROFILE_SPECIFIER = "$(LIVE_ACTIVITY_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
@@ -2976,7 +2976,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -3065,7 +3065,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim";
-				MARKETING_VERSION = 1.5.0;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client";
@@ -3110,7 +3110,7 @@
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Sources/LitterWatch/Info.plist;
 				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.watchkitapp;
                 PRODUCT_NAME = NeCode;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -3135,7 +3135,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.watchkitapp.complications;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.watchkitapp.complications;
                 PRODUCT_NAME = "NeCode 表盘组件";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -3164,7 +3164,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-macabi";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile;
 				PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = auto;
@@ -3213,7 +3213,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.watchkitapp.complications;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.watchkitapp.complications;
                 PRODUCT_NAME = "NeCode 表盘组件";
 				PROVISIONING_PROFILE_SPECIFIER = "$(WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = watchos;
@@ -3248,7 +3248,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=macosx*]" = "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-macabi";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				OTHER_LDFLAGS = "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile;
 				PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(APP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = auto;
@@ -3276,7 +3276,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.watchkitapp.complications;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.watchkitapp.complications;
                 PRODUCT_NAME = "NeCode 表盘组件";
 				PROVISIONING_PROFILE_SPECIFIER = "$(WATCH_COMP_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = watchos;
@@ -3301,7 +3301,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.liveactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.liveactivity;
                 PRODUCT_NAME = "NeCode 实时活动";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -3321,7 +3321,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile;
                 PRODUCT_NAME = NeCode;
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = Sources/Litter/Bridge/codex_bridge_objc.h;
@@ -3339,7 +3339,7 @@
 				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = Sources/LitterWatch/Info.plist;
 				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.sigkitten.litter.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.aegean.necode.mobile.watchkitapp;
                 PRODUCT_NAME = NeCode;
 				PROVISIONING_PROFILE_SPECIFIER = "$(WATCH_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = watchos;
