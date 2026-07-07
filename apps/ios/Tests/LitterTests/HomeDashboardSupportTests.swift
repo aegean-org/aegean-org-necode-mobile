@@ -185,6 +185,67 @@ final class HomeDashboardSupportTests: XCTestCase {
         )
     }
 
+    func testVoiceTranscriptionServerIdPrefersSelectedNeCodeServer() {
+        let selected = makeDashboardServer(
+            id: "selected",
+            name: "Selected",
+            runtime: AgentRuntimeInfo(kind: "necode", name: "necode", displayName: "NeCode", available: true)
+        )
+        let fallback = makeDashboardServer(
+            id: "fallback",
+            name: "Fallback",
+            runtime: AgentRuntimeInfo(kind: "necode", name: "necode", displayName: "NeCode", available: true)
+        )
+
+        XCTAssertEqual(
+            HomeDashboardSupport.voiceTranscriptionServerId(
+                selectedProjectServerId: nil,
+                selectedServerId: selected.id,
+                servers: [fallback, selected]
+            ),
+            selected.id
+        )
+    }
+
+    func testVoiceTranscriptionServerIdSkipsLocalOfflineAndUnavailableRuntimes() {
+        let local = makeDashboardServer(
+            id: "local",
+            name: "Local",
+            isLocal: true,
+            runtime: AgentRuntimeInfo(kind: "necode", name: "necode", displayName: "NeCode", available: true)
+        )
+        let offline = makeDashboardServer(
+            id: "offline",
+            name: "Offline",
+            health: .disconnected,
+            runtime: AgentRuntimeInfo(kind: "necode", name: "necode", displayName: "NeCode", available: true)
+        )
+        let unavailable = makeDashboardServer(
+            id: "unavailable",
+            name: "Unavailable",
+            runtime: AgentRuntimeInfo(kind: "necode", name: "necode", displayName: "NeCode", available: false)
+        )
+        let selected = makeDashboardServer(
+            id: "selected",
+            name: "Selected",
+            runtime: AgentRuntimeInfo(kind: "codex", name: "codex", displayName: "Codex", available: true)
+        )
+        let fallback = makeDashboardServer(
+            id: "fallback",
+            name: "Fallback",
+            runtime: AgentRuntimeInfo(kind: "necode", name: "necode", displayName: "NeCode", available: true)
+        )
+
+        XCTAssertEqual(
+            HomeDashboardSupport.voiceTranscriptionServerId(
+                selectedProjectServerId: local.id,
+                selectedServerId: selected.id,
+                servers: [local, offline, unavailable, selected, fallback]
+            ),
+            fallback.id
+        )
+    }
+
     func testHomeDashboardModelRefreshesRecentSessionsWhenObservedSnapshotThreadChanges() async {
         let appModel = AppModel()
         let model = HomeDashboardModel()
@@ -436,7 +497,8 @@ final class HomeDashboardSupportTests: XCTestCase {
         host: String? = nil,
         port: UInt16 = 8390,
         isLocal: Bool = false,
-        health: AppServerHealth = .connected
+        health: AppServerHealth = .connected,
+        runtime: AgentRuntimeInfo = AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)
     ) -> AppServerSnapshot {
         AppServerSnapshot(
             serverId: id,
@@ -459,10 +521,34 @@ final class HomeDashboardSupportTests: XCTestCase {
             rateLimits: nil,
             rateLimitsByRuntime: [],
             availableModels: nil,
-            agentRuntimes: [AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)],
+            agentRuntimes: [runtime],
             connectionProgress: nil,
             usageStats: nil,
             codexVersion: nil
+        )
+    }
+
+    private func makeDashboardServer(
+        id: String,
+        name: String,
+        host: String? = nil,
+        port: UInt16 = 8390,
+        isLocal: Bool = false,
+        health: AppServerHealth = .connected,
+        runtime: AgentRuntimeInfo = AgentRuntimeInfo(kind: .codex, name: "codex", displayName: "Codex", available: true)
+    ) -> HomeDashboardServer {
+        HomeDashboardServer(
+            id: id,
+            displayName: name,
+            host: host ?? "\(id).local",
+            port: port,
+            isLocal: isLocal,
+            health: health,
+            sourceLabel: "alleycat",
+            statusLabel: health.displayLabel,
+            statusColor: health.accentColor,
+            statusDotState: .idle,
+            agentRuntimes: [runtime]
         )
     }
 

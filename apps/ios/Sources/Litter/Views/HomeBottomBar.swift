@@ -24,6 +24,7 @@ struct HomeBottomBar: View {
     let project: AppProject?
     let transcriptionServerId: String?
     let onThreadCreated: (ThreadKey) -> Void
+    var startVoiceRequest: Int = 0
     /// When `true`, the plus/composer pool is omitted and only the search
     /// button / search-row morph renders. Used by the iPad + Catalyst
     /// sidebar chrome where there's no room (and no use) for a composer.
@@ -31,6 +32,8 @@ struct HomeBottomBar: View {
     @FocusState private var searchFocused: Bool
     @State private var composerOpenedAt: Date = .distantPast
     @State private var composerHasBeenActive = false
+    @State private var handledVoiceStartRequest = 0
+    @State private var pendingVoiceStartRequest = 0
 
     @Namespace private var ns
 
@@ -97,6 +100,9 @@ struct HomeBottomBar: View {
             .padding(.horizontal, mode == .collapsed ? 14 : 0)
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.82), value: mode)
+        .onChange(of: startVoiceRequest) { _, request in
+            handleVoiceStartRequest(request)
+        }
     }
 
     private var plusButton: some View {
@@ -173,7 +179,13 @@ struct HomeBottomBar: View {
                 guard elapsed > 0.6 else { return }
                 setMode(.collapsed)
             },
-            autoFocus: true
+            autoFocus: true,
+            startVoiceRequest: pendingVoiceStartRequest,
+            onVoiceStartRequestHandled: { request in
+                if pendingVoiceStartRequest == request {
+                    pendingVoiceStartRequest = 0
+                }
+            }
         )
         .glassMorphID(plusID, in: ns)
         .onAppear {
@@ -238,5 +250,12 @@ struct HomeBottomBar: View {
         withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
             mode = next
         }
+    }
+
+    private func handleVoiceStartRequest(_ request: Int) {
+        guard !compact, request > handledVoiceStartRequest else { return }
+        handledVoiceStartRequest = request
+        pendingVoiceStartRequest = request
+        setMode(.composer)
     }
 }

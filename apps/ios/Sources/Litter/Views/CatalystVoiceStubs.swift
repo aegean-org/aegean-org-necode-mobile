@@ -2,7 +2,6 @@
 import SwiftUI
 
 struct HomeVoiceOrbButton: View {
-    let session: VoiceSessionState?
     let isAvailable: Bool
     let isStarting: Bool
     let action: () -> Void

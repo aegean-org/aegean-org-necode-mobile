@@ -36,8 +36,6 @@ struct SettingsView: View {
                     appearanceSection
                     fontSection
                     conversationSection
-                    experimentalSection
-                    accountSection
                     serversSection
                 }
                 .scrollContentBackground(.hidden)

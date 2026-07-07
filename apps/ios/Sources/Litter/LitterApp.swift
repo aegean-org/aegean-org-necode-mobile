@@ -680,9 +680,9 @@ private struct HomeNavigationView: View {
     @State private var showProjectPicker = false
     @State private var openingRecentSessionKey: ThreadKey?
     @State private var isStartingNewSession = false
-    @State private var isStartingVoice = false
     @State private var actionErrorMessage: String?
     @State private var homeInputMode: HomeInputMode = .collapsed
+    @State private var homeVoiceStartRequest = 0
     @State private var hydratingPinnedHomeThreadIds: Set<String> = []
     @State private var pinnedThreadListingRepairTasks: [String: Task<Bool, Never>] = [:]
     @State private var hasSeededInitialConversationRoute = false
@@ -804,7 +804,7 @@ private struct HomeNavigationView: View {
             }
             .overlay(alignment: .bottomLeading) {
                 if isHomeRouteActive,
-                   experimentalFeatures.isEnabled(.realtimeVoice),
+                   homeVoiceTranscriptionServerId != nil,
                    homeInputMode == .collapsed {
                     homeVoiceLauncher
                 }
@@ -1101,10 +1101,9 @@ private struct HomeNavigationView: View {
 
     private var homeVoiceLauncher: some View {
         HomeVoiceOrbButton(
-            session: voiceRuntime.activeVoiceSession,
-            isAvailable: true,
-            isStarting: isStartingVoice,
-            action: startHomeVoiceSession
+            isAvailable: homeVoiceTranscriptionServerId != nil,
+            isStarting: false,
+            action: startHomeVoiceInput
         )
         // Match the bottom inset used by `HomeBottomBar` inside
         // `HomeDashboardView.bottomChrome` so the mic button sits on the
@@ -1113,57 +1112,22 @@ private struct HomeNavigationView: View {
         .padding(.bottom, 4)
     }
 
-    private func startHomeVoiceSession() {
-        guard !isStartingVoice else { return }
-        isStartingVoice = true
+    private var homeVoiceTranscriptionServerId: String? {
+        HomeDashboardSupport.voiceTranscriptionServerId(
+            selectedProjectServerId: homeDashboardModel.selectedProject?.serverId,
+            selectedServerId: homeDashboardModel.selectedServerId,
+            servers: homeDashboardModel.connectedServers
+        )
+    }
+
+    private func startHomeVoiceInput() {
+        guard homeVoiceTranscriptionServerId != nil else {
+            actionErrorMessage = "请先连接可用的 NeCode 主机。"
+            return
+        }
         actionErrorMessage = nil
-
-        Task {
-            do {
-                let selectedModel = normalizedPreferredModel()
-                let selectedEffort = appState.preferredReasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
-                voiceRuntime.handoffModel = selectedModel
-                voiceRuntime.handoffEffort = selectedEffort.isEmpty ? nil : selectedEffort
-                voiceRuntime.handoffFastMode = false
-                let voicePermissions = await voicePermissionConfig()
-                let voiceKey = try await voiceRuntime.startPinnedLocalVoiceCall(
-                    cwd: preferredVoiceWorkingDirectory(),
-                    model: selectedModel,
-                    approvalPolicy: voicePermissions.approvalPolicy,
-                    sandboxMode: voicePermissions.sandboxMode
-                )
-                await MainActor.run {
-                    openRealtimeVoice(voiceKey)
-                }
-            } catch {
-                await MainActor.run {
-                    actionErrorMessage = error.localizedDescription
-                }
-            }
-            await MainActor.run {
-                isStartingVoice = false
-            }
-        }
-    }
-
-    private func normalizedPreferredModel() -> String? {
-        let trimmed = appState.preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func preferredVoiceWorkingDirectory() -> String {
-        let current = appState.currentCwd.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !current.isEmpty {
-            return current
-        }
-
-        let stored = UserDefaults.standard.string(forKey: "workDir")?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !stored.isEmpty {
-            return stored
-        }
-
-        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? "/"
+        homeInputMode = .composer
+        homeVoiceStartRequest += 1
     }
 
     private func preferredTerminalWorkingDirectory() -> String? {
@@ -1318,14 +1282,12 @@ private struct HomeNavigationView: View {
 
     private func seedInitialConversationIfNeeded(activeKey: ThreadKey?) {
         guard !hasSeededInitialConversationRoute,
-              !isStartingVoice,
               navigationPath.isEmpty,
               let activeKey else { return }
 
         Task { @MainActor in
             await conversationWarmup.prewarmIfNeeded()
             guard !hasSeededInitialConversationRoute,
-                  !isStartingVoice,
                   navigationPath.isEmpty,
                   appModel.snapshot?.activeThread == activeKey else {
                 return
@@ -1348,41 +1310,11 @@ private struct HomeNavigationView: View {
         )
     }
 
-    private func voicePermissionConfig() async -> (
-        approvalPolicy: AppAskForApproval?,
-        sandboxMode: AppSandboxMode?
-    ) {
-        let storedThreadId = UserDefaults.standard.string(forKey: VoiceRuntimeController.persistedLocalVoiceThreadIDKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let threadKey = storedThreadId.flatMap { threadId -> ThreadKey? in
-            guard !threadId.isEmpty else { return nil }
-            return ThreadKey(serverId: VoiceRuntimeController.localServerID, threadId: threadId)
-        }
-        let resolvedThreadKey: ThreadKey?
-        if let threadKey {
-            resolvedThreadKey = await appModel.hydrateThreadPermissions(for: threadKey, appState: appState)
-                ?? threadKey
-        } else {
-            resolvedThreadKey = nil
-        }
-        return (
-            approvalPolicy: appState.launchApprovalPolicy(for: resolvedThreadKey),
-            sandboxMode: appState.launchSandboxMode(for: resolvedThreadKey)
-        )
-    }
-
     private func openConversation(_ key: ThreadKey) {
         hasSeededInitialConversationRoute = true
         appState.showModelSelector = false
         guard navigationPath.last != .conversation(key) else { return }
         navigationPath.append(.conversation(key))
-    }
-
-    private func openRealtimeVoice(_ key: ThreadKey) {
-        hasSeededInitialConversationRoute = true
-        appState.showModelSelector = false
-        guard navigationPath.last != .realtimeVoice(key) else { return }
-        navigationPath.append(.realtimeVoice(key))
     }
 
     private func popToConversationInfo() {
@@ -1528,7 +1460,10 @@ private struct HomeNavigationView: View {
             onSelectServer: handleSelectServer,
             onAddServer: { appState.showServerPicker = true },
             onOpenProjectPicker: { showProjectPicker = true },
-            onThreadCreated: { key in homeDashboardModel.pinThread(key) },
+            onThreadCreated: { key in
+                homeDashboardModel.pinThread(key)
+                openConversation(key)
+            },
             onShowSettings: { appState.showSettings = true },
             onShowApps: savedAppsStore.apps.isEmpty ? nil : { navigationPath.append(.appsList) },
             onShowTerminal: terminalLauncher,
@@ -1552,6 +1487,7 @@ private struct HomeNavigationView: View {
             onInputModeChange: { mode in
                 homeInputMode = mode
             },
+            startVoiceRequest: homeVoiceStartRequest,
             onSearchThreads: loadSearchThreads
         )
     }

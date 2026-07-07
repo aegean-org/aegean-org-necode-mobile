@@ -242,6 +242,35 @@ enum HomeDashboardSupport {
             }
     }
 
+    static func voiceTranscriptionServerId(
+        selectedProjectServerId: String?,
+        selectedServerId: String?,
+        servers: [HomeDashboardServer]
+    ) -> String? {
+        let serversById = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+        let preferredServerIds = [selectedProjectServerId, selectedServerId]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for serverId in preferredServerIds {
+            guard let server = serversById[serverId],
+                  supportsNeCodeVoiceTranscription(server) else {
+                continue
+            }
+            return server.id
+        }
+
+        return servers.first(where: supportsNeCodeVoiceTranscription)?.id
+    }
+
+    private static func supportsNeCodeVoiceTranscription(_ server: HomeDashboardServer) -> Bool {
+        !server.isLocal
+            && server.health == .connected
+            && server.agentRuntimes.contains { runtime in
+                runtime.available && runtime.kind.lowercased() == "necode"
+            }
+    }
+
     private static func offlineServer(from saved: SavedServer) -> HomeDashboardServer {
         HomeDashboardServer(
             id: saved.id,

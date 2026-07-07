@@ -17,6 +17,10 @@ struct HomeComposerView: View {
     /// When true, the composer requests keyboard focus the moment it
     /// appears. Used when the view is revealed by tapping `+`.
     var autoFocus: Bool = false
+    /// Monotonic token consumed when the home voice orb asks this composer
+    /// to start one-shot speech-to-text recording.
+    var startVoiceRequest: Int = 0
+    var onVoiceStartRequestHandled: (Int) -> Void = { _ in }
 
     @Environment(AppModel.self) private var appModel
     @Environment(AppState.self) private var appState
@@ -107,7 +111,7 @@ struct HomeComposerView: View {
                 isTurnActive: isSubmitting,
                 showModeChip: false,
                 voiceManager: voiceManager,
-                allowsVoiceInput: project != nil,
+                allowsVoiceInput: resolvedTranscriptionServerId != nil,
                 showAttachMenu: $showAttachMenu,
                 onClearAttachment: { attachedImage = nil },
                 onRemoveFileAttachment: { file in
@@ -212,6 +216,11 @@ struct HomeComposerView: View {
                 isComposerFocused = true
             }
         }
+        .task(id: startVoiceRequest) {
+            guard startVoiceRequest > 0 else { return }
+            onVoiceStartRequestHandled(startVoiceRequest)
+            startVoiceRecording()
+        }
     }
 
     private func handleSend() {
@@ -295,6 +304,7 @@ struct HomeComposerView: View {
     }
 
     private func startVoiceRecording() {
+        guard !voiceManager.isRecording, !voiceManager.isTranscribing else { return }
         Task {
             let granted = await voiceManager.requestMicPermission()
             guard granted else { return }

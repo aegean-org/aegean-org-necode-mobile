@@ -63,6 +63,7 @@ struct HomeDashboardView: View {
     /// new thread.
     var onForkThread: (@MainActor (HomeDashboardRecentSession) async -> Void)? = nil
     var onInputModeChange: ((HomeInputMode) -> Void)? = nil
+    var startVoiceRequest: Int = 0
 
     @State private var deleteTargetThread: HomeDashboardRecentSession?
     @State private var replyTargetThread: HomeDashboardRecentSession?
@@ -101,6 +102,14 @@ struct HomeDashboardView: View {
 
     private var composerServerId: String? {
         selectedProject?.serverId ?? selectedMachineServerId
+    }
+
+    private var voiceTranscriptionServerId: String? {
+        HomeDashboardSupport.voiceTranscriptionServerId(
+            selectedProjectServerId: selectedProject?.serverId,
+            selectedServerId: selectedMachineServerId,
+            servers: connectedServers
+        )
     }
 
     private var selectedLaunchableServer: HomeDashboardServer? {
@@ -525,8 +534,9 @@ struct HomeDashboardView: View {
                 searchQuery: $searchQuery,
                 collapseSuppressed: suppressComposerCollapse,
                 project: selectedProject,
-                transcriptionServerId: composerServerId,
-                onThreadCreated: onThreadCreated
+                transcriptionServerId: voiceTranscriptionServerId,
+                onThreadCreated: onThreadCreated,
+                startVoiceRequest: startVoiceRequest
             )
         }
         .padding(.bottom, 4)
