@@ -67,7 +67,7 @@ dependencies = [
 [[package]]
 name = "alleycat"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-amp-bridge",
@@ -105,12 +105,13 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "which",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "alleycat-acp-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -119,7 +120,10 @@ dependencies = [
  "base64",
  "chrono",
  "dashmap",
+ "directories",
  "futures",
+ "reqwest 0.12.28",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -133,7 +137,7 @@ dependencies = [
 [[package]]
 name = "alleycat-amp-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-claude-bridge",
@@ -156,7 +160,7 @@ dependencies = [
 [[package]]
 name = "alleycat-bridge-core"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-codex-proto",
  "anyhow",
@@ -175,7 +179,7 @@ dependencies = [
 [[package]]
 name = "alleycat-claude-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -199,7 +203,7 @@ dependencies = [
 [[package]]
 name = "alleycat-codex-proto"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "chrono",
  "serde",
@@ -210,7 +214,7 @@ dependencies = [
 [[package]]
 name = "alleycat-devin-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-bridge-core",
@@ -226,7 +230,7 @@ dependencies = [
 [[package]]
 name = "alleycat-droid-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -245,7 +249,7 @@ dependencies = [
 [[package]]
 name = "alleycat-grok-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-acp-bridge",
  "alleycat-bridge-core",
@@ -261,7 +265,7 @@ dependencies = [
 [[package]]
 name = "alleycat-hermes-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -286,7 +290,7 @@ dependencies = [
 [[package]]
 name = "alleycat-opencode-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -310,7 +314,7 @@ dependencies = [
 [[package]]
 name = "alleycat-pi-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "alleycat-codex-proto",
@@ -334,7 +338,7 @@ dependencies = [
 [[package]]
 name = "alleycat-shell-bridge"
 version = "0.1.0"
-source = "git+https://github.com/aegean-org/alleycat.git?branch=main#d60325a0d6a54dbc5615b2eb906e7a6decefea57"
+source = "git+https://github.com/aegean-org/alleycat.git?branch=main#ef09a58ea5b0e16aee10922e830af1e41a35de5a"
 dependencies = [
  "alleycat-bridge-core",
  "anyhow",
@@ -2383,6 +2387,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
+name = "mime"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3320,6 +3340,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -4421,6 +4442,12 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
 name = "unicode-ident"

@@ -53,6 +53,7 @@ apps/android/.kotlin/
 # Logs and temp
 *.log
 *.tmp
+*.swp
 tmp/
 __pycache__/
 

@@ -45,7 +45,7 @@ android {
         applicationId = "com.aegean.necode.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
+        versionCode = 1
         versionName = "1.0.0"
         buildConfigField("boolean", "ENABLE_ON_DEVICE_BRIDGE", "true")
         buildConfigField("String", "RUNTIME_STARTUP_MODE", "\"hybrid\"")
