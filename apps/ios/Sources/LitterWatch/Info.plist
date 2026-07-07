@@ -26,7 +26,7 @@
 	<key>WKWatchOnly</key>
 	<false/>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>com.sigkitten.litter</string>
+	<string>com.aegean.necode.mobile</string>
 	<key>NSSiriUsageDescription</key>
 	<string>通过语音向 NeCode 发送任务。</string>
 	<key>NSMicrophoneUsageDescription</key>
