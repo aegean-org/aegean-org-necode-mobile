@@ -15,7 +15,8 @@ struct AlleycatConnectedTarget: Equatable {
 enum PairPayloadInput {
     static func normalized(_ raw: String) -> String {
         let text = trimmedWithoutBom(raw)
-        return extractedJsonObject(from: strippedMarkdownFence(text))
+        let fixed = fixMisinterpretedUTF16(text)
+        return extractedJsonObject(from: strippedMarkdownFence(fixed))
     }
 
     private static func trimmedWithoutBom(_ raw: String) -> String {
@@ -24,6 +25,46 @@ enum PairPayloadInput {
             text.removeFirst()
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Detects and fixes UTF-16 LE bytes misinterpreted as UTF-16 BE characters.
+    /// This happens when clipboard data contains UTF-16 LE encoded text that was
+    /// incorrectly read as UTF-16 BE, causing ASCII characters like '{' (0x7B 0x00)
+    /// to display as CJK characters like '笀' (U+7B00).
+    private static func fixMisinterpretedUTF16(_ text: String) -> String {
+        // Quick heuristic: if the text starts with a CJK character but should be JSON,
+        // it's likely misinterpreted UTF-16
+        guard let firstChar = text.unicodeScalars.first else { return text }
+
+        // Check if first character looks like misinterpreted UTF-16 LE
+        // '{' (0x7B) becomes 笀 (U+7B00) when 0x7B 0x00 is read as big-endian
+        let codePoint = firstChar.value
+
+        // If high byte is ASCII-like (0x20-0x7E) and low byte is 0x00,
+        // this is likely misinterpreted UTF-16 LE
+        let highByte = (codePoint >> 8) & 0xFF
+        let lowByte = codePoint & 0xFF
+
+        guard lowByte == 0x00, (0x20...0x7E).contains(highByte) else {
+            return text
+        }
+
+        // Reconstruct original bytes by reversing the misinterpretation
+        var utf16LEBytes = Data()
+        for scalar in text.unicodeScalars {
+            let cp = scalar.value
+            let high = UInt8((cp >> 8) & 0xFF)
+            let low = UInt8(cp & 0xFF)
+            utf16LEBytes.append(high)
+            utf16LEBytes.append(low)
+        }
+
+        // Decode as UTF-16 LE
+        if let fixed = String(data: utf16LEBytes, encoding: .utf16LittleEndian) {
+            return fixed
+        }
+
+        return text
     }
 
     private static func strippedMarkdownFence(_ text: String) -> String {

@@ -177,7 +177,7 @@ final class VoiceTranscriptionManager {
         options: VoiceTranscriptionOptions
     ) -> AppVoiceTranscriptionRequest {
         AppVoiceTranscriptionRequest(
-            audioBytes: [UInt8](wav),
+            audioBytes: wav,
             mimeType: "audio/wav",
             fileName: "audio.wav",
             model: options.asrModel?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
