@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(ConversationDisplayPreferenceKey.tools) private var toolDisplayMode = ConversationDetailDisplayMode.collapsed.rawValue
     @State private var activeServerSheet: SettingsServerSheet?
     @State private var serverEditError: String?
+    var onServerRemoved: (String) -> Void = { _ in }
 
     private var localServer: AppServerSnapshot? {
         // Account management (ChatGPT login / API key) is local-only, always.
@@ -328,6 +329,7 @@ struct SettingsView: View {
         SavedServerStore.remove(serverId: server.id)
         Task { await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh) }
         appModel.serverBridge.disconnectServer(serverId: server.id)
+        onServerRemoved(server.id)
     }
 
     private func saveServerConfiguration(

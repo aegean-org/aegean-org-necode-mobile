@@ -40,7 +40,7 @@ struct HomeVoiceOrbButton: View {
                         .controlSize(.small)
                         .tint(iconColor)
                 } else {
-                    Image(systemName: "waveform.and.mic")
+                    Image(systemName: "mic.fill")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(iconColor)
                 }

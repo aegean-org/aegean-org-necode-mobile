@@ -110,6 +110,40 @@ final class HomeDashboardSupportTests: XCTestCase {
         XCTAssertEqual(model.connectedServers.map(\.id), ["server-a"])
     }
 
+    func testHomeDashboardModelRemovesDeletedServerProjection() async {
+        let appModel = AppModel()
+        let model = HomeDashboardModel()
+        model.bind(appModel: appModel)
+        model.activate()
+
+        appModel.applySnapshot(
+            makeSnapshot(
+                servers: [
+                    makeServerSnapshot(id: "server-a", name: "Server A"),
+                    makeServerSnapshot(id: "server-b", name: "Server B")
+                ],
+                threads: [
+                    makeThreadSnapshot(serverId: "server-a", threadId: "thread-a", updatedAt: 40),
+                    makeThreadSnapshot(serverId: "server-b", threadId: "thread-b", updatedAt: 20)
+                ],
+                activeThread: nil
+            )
+        )
+        await flushMainQueue()
+
+        model.selectFreshProject(serverId: "server-a", cwd: "/tmp/thread-a")
+        XCTAssertEqual(model.selectedProject?.serverId, "server-a")
+
+        model.handleRemovedServer("server-a")
+
+        XCTAssertEqual(model.connectedServers.map(\.id), ["server-b"])
+        XCTAssertEqual(model.allSessions.map(\.key.threadId), ["thread-b"])
+        XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["thread-b"])
+        XCTAssertFalse(model.projects.contains { $0.serverId == "server-a" })
+        XCTAssertNil(model.selectedServerId)
+        XCTAssertNil(model.selectedProject)
+    }
+
     func testSortedConnectedServersDeduplicatesEquivalentHostsAndPrefersActiveConnection() {
         let primary = makeServerSnapshot(
             id: "server-a",

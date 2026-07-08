@@ -136,6 +136,19 @@ final class HomeDashboardModel {
         pinnedKeys.contains(SavedThreadsStore.PinnedKey(threadKey: key))
     }
 
+    func handleRemovedServer(_ serverId: String) {
+        if selectedServerId == serverId {
+            clearScope()
+        } else if selectedProject?.serverId == serverId {
+            selectedProject = nil
+        }
+
+        connectedServers.removeAll { $0.id == serverId }
+        recentSessions.removeAll { $0.serverId == serverId }
+        allSessions.removeAll { $0.serverId == serverId }
+        projects.removeAll { $0.serverId == serverId }
+    }
+
     /// Clear the active scope so the tasks list shows sessions from every
     /// connected server.
     func clearScope() {

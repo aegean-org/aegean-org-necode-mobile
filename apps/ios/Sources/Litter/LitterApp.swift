@@ -439,6 +439,7 @@ struct ContentView: View {
     @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var composerBottomInset: CGFloat = 0
     @State private var splashDismissed = false
+    @State private var removedServerId: String?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
@@ -555,7 +556,7 @@ struct ContentView: View {
             .environment(\.textScale, textScale)
         }
         .sheet(isPresented: $bindableAppState.showSettings) {
-            SettingsView()
+            SettingsView(onServerRemoved: handleSettingsServerRemoved)
                 .environment(appModel)
                 .environment(appState)
                 .environment(themeManager)
@@ -574,6 +575,7 @@ struct ContentView: View {
 
     private func standardHomeNavigationView(topInset: CGFloat, bottomInset: CGFloat) -> some View {
         HomeNavigationView(
+            removedServerId: $removedServerId,
             topInset: topInset,
             bottomInset: bottomInset
         )
@@ -586,6 +588,11 @@ struct ContentView: View {
                 (UIApplication.shared.delegate as? AppDelegate)?.signalContentReady()
             }
         }
+    }
+
+    private func handleSettingsServerRemoved(_ serverId: String) {
+        appState.showSettings = false
+        removedServerId = serverId
     }
 
     @ViewBuilder
@@ -688,6 +695,7 @@ private struct HomeNavigationView: View {
     @State private var hasSeededInitialConversationRoute = false
     @State private var pendingWallpaperConfig: WallpaperConfig?
     @State private var pendingWallpaperImage: UIImage?
+    @Binding var removedServerId: String?
     let topInset: CGFloat
     let bottomInset: CGFloat
 
@@ -969,6 +977,11 @@ private struct HomeNavigationView: View {
         }
         .onChange(of: navigationPath.count) { _, _ in
             updateHomeDashboardActivity()
+        }
+        .onChange(of: removedServerId) { _, serverId in
+            guard let serverId else { return }
+            handleRemovedServer(serverId)
+            removedServerId = nil
         }
         .onChange(of: pinnedThreadHydrationSignature) { _, _ in
             hydratePinnedThreadsIfNeeded()
@@ -1783,6 +1796,16 @@ private struct HomeNavigationView: View {
         // Remote transport resources are owned by the Rust `ServerSession` and
         // dropped automatically inside `serverBridge.disconnectServer`.
         appModel.serverBridge.disconnectServer(serverId: serverId)
+    }
+
+    private func handleRemovedServer(_ serverId: String) {
+        appState.showModelSelector = false
+        hasSeededInitialConversationRoute = true
+        if !navigationPath.isEmpty {
+            navigationPath.removeAll()
+        }
+        homeDashboardModel.handleRemovedServer(serverId)
+        updateHomeDashboardActivity()
     }
 
     private func renameServer(_ serverId: String, newName: String) {
