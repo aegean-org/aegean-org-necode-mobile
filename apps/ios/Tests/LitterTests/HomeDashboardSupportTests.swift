@@ -241,6 +241,23 @@ final class HomeDashboardSupportTests: XCTestCase {
         )
     }
 
+    func testVoiceTranscriptionServerIdRecognizesNeCodeDisplayName() {
+        let server = makeDashboardServer(
+            id: "necode-display",
+            name: "NeCode",
+            runtime: AgentRuntimeInfo(kind: "agent", name: "agent", displayName: "NeCode", available: true)
+        )
+
+        XCTAssertEqual(
+            HomeDashboardSupport.voiceTranscriptionServerId(
+                selectedProjectServerId: nil,
+                selectedServerId: nil,
+                servers: [server]
+            ),
+            server.id
+        )
+    }
+
     func testVoiceTranscriptionServerIdSkipsLocalOfflineAndUnavailableRuntimes() {
         let local = makeDashboardServer(
             id: "local",

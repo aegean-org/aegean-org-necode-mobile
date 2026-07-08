@@ -257,9 +257,14 @@ object HomeDashboardSupport {
     private fun supportsNeCodeVoiceTranscription(server: AppServerSnapshot): Boolean {
         if (server.isLocal || server.health != AppServerHealth.CONNECTED) return false
         return server.agentRuntimes.any { runtime ->
-            runtime.available && runtime.kind.equals("necode", ignoreCase = true)
+            runtime.available && isNeCodeRuntime(runtime)
         }
     }
+
+    private fun isNeCodeRuntime(runtime: uniffi.codex_mobile_client.AgentRuntimeInfo): Boolean =
+        listOf(runtime.kind, runtime.name, runtime.displayName).any {
+            it.trim().equals("necode", ignoreCase = true)
+        }
 
     /**
      * Extracts the last path component as a workspace label.

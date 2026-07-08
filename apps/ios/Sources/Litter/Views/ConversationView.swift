@@ -697,10 +697,11 @@ private struct ConversationMessageList: View {
                                     canCollapse: turn.isCollapsedByDefault,
                                     isLastTurn: isLastTurn,
                                     viewportHeight: viewport.size.height,
-                                    showTypingIndicator: isLastTurn && {
-                                        if case .thinking = threadStatus { return true }
-                                        return false
-                                    }(),
+                                    showTypingIndicator: ConversationTurnLoadingSupport.shouldShowThinkingIndicator(
+                                        turn: turn,
+                                        isLastTurn: isLastTurn,
+                                        threadStatus: threadStatus
+                                    ),
                                     serverId: activeThreadKey.serverId,
                                     originThreadId: activeThreadKey.threadId,
                                     agentDirectoryVersion: agentDirectoryVersion,

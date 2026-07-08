@@ -12,7 +12,6 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,11 +28,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -50,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -69,8 +65,6 @@ import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.ui.LitterTheme
 import com.litter.android.ui.LocalAppModel
 import com.litter.android.ui.common.AgentIconView
-import com.litter.android.ui.common.BetaBadge
-import com.litter.android.ui.common.isBetaAgentName
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -99,7 +93,6 @@ fun AlleycatAddServerSheet(
 ) {
     val appModel = LocalAppModel.current
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val credentialStore = remember(context) {
         AlleycatCredentialStore(context.applicationContext)
@@ -116,8 +109,6 @@ fun AlleycatAddServerSheet(
     var connectError by remember { mutableStateOf<String?>(null) }
     var isConnecting by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
-    var showPaste by remember { mutableStateOf(false) }
-    var pasteJson by remember { mutableStateOf("") }
     var cameraDenied by remember { mutableStateOf(false) }
 
     fun loadAgents(params: AppAlleycatPairPayload) {
@@ -130,7 +121,7 @@ fun AlleycatAddServerSheet(
                     appModel.serverBridge.listAlleycatAgents(params)
                 }
                 if (parsedParams?.nodeId == params.nodeId) {
-                    val sorted = loaded.sortedWith(
+                    val sorted = loaded.filter(::isNeCodeAgent).sortedWith(
                         compareBy<AppAlleycatAgentInfo>(
                             { alleycatAgentSortRank(it) },
                             { it.displayName.lowercase() },
@@ -138,7 +129,7 @@ fun AlleycatAddServerSheet(
                     )
                     agents = sorted
                     selectedAgentNames = sorted
-                        .filter { it.available && !isBetaAgentName(it.name, it.displayName) }
+                        .filter { it.available }
                         .map { it.name }
                         .toSet()
                     isLoadingAgents = false
@@ -254,7 +245,6 @@ fun AlleycatAddServerSheet(
         }
     }
 
-    val availableAgents = agents.filter { it.available }
     val selectedAgents = agents.filter { it.available && it.name in selectedAgentNames }
     val canConnect = !isConnecting && !isLoadingAgents && parsedParams != null && selectedAgents.isNotEmpty()
 
@@ -309,62 +299,10 @@ fun AlleycatAddServerSheet(
         }
         if (cameraDenied) {
             Text(
-                text = "需要相机权限才能扫描配对二维码。你也可以在下方粘贴 JSON。",
+                text = "需要相机权限才能扫描配对二维码。",
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
             )
-        }
-
-        DisclosureRow(
-            expanded = showPaste,
-            label = "粘贴配对 JSON",
-            onToggle = { showPaste = !showPaste },
-        )
-        if (showPaste) {
-            OutlinedTextField(
-                value = pasteJson,
-                onValueChange = { pasteJson = it },
-                placeholder = {
-                    Text(
-                        text = "{\"v\":1,\"node_id\":\"...\",\"token\":\"...\",\"relay\":\"https://...\"}",
-                        color = LitterTheme.textMuted,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                    )
-                },
-                minLines = 3,
-                maxLines = 6,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = {
-                        clipboardManager.getText()?.text?.let { pasteJson = it }
-                    },
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = null,
-                        tint = LitterTheme.accent,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("从剪贴板粘贴", color = LitterTheme.accent)
-                }
-                TextButton(
-                    onClick = { handleScannedPayload(pasteJson) },
-                    enabled = pasteJson.trim().isNotEmpty(),
-                ) {
-                    Text(
-                        text = if (parsedParams == null) "解析 JSON" else "重新解析",
-                        color = LitterTheme.accent,
-                    )
-                }
-            }
         }
 
         parseError?.let { message ->
@@ -399,26 +337,7 @@ fun AlleycatAddServerSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionHeader(label = "Agent", modifier = Modifier.weight(1f))
-                if (availableAgents.isNotEmpty()) {
-                    TextButton(
-                        onClick = {
-                            selectedAgentNames = if (selectedAgents.size == availableAgents.size) {
-                                emptySet()
-                            } else {
-                                availableAgents.map { it.name }.toSet()
-                            }
-                        },
-                    ) {
-                        Text(
-                            text = if (selectedAgents.size == availableAgents.size) "全不选" else "全选",
-                            color = LitterTheme.accent,
-                            fontSize = 12.sp,
-                        )
-                    }
-                }
-            }
+            SectionHeader(label = "Agent")
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -439,7 +358,7 @@ fun AlleycatAddServerSheet(
                         Text("正在加载 Agent", color = LitterTheme.textSecondary, fontSize = 12.sp)
                     }
                     agents.isEmpty() -> Text(
-                        text = "这台设备上暂无可用 Agent。",
+                        text = "这台设备上暂无可用 NeCode Agent。",
                         color = LitterTheme.textMuted,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(8.dp),
@@ -448,15 +367,6 @@ fun AlleycatAddServerSheet(
                         AgentRow(
                             agent = agent,
                             selected = agent.name in selectedAgentNames,
-                            onCheckedChange = { checked ->
-                                if (agent.available) {
-                                    selectedAgentNames = if (checked) {
-                                        selectedAgentNames + agent.name
-                                    } else {
-                                        selectedAgentNames - agent.name
-                                    }
-                                }
-                            },
                         )
                     }
                 }
@@ -497,24 +407,11 @@ fun AlleycatAddServerSheet(
 private fun AgentRow(
     agent: AppAlleycatAgentInfo,
     selected: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
 ) {
-    // Plain clickable Row instead of TextButton — TextButton injects
-    // Material's minimum touch target (~48dp) plus internal content
-    // padding, which made each agent row much taller than the actual
-    // text content needed and forced the agent list to take far more
-    // vertical space than necessary on small screens.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (agent.available) {
-                    Modifier.clickable { onCheckedChange(!selected) }
-                } else {
-                    Modifier
-                },
-            )
             .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
         AgentIconView(
@@ -531,10 +428,6 @@ private fun AgentRow(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 )
-                if (isBetaAgentName(agent.name, agent.displayName)) {
-                    Spacer(Modifier.width(6.dp))
-                    BetaBadge()
-                }
             }
             Text(
                 text = wireLabel(agent.wire),
@@ -544,13 +437,10 @@ private fun AgentRow(
         }
         if (!agent.available) {
             Text("不可用", color = LitterTheme.textMuted, fontSize = 11.sp)
+        } else if (selected) {
+            Text("已选择", color = LitterTheme.accent, fontSize = 11.sp)
         } else {
-            Checkbox(
-                checked = selected,
-                onCheckedChange = onCheckedChange,
-                enabled = true,
-                modifier = Modifier.size(28.dp),
-            )
+            Text("可用", color = LitterTheme.textSecondary, fontSize = 11.sp)
         }
     }
 }
@@ -585,22 +475,6 @@ private fun PreviewRow(label: String, value: String) {
     }
 }
 
-@Composable
-private fun DisclosureRow(
-    expanded: Boolean,
-    label: String,
-    onToggle: () -> Unit,
-) {
-    TextButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = (if (expanded) "▾ " else "▸ ") + label,
-            color = LitterTheme.textSecondary,
-            fontSize = 12.sp,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
 private fun shortNodeId(raw: String): String =
     if (raw.length <= 16) raw else raw.take(8) + "..." + raw.takeLast(8)
 
@@ -614,14 +488,14 @@ private fun wireLabel(wire: AppAlleycatAgentWire): String = when (wire) {
 }
 
 private fun alleycatAgentSortRank(agent: AppAlleycatAgentInfo): Int {
-    val name = agent.name.trim().lowercase()
-    val displayName = agent.displayName.trim().lowercase()
-    if (name == "necode" || displayName == "necode") return 0
-    if (agent.available && !isBetaAgentName(agent.name, agent.displayName)) return 1
-    if (agent.available) return 2
-    if (!isBetaAgentName(agent.name, agent.displayName)) return 3
-    return 4
+    if (agent.available) return 0
+    return 1
 }
+
+private fun isNeCodeAgent(agent: AppAlleycatAgentInfo): Boolean =
+    listOf(agent.name, agent.displayName).any {
+        it.trim().equals("necode", ignoreCase = true)
+    }
 
 fun alleycatWireStorageValue(wire: AppAlleycatAgentWire): String = when (wire) {
     AppAlleycatAgentWire.WEBSOCKET -> "websocket"

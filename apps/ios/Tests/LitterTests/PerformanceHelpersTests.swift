@@ -49,6 +49,25 @@ final class PerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(turns[0].preview.toolCallCount, 1)
     }
 
+    func testThinkingIndicatorShowsForPendingUserOnlyLastTurn() {
+        let baseTime = Date(timeIntervalSince1970: 100)
+        let turn = TranscriptTurn.build(
+            from: [
+                makeUserItem(text: "Can you help?", turnId: "turn-1", turnIndex: 0, timestamp: baseTime)
+            ],
+            threadStatus: .ready,
+            expandedRecentTurnCount: 1
+        )[0]
+
+        XCTAssertTrue(
+            ConversationTurnLoadingSupport.shouldShowThinkingIndicator(
+                turn: turn,
+                isLastTurn: true,
+                threadStatus: .ready
+            )
+        )
+    }
+
     func testTranscriptTurnBuilderProducesUniqueIDsWhenSourceTurnIDRepeatsAcrossBoundarySplits() {
         let baseTime = Date(timeIntervalSince1970: 100)
         let repeatedSourceTurnId = "turn-1"

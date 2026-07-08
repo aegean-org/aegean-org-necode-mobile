@@ -568,29 +568,8 @@ fun DiscoveryScreen(
                 subtitle = "扫描电脑端 NeCode mobile 显示的配对二维码。",
                 badge = "推荐",
                 icon = Icons.Default.QrCodeScanner,
-                supportedAgents = KittylitterAgents,
                 isRecommended = true,
                 onClick = { showAlleycatSheet = true },
-            )
-
-            ChooserCard(
-                title = "已连接电脑",
-                subtitle = "连接当前 ChatGPT 账号下已经在线的电脑。",
-                badge = null,
-                icon = Icons.Outlined.DesktopWindows,
-                supportedAgents = CodexOnlyAgents,
-                isRecommended = false,
-                onClick = { showSlingshotComputers = true },
-            )
-
-            ChooserCard(
-                title = "SSH 或 App-server 地址",
-                subtitle = "通过 SSH 连接，或粘贴 ws:// App-server 地址。",
-                badge = null,
-                icon = Icons.Outlined.Terminal,
-                supportedAgents = CodexOnlyAgents,
-                isRecommended = false,
-                onClick = { showManualEntry = true },
             )
         }
     }
@@ -920,35 +899,12 @@ fun DiscoveryScreen(
     }
 }
 
-/**
- * Canonical agent list shown on the kittylitter chooser card. Mirrors
- * the splash carousel order so cold-start branding stays consistent.
- * New agents added in the alleycat manifest still surface on connected
- * hosts via the real metadata store; this list only seeds the
- * pre-pair preview.
- */
-private val KittylitterAgents: List<AgentRuntimeKind> = listOf(
-    "necode",
-    "codex",
-    "pi",
-    "amp",
-    "opencode",
-    "claude",
-    "droid",
-    "hermes",
-    "devin",
-    "grok",
-)
-
-private val CodexOnlyAgents: List<AgentRuntimeKind> = listOf("codex")
-
 @Composable
 private fun ChooserCard(
     title: String,
     subtitle: String,
     badge: String?,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    supportedAgents: List<AgentRuntimeKind>,
     isRecommended: Boolean,
     onClick: () -> Unit,
 ) {
@@ -1049,34 +1005,6 @@ private fun ChooserCard(
             )
         }
 
-        if (supportedAgents.isNotEmpty()) {
-            SupportedAgentsStrip(supportedAgents)
-        }
-    }
-}
-
-@Composable
-private fun SupportedAgentsStrip(agents: List<AgentRuntimeKind>) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = "支持",
-            color = LitterTheme.textMuted,
-            fontSize = 10.sp,
-            letterSpacing = 0.4.sp,
-            maxLines = 1,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            agents.forEach { agent ->
-                com.litter.android.ui.common.AgentIconView(
-                    kind = agent,
-                    sizeDp = 18,
-                )
-            }
-        }
     }
 }
 

@@ -141,10 +141,6 @@ struct AlleycatAddServerSheet: View {
     @State private var showScanner = false
     @State private var didRequestInitialScan = false
     @State private var cameraDenied = false
-    // pasteJSON / showPaste are used by the Mac paste-JSON UI
-    // (Catalyst + iOS-on-Mac) and the iOS QR fallback.
-    @State private var pasteJSON: String = ""
-    @State private var showPaste: Bool = false
 
     private let alleycat = RustAlleycatBridge.shared
 
@@ -240,29 +236,12 @@ struct AlleycatAddServerSheet: View {
 
     private var pairingSection: some View {
         Section {
-            // Mac (Catalyst + iOS-on-Mac) shows paste-JSON only; iOS shows
-            // QR scanning first, with paste available as a production fallback
-            // for users who already copied the pairing payload.
-            if LitterPlatform.rendersAsMacApp {
-                pasteJSONPairingControls
-            } else {
-                qrPairingControls
-            }
+            qrPairingControls
         } header: {
             Text("配对")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
-    }
-
-    @ViewBuilder
-    private var pasteJSONPairingControls: some View {
-        Text("在电脑端运行 \(Self.pairCommandLabel)，然后粘贴生成的配对 JSON。")
-            .litterFont(.caption)
-            .foregroundColor(LitterTheme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-        pasteJSONEntryControls(minHeight: 110)
     }
 
     @ViewBuilder
@@ -278,59 +257,7 @@ struct AlleycatAddServerSheet: View {
                     .foregroundColor(LitterTheme.accent)
             }
         }
-
-        DisclosureGroup(
-            isExpanded: $showPaste,
-            content: {
-                pasteJSONEntryControls(minHeight: 90)
-            },
-            label: {
-                Text("粘贴配对 JSON")
-                    .litterFont(.footnote)
-                    .foregroundColor(LitterTheme.textSecondary)
-            }
-        )
     }
-
-    @ViewBuilder
-    private func pasteJSONEntryControls(minHeight: CGFloat) -> some View {
-        TextEditor(text: $pasteJSON)
-            .litterFont(.caption)
-            .foregroundColor(LitterTheme.textPrimary)
-            .scrollContentBackground(.hidden)
-            .frame(minHeight: minHeight)
-            .overlay(alignment: .topLeading) {
-                if pasteJSON.isEmpty {
-                    Text(#"{"v":1,"node_id":"...","token":"...","relay":"https://..."}"#)
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textMuted)
-                        .padding(.top, 8)
-                        .padding(.leading, 4)
-                        .allowsHitTesting(false)
-                }
-            }
-
-        HStack {
-            Button("从剪贴板粘贴") {
-                if let clipboard = UIPasteboard.general.string {
-                    pasteJSON = PairPayloadInput.normalized(clipboard)
-                }
-            }
-            .litterFont(.footnote)
-            .foregroundColor(LitterTheme.accent)
-
-            Spacer()
-
-            Button(parsedParams == nil ? "解析 JSON" : "重新解析 JSON") {
-                handleScannedPayload(pasteJSON)
-            }
-            .litterFont(.footnote)
-            .foregroundColor(LitterTheme.accent)
-            .disabled(PairPayloadInput.normalized(pasteJSON).isEmpty)
-        }
-    }
-
-    private static let pairCommandLabel = "necode mobile"
 
     private func previewSection(params: AppAlleycatPairPayload) -> some View {
         Section {
@@ -364,7 +291,7 @@ struct AlleycatAddServerSheet: View {
                         .foregroundColor(LitterTheme.textSecondary)
                 }
             } else if agents.isEmpty {
-                Text("这台设备上暂无可用 Agent。")
+                Text("这台设备上暂无可用 NeCode Agent。")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textMuted)
             } else {
@@ -381,9 +308,6 @@ struct AlleycatAddServerSheet: View {
                                     Text(agent.displayName)
                                         .litterFont(.subheadline)
                                         .foregroundColor(agent.available ? LitterTheme.textPrimary : LitterTheme.textMuted)
-                                    if AgentRuntimeKind.isBetaAgentName(agent.name, displayName: agent.displayName) {
-                                        BetaBadge()
-                                    }
                                 }
                                 Text(wireLabel(agent.wire))
                                     .litterFont(.caption)
@@ -407,21 +331,7 @@ struct AlleycatAddServerSheet: View {
                 }
             }
         } header: {
-            HStack {
-                        Text("Agent")
-                Spacer()
-                if !availableAgents.isEmpty {
-                    Button(selectedAgents.count == availableAgents.count ? "全不选" : "全选") {
-                        if selectedAgents.count == availableAgents.count {
-                            selectedAgentNames = []
-                        } else {
-                            selectedAgentNames = Set(availableAgents.map(\.name))
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundColor(LitterTheme.accent)
-                }
-            }
+            Text("Agent")
                 .foregroundColor(LitterTheme.textSecondary)
         }
         .listRowBackground(LitterTheme.surface.opacity(0.6))
@@ -469,10 +379,6 @@ struct AlleycatAddServerSheet: View {
         .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
-    private var availableAgents: [AppAlleycatAgentInfo] {
-        agents.filter(\.available)
-    }
-
     private var selectedAgents: [AppAlleycatAgentInfo] {
         agents.filter { $0.available && selectedAgentNames.contains($0.name) }
     }
@@ -482,11 +388,8 @@ struct AlleycatAddServerSheet: View {
     }
 
     private func toggleAgentSelection(_ agent: AppAlleycatAgentInfo) {
-        if selectedAgentNames.contains(agent.name) {
-            selectedAgentNames.remove(agent.name)
-        } else {
-            selectedAgentNames.insert(agent.name)
-        }
+        guard agent.available, isNeCodeAgent(agent) else { return }
+        selectedAgentNames = [agent.name]
     }
 
     private func handleScannedPayload(_ raw: String) {
@@ -522,13 +425,13 @@ struct AlleycatAddServerSheet: View {
         Task {
             do {
                 let loaded = try await appModel.serverBridge.listAlleycatAgents(params: params)
-                let sorted = sortedAgentsForNeCode(loaded)
+                let sorted = sortedAgentsForNeCode(loaded).filter(isNeCodeAgent)
                 await MainActor.run {
                     guard parsedParams?.nodeId == params.nodeId else { return }
                     agents = sorted
                     selectedAgentNames = Set(
                         sorted
-                            .filter { $0.available && !AgentRuntimeKind.isBetaAgentName($0.name, displayName: $0.displayName) }
+                            .filter(\.available)
                             .map(\.name)
                     )
                     isLoadingAgents = false
@@ -646,10 +549,14 @@ struct AlleycatAddServerSheet: View {
     }
 
     private func agentPriority(_ agent: AppAlleycatAgentInfo) -> Int {
-        let name = agent.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if name == "necode" { return 0 }
-        if !agent.available { return 3 }
-        return AgentRuntimeKind.isBetaAgentName(agent.name, displayName: agent.displayName) ? 2 : 1
+        agent.available ? 0 : 1
+    }
+
+    private func isNeCodeAgent(_ agent: AppAlleycatAgentInfo) -> Bool {
+        [agent.name, agent.displayName].contains {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "necode"
+        }
     }
 
     private func shortNodeId(_ raw: String) -> String {

@@ -97,6 +97,25 @@ class HomeDashboardSupportTest {
     }
 
     @Test
+    fun voiceServerRecognizesNeCodeDisplayName() {
+        val necodeDisplayOnly = serverSnapshot(
+            serverId = "necode-display",
+            displayName = "NeCode",
+            isLocal = false,
+            runtimes = listOf(runtime(kind = "agent", displayName = "NeCode", available = true)),
+        )
+
+        assertEquals(
+            "necode-display",
+            HomeDashboardSupport.voiceTranscriptionServerId(
+                selectedProjectServerId = null,
+                selectedServerId = null,
+                servers = listOf(necodeDisplayOnly),
+            ),
+        )
+    }
+
+    @Test
     fun sessionTitleUsesFirstUserQuestionForUntitledSession() {
         val session = sessionSummary(
             title = "Untitled session",
@@ -196,11 +215,12 @@ class HomeDashboardSupportTest {
 
     private fun runtime(
         kind: String,
+        displayName: String = kind,
         available: Boolean,
     ) = AgentRuntimeInfo(
         kind = kind,
         name = kind,
-        displayName = kind,
+        displayName = displayName,
         available = available,
     )
 

@@ -267,8 +267,15 @@ enum HomeDashboardSupport {
         !server.isLocal
             && server.health == .connected
             && server.agentRuntimes.contains { runtime in
-                runtime.available && runtime.kind.lowercased() == "necode"
+                runtime.available && isNeCodeRuntime(runtime)
             }
+    }
+
+    private static func isNeCodeRuntime(_ runtime: AgentRuntimeInfo) -> Bool {
+        [runtime.kind, runtime.name, runtime.displayName].contains {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "necode"
+        }
     }
 
     private static func offlineServer(from saved: SavedServer) -> HomeDashboardServer {

@@ -580,6 +580,19 @@ struct TranscriptTurn: Identifiable, Equatable {
     }
 }
 
+enum ConversationTurnLoadingSupport {
+    static func shouldShowThinkingIndicator(
+        turn: TranscriptTurn,
+        isLastTurn: Bool,
+        threadStatus: ConversationStatus
+    ) -> Bool {
+        guard isLastTurn else { return false }
+        if case .thinking = threadStatus { return true }
+        return turn.items.contains(where: \.isUserItem)
+            && turn.items.allSatisfy(\.isUserItem)
+    }
+}
+
 private extension ConversationItem {
     var isFinalAnswerAssistantItem: Bool {
         switch content {

@@ -258,35 +258,10 @@ struct DiscoveryView: View {
                     subtitle: "扫描电脑端 NeCode mobile 显示的配对二维码。",
                     badge: "推荐",
                     icon: "qrcode.viewfinder",
-                    supportedAgents: Self.necodeMobileAgents,
                     isRecommended: true,
                     accessibilityID: "discovery.chooser.kittylitter"
                 ) {
                     showAlleycatSheet = true
-                }
-
-                chooserCard(
-                    title: "已连接电脑",
-                    subtitle: "连接当前账号下已经在线的电脑。",
-                    badge: nil,
-                    icon: "desktopcomputer",
-                    supportedAgents: [AgentRuntimeKind.codex],
-                    isRecommended: false,
-                    accessibilityID: "discovery.chooser.slingshot"
-                ) {
-                    showSlingshotHosts = true
-                }
-
-                chooserCard(
-                    title: "SSH 或 NeCode 服务地址",
-                    subtitle: "通过 SSH 连接，或粘贴 ws:// 服务地址。",
-                    badge: nil,
-                    icon: "terminal",
-                    supportedAgents: [AgentRuntimeKind.codex],
-                    isRecommended: false,
-                    accessibilityID: "discovery.chooser.manual"
-                ) {
-                    showManualEntry = true
                 }
 
                 Spacer(minLength: 8)
@@ -298,30 +273,11 @@ struct DiscoveryView: View {
         .scrollIndicators(.hidden)
     }
 
-    /// Canonical agent list shown on the kittylitter chooser card.
-    /// Mirrors the splash carousel order so cold-start branding stays
-    /// consistent. New agents added in the alleycat manifest still
-    /// surface on connected hosts via the real metadata store; this list
-    /// only seeds the pre-pair preview.
-    private static let necodeMobileAgents: [AgentRuntimeKind] = [
-        "necode",
-        "codex",
-        "pi",
-        "amp",
-        "opencode",
-        "claude",
-        "droid",
-        "hermes",
-        "devin",
-        "grok",
-    ]
-
     private func chooserCard(
         title: String,
         subtitle: String,
         badge: String?,
         icon: String,
-        supportedAgents: [AgentRuntimeKind],
         isRecommended: Bool,
         accessibilityID: String,
         action: @escaping () -> Void
@@ -376,10 +332,6 @@ struct DiscoveryView: View {
                         .foregroundColor(LitterTheme.textMuted)
                         .padding(.top, 10)
                 }
-
-                if !supportedAgents.isEmpty {
-                    supportedAgentsStrip(supportedAgents)
-                }
             }
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
@@ -398,24 +350,6 @@ struct DiscoveryView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID)
-    }
-
-    @ViewBuilder
-    private func supportedAgentsStrip(_ agents: [AgentRuntimeKind]) -> some View {
-        HStack(spacing: 8) {
-            Text("支持")
-                .litterFont(.caption2)
-                .foregroundColor(LitterTheme.textMuted)
-                .tracking(0.4)
-                .fixedSize(horizontal: true, vertical: false)
-            HStack(spacing: 5) {
-                ForEach(agents, id: \.self) { agent in
-                    AgentIconView(kind: agent, size: 18)
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                }
-            }
-            Spacer(minLength: 0)
-        }
     }
 
     // MARK: - Sections (legacy discovery list, retained for sheet plumbing)

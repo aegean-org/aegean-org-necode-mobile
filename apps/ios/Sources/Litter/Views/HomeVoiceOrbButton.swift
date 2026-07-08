@@ -21,7 +21,7 @@ struct HomeVoiceOrbButton: View {
     }
 
     private var iconColor: Color {
-        isStarting ? LitterTheme.accent : LitterTheme.textSecondary
+        LitterTheme.accent
     }
 
     private var strokeColor: Color {
