@@ -795,7 +795,7 @@ test-android:
 	@echo "==> Running Android tests..."
 	@cd $(ANDROID_DIR) && ./gradlew :app:testDebugUnitTest
 
-ios-release-prep: rust-ios-device-release alpine-fs xcgen
+ios-release-prep: rust-ios-device-release xcgen
 
 mac-release-prep: rust-mac-release xcgen
 

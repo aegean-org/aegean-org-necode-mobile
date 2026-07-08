@@ -43,9 +43,6 @@ packages:
   Hairball:
     url: https://github.com/dnakov/hairball.git
     branch: main
-  WebRTC:
-    url: https://github.com/stasel/WebRTC.git
-    exactVersion: "147.0.0"
   Nuke:
     url: https://github.com/kean/Nuke.git
     from: "12.8.0"
@@ -67,25 +64,29 @@ targets:
     sources:
       - path: Sources/Litter
         excludes:
+          - CarPlay/**
+          - Bridge/GhosttyBridge.m
+          - Bridge/GhosttyRendererBackendBridge.swift
+          - Models/IshFS.swift
+          - Models/RealtimeWebRtcSession.swift
+          - Models/TerminalSessionController.swift
+          - Models/UserMountStore.swift
+          - Models/VoiceRuntimeController.swift
+          - Models/WatchApprovalNotification.swift
+          - Models/WatchCompanionBridge.swift
+          - Models/WatchProjection.swift
+          - Views/GhosttyTerminalView.swift
+          - Views/MountedFoldersView.swift
+          - Views/RealtimeVoiceScreen.swift
+          - Views/TerminalScreen.swift
+          - Views/VoiceCallView.swift
           - "**/*.h"
       - path: Sources/Litter/Bridge/UniFFICodexClient.generated.swift
-      - path: Resources/fs
-        type: folder
-        buildPhase: resources
       - path: Sources/LitterLiveActivity/CodexTurnLiveActivity.swift
-      - path: Sources/LitterWatch/Models/WatchModels.swift
-      - path: Sources/LitterWatch/Models/WatchSize.swift
-      - path: Sources/LitterWatch/Models/WatchHapticDetector.swift
-      - path: Sources/LitterWatch/Models/WatchSnapshotStore.swift
-      - path: Sources/LitterWatch/Models/WatchDeepLinkRouter.swift
-      - path: Sources/LitterWatchComplications/LitterServerListPayload.swift
-      - path: Sources/LitterWatchComplications/LitterComplicationEntry.swift
-      - path: Sources/LitterWatchComplications/LitterRunningTurnPayload.swift
     resources:
       - path: Sources/Litter/Resources/Fonts
       - path: Sources/Litter/Resources/Themes
     dependencies:
-      - sdk: CarPlay.framework
       - sdk: CoreGraphics.framework
       - sdk: CoreText.framework
       - sdk: CoreVideo.framework
@@ -97,8 +98,6 @@ targets:
       - sdk: Network.framework
       - package: Hairball
         product: HairballUI
-      - package: WebRTC
-        product: WebRTC
       - package: Nuke
         product: Nuke
       - package: Nuke
@@ -116,9 +115,9 @@ targets:
         CODE_SIGN_STYLE: Automatic
       configs:
         Debug:
-          OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
+          OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client"
         Release:
-          OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client -lghostty"
+          OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lresolv -lcodex_mobile_client"
   LitterMac:
     type: application
     platform: auto

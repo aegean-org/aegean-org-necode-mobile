@@ -83,7 +83,6 @@ struct HomeDashboardView: View {
     @State private var zoomDirection: Int = 1
     @State private var renameServerTarget: HomeDashboardServer?
     @State private var renameServerText = ""
-    @State private var isShowingMountedFolders = false
     @State private var inputMode: HomeInputMode = .collapsed
     @State private var searchQuery = ""
     @State private var selectedSearchRuntimeKind: AgentRuntimeKind?
@@ -283,9 +282,6 @@ struct HomeDashboardView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $isShowingMountedFolders) {
-                MountedFoldersView()
-            }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(sidebarNavBarVisibility, for: .navigationBar)
@@ -472,7 +468,7 @@ struct HomeDashboardView: View {
                 renameServerTarget = server
             },
             onRemove: { server in onDisconnectServer?(server.id) },
-            onShowMountedFolders: { _ in isShowingMountedFolders = true },
+            onShowMountedFolders: { _ in },
             onAdd: onAddServer
         )
         .frame(maxWidth: .infinity)

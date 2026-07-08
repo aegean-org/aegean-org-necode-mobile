@@ -80,23 +80,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                 intentIdentifiers: [],
                 options: [.allowAnnouncement]
             ),
-            UNNotificationCategory(
-                identifier: WatchApprovalNotification.categoryIdentifier,
-                actions: [
-                    UNNotificationAction(
-                        identifier: WatchApprovalNotification.allowActionIdentifier,
-                        title: "Allow",
-                        options: []
-                    ),
-                    UNNotificationAction(
-                        identifier: WatchApprovalNotification.denyActionIdentifier,
-                        title: "Deny",
-                        options: [.destructive]
-                    ),
-                ],
-                intentIdentifiers: [],
-                options: [.customDismissAction]
-            ),
         ])
         OrientationResponder.shared.start()
         DispatchQueue.main.async {
@@ -104,14 +87,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
         showSplashWindow()
         scheduleKeyboardWarmup()
-        // Start pushing state to the paired Apple Watch, gated behind the
-        // experimental feature flag. Flip the `appleWatch` feature in
-        // Settings → Experimental Features to enable. No-op when disabled.
-        DispatchQueue.main.async {
-            if ExperimentalFeatures.shared.isEnabled(.appleWatch) {
-                WatchCompanionBridge.shared.start()
-            }
-        }
         return true
     }
 
@@ -267,29 +242,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             "user opened notification",
             payloadJson: notificationPayloadJson(response.notification.request.content.userInfo)
         )
-
-        let info = response.notification.request.content.userInfo
-        let actionId = response.actionIdentifier
-        if actionId == WatchApprovalNotification.allowActionIdentifier ||
-            actionId == WatchApprovalNotification.denyActionIdentifier,
-            let requestId = info[WatchApprovalNotification.requestIdKey] as? String {
-            let approve = actionId == WatchApprovalNotification.allowActionIdentifier
-            Task { @MainActor in
-                do {
-                    try await AppModel.shared.store.respondToApproval(
-                        requestId: requestId,
-                        decision: approve ? .accept : .decline
-                    )
-                } catch {
-                    LLog.error(
-                        "push",
-                        "approval action dispatch failed: \(error.localizedDescription)"
-                    )
-                }
-                completionHandler()
-            }
-            return
-        }
 
         if let key = AppLifecycleController.notificationThreadKey(
             from: response.notification.request.content.userInfo
@@ -674,7 +626,6 @@ private let conversationRouteSignpostLog = OSLog(
 
 private struct HomeNavigationView: View {
     @Environment(AppModel.self) private var appModel
-    @Environment(VoiceRuntimeController.self) private var voiceRuntime
     @Environment(AppState.self) private var appState
     @Environment(ConversationWarmupCoordinator.self) private var conversationWarmup
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -702,7 +653,6 @@ private struct HomeNavigationView: View {
     private enum HomeNavigationRoute: Hashable {
         case sessions(serverId: String, title: String)
         case conversation(ThreadKey)
-        case realtimeVoice(ThreadKey)
         case conversationInfo(ThreadKey)
         case wallpaperSelection(ThreadKey)
         case wallpaperAdjust(ThreadKey)
@@ -720,8 +670,6 @@ private struct HomeNavigationView: View {
         /// Saved-app detail, pushed when the user taps a home-screen thread
         /// that has saved apps (or when routed from the AppsList).
         case savedApp(appId: String)
-        /// Local on-device terminal backed by the shared Rust terminal session.
-        case terminal(preferredAlleycatNodeId: String?)
     }
 
     private var connectedServerOptions: [DirectoryPickerServerOption] {
@@ -739,12 +687,7 @@ private struct HomeNavigationView: View {
     }
 
     private var terminalLauncher: (() -> Void)? {
-        #if targetEnvironment(macCatalyst)
         return nil
-        #else
-        guard experimentalFeatures.isEnabled(.terminal) else { return nil }
-        return { navigationPath.append(.terminal(preferredAlleycatNodeId: nil)) }
-        #endif
     }
 
     private var pinnedThreadHydrationSignature: String {
@@ -868,19 +811,6 @@ private struct HomeNavigationView: View {
                         recordingUrl: recordingUrl,
                         bottomInset: bottomInset
                     )
-                case let .realtimeVoice(threadKey):
-                    RealtimeVoiceScreen(
-                        threadKey: threadKey,
-                        onEnd: {
-                            popCurrentRoute()
-                            Task { await voiceRuntime.stopActiveVoiceSession() }
-                        },
-                        onToggleSpeaker: {
-                            Task { try? await voiceRuntime.toggleActiveVoiceSessionSpeaker() }
-                        }
-                    )
-                    .toolbar(.hidden, for: .navigationBar)
-                    .background(LitterTheme.backgroundGradient.ignoresSafeArea())
                 case let .conversationInfo(threadKey):
                     ConversationInfoView(
                         threadKey: threadKey,
@@ -953,12 +883,6 @@ private struct HomeNavigationView: View {
                     AppsListView()
                 case .savedApp(let appId):
                     SavedAppDetailView(appId: appId)
-                case let .terminal(preferredAlleycatNodeId):
-                    TerminalScreen(
-                        cwd: preferredTerminalWorkingDirectory(),
-                        preferredAlleycatNodeId: preferredAlleycatNodeId
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -1143,39 +1067,8 @@ private struct HomeNavigationView: View {
         homeVoiceStartRequest += 1
     }
 
-    private func preferredTerminalWorkingDirectory() -> String? {
-        let current = appState.currentCwd.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !current.isEmpty { return current }
-
-        let stored = workDir.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !stored.isEmpty { return stored }
-
-        return nil
-    }
-
-    private func remoteShellLauncher(for serverId: String) -> (() -> Void)? {
-        guard experimentalFeatures.isEnabled(.terminal),
-              let nodeId = savedAlleycatNodeId(for: serverId) else {
-            return nil
-        }
-        return {
-            navigationPath.append(.terminal(preferredAlleycatNodeId: nodeId))
-        }
-    }
-
-    private func savedAlleycatNodeId(for serverId: String) -> String? {
-        guard let saved = SavedServerStore.rememberedServers().first(where: { $0.id == serverId }),
-              let nodeId = normalizedNonEmpty(saved.alleycatNodeId),
-              let token = try? AlleycatCredentialStore.shared.loadToken(nodeId: nodeId),
-              !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        return nodeId
-    }
-
-    private func normalizedNonEmpty(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
+    private func remoteShellLauncher(for _: String) -> (() -> Void)? {
+        nil
     }
 
     private func openServerSessions(_ server: HomeDashboardServer) {
@@ -1884,8 +1777,6 @@ private struct HomeNavigationView: View {
         }
 
         if case .conversation = navigationPath.last {
-            navigationPath.removeLast()
-        } else if case .realtimeVoice = navigationPath.last {
             navigationPath.removeLast()
         }
         navigationPath.append(.sessions(serverId: serverId, title: serverTitle(for: serverId)))
