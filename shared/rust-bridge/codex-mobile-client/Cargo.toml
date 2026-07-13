@@ -57,6 +57,8 @@ linkify = "0.10"
 unicode-segmentation = "1"
 
 [features]
+default = ["local-ios-runtime"]
+local-ios-runtime = ["dep:codex-apply-patch", "dep:ish-embed-host"]
 rpc-trace = []
 
 [dev-dependencies]
@@ -66,10 +68,10 @@ tempfile = "3"
 uniffi = { version = "0.31.0", features = ["build"] }
 
 [target.'cfg(all(target_os = "ios", not(target_abi = "macabi")))'.dependencies]
-codex-apply-patch = { workspace = true }
+codex-apply-patch = { workspace = true, optional = true }
 # iSH backend. Tracks the iSH repo's `main` branch — `cargo update -p
 # ish-embed-host` pulls the latest.
-ish-embed-host = { git = "https://github.com/dnakov/litter-ish.git", branch = "main" }
+ish-embed-host = { git = "https://github.com/dnakov/litter-ish.git", branch = "main", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

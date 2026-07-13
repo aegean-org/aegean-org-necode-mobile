@@ -36,7 +36,9 @@ MACABI_ONLY=0
 FAST_MACABI=0
 FORCE_BINDINGS=0
 SKIP_BINDINGS=0
+REMOTE_ONLY_IOS=0
 CARGO_FEATURES=""
+CARGO_FEATURES_REMOTE_ONLY=""
 PROFILE="release"
 CARGO_PROFILE_FLAG="--release"
 IOS_RUST_PROFILE="${IOS_RUST_PROFILE:-release}"
@@ -100,15 +102,25 @@ for arg in "$@"; do
     --skip-bindings)
       SKIP_BINDINGS=1
       ;;
+    --remote-only-ios)
+      REMOTE_ONLY_IOS=1
+      CARGO_FEATURES_REMOTE_ONLY="--no-default-features"
+      ;;
     --rpc-trace)
       CARGO_FEATURES="--features rpc-trace"
       ;;
     *)
-      echo "usage: $(basename "$0") [--preserve-current|--recorded-gitlink] [--device-only] [--fast-device] [--fast-sim] [--macabi-only] [--fast-macabi] [--force-bindings] [--skip-bindings] [--rpc-trace]" >&2
+      echo "usage: $(basename "$0") [--preserve-current|--recorded-gitlink] [--device-only] [--fast-device] [--fast-sim] [--macabi-only] [--fast-macabi] [--force-bindings] [--skip-bindings] [--remote-only-ios] [--rpc-trace]" >&2
       exit 1
       ;;
   esac
 done
+CARGO_FEATURE_ARGS="$CARGO_FEATURES_REMOTE_ONLY $CARGO_FEATURES"
+
+if [ "$REMOTE_ONLY_IOS" -eq 1 ] && [ "$MACABI_ONLY" -eq 1 ]; then
+  echo "ERROR: --remote-only-ios is only valid for iOS device/simulator lanes, not Mac Catalyst." >&2
+  exit 1
+fi
 
 PATCHES_WERE_APPLIED=()
 for PATCH_FILE in "${PATCH_FILES[@]}"; do
@@ -143,27 +155,27 @@ fi
 
 "$REPO_DIR/tools/scripts/update-alleycat-main.sh" --shared
 
-# libghostty static libs + headers must exist before the Rust crate is
-# compiled (codex-mobile-client links against them). Build them on demand
-# when missing so this script is self-sufficient for CI workflows that
-# invoke it directly (without going through the Makefile's stamp dep).
-LIBGHOSTTY_DEVICE_LIB="$GENERATED_DEVICE_DIR/libghostty.a"
-LIBGHOSTTY_SIM_LIB="$GENERATED_SIM_DIR/libghostty.a"
-LIBGHOSTTY_MACABI_LIB="$GENERATED_MACABI_DIR/libghostty.a"
-NEEDS_GHOSTTY=0
-if [ "$DEVICE_ONLY" -eq 1 ] && [ ! -f "$LIBGHOSTTY_DEVICE_LIB" ]; then
-  NEEDS_GHOSTTY=1
-elif [ "$SIM_ONLY" -eq 1 ] && [ ! -f "$LIBGHOSTTY_SIM_LIB" ]; then
-  NEEDS_GHOSTTY=1
-elif [ "$MACABI_ONLY" -eq 1 ] && [ ! -f "$LIBGHOSTTY_MACABI_LIB" ]; then
-  NEEDS_GHOSTTY=1
-elif [ "$DEVICE_ONLY" -eq 0 ] && [ "$SIM_ONLY" -eq 0 ] && [ "$MACABI_ONLY" -eq 0 ] &&
-  { [ ! -f "$LIBGHOSTTY_DEVICE_LIB" ] || [ ! -f "$LIBGHOSTTY_SIM_LIB" ] || [ ! -f "$LIBGHOSTTY_MACABI_LIB" ]; }; then
-  NEEDS_GHOSTTY=1
-fi
-if [ "$NEEDS_GHOSTTY" -eq 1 ]; then
-  echo "==> libghostty artifacts missing; building (use 'make ghostty-ios' to invoke with stamp caching)"
-  "$REPO_DIR/apps/ios/scripts/build-ghostty.sh"
+if [ "$REMOTE_ONLY_IOS" -eq 0 ]; then
+  # libghostty static libs + headers must exist before the Rust crate is
+  # compiled for lanes that still expose the terminal renderer.
+  LIBGHOSTTY_DEVICE_LIB="$GENERATED_DEVICE_DIR/libghostty.a"
+  LIBGHOSTTY_SIM_LIB="$GENERATED_SIM_DIR/libghostty.a"
+  LIBGHOSTTY_MACABI_LIB="$GENERATED_MACABI_DIR/libghostty.a"
+  NEEDS_GHOSTTY=0
+  if [ "$DEVICE_ONLY" -eq 1 ] && [ ! -f "$LIBGHOSTTY_DEVICE_LIB" ]; then
+    NEEDS_GHOSTTY=1
+  elif [ "$SIM_ONLY" -eq 1 ] && [ ! -f "$LIBGHOSTTY_SIM_LIB" ]; then
+    NEEDS_GHOSTTY=1
+  elif [ "$MACABI_ONLY" -eq 1 ] && [ ! -f "$LIBGHOSTTY_MACABI_LIB" ]; then
+    NEEDS_GHOSTTY=1
+  elif [ "$DEVICE_ONLY" -eq 0 ] && [ "$SIM_ONLY" -eq 0 ] && [ "$MACABI_ONLY" -eq 0 ] &&
+    { [ ! -f "$LIBGHOSTTY_DEVICE_LIB" ] || [ ! -f "$LIBGHOSTTY_SIM_LIB" ] || [ ! -f "$LIBGHOSTTY_MACABI_LIB" ]; }; then
+    NEEDS_GHOSTTY=1
+  fi
+  if [ "$NEEDS_GHOSTTY" -eq 1 ]; then
+    echo "==> libghostty artifacts missing; building (use 'make ghostty-ios' to invoke with stamp caching)"
+    "$REPO_DIR/apps/ios/scripts/build-ghostty.sh"
+  fi
 fi
 
 ensure_host_llvm_on_path() {
@@ -324,34 +336,35 @@ elif [ "$MACABI_ONLY" -eq 1 ]; then
 else
   rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-ios-macabi x86_64-apple-ios-macabi
 fi
-# litter-ish builds a small Linux supervisor into the embedded rootfs. Older
-# releases used i686, current releases use AArch64; keep both targets available
-# so the git-tracked dependency can move without breaking iOS/Catalyst builds.
-rustup target add i686-unknown-linux-musl aarch64-unknown-linux-musl
+# litter-ish builds a small Linux supervisor into the embedded rootfs. Remote-only
+# iOS builds disable that feature and do not need these Linux targets.
+if [ "$REMOTE_ONLY_IOS" -eq 0 ]; then
+  rustup target add i686-unknown-linux-musl aarch64-unknown-linux-musl
+fi
 
 if [ "$DEVICE_ONLY" -eq 1 ]; then
   echo "==> Building codex-mobile-client for aarch64-apple-ios ($PROFILE)..."
-  cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios --crate-type staticlib $CARGO_FEATURES
+  cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios --crate-type staticlib $CARGO_FEATURE_ARGS
   copy_device_artifact
 elif [ "$SIM_ONLY" -eq 1 ]; then
   echo "==> Building codex-mobile-client for aarch64-apple-ios-sim ($PROFILE)..."
-  cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-sim --crate-type staticlib $CARGO_FEATURES
+  cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-sim --crate-type staticlib $CARGO_FEATURE_ARGS
   copy_sim_artifact "$CARGO_TARGET_DIR_EFFECTIVE/aarch64-apple-ios-sim/$PROFILE/libcodex_mobile_client.a"
 elif [ "$MACABI_ONLY" -eq 1 ]; then
   if [ "$FAST_MACABI" -eq 1 ]; then
     echo "==> Building codex-mobile-client for $MACABI_HOST_TARGET ($PROFILE)..."
-    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target "$MACABI_HOST_TARGET" --crate-type staticlib $CARGO_FEATURES
+    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target "$MACABI_HOST_TARGET" --crate-type staticlib $CARGO_FEATURE_ARGS
     cp "$CARGO_TARGET_DIR_EFFECTIVE/$MACABI_HOST_TARGET/$PROFILE/libcodex_mobile_client.a" \
       "$GENERATED_MACABI_DIR/libcodex_mobile_client.a"
   else
     echo "==> Building codex-mobile-client for Mac Catalyst macabi targets ($PROFILE) in parallel..."
 
     build_macabi_arm64() {
-      cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURES
+      cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURE_ARGS
     }
 
     build_macabi_x86_64() {
-      cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target x86_64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURES
+      cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target x86_64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURE_ARGS
     }
 
     build_macabi_arm64 &
@@ -377,19 +390,19 @@ else
   echo "==> Building codex-mobile-client for device, simulator, and Catalyst macabi targets ($PROFILE) in parallel..."
 
   build_device() {
-    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios --crate-type staticlib $CARGO_FEATURES
+    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios --crate-type staticlib $CARGO_FEATURE_ARGS
   }
 
   build_sim() {
-    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-sim --crate-type staticlib $CARGO_FEATURES
+    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-sim --crate-type staticlib $CARGO_FEATURE_ARGS
   }
 
   build_macabi_arm64() {
-    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURES
+    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target aarch64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURE_ARGS
   }
 
   build_macabi_x86_64() {
-    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target x86_64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURES
+    cargo rustc --manifest-path "$RUST_BRIDGE_DIR/Cargo.toml" -p codex-mobile-client $CARGO_PROFILE_FLAG --target x86_64-apple-ios-macabi --crate-type staticlib $CARGO_FEATURE_ARGS
   }
 
   build_device &

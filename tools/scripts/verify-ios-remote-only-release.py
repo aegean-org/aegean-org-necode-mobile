@@ -36,6 +36,14 @@ def section_between(text: str, start: str, end: str) -> str:
     return text[start_index:end_index]
 
 
+def make_rule_body(makefile: str, target: str) -> str:
+    start = makefile.index(f"{target}:")
+    next_rule = makefile.find("\n\n", start)
+    if next_rule == -1:
+        return makefile[start:]
+    return makefile[start:next_rule]
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -175,6 +183,55 @@ def main() -> int:
                 ],
             )
         )
+        failures.extend(require(text, workflow, ["--remote-only-ios"]))
+
+    makefile = read("Makefile")
+    for target in (
+        "rust-ios-device-release",
+        "rust-ios-device-fast",
+        "rust-ios-sim-fast",
+    ):
+        failures.extend(forbid(make_rule_body(makefile, target), f"Makefile {target}", ["$(STAMP_GHOSTTY_IOS)"]))
+        failures.extend(require(make_rule_body(makefile, target), f"Makefile {target}", ["--remote-only-ios"]))
+
+    build_rust = read("apps/ios/scripts/build-rust.sh")
+    failures.extend(
+        require(
+            build_rust,
+            "apps/ios/scripts/build-rust.sh",
+            [
+                "REMOTE_ONLY_IOS=0",
+                "--remote-only-ios",
+                'CARGO_FEATURES_REMOTE_ONLY="--no-default-features"',
+                'if [ "$REMOTE_ONLY_IOS" -eq 0 ]; then',
+            ],
+        )
+    )
+
+    cargo_toml = read("shared/rust-bridge/codex-mobile-client/Cargo.toml")
+    failures.extend(
+        require(
+            cargo_toml,
+            "shared/rust-bridge/codex-mobile-client/Cargo.toml",
+            [
+                'default = ["local-ios-runtime"]',
+                'local-ios-runtime = ["dep:codex-apply-patch", "dep:ish-embed-host"]',
+                "optional = true",
+            ],
+        )
+    )
+
+    rust_lib = read("shared/rust-bridge/codex-mobile-client/src/lib.rs")
+    failures.extend(
+        require(
+            rust_lib,
+            "shared/rust-bridge/codex-mobile-client/src/lib.rs",
+            [
+                'feature = "local-ios-runtime"',
+                'detail: "iSH local runtime is not available in this build".into()',
+            ],
+        )
+    )
 
     if failures:
         print("iOS remote-only release verification failed:")

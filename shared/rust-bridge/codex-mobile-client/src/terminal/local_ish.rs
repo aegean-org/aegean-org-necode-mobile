@@ -1,4 +1,8 @@
-#[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
+#[cfg(all(
+    target_os = "ios",
+    not(target_abi = "macabi"),
+    feature = "local-ios-runtime"
+))]
 mod imp {
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -194,10 +198,18 @@ mod imp {
     }
 }
 
-#[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
+#[cfg(all(
+    target_os = "ios",
+    not(target_abi = "macabi"),
+    feature = "local-ios-runtime"
+))]
 pub(crate) use imp::open;
 
-#[cfg(not(all(target_os = "ios", not(target_abi = "macabi"))))]
+#[cfg(not(all(
+    target_os = "ios",
+    not(target_abi = "macabi"),
+    feature = "local-ios-runtime"
+)))]
 pub(crate) async fn open(
     _cwd: Option<String>,
     _size: super::session::TerminalSize,

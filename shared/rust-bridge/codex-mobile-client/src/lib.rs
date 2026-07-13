@@ -3,10 +3,18 @@
 //! This crate owns the single public UniFFI surface for mobile. Keep shared
 //! business logic here so Swift/Kotlin only compile one binding set.
 
-#[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
+#[cfg(all(
+    target_os = "ios",
+    not(target_abi = "macabi"),
+    feature = "local-ios-runtime"
+))]
 pub mod ish_exec;
 
-#[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
+#[cfg(all(
+    target_os = "ios",
+    not(target_abi = "macabi"),
+    feature = "local-ios-runtime"
+))]
 pub mod ish_runtime;
 
 // Always-compiled UniFFI-visible types. The host cdylib that
@@ -33,7 +41,11 @@ pub fn ish_bootstrap(
     application_support_dir: String,
     documents_dir: String,
 ) -> Result<(), IshBootstrapError> {
-    #[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
+    #[cfg(all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ))]
     {
         return ish_runtime::bootstrap(
             std::path::Path::new(&bundle_fs_path),
@@ -41,11 +53,15 @@ pub fn ish_bootstrap(
             std::path::Path::new(&documents_dir),
         );
     }
-    #[cfg(not(all(target_os = "ios", not(target_abi = "macabi"))))]
+    #[cfg(not(all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    )))]
     {
         let _ = (bundle_fs_path, application_support_dir, documents_dir);
         Err(IshBootstrapError::Unsupported {
-            detail: "iSH is iOS-only".into(),
+            detail: "iSH local runtime is not available in this build".into(),
         })
     }
 }
@@ -94,7 +110,11 @@ pub fn proot_bootstrap(
 /// platform" message so Swift callers can uniformly handle the failure.
 #[uniffi::export]
 pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
-    #[cfg(all(target_os = "ios", not(target_abi = "macabi")))]
+    #[cfg(all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ))]
     {
         let cwd_opt = if cwd.is_empty() {
             None
@@ -104,7 +124,11 @@ pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
         let (exit_code, output) = ish_runtime::run(&cmd, cwd_opt, None);
         return IshRunResult { exit_code, output };
     }
-    #[cfg(not(all(target_os = "ios", not(target_abi = "macabi"))))]
+    #[cfg(not(all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    )))]
     {
         let _ = (cmd, cwd);
         IshRunResult {
@@ -114,7 +138,14 @@ pub fn ish_run(cmd: String, cwd: String) -> IshRunResult {
     }
 }
 
-#[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
+#[cfg(any(
+    all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ),
+    test
+))]
 mod mobile_exec_command;
 mod shell_quoting;
 pub(crate) mod ssh_scripts;

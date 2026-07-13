@@ -79,7 +79,7 @@ jobs:
           export SCCACHE_ERROR_LOG="$RUNNER_TEMP/sccache-ios.log"
           trap 'status=$?; echo "==> sccache stats"; sccache --show-stats || true; if [ -f "$SCCACHE_ERROR_LOG" ]; then echo "==> sccache error log"; tail -200 "$SCCACHE_ERROR_LOG" || true; fi; exit $status' EXIT
           sccache --zero-stats || true
-          ./apps/ios/scripts/build-rust.sh --preserve-current --device-only
+          ./apps/ios/scripts/build-rust.sh --preserve-current --device-only --remote-only-ios
           make xcgen
           echo "==> sccache stats after iOS release prep"
           sccache --show-stats || true

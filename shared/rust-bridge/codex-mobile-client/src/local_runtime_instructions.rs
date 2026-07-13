@@ -41,7 +41,14 @@ pub(crate) fn splice_local_runtime_developer_instructions(
     })
 }
 
-#[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
+#[cfg(any(
+    all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ),
+    test
+))]
 fn should_apply_local_runtime_instructions(client: &MobileClient, server_id: &str) -> bool {
     client
         .app_store
@@ -51,12 +58,26 @@ fn should_apply_local_runtime_instructions(client: &MobileClient, server_id: &st
         .is_some_and(|server| server.is_local)
 }
 
-#[cfg(not(any(all(target_os = "ios", not(target_abi = "macabi")), test)))]
+#[cfg(not(any(
+    all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ),
+    test
+)))]
 fn should_apply_local_runtime_instructions(_client: &MobileClient, _server_id: &str) -> bool {
     false
 }
 
-#[cfg(any(all(target_os = "ios", not(target_abi = "macabi")), test))]
+#[cfg(any(
+    all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ),
+    test
+))]
 fn platform_local_runtime_instructions() -> Option<(&'static str, &'static str)> {
     Some((
         IOS_LOCAL_RUNTIME_SENTINEL,
@@ -64,7 +85,14 @@ fn platform_local_runtime_instructions() -> Option<(&'static str, &'static str)>
     ))
 }
 
-#[cfg(not(any(all(target_os = "ios", not(target_abi = "macabi")), test)))]
+#[cfg(not(any(
+    all(
+        target_os = "ios",
+        not(target_abi = "macabi"),
+        feature = "local-ios-runtime"
+    ),
+    test
+)))]
 fn platform_local_runtime_instructions() -> Option<(&'static str, &'static str)> {
     None
 }
