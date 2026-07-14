@@ -177,9 +177,8 @@ fun HomeDashboardScreen(
     var pinnedKeys by remember { mutableStateOf(SavedThreadsStore.pinnedKeys(context)) }
     var hiddenKeys by remember { mutableStateOf(SavedThreadsStore.hiddenKeys(context)) }
 
-    // Home list = pinned first (preserving pin order). If nothing is pinned,
-    // show the 10 most-recent sessions. Hidden threads are excluded from
-    // both halves.
+    // Home list = pinned first (preserving pin order), followed by recent
+    // unpinned sessions. Hidden threads are excluded from both halves.
     val homeSessions = remember(pinnedKeys, hiddenKeys, servers, allSessions) {
         HomeDashboardSupport.mergeHomeSessions(pinnedKeys, hiddenKeys, allSessions)
     }
@@ -1037,12 +1036,16 @@ fun HomeDashboardScreen(
                     scope.launch {
                         when (action) {
                             is ConfirmAction.DisconnectServer -> {
-                                SavedServerStore.remove(context, action.server.serverId)
-                                appModel.sshSessionStore.close(action.server.serverId)
-                                appModel.serverBridge.disconnectServer(action.server.serverId)
-                                appModel.refreshSnapshot()
+                                try {
+                                    appModel.removeServer(action.server.serverId)
+                                } catch (error: Exception) {
+                                    confirmAction = ConfirmAction.ServerRemovalError(
+                                        error.message ?: "Unable to remove this server.",
+                                    )
+                                }
                             }
-                            is ConfirmAction.ReplyError -> {
+                            is ConfirmAction.ReplyError,
+                            is ConfirmAction.ServerRemovalError -> {
                                 // Informational dialog only — "Confirm" just dismisses.
                             }
                         }
@@ -1355,6 +1358,11 @@ private sealed class ConfirmAction {
 
     data class ReplyError(val reason: String) : ConfirmAction() {
         override val title = "回复失败"
+        override val message = reason
+    }
+
+    data class ServerRemovalError(val reason: String) : ConfirmAction() {
+        override val title = "移除主机失败"
         override val message = reason
     }
 }

@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
+use std::time::Duration;
 use tokio::sync::{Mutex, broadcast};
+use tokio::time::MissedTickBehavior;
 use tracing::{debug, info, trace, warn};
 use url::Url;
 
@@ -14,9 +16,9 @@ use crate::alleycat::{
 use crate::discovery::{DiscoveredServer, DiscoveryConfig, DiscoveryService, MdnsSeed};
 use crate::session::connection::InProcessConfig;
 use crate::session::connection::{
-    RemoteSessionExtras, RuntimeRemoteSessionResource, ServerConfig, ServerEvent, ServerSession,
-    SlingshotReconnectTransport, SshReconnectTransport, connect_remote_client_over_slingshot,
-    remote_connect_args,
+    ConnectionHealth, RemoteSessionExtras, RuntimeRemoteSessionResource, ServerConfig, ServerEvent,
+    ServerSession, SlingshotReconnectTransport, SshReconnectTransport,
+    connect_remote_client_over_slingshot, remote_connect_args,
 };
 use crate::session::events::{EventProcessor, UiEvent};
 use crate::slingshot_url::build_slingshot_connection_url;
@@ -44,6 +46,8 @@ mod tests;
 mod thread_projection;
 mod voice_transcription;
 
+const REMOTE_THREAD_LIST_SYNC_INTERVAL: Duration = Duration::from_secs(3);
+
 use self::dynamic_tools::*;
 use self::store_listener::*;
 use self::thread_projection::*;
@@ -59,6 +63,11 @@ pub use self::thread_projection::{
 /// All methods are safe to call from any thread (`Send + Sync`).
 pub struct MobileClient {
     pub(crate) sessions: Arc<RwLock<HashMap<String, Arc<ServerSession>>>>,
+    /// Serializes connect/disconnect lifecycles per server. QR pairing can
+    /// overlap an app-resume saved-server reconnect; without a shared gate,
+    /// both callers can observe an empty session map and create independent
+    /// workers for the same Alleycat host.
+    server_connection_gates: Arc<StdMutex<HashMap<String, Arc<Mutex<()>>>>>,
     pub(crate) event_processor: Arc<EventProcessor>,
     pub app_store: Arc<AppStoreReducer>,
     pub agent_metadata: Arc<crate::store::AgentMetadataStore>,
@@ -711,6 +720,7 @@ impl MobileClient {
         );
         Self {
             sessions,
+            server_connection_gates: Arc::new(StdMutex::new(HashMap::new())),
             event_processor,
             app_store,
             agent_metadata: crate::store::AgentMetadataStore::new(),
@@ -1350,14 +1360,33 @@ impl MobileClient {
         }
     }
 
-    async fn replace_existing_session(&self, server_id: &str) {
+    fn server_connection_gate(&self, server_id: &str) -> Arc<Mutex<()>> {
+        match self.server_connection_gates.lock() {
+            Ok(mut gates) => Arc::clone(
+                gates
+                    .entry(server_id.to_string())
+                    .or_insert_with(|| Arc::new(Mutex::new(()))),
+            ),
+            Err(error) => {
+                let mut gates = error.into_inner();
+                Arc::clone(
+                    gates
+                        .entry(server_id.to_string())
+                        .or_insert_with(|| Arc::new(Mutex::new(()))),
+                )
+            }
+        }
+    }
+
+    async fn replace_existing_session(&self, server_id: &str) -> Result<(), TransportError> {
         self.clear_oauth_callback_tunnel(server_id).await;
         let existing = self.sessions_write().remove(server_id);
         self.clear_direct_resume_markers_for_server(server_id);
         if let Some(session) = existing {
             info!("MobileClient: replacing existing server session {server_id}");
-            session.disconnect().await;
+            session.disconnect().await?;
         }
+        Ok(())
     }
 
     /// Common post-`connect_remote_multiplexed` attach work shared by every
@@ -1403,7 +1432,7 @@ impl MobileClient {
             info!("MobileClient: reusing existing local server session {server_id}");
             return Ok(server_id);
         }
-        self.replace_existing_session(server_id.as_str()).await;
+        self.replace_existing_session(server_id.as_str()).await?;
         let session = Arc::new(ServerSession::connect_local(config, in_process).await?);
         self.app_store
             .upsert_server(session.config(), ServerHealthSnapshot::Connected);
@@ -1427,7 +1456,7 @@ impl MobileClient {
             info!("MobileClient: reusing existing remote server session {server_id}");
             return Ok(server_id);
         }
-        self.replace_existing_session(server_id.as_str()).await;
+        self.replace_existing_session(server_id.as_str()).await?;
         let session = Arc::new(ServerSession::connect_remote(config).await?);
         self.app_store
             .upsert_server(session.config(), ServerHealthSnapshot::Connected);
@@ -1644,7 +1673,7 @@ impl MobileClient {
         };
         self.app_store
             .upsert_server(&config, ServerHealthSnapshot::Connecting);
-        self.replace_existing_session(server_id.as_str()).await;
+        self.replace_existing_session(server_id.as_str()).await?;
 
         let (_, args) = remote_connect_args(&config);
         let initial_client = connect_slingshot_with_startup_retries(
@@ -1741,6 +1770,14 @@ impl MobileClient {
             "MobileClient: connect_remote_over_alleycat start server_id={} node_id={} agent={} selected_agents={:?} wire={:?}",
             server_id, params.node_id, agent_name, selected_agent_names, wire
         );
+        let visible_server_id = format!("alleycat:{}", params.node_id);
+        let server_id = if server_id.starts_with(&visible_server_id) {
+            visible_server_id
+        } else {
+            server_id
+        };
+        let connection_gate = self.server_connection_gate(server_id.as_str());
+        let _connection_guard = connection_gate.lock().await;
         let selected_agent_names = selected_agent_names
             .into_iter()
             .map(|name| name.trim().to_string())
@@ -1788,13 +1825,6 @@ impl MobileClient {
         };
         let requested_runtime_kinds = alleycat_requested_runtime_kinds(&runtime_agents);
         let requested_agent_names = alleycat_runtime_agent_names(&runtime_agents);
-        let visible_server_id = format!("alleycat:{}", params.node_id);
-        let server_id = if server_id.starts_with(&visible_server_id) {
-            visible_server_id
-        } else {
-            server_id
-        };
-
         // Short-circuit if a healthy session for this server already
         // exists. Otherwise the saved-server reconnect path can race with
         // `AlleycatReconnectTransport`'s own auto-retry: the transport
@@ -1859,7 +1889,7 @@ impl MobileClient {
         }
         self.app_store
             .upsert_server(&config, ServerHealthSnapshot::Connecting);
-        self.replace_existing_session(server_id.as_str()).await;
+        self.replace_existing_session(server_id.as_str()).await?;
 
         let endpoint = match self.alleycat_endpoint(params.relay.as_deref()).await {
             Ok(endpoint) => endpoint,
@@ -2013,7 +2043,7 @@ impl MobileClient {
         };
         self.app_store
             .upsert_server(&config, ServerHealthSnapshot::Connecting);
-        self.replace_existing_session(server_id.as_str()).await;
+        self.replace_existing_session(server_id.as_str()).await?;
 
         let (runtime_resources, runtime_infos) =
             crate::ssh_bridge::connect_runtime_resources_via_ssh(
@@ -2100,7 +2130,7 @@ impl MobileClient {
         // while the app is backgrounded even if the session health never
         // observed a clean disconnect. Prefer replacing any existing session
         // so resume can rebuild the full SSH transport.
-        self.replace_existing_session(server_id.as_str()).await;
+        self.replace_existing_session(server_id.as_str()).await?;
 
         let ssh_client = Arc::new(
             SshClient::connect(
@@ -2374,7 +2404,9 @@ impl MobileClient {
     /// server was already disconnected or never connected this launch).
     /// Otherwise removing a disconnected server pill from the UI would be a
     /// no-op because the snapshot would still carry it.
-    pub fn disconnect_server(&self, server_id: &str) {
+    pub async fn disconnect_server(&self, server_id: &str) -> Result<(), TransportError> {
+        let connection_gate = self.server_connection_gate(server_id);
+        let _connection_guard = connection_gate.lock().await;
         let session = self.sessions_write().remove(server_id);
         self.clear_direct_resume_markers_for_server(server_id);
         match self.alleycat_restart_targets.lock() {
@@ -2386,16 +2418,12 @@ impl MobileClient {
             }
         }
         self.app_store.remove_server(server_id);
-
-        let inner = Arc::clone(&self.oauth_callback_tunnels);
-        let server_id_owned = server_id.to_string();
-        Self::spawn_detached(async move {
-            inner.lock().await.remove(&server_id_owned);
-            if let Some(session) = session {
-                session.disconnect().await;
-            }
-        });
+        self.clear_oauth_callback_tunnel(server_id).await;
+        if let Some(session) = session {
+            session.disconnect().await?;
+        }
         info!("MobileClient: disconnected server {server_id}");
+        Ok(())
     }
 
     pub async fn restart_app_server(&self, server_id: &str) -> Result<(), TransportError> {
@@ -2421,7 +2449,7 @@ impl MobileClient {
         };
 
         info!("MobileClient: restarting app server {server_id}");
-        session.restart_app_server_and_disconnect().await;
+        session.restart_app_server_and_disconnect().await?;
         Ok(())
     }
 
@@ -2485,6 +2513,12 @@ impl MobileClient {
     }
 
     fn spawn_post_connect_warmup(&self, server_id: String, session: Arc<ServerSession>) {
+        run_remote_thread_list_sync(
+            Arc::clone(&self.app_store),
+            server_id.clone(),
+            Arc::clone(&session),
+            REMOTE_THREAD_LIST_SYNC_INTERVAL,
+        );
         run_connect_warmup(
             Arc::clone(&self.sessions),
             Arc::clone(&self.app_store),
@@ -3940,6 +3974,46 @@ pub(super) fn run_connect_warmup(
             Ok(()) => trace!("MobileClient: {label} account sync completed server_id={server_id}"),
             Err(error) => {
                 warn!("MobileClient: {label} account sync failed server_id={server_id}: {error}")
+            }
+        }
+    });
+}
+
+pub(super) fn run_remote_thread_list_sync(
+    app_store: Arc<AppStoreReducer>,
+    server_id: String,
+    session: Arc<ServerSession>,
+    interval_duration: Duration,
+) {
+    if session.config().is_local {
+        return;
+    }
+    MobileClient::spawn_detached(async move {
+        let mut health = session.health();
+        let mut interval = tokio::time::interval(interval_duration);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            if matches!(*health.borrow(), ConnectionHealth::Disconnected) {
+                break;
+            }
+            tokio::select! {
+                changed = health.changed() => {
+                    if changed.is_err() || matches!(*health.borrow(), ConnectionHealth::Disconnected) {
+                        break;
+                    }
+                }
+                _ = interval.tick() => {
+                    if !matches!(*health.borrow(), ConnectionHealth::Connected) {
+                        continue;
+                    }
+                    if let Err(error) = refresh_thread_list_from_app_server(
+                        Arc::clone(&session),
+                        Arc::clone(&app_store),
+                        server_id.as_str(),
+                    ).await {
+                        warn!("MobileClient: remote thread list sync failed server_id={server_id}: {error}");
+                    }
+                }
             }
         }
     });

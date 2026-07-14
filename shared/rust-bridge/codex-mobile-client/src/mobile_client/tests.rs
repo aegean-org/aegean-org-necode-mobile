@@ -6,7 +6,9 @@ mod mobile_client_tests {
     use crate::types::{PendingUserInputOption, PendingUserInputQuestion};
     use serde_json::json;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
+    use std::time::Duration;
 
     #[test]
     fn account_sync_warmup_only_runs_when_codex_runtime_is_present() {
@@ -21,6 +23,68 @@ mod mobile_client_tests {
             "opencode".to_string(),
         ]));
         assert!(!runtime_kinds_support_account_sync(&[]));
+    }
+
+    #[tokio::test]
+    async fn remote_thread_list_sync_discovers_cli_threads_and_stops_on_disconnect() {
+        let client = MobileClient::new();
+        let server_id = "srv";
+        let config = make_server_config(server_id);
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let handler: TestRequestHandler = {
+            let request_count = Arc::clone(&request_count);
+            Arc::new(move |request| {
+                if request.method() != "thread/list" {
+                    return Err(RpcError::Deserialization(format!(
+                        "unexpected request in test: {}",
+                        request.method()
+                    )));
+                }
+                request_count.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({
+                    "data": [{
+                        "id": "cli-thread", "preview": "CLI thread", "ephemeral": false,
+                        "modelProvider": "necode", "createdAt": 1, "updatedAt": 2,
+                        "status": { "type": "idle" }, "path": "", "cwd": "D:\\project",
+                        "cliVersion": "", "source": "appServer", "threadSource": null,
+                        "forkedFromId": null, "agentNickname": null, "agentRole": null,
+                        "gitInfo": null, "name": "CLI thread", "turns": []
+                    }],
+                    "nextCursor": null, "backwardsCursor": null
+                }))
+            })
+        };
+        let session = Arc::new(ServerSession::test_stub_with_runtime_handlers(
+            config.clone(),
+            vec![("necode".to_string(), handler)],
+        ));
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        client
+            .sessions_write()
+            .insert(server_id.to_string(), Arc::clone(&session));
+        client.spawn_post_connect_warmup(server_id.to_string(), Arc::clone(&session));
+
+        let key = ThreadKey {
+            server_id: server_id.to_string(),
+            thread_id: "cli-thread".to_string(),
+        };
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while !client.app_store.snapshot().threads.contains_key(&key) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("remote thread list sync should discover CLI-created threads");
+
+        session
+            .disconnect()
+            .await
+            .expect("test session should disconnect");
+        let count_after_disconnect = request_count.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(3_100)).await;
+        assert_eq!(request_count.load(Ordering::SeqCst), count_after_disconnect);
     }
 
     fn make_thread_info(id: &str) -> ThreadInfo {
@@ -66,6 +130,77 @@ mod mobile_client_tests {
             is_local: false,
             tls: false,
         }
+    }
+
+    #[tokio::test]
+    async fn disconnect_server_waits_for_session_shutdown() {
+        let client = Arc::new(MobileClient::new());
+        let server_id = "srv";
+        let config = make_server_config(server_id);
+        let (session, shutdown_started, shutdown_release) =
+            ServerSession::test_stub_with_shutdown_barrier(config.clone());
+        client
+            .app_store
+            .upsert_server(&config, ServerHealthSnapshot::Connected);
+        client
+            .sessions
+            .write()
+            .expect("sessions lock should not be poisoned")
+            .insert(server_id.to_string(), Arc::new(session));
+
+        let disconnect_client = Arc::clone(&client);
+        let disconnect =
+            tokio::spawn(async move { disconnect_client.disconnect_server(server_id).await });
+        shutdown_started
+            .await
+            .expect("disconnect should send the shutdown command");
+
+        assert!(
+            !disconnect.is_finished(),
+            "disconnect must remain pending until the session worker exits"
+        );
+        shutdown_release
+            .send(())
+            .expect("shutdown worker should still be waiting");
+        disconnect
+            .await
+            .expect("disconnect task should complete after shutdown")
+            .expect("session shutdown should succeed");
+
+        assert!(
+            !client
+                .sessions
+                .read()
+                .expect("sessions lock should not be poisoned")
+                .contains_key(server_id)
+        );
+        assert!(!client.app_store.snapshot().servers.contains_key(server_id));
+    }
+
+    #[tokio::test]
+    async fn server_connection_gate_serializes_same_server_lifecycle() {
+        let client = Arc::new(MobileClient::new());
+        let first_gate = client.server_connection_gate("srv");
+        let first_guard = first_gate.lock_owned().await;
+
+        let second_client = Arc::clone(&client);
+        let mut second = tokio::spawn(async move {
+            let gate = second_client.server_connection_gate("srv");
+            let _guard = gate.lock_owned().await;
+        });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut second)
+                .await
+                .is_err(),
+            "a second lifecycle for the same server must wait for the first"
+        );
+
+        drop(first_guard);
+        tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("queued lifecycle should proceed after the first releases the gate")
+            .expect("queued lifecycle task should complete");
     }
 
     fn make_model_info(

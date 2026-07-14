@@ -566,9 +566,7 @@ fun DiscoveryScreen(
             ChooserCard(
                 title = "扫码连接 NeCode",
                 subtitle = "扫描电脑端 NeCode mobile 显示的配对二维码。",
-                badge = "推荐",
                 icon = Icons.Default.QrCodeScanner,
-                isRecommended = true,
                 onClick = { showAlleycatSheet = true },
             )
         }
@@ -903,29 +901,19 @@ fun DiscoveryScreen(
 private fun ChooserCard(
     title: String,
     subtitle: String,
-    badge: String?,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isRecommended: Boolean,
     onClick: () -> Unit,
 ) {
-    val borderColor = if (isRecommended) {
-        LitterTheme.accent.copy(alpha = 0.45f)
-    } else {
-        LitterTheme.accent.copy(alpha = 0.18f)
-    }
-    val backgroundColor = if (isRecommended) {
-        LitterTheme.surface.copy(alpha = 0.85f)
-    } else {
-        LitterTheme.surface.copy(alpha = 0.6f)
-    }
-    val iconBubble = LitterTheme.accent.copy(alpha = if (isRecommended) 0.16f else 0.10f)
+    val borderColor = LitterTheme.accent.copy(alpha = 0.18f)
+    val backgroundColor = LitterTheme.surface.copy(alpha = 0.6f)
+    val iconBubble = LitterTheme.accent.copy(alpha = 0.10f)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(backgroundColor, RoundedCornerShape(14.dp))
             .border(
-                width = if (isRecommended) 1.dp else 0.8.dp,
+                width = 0.8.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(14.dp),
             )
@@ -966,29 +954,6 @@ private fun ChooserCard(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (badge != null) {
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    LitterTheme.accent.copy(alpha = 0.14f),
-                                    RoundedCornerShape(50),
-                                )
-                                .border(
-                                    width = 0.6.dp,
-                                    color = LitterTheme.accent.copy(alpha = 0.45f),
-                                    shape = RoundedCornerShape(50),
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = badge,
-                                color = LitterTheme.accent,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.5.sp,
-                            )
-                        }
-                    }
                 }
                 Text(
                     text = subtitle,

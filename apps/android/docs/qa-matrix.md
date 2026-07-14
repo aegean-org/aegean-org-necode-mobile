@@ -122,7 +122,7 @@ disconnects and re-establishes the chosen transport.
 | Switch to SSH + Save & Reconnect | Persists, dismisses editor, opens `SSHLoginSheet`; connect uses `serverBridge.startRemoteOverSshConnect` | Persists, dismisses editor, opens shared `SSHLoginDialog`; connect uses `serverBridge.startRemoteOverSshConnect` |
 | Validation errors surface inline | Alert "Invalid Server" with localized reason, dismiss returns to editor | Same — `AlertDialog` with reason; dismiss returns to editor |
 | Save (no reconnect) | Persists `SavedServerStore` + calls `store.renameServer`, leaves connection intact | Same |
-| Remove server | `SavedServerStore.remove` + closes SSH session + disconnects bridge | Same |
+| Remove server | Awaits bridge disconnect, then removes `SavedServerStore`, deletes the saved Alleycat token, closes SSH state, and refreshes the projection | Same |
 
 ## Sidebar + Picker Parity Checklist (iOS + Android)
 

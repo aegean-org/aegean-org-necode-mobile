@@ -580,6 +580,7 @@ pub(super) async fn refresh_thread_list_from_app_server(
     let runtime_kinds = session.runtime_kinds();
 
     let mut incoming_ids = HashSet::new();
+    let mut sync_error = None;
     for runtime_kind in runtime_kinds {
         let mut cursor = None;
         loop {
@@ -593,6 +594,7 @@ pub(super) async fn refresh_thread_list_from_app_server(
                             "thread/list failed for runtime {:?} on server {}: {}",
                             runtime_kind, server_id, error
                         );
+                        sync_error.get_or_insert(error);
                         break;
                     }
                 };
@@ -606,6 +608,9 @@ pub(super) async fn refresh_thread_list_from_app_server(
         }
     }
 
+    if let Some(error) = sync_error {
+        return Err(error);
+    }
     app_store.finalize_thread_list_sync(server_id, &incoming_ids);
     Ok(())
 }

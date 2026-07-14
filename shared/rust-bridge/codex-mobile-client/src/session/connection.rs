@@ -512,7 +512,7 @@ pub struct ServerSession {
     event_tx: broadcast::Sender<ServerEvent>,
     ssh_client: Option<Arc<SshClient>>,
     ssh_pid: Option<Arc<StdMutex<Option<u32>>>>,
-    worker_handle: tokio::task::JoinHandle<()>,
+    worker_handle: StdMutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 #[cfg(test)]
@@ -826,7 +826,7 @@ impl ServerSession {
             event_tx,
             ssh_client: None,
             ssh_pid: None,
-            worker_handle,
+            worker_handle: StdMutex::new(Some(worker_handle)),
         })
     }
 
@@ -925,7 +925,7 @@ impl ServerSession {
             event_tx,
             ssh_client: extras.ssh_client,
             ssh_pid: extras.ssh_pid,
-            worker_handle,
+            worker_handle: StdMutex::new(Some(worker_handle)),
         })
     }
 
@@ -1175,17 +1175,17 @@ impl ServerSession {
     }
 
     /// Disconnect from the server, shutting down all background tasks.
-    pub async fn disconnect(&self) {
-        self.disconnect_inner(false).await;
+    pub async fn disconnect(&self) -> Result<(), TransportError> {
+        self.disconnect_inner(false).await
     }
 
     /// Disconnect and force-stop the remote app-server listener even when
     /// this session reused an existing process whose PID was not tracked.
-    pub async fn restart_app_server_and_disconnect(&self) {
-        self.disconnect_inner(true).await;
+    pub async fn restart_app_server_and_disconnect(&self) -> Result<(), TransportError> {
+        self.disconnect_inner(true).await
     }
 
-    async fn disconnect_inner(&self, kill_reused_app_server: bool) {
+    async fn disconnect_inner(&self, kill_reused_app_server: bool) -> Result<(), TransportError> {
         let _ = self.health_tx.send(ConnectionHealth::Disconnected);
         let _ = self.command_tx.send(SessionCommand::Shutdown).await;
         for tx in self.runtime_command_txs.values() {
@@ -1225,10 +1225,19 @@ impl ServerSession {
             }
             ssh_client.disconnect().await;
         }
-        // Give the worker a moment to shut down gracefully.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        self.worker_handle.abort();
+        let worker_handle = match self.worker_handle.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(error) => error.into_inner().take(),
+        };
+        if let Some(worker_handle) = worker_handle {
+            worker_handle.await.map_err(|error| {
+                TransportError::ConnectionFailed(format!(
+                    "session worker failed during shutdown: {error}"
+                ))
+            })?;
+        }
         info!("server session disconnected: {}", self.config.display_name);
+        Ok(())
     }
 }
 
@@ -1906,6 +1915,38 @@ impl ServerSession {
         Self::test_stub_with_handlers(config, None, None, None)
     }
 
+    pub(crate) fn test_stub_with_shutdown_barrier(
+        config: ServerConfig,
+    ) -> (Self, oneshot::Receiver<()>, oneshot::Sender<()>) {
+        let (health_tx, health_rx) = watch::channel(ConnectionHealth::Connected);
+        let (command_tx, mut command_rx) = mpsc::channel(16);
+        let (event_tx, _) = broadcast::channel(16);
+        let (shutdown_started_tx, shutdown_started_rx) = oneshot::channel();
+        let (shutdown_release_tx, shutdown_release_rx) = oneshot::channel();
+        let worker_handle = tokio::spawn(async move {
+            while let Some(command) = command_rx.recv().await {
+                if matches!(command, SessionCommand::Shutdown) {
+                    let _ = shutdown_started_tx.send(());
+                    let _ = shutdown_release_rx.await;
+                    break;
+                }
+            }
+        });
+        let session = Self {
+            config,
+            health_tx,
+            health_rx,
+            command_tx,
+            runtime_command_txs: std::collections::HashMap::new(),
+            runtime_transports: Vec::new(),
+            event_tx,
+            ssh_client: None,
+            ssh_pid: None,
+            worker_handle: StdMutex::new(Some(worker_handle)),
+        };
+        (session, shutdown_started_rx, shutdown_release_tx)
+    }
+
     pub(crate) fn test_stub_with_handlers(
         config: ServerConfig,
         request_handler: Option<TestRequestHandler>,
@@ -1973,7 +2014,7 @@ impl ServerSession {
             event_tx,
             ssh_client: None,
             ssh_pid: None,
-            worker_handle,
+            worker_handle: StdMutex::new(Some(worker_handle)),
         }
     }
 
@@ -2009,7 +2050,7 @@ impl ServerSession {
             event_tx,
             ssh_client: None,
             ssh_pid: None,
-            worker_handle,
+            worker_handle: StdMutex::new(Some(worker_handle)),
         }
     }
 
@@ -2045,7 +2086,7 @@ impl ServerSession {
             event_tx,
             ssh_client: None,
             ssh_pid: None,
-            worker_handle,
+            worker_handle: StdMutex::new(Some(worker_handle)),
         }
     }
 }

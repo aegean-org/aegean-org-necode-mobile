@@ -620,11 +620,27 @@ class AppModel private constructor(context: android.content.Context) {
         _snapshot.value = current.copy(sessionSummaries = updatedSummaries)
     }
 
+    /** Removes a host after its shared transport has completed shutdown. */
+    suspend fun removeServer(serverId: String) {
+        val savedServer = SavedServerStore.load(appContext).firstOrNull { it.id == serverId }
+        executeServerRemoval(
+            ServerRemovalOperations(
+                disconnect = { serverBridge.disconnectServer(serverId) },
+                removeSavedServer = { SavedServerStore.remove(appContext, serverId) },
+                deleteAlleycatToken = {
+                    savedServer?.alleycatNodeId?.let(alleycatCredentials::deleteToken)
+                },
+                closeSshSession = { sshSessionStore.close(serverId) },
+                refreshProjection = { refreshSnapshot() },
+            ),
+        )
+    }
+
     suspend fun restartLocalServer() {
         val currentLocal = snapshot.value?.servers?.firstOrNull { it.isLocal }
         val serverId = currentLocal?.serverId ?: "local"
         val displayName = currentLocal?.displayName ?: appContext.getString(R.string.local_device_display_name)
-        runCatching { serverBridge.disconnectServer(serverId) }
+        serverBridge.disconnectServer(serverId)
         serverBridge.connectLocalServer(
             serverId = serverId,
             displayName = displayName,

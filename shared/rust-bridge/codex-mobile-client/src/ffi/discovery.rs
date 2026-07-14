@@ -328,8 +328,12 @@ impl ServerBridge {
         })
     }
 
-    pub fn disconnect_server(&self, server_id: String) {
-        self.inner.disconnect_server(&server_id);
+    pub async fn disconnect_server(&self, server_id: String) -> Result<(), ClientError> {
+        blocking_async!(self.rt, self.inner, |c| {
+            c.disconnect_server(&server_id)
+                .await
+                .map_err(|error| ClientError::Transport(error.to_string()))
+        })
     }
 
     pub async fn restart_app_server(&self, server_id: String) -> Result<(), ClientError> {

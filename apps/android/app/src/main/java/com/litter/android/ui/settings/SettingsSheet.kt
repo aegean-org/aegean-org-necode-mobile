@@ -173,6 +173,7 @@ private fun SettingsTopLevel(
 
     var editTarget by remember { mutableStateOf<AppServerSnapshot?>(null) }
     var sshReconnectTarget by remember { mutableStateOf<SavedServer?>(null) }
+    var serverRemovalError by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -253,10 +254,11 @@ private fun SettingsTopLevel(
                     },
                     onRemove = {
                         scope.launch {
-                            SavedServerStore.remove(context, server.serverId)
-                            appModel.sshSessionStore.close(server.serverId)
-                            appModel.serverBridge.disconnectServer(server.serverId)
-                            appModel.refreshSnapshot()
+                            try {
+                                appModel.removeServer(server.serverId)
+                            } catch (error: Exception) {
+                                serverRemovalError = error.message ?: "无法移除这台主机。"
+                            }
                         }
                     },
                 )
@@ -264,6 +266,19 @@ private fun SettingsTopLevel(
         }
 
         item { Spacer(Modifier.height(32.dp)) }
+    }
+
+    serverRemovalError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { serverRemovalError = null },
+            title = { Text("无法移除设备") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { serverRemovalError = null }) {
+                    Text("确定")
+                }
+            },
+        )
     }
 
     renameTarget?.let { server ->

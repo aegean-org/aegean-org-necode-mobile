@@ -158,6 +158,34 @@ class HomeDashboardSupportTest {
         assertEquals(listOf(liveSession), merged)
     }
 
+    @Test
+    fun mergeHomeSessionsKeepsPinnedFirstAndIncludesNewRecentSessions() {
+        val pinnedSession = sessionSummary(
+            title = "Pinned",
+            preview = "",
+            lastUserMessage = "pinned",
+            cwd = "D:\\project\\alleycat",
+            threadId = "pinned-thread",
+            updatedAt = 10L,
+        )
+        val cliSession = sessionSummary(
+            title = "CLI session",
+            preview = "",
+            lastUserMessage = "new from CLI",
+            cwd = "D:\\project\\alleycat",
+            threadId = "cli-thread",
+            updatedAt = 20L,
+        )
+
+        val merged = HomeDashboardSupport.mergeHomeSessions(
+            pinned = listOf(PinnedThreadKey(serverId = "server", threadId = "pinned-thread")),
+            hidden = emptyList(),
+            allSessions = listOf(cliSession, pinnedSession),
+        )
+
+        assertEquals(listOf(pinnedSession, cliSession), merged)
+    }
+
     private fun snapshotRecord(
         servers: List<AppServerSnapshot>,
         sessions: List<AppSessionSummary> = emptyList(),

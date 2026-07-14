@@ -5,6 +5,26 @@ extension Notification.Name {
     static let litterSavedServersDidChange = Notification.Name("litterSavedServersDidChange")
 }
 
+/// Operations required to remove one host without racing its active transport teardown.
+@MainActor
+struct ServerRemovalOperations {
+    let disconnect: () async throws -> Void
+    let removeSavedServer: () async throws -> Void
+    let deleteAlleycatToken: () async throws -> Void
+    let closeSshSession: () async throws -> Void
+    let refreshProjection: () async throws -> Void
+}
+
+/// Executes host removal only after the shared transport reports complete shutdown.
+@MainActor
+func executeServerRemoval(_ operations: ServerRemovalOperations) async throws {
+    try await operations.disconnect()
+    try await operations.removeSavedServer()
+    try await operations.deleteAlleycatToken()
+    try await operations.closeSshSession()
+    try await operations.refreshProjection()
+}
+
 @MainActor
 enum SavedServerStore {
     private static let savedServersKey = "codex_saved_servers"

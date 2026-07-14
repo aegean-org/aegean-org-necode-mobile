@@ -493,7 +493,9 @@ async fn reconnect_server_inner(
             is_local: true,
             tls: false,
         };
-        inner.disconnect_server(&server_id);
+        if let Err(error) = inner.disconnect_server(&server_id).await {
+            return reconnect_disconnect_failure(server_id, error);
+        }
         return match inner
             .connect_local(config, InProcessConfig::default())
             .await
@@ -513,7 +515,9 @@ async fn reconnect_server_inner(
         };
     }
 
-    inner.disconnect_server(&server_id);
+    if let Err(error) = inner.disconnect_server(&server_id).await {
+        return reconnect_disconnect_failure(server_id, error);
+    }
 
     if let Some(server) = saved_server {
         let credential_provider = credential_provider.lock().await;
@@ -570,6 +574,18 @@ async fn reconnect_server_inner(
         success: false,
         needs_local_auth_restore: false,
         error_message: Some("server not found in saved list or snapshot".to_string()),
+    }
+}
+
+fn reconnect_disconnect_failure(
+    server_id: String,
+    error: crate::transport::TransportError,
+) -> ReconnectResult {
+    ReconnectResult {
+        server_id,
+        success: false,
+        needs_local_auth_restore: false,
+        error_message: Some(error.to_string()),
     }
 }
 

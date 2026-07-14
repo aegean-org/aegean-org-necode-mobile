@@ -1,6 +1,9 @@
 package com.litter.android
 
 import com.litter.android.state.SavedServer
+import com.litter.android.state.ServerRemovalOperations
+import com.litter.android.state.executeServerRemoval
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +11,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SavedServerTransportTest {
+    @Test
+    fun serverRemovalRunsDisconnectBeforeLocalCleanup() = runBlocking {
+        val events = mutableListOf<String>()
+
+        executeServerRemoval(
+            ServerRemovalOperations(
+                disconnect = { events += "disconnect" },
+                removeSavedServer = { events += "remove-saved" },
+                deleteAlleycatToken = { events += "delete-token" },
+                closeSshSession = { events += "close-ssh" },
+                refreshProjection = { events += "refresh" },
+            ),
+        )
+
+        assertEquals(
+            listOf("disconnect", "remove-saved", "delete-token", "close-ssh", "refresh"),
+            events,
+        )
+    }
+
+    @Test
+    fun serverRemovalPreservesLocalStateWhenDisconnectFails() = runBlocking {
+        val events = mutableListOf<String>()
+
+        val error = runCatching {
+            executeServerRemoval(
+                ServerRemovalOperations(
+                    disconnect = {
+                        events += "disconnect"
+                        error("shutdown failed")
+                    },
+                    removeSavedServer = { events += "remove-saved" },
+                    deleteAlleycatToken = { events += "delete-token" },
+                    closeSshSession = { events += "close-ssh" },
+                    refreshProjection = { events += "refresh" },
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertEquals("shutdown failed", error?.message)
+        assertEquals(listOf("disconnect"), events)
+    }
+
     @Test
     fun codexAndSshDiscoveryRequiresChoiceUntilPreferenceIsSet() {
         val server =

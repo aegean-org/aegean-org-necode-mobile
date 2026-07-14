@@ -128,15 +128,21 @@ object HomeDashboardSupport {
         val candidates = allSessions.filter { session ->
             PinnedThreadKey(serverId = session.key.serverId, threadId = session.key.threadId) !in hiddenSet
         }
-        if (pinned.isEmpty()) return candidates.take(10)
-
         val byKey = candidates.associateBy { session ->
             PinnedThreadKey(serverId = session.key.serverId, threadId = session.key.threadId)
         }
         val pinnedSessions = pinned.mapNotNull { key ->
             if (key in hiddenSet) null else byKey[key]
         }
-        return pinnedSessions.ifEmpty { candidates.take(10) }
+        val pinnedSet = pinnedSessions
+            .mapTo(mutableSetOf()) { session ->
+                PinnedThreadKey(serverId = session.key.serverId, threadId = session.key.threadId)
+            }
+        val recentUnpinned = candidates.filter { session ->
+            PinnedThreadKey(serverId = session.key.serverId, threadId = session.key.threadId) !in pinnedSet
+        }
+        val visibleLimit = maxOf(10, pinnedSessions.size)
+        return (pinnedSessions + recentUnpinned).take(visibleLimit)
     }
 
     /**

@@ -1,8 +1,55 @@
 import XCTest
 @testable import Litter
 
+private enum ServerRemovalTestError: Error {
+    case disconnectFailed
+}
+
 @MainActor
 final class HomeDashboardSupportTests: XCTestCase {
+    func testServerRemovalRunsDisconnectBeforeLocalCleanup() async throws {
+        var events: [String] = []
+
+        try await executeServerRemoval(
+            ServerRemovalOperations(
+                disconnect: { events.append("disconnect") },
+                removeSavedServer: { events.append("remove-saved") },
+                deleteAlleycatToken: { events.append("delete-token") },
+                closeSshSession: { events.append("close-ssh") },
+                refreshProjection: { events.append("refresh") }
+            )
+        )
+
+        XCTAssertEqual(
+            events,
+            ["disconnect", "remove-saved", "delete-token", "close-ssh", "refresh"]
+        )
+    }
+
+    func testServerRemovalPreservesLocalStateWhenDisconnectFails() async {
+        var events: [String] = []
+
+        do {
+            try await executeServerRemoval(
+                ServerRemovalOperations(
+                    disconnect: {
+                        events.append("disconnect")
+                        throw ServerRemovalTestError.disconnectFailed
+                    },
+                    removeSavedServer: { events.append("remove-saved") },
+                    deleteAlleycatToken: { events.append("delete-token") },
+                    closeSshSession: { events.append("close-ssh") },
+                    refreshProjection: { events.append("refresh") }
+                )
+            )
+            XCTFail("disconnect failure should be surfaced")
+        } catch ServerRemovalTestError.disconnectFailed {
+            XCTAssertEqual(events, ["disconnect"])
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
     func testRecentConnectedSessionsFiltersDisconnectedServersAndLimitsToThreeNewest() {
         let servers = [
             makeServerSnapshot(id: "server-a", name: "Server A"),
@@ -346,6 +393,41 @@ final class HomeDashboardSupportTests: XCTestCase {
         await flushMainQueue()
 
         XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["thread-late"])
+    }
+
+    func testHomeDashboardModelKeepsPinnedFirstAndIncludesNewRecentSessions() async {
+        let savedPinnedKeys = SavedThreadsStore.pinnedKeys()
+        let savedHiddenKeys = SavedThreadsStore.hiddenKeys()
+        for key in savedPinnedKeys { SavedThreadsStore.remove(key) }
+        for key in savedHiddenKeys { SavedThreadsStore.unhide(key) }
+        defer {
+            for key in SavedThreadsStore.pinnedKeys() { SavedThreadsStore.remove(key) }
+            for key in SavedThreadsStore.hiddenKeys() { SavedThreadsStore.unhide(key) }
+            for key in savedPinnedKeys.reversed() { SavedThreadsStore.add(key) }
+            for key in savedHiddenKeys.reversed() { SavedThreadsStore.hide(key) }
+        }
+
+        let pinnedKey = ThreadKey(serverId: "server-a", threadId: "thread-pinned")
+        SavedThreadsStore.add(PinnedThreadKey(threadKey: pinnedKey))
+
+        let appModel = AppModel()
+        let model = HomeDashboardModel()
+        model.bind(appModel: appModel)
+        model.activate()
+
+        appModel.applySnapshot(
+            makeSnapshot(
+                servers: [makeServerSnapshot(id: "server-a", name: "Server A")],
+                threads: [
+                    makeThreadSnapshot(serverId: "server-a", threadId: "thread-pinned", updatedAt: 20),
+                    makeThreadSnapshot(serverId: "server-a", threadId: "thread-cli", updatedAt: 80)
+                ],
+                activeThread: nil
+            )
+        )
+        await flushMainQueue()
+
+        XCTAssertEqual(model.recentSessions.map(\.key.threadId), ["thread-pinned", "thread-cli"])
     }
 
     func testRecentConnectedSessionsPrefersExplicitTitleOverPreview() {

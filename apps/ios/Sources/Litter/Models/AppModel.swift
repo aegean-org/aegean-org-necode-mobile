@@ -533,11 +533,31 @@ final class AppModel {
         return LitterPlatform.localRuntimeDisplayName()
     }
 
+    /// Removes a host after its shared transport has completed shutdown.
+    func removeServer(serverId: String) async throws {
+        let savedServer = SavedServerStore.load().first { $0.id == serverId }
+        try await executeServerRemoval(
+            ServerRemovalOperations(
+                disconnect: { try await self.serverBridge.disconnectServer(serverId: serverId) },
+                removeSavedServer: { SavedServerStore.remove(serverId: serverId) },
+                deleteAlleycatToken: {
+                    if let nodeId = savedServer?.alleycatNodeId {
+                        try AlleycatCredentialStore.shared.deleteToken(nodeId: nodeId)
+                    }
+                },
+                closeSshSession: {
+                    await SshSessionStore.shared.close(serverId: serverId, ssh: self.ssh)
+                },
+                refreshProjection: { await self.refreshSnapshot() }
+            )
+        )
+    }
+
     func restartLocalServer() async throws {
         let currentLocal = snapshot?.servers.first(where: \.isLocal)
         let serverId = currentLocal?.serverId ?? "local"
         let displayName = resolvedLocalServerDisplayName()
-        serverBridge.disconnectServer(serverId: serverId)
+        try await serverBridge.disconnectServer(serverId: serverId)
         _ = try await serverBridge.connectLocalServer(
             serverId: serverId,
             displayName: displayName,
@@ -719,9 +739,8 @@ final class AppModel {
             fields: ["serverId": serverId]
         )
 
-        serverBridge.disconnectServer(serverId: localServer.serverId)
-
         do {
+            try await serverBridge.disconnectServer(serverId: localServer.serverId)
             _ = try await serverBridge.connectLocalServer(
                 serverId: localServer.serverId,
                 displayName: resolvedLocalServerDisplayName(),

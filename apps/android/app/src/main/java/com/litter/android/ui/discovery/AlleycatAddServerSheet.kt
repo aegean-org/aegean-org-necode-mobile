@@ -109,6 +109,7 @@ fun AlleycatAddServerSheet(
     var connectError by remember { mutableStateOf<String?>(null) }
     var isConnecting by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
+    var pairingJson by remember { mutableStateOf("") }
     var cameraDenied by remember { mutableStateOf(false) }
 
     fun loadAgents(params: AppAlleycatPairPayload) {
@@ -303,6 +304,22 @@ fun AlleycatAddServerSheet(
                 color = LitterTheme.warning,
                 fontSize = 11.sp,
             )
+        }
+
+        OutlinedTextField(
+            value = pairingJson,
+            onValueChange = { pairingJson = it },
+            label = { Text("配对 JSON") },
+            placeholder = { Text("粘贴电脑端生成的配对 JSON") },
+            minLines = 3,
+            maxLines = 6,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        TextButton(
+            onClick = { handleScannedPayload(pairingJson) },
+            enabled = pairingJson.isNotBlank(),
+        ) {
+            Text("解析 JSON", color = LitterTheme.accent)
         }
 
         parseError?.let { message ->

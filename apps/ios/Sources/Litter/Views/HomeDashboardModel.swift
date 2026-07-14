@@ -11,9 +11,8 @@ final class HomeDashboardModel {
     }
 
     private(set) var connectedServers: [HomeDashboardServer] = []
-    /// Home list source: pinned threads first (in pin order). If nothing is
-    /// pinned, show the 10 most-recent sessions. Hidden threads are always
-    /// excluded.
+    /// Home list source: pinned threads first (in pin order), followed by
+    /// recent unpinned sessions. Hidden threads are always excluded.
     private(set) var recentSessions: [HomeDashboardRecentSession] = []
     /// Every session we know about across connected servers, newest first —
     /// used by the search view so the user can pick any thread.
@@ -281,10 +280,10 @@ final class HomeDashboardModel {
     }
 
     /// Merge rule:
-    /// - If the user has pinned anything, the home list is just their pins
-    ///   (in pin order, most-recent-pinned first). No auto-fill from recent.
-    /// - If nothing is pinned, fill the list with up to 10 most-recent
-    ///   sessions so the home screen isn't empty.
+    /// - Pinned sessions appear first in pin order.
+    /// - Recent unpinned sessions fill the remaining home slots.
+    /// - Keep at least 10 visible slots, while preserving every pin when the
+    ///   user has pinned more than 10 sessions.
     /// - Hidden threads are always excluded.
     private static func mergedHomeSessions(
         pinned: [SavedThreadsStore.PinnedKey],
@@ -296,22 +295,25 @@ final class HomeDashboardModel {
         let candidates = allSessions.filter {
             !hiddenSet.contains(SavedThreadsStore.PinnedKey(threadKey: $0.key))
         }
-        if !pinned.isEmpty {
-            let byKey = Dictionary(uniqueKeysWithValues: candidates.map {
-                (SavedThreadsStore.PinnedKey(threadKey: $0.key), $0)
-            })
-            let serversById = Dictionary(uniqueKeysWithValues: connectedServers.map { ($0.id, $0) })
-            return pinned.compactMap { pin in
-                if let existing = byKey[pin] {
-                    return existing
-                }
-                guard !hiddenSet.contains(pin), let server = serversById[pin.serverId] else {
-                    return nil
-                }
-                return placeholderPinnedSession(for: pin.threadKey, server: server)
+        let byKey = Dictionary(uniqueKeysWithValues: candidates.map {
+            (SavedThreadsStore.PinnedKey(threadKey: $0.key), $0)
+        })
+        let serversById = Dictionary(uniqueKeysWithValues: connectedServers.map { ($0.id, $0) })
+        let pinnedSessions = pinned.compactMap { pin in
+            if let existing = byKey[pin] {
+                return existing
             }
+            guard !hiddenSet.contains(pin), let server = serversById[pin.serverId] else {
+                return nil
+            }
+            return placeholderPinnedSession(for: pin.threadKey, server: server)
         }
-        return Array(candidates.prefix(10))
+        let pinnedSet = Set(pinnedSessions.map { SavedThreadsStore.PinnedKey(threadKey: $0.key) })
+        let recentUnpinned = candidates.filter {
+            !pinnedSet.contains(SavedThreadsStore.PinnedKey(threadKey: $0.key))
+        }
+        let visibleLimit = max(10, pinnedSessions.count)
+        return Array((pinnedSessions + recentUnpinned).prefix(visibleLimit))
     }
 
     private static func placeholderPinnedSession(

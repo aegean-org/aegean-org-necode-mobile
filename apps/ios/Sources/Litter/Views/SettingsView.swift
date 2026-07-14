@@ -326,10 +326,14 @@ struct SettingsView: View {
     }
 
     private func removeServer(_ server: HomeDashboardServer) {
-        SavedServerStore.remove(serverId: server.id)
-        Task { await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh) }
-        appModel.serverBridge.disconnectServer(serverId: server.id)
-        onServerRemoved(server.id)
+        Task {
+            do {
+                try await appModel.removeServer(serverId: server.id)
+                onServerRemoved(server.id)
+            } catch {
+                serverEditError = error.localizedDescription
+            }
+        }
     }
 
     private func saveServerConfiguration(
@@ -370,10 +374,9 @@ struct SettingsView: View {
         }
 
         Task {
-            await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh)
-            appModel.serverBridge.disconnectServer(serverId: server.id)
-
             do {
+                await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh)
+                try await appModel.serverBridge.disconnectServer(serverId: server.id)
                 switch configuration.connectionMode {
                 case .local:
                     try await appModel.restartLocalServer()
@@ -440,9 +443,9 @@ struct SettingsView: View {
         credentials: SSHCredentials
     ) async {
         await SshSessionStore.shared.close(serverId: server.id, ssh: appModel.ssh)
-        appModel.serverBridge.disconnectServer(serverId: server.id)
 
         do {
+            try await appModel.serverBridge.disconnectServer(serverId: server.id)
             _ = try await startRemoteOverSSH(
                 serverId: server.id,
                 displayName: server.name,
