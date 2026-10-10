@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -133,6 +134,42 @@ def main() -> int:
             elif any(api in line for api in (".glassEffect(", ".glassEffectID(", "GlassEffectContainer(")):
                 if not any(compiler_guards):
                     failures.append(f"{path}:{number}: guard Liquid Glass APIs with #if compiler(>=6.2)")
+
+    voice_path = "apps/ios/Sources/Litter/Models/VoiceTranscriptionManager.swift"
+    start_recording = section_between(read(voice_path), "    func startRecording()", "    func stopAndTranscribe(")
+    before_tap = start_recording.split("inputNode.installTap", 1)[0]
+    failures.extend(require(before_tap, voice_path, [
+        "guard !isRecording, !isTranscribing else",
+        "guard session.isInputAvailable else",
+        "guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else",
+        "teardownEngine()",
+    ]))
+    engine_start = start_recording.split("try engine.start()", 1)[1]
+    failures.extend(require(engine_start, voice_path, ["teardownEngine()", "error.localizedDescription"]))
+    if "audioEngine = engine" not in start_recording.split("try engine.start()", 1)[0]:
+        failures.append(f"{voice_path}: retain the tapped engine before start so failure cleanup removes the tap")
+
+    preview_path = "apps/ios/Sources/Litter/Views/DesktopSessionsView.swift"
+    preview_source = read(preview_path)
+    html_preview = section_between(preview_source, "struct DesktopArtifactHTMLPreview:", "struct DesktopAttachmentQuickLook:")
+    rules_match = re.search(r'encodedContentRuleList:\s*#"(.*?)"#', html_preview, re.DOTALL)
+    if not rules_match:
+        failures.append(f"{preview_path}: missing offline HTML content rules")
+    else:
+        rules = json.loads(rules_match.group(1))
+        filters = [rule["trigger"]["url-filter"] for rule in rules]
+        if any("|" in pattern for pattern in filters):
+            failures.append(f"{preview_path}: WebKit URL filters do not support regex alternation")
+        for url in ("http://example.com/a", "https://example.com/a", "file:///secret", "ftp://example.com/a"):
+            if not any(rule["action"]["type"] == "block" and re.search(rule["trigger"]["url-filter"], url) for rule in rules):
+                failures.append(f"{preview_path}: offline HTML preview must block {url}")
+        for url in ("about:blank", "data:image/png;base64,AA=="):
+            if any(re.search(pattern, url) for pattern in filters):
+                failures.append(f"{preview_path}: offline HTML preview must allow {url}")
+    failures.extend(require(html_preview, preview_path, ["allowsContentJavaScript = false"]))
+    attachment_preview = section_between(preview_source, "struct DesktopMobileAttachmentPreview:", "struct DesktopArtifactHTMLPreview:")
+    failures.extend(require(attachment_preview, preview_path, [".sheet(isPresented: $showShareSheet)", "DesktopAttachmentShareSheet(url: fileURL)"]))
+    failures.extend(forbid(attachment_preview, preview_path, ["ShareLink(item: fileURL)"]))
 
     info_plist = read("apps/ios/Sources/Litter/Info.plist")
     failures.extend(

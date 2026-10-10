@@ -1441,8 +1441,8 @@ struct DesktopSessionsView: View {
                         let owner = composerKey
                         guard await speech.requestMicPermission() else { speech.error = "请在设置中允许麦克风权限"; return }
                         guard owner == composerKey else { return }
-                        recordingOwner = owner
                         speech.startRecording()
+                        recordingOwner = speech.isRecording ? owner : nil
                     }
                 } label: {
                     Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic")
@@ -2267,6 +2267,8 @@ private struct DesktopMobileAttachmentPreview: View {
     @Environment(\.dismiss) private var dismiss
     @State private var fileURL: URL?
     @State private var failure: String?
+    @State private var showShareSheet = false
+    @State private var shareFailure: String?
 
     var body: some View {
         NavigationStack {
@@ -2285,7 +2287,18 @@ private struct DesktopMobileAttachmentPreview: View {
                             .foregroundColor(LitterTheme.textSecondary)
                         Spacer()
                     }
-                    ShareLink(item: fileURL) {
+                    if let shareFailure {
+                        Text(shareFailure).litterFont(.caption2)
+                            .foregroundColor(LitterTheme.danger).padding(.horizontal)
+                    }
+                    Button {
+                        shareFailure = nil
+                        guard FileManager.default.isReadableFile(atPath: fileURL.path) else {
+                            shareFailure = "附件暂存文件已不可用，请关闭预览后重新打开。"
+                            return
+                        }
+                        showShareSheet = true
+                    } label: {
                         Label("用其他应用打开或分享", systemImage: "square.and.arrow.up")
                     }.padding(.bottom, 16)
                 } else if let failure {
@@ -2300,6 +2313,14 @@ private struct DesktopMobileAttachmentPreview: View {
             .navigationTitle(item.attachment.filename)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("关闭") { dismiss() } } }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let fileURL {
+                DesktopAttachmentShareSheet(url: fileURL) { error in
+                    showShareSheet = false
+                    if let error { shareFailure = "无法打开分享面板：\(error.localizedDescription)" }
+                }
+            }
         }
         .task(id: item.id) {
             do {
@@ -2345,10 +2366,11 @@ private struct DesktopArtifactHTMLPreview: UIViewRepresentable {
         do {
             let html = try String(contentsOf: url, encoding: .utf8)
             WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "desktop-artifact-offline",
-                encodedContentRuleList: #"[{"trigger":{"url-filter":"^(https?|file|ftp):"},"action":{"type":"block"}}]"#) { [weak web] rules, error in
+                encodedContentRuleList: #"[{"trigger":{"url-filter":"^https?:"},"action":{"type":"block"}},{"trigger":{"url-filter":"^file:"},"action":{"type":"block"}},{"trigger":{"url-filter":"^ftp:"},"action":{"type":"block"}}]"#) { [weak web] rules, error in
                 DispatchQueue.main.async {
                     guard let web else { return }
                     guard let rules, error == nil else {
+                        LLog.warn("preview", "HTML content rules failed", fields: ["error": error?.localizedDescription ?? "missing content rules"])
                         web.loadHTMLString("<p>安全预览初始化失败，请用其他应用打开。</p>", baseURL: nil)
                         return
                     }
@@ -2368,6 +2390,21 @@ private struct DesktopArtifactHTMLPreview: UIViewRepresentable {
             decisionHandler(navigationAction.request.url?.absoluteString == "about:blank" ? .allow : .cancel)
         }
     }
+}
+
+private struct DesktopAttachmentShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    let onComplete: (Error?) -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, error in
+            DispatchQueue.main.async { self.onComplete(error) }
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 private struct DesktopAttachmentQuickLook: UIViewControllerRepresentable {

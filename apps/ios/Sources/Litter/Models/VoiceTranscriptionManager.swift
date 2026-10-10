@@ -38,21 +38,40 @@ final class VoiceTranscriptionManager {
     }
 
     func startRecording() {
+        guard !isRecording, !isTranscribing else { return }
         bufferCollector.reset()
         error = nil
+        audioLevel = 0
+        lastLevelUpdate = 0
 
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, options: .defaultToSpeaker)
+            try session.setCategory(.playAndRecord, mode: .default, options: .defaultToSpeaker)
             try session.setActive(true)
         } catch {
-            self.error = "无法配置录音会话。"
+            self.error = "无法配置录音会话：\(error.localizedDescription)"
+            teardownEngine()
+            return
+        }
+        guard session.isInputAvailable else {
+            error = "当前没有可用的麦克风，请检查音频输入设备后重试。"
+            teardownEngine()
             return
         }
 
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
+        // installTap raises an Objective-C exception for a zero-rate/channel format;
+        // Swift do/catch cannot catch it (e.g. a simulator without an audio input).
+        guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else {
+            error = "麦克风尚未准备好，请检查音频输入设备后重试。"
+            LLog.warn("voice", "invalid microphone format", fields: [
+                "sample_rate": format.sampleRate, "channels": format.channelCount
+            ])
+            teardownEngine()
+            return
+        }
         let collector = bufferCollector
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
@@ -65,14 +84,15 @@ final class VoiceTranscriptionManager {
             Task { @MainActor in self.audioLevel = level }
         }
 
+        audioEngine = engine
         do {
             try engine.start()
         } catch {
-            self.error = "无法启动录音。"
+            self.error = "无法启动录音：\(error.localizedDescription)"
+            teardownEngine()
             return
         }
 
-        audioEngine = engine
         isRecording = true
     }
 
@@ -132,7 +152,11 @@ final class VoiceTranscriptionManager {
         audioEngine = nil
         isRecording = false
         audioLevel = 0
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            LLog.warn("voice", "audio session deactivation failed", fields: ["error": error.localizedDescription])
+        }
     }
 
     private func encodeWAV() -> Data? {
