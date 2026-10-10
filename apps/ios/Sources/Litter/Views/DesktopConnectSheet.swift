@@ -164,6 +164,7 @@ struct DesktopConnectSheet: View {
                                 }
                             }
                         }
+                    }
                     if token == nil && !restoring {
                         Button { showAdvanced.toggle() } label: {
                             HStack(spacing: 4) {
