@@ -83,6 +83,8 @@ targets:
           - "**/*.h"
       - path: Sources/Litter/Bridge/UniFFICodexClient.generated.swift
       - path: Sources/LitterLiveActivity/CodexTurnLiveActivity.swift
+      # Foundation-only payload shared with the Live Activity controller.
+      - path: Sources/LitterWatchComplications/LitterRunningTurnPayload.swift
     resources:
       - path: Sources/Litter/Resources/Fonts
       - path: Sources/Litter/Resources/Themes

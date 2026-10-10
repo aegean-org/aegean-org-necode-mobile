@@ -43,6 +43,7 @@ enum LitterTheme {
     static var textMuted: Color      { adaptive(light: light.textMuted, dark: dark.textMuted) }
     static var textBody: Color       { adaptive(light: light.textBody, dark: dark.textBody) }
     static var textSystem: Color     { adaptive(light: light.textSystem, dark: dark.textSystem) }
+    static var background: Color     { adaptive(light: light.background, dark: dark.background) }
     static var surface: Color        { adaptive(light: light.surface, dark: dark.surface) }
     static var surfaceLight: Color   { adaptive(light: light.surfaceLight, dark: dark.surfaceLight) }
     static var border: Color         { adaptive(light: light.border, dark: dark.border) }
@@ -394,11 +395,14 @@ func relativeDate(_ timestamp: Int64) -> String {
 
 // MARK: - Glass Effect Availability Wrappers
 
+// Older Xcode SDKs need compile-time guards in addition to runtime availability.
+
 struct GlassRectModifier: ViewModifier {
     let cornerRadius: CGFloat
     var tint: Color?
 
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             if let tint {
                 content.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
@@ -406,14 +410,21 @@ struct GlassRectModifier: ViewModifier {
                 content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
             }
         } else {
-            content
-                .background(LitterTheme.surfaceLight.opacity(0.9))
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke((tint ?? LitterTheme.border).opacity(0.4), lineWidth: 1)
-                )
+            fallback(content)
         }
+        #else
+        fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(LitterTheme.surfaceLight.opacity(0.9))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke((tint ?? LitterTheme.border).opacity(0.4), lineWidth: 1)
+            )
     }
 }
 
@@ -421,13 +432,21 @@ struct GlassRoundedRectModifier: ViewModifier {
     var cornerRadius: CGFloat = 16
 
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
-            content
-                .background(LitterTheme.surfaceLight)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            fallback(content)
         }
+        #else
+        fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(LitterTheme.surfaceLight)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 
@@ -435,6 +454,7 @@ struct GlassCapsuleModifier: ViewModifier {
     var interactive: Bool = false
 
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             if interactive {
                 content.glassEffect(.regular.interactive(), in: .capsule)
@@ -442,22 +462,37 @@ struct GlassCapsuleModifier: ViewModifier {
                 content.glassEffect(.regular, in: .capsule)
             }
         } else {
-            content
-                .background(LitterTheme.surfaceLight)
-                .clipShape(Capsule())
+            fallback(content)
         }
+        #else
+        fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(LitterTheme.surfaceLight)
+            .clipShape(Capsule())
     }
 }
 
 struct GlassCircleModifier: ViewModifier {
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             content.glassEffect(.regular, in: .circle)
         } else {
-            content
-                .background(LitterTheme.surfaceLight)
-                .clipShape(Circle())
+            fallback(content)
         }
+        #else
+        fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(LitterTheme.surfaceLight)
+            .clipShape(Circle())
     }
 }
 
@@ -469,11 +504,15 @@ struct GlassMorphContainer<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) { content() }
         } else {
             content()
         }
+        #else
+        content()
+        #endif
     }
 }
 
@@ -483,10 +522,14 @@ extension View {
     /// `matchedGeometryEffect` so the frame still tweens on older iOS.
     @ViewBuilder
     func glassMorphID(_ id: String, in namespace: Namespace.ID) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             self.glassEffectID(id, in: namespace)
         } else {
             self.matchedGeometryEffect(id: id, in: namespace)
         }
+        #else
+        self.matchedGeometryEffect(id: id, in: namespace)
+        #endif
     }
 }

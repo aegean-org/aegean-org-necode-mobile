@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -69,7 +70,8 @@ def main() -> int:
                 "-lghostty",
                 "sdk: CarPlay.framework",
                 "- path: Sources/LitterWatch/",
-                "- path: Sources/LitterWatchComplications/",
+                "- path: Sources/LitterWatchComplications/\n",
+                "- path: Sources/LitterWatchComplications\n",
             ],
         )
     )
@@ -78,6 +80,7 @@ def main() -> int:
             ios_app_target,
             "apps/ios/project.yml",
             [
+                "- path: Sources/LitterWatchComplications/LitterRunningTurnPayload.swift",
                 "CarPlay/**",
                 "Bridge/GhosttyBridge.m",
                 "Bridge/GhosttyRendererBackendBridge.swift",
@@ -97,6 +100,39 @@ def main() -> int:
             ],
         )
     )
+
+    extensions_path = "apps/ios/Sources/Litter/Extensions.swift"
+    theme = section_between(read(extensions_path), "enum LitterTheme {", "\nenum FontFamilyOption")
+    theme_members = set(re.findall(r"static (?:var|let|func) (\w+)", theme))
+    for path in (ROOT / "apps/ios/Sources/Litter").rglob("*.swift"):
+        if ".generated." in path.name:
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for member in re.findall(r"\bLitterTheme\.(\w+)", line):
+                if member not in theme_members:
+                    failures.append(f"{path.relative_to(ROOT)}:{number}: unknown LitterTheme.{member}")
+    connect_path = "apps/ios/Sources/Litter/Views/DesktopConnectSheet.swift"
+    failures.extend(forbid(read(connect_path), connect_path, ["DesktopConnectCredentialStore.preferredDesktopID()"]))
+
+    # Runtime availability alone cannot protect APIs absent from the build SDK.
+    for path in (
+        extensions_path,
+        "apps/ios/Sources/Litter/Views/ConversationComposerContentView.swift",
+    ):
+        compiler_guards: list[bool] = []
+        for number, line in enumerate(read(path).splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            if stripped.startswith("#if "):
+                compiler_guards.append(stripped == "#if compiler(>=6.2)")
+            elif stripped.startswith(("#else", "#elseif")) and compiler_guards:
+                compiler_guards[-1] = False
+            elif stripped == "#endif" and compiler_guards:
+                compiler_guards.pop()
+            elif any(api in line for api in (".glassEffect(", ".glassEffectID(", "GlassEffectContainer(")):
+                if not any(compiler_guards):
+                    failures.append(f"{path}:{number}: guard Liquid Glass APIs with #if compiler(>=6.2)")
 
     info_plist = read("apps/ios/Sources/Litter/Info.plist")
     failures.extend(

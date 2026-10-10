@@ -305,7 +305,7 @@ struct DesktopConnectSheet: View {
             hosts = try await client.listDesktops(token: result.token)
             hostsLoaded = true
             let active = try await client.recoverDesktop(token: result.token, mobile: device,
-                preferredDesktopId: DesktopConnectCredentialStore.preferredDesktopID(), forceReconnect: false)
+                preferredDesktopId: DesktopConnectCredentialStore.preferredDesktopID(for: result.accountId), forceReconnect: false)
             if let active, active.healthy {
                 let name = hosts.first(where: { $0.id == active.desktopId })?.name ?? active.desktopId
                 onConnected(name)

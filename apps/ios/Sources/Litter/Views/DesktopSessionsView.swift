@@ -984,7 +984,7 @@ struct DesktopSessionsView: View {
                             }
                             .padding(.horizontal, 4)
                             if project.id != visibleProjects.last?.id {
-                                Divider().background(LitterTheme.divider)
+                                Divider().background(LitterTheme.separator)
                             }
                         }
                     }
