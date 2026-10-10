@@ -28,8 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.PhoneIphone
 import androidx.compose.material.icons.outlined.Storage
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -514,12 +514,12 @@ private fun TerminalHeader(
                 modifier = Modifier.padding(start = 6.dp),
             )
         }
-        DropdownMenu(
+        LitterDropdownMenu(
             expanded = backendMenuExpanded,
             onDismissRequest = { backendMenuExpanded = false },
         ) {
             backendOptions.forEach { option ->
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = {
                         Text(
                             text = option.title,

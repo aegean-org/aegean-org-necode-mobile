@@ -50,8 +50,8 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -326,23 +326,23 @@ private fun UserMessageRow(
                     }
                 }
             }
-            DropdownMenu(
+            LitterDropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
             ) {
                 if (onEdit != null) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("编辑消息") },
                         onClick = { showMenu = false; onEdit(itemId) },
                     )
                 }
                 if (onFork != null) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("从这里复制会话") },
                         onClick = { showMenu = false; onFork(itemId) },
                     )
                 }
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = { Text("复制") },
                     onClick = {
                         showMenu = false

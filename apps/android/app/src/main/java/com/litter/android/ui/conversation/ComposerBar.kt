@@ -48,8 +48,8 @@ import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -927,12 +927,12 @@ fun ComposerBar(
                     }
 
                     // Slash command popup
-                    DropdownMenu(
+                    LitterDropdownMenu(
                         expanded = showSlashMenu,
                         onDismissRequest = { showSlashMenu = false },
                     ) {
                         for (cmd in filteredCommands) {
-                            DropdownMenuItem(
+                            LitterDropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("/${cmd.name}", color = LitterTheme.accent, fontSize = LitterTextStyle.footnote.scaled, fontWeight = FontWeight.Medium)
@@ -953,12 +953,12 @@ fun ComposerBar(
                     }
 
                     // @file search popup
-                    DropdownMenu(
+                    LitterDropdownMenu(
                         expanded = showFileMenu,
                         onDismissRequest = { showFileMenu = false },
                     ) {
                         for (path in fileSearchResults) {
-                            DropdownMenuItem(
+                            LitterDropdownMenuItem(
                                 text = { Text(path, color = LitterTheme.textPrimary, fontSize = LitterTextStyle.caption.scaled, fontFamily = LitterTheme.monoFont) },
                                 onClick = {
                                     showFileMenu = false
@@ -1896,12 +1896,12 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                         modifier = Modifier.size(16.dp),
                     )
                 }
-                DropdownMenu(
+                LitterDropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                 ) {
                     if (pauseResumeLabel != null) {
-                        DropdownMenuItem(
+                        LitterDropdownMenuItem(
                             text = { Text(pauseResumeLabel, color = LitterTheme.textPrimary) },
                             onClick = {
                                 showMenu = false
@@ -1909,14 +1909,14 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                             },
                         )
                     }
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("编辑目标", color = LitterTheme.textPrimary) },
                         onClick = {
                             showMenu = false
                             showEditDialog = true
                         },
                     )
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("设置 Token 预算", color = LitterTheme.textPrimary) },
                         onClick = {
                             showMenu = false
@@ -1924,7 +1924,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                         },
                     )
                     if (goal.status != AppThreadGoalStatus.COMPLETE) {
-                        DropdownMenuItem(
+                        LitterDropdownMenuItem(
                             text = { Text("标记完成", color = LitterTheme.textPrimary) },
                             onClick = {
                                 showMenu = false
@@ -1932,7 +1932,7 @@ private fun GoalPanel(goal: AppThreadGoal, actions: GoalCardActions) {
                             },
                         )
                     }
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("清除目标", color = LitterTheme.danger) },
                         onClick = {
                             showMenu = false

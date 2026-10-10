@@ -62,8 +62,10 @@
 	<string>NeCode 会在本地网络中发现可连接的桌面端服务。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>NeCode 需要使用相机扫码连接桌面端，也可拍摄图片发送到会话。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>NeCode 需要识别语音并将文字填入桌面会话输入框。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>NeCode 需要使用麦克风录音，并通过桌面端转写为文字。</string>
+	<string>NeCode 需要使用麦克风录音，将语音识别为会话文字。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>NeCode 会使用蓝牙发现附近可配对的桌面端。</string>
 	<key>NSNearbyInteractionUsageDescription</key>

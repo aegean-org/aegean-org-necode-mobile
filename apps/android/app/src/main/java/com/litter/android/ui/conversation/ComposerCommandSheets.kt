@@ -24,8 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
@@ -151,7 +151,8 @@ fun ComposerPermissionsSheet(threadKey: ThreadKey? = null, onDismiss: () -> Unit
     val launchState by appModel.launchState.snapshot.collectAsState()
     val selectedApproval = appModel.launchState.selectedApprovalPolicy(threadKey)
     val selectedSandbox = appModel.launchState.selectedSandboxMode(threadKey)
-    val effectiveThread = appModel.snapshot.value?.threads?.firstOrNull { it.key == threadKey }
+    val snapshot by appModel.snapshot.collectAsState()
+    val effectiveThread = snapshot?.threads?.firstOrNull { it.key == threadKey }
     val selectedRuntime = effectiveThread?.agentRuntimeKind ?: launchState.selectedAgentRuntimeKind
     val currentRuntimeSupportsPermissionOverrides =
         selectedRuntime?.supportsThreadPermissionOverrides ?: true
@@ -435,12 +436,12 @@ private fun PermissionDropdownField(
             )
         }
 
-        DropdownMenu(
+        LitterDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
             options.forEach { option ->
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(

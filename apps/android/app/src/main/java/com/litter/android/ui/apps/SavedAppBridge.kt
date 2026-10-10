@@ -2,6 +2,7 @@ package com.litter.android.ui.apps
 
 import android.content.Context
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import com.litter.android.state.SavedAppsStore
 
 /**
@@ -38,6 +39,11 @@ class SavedAppBridge(
     @JavascriptInterface
     fun structuredResponse(requestId: String, prompt: String, schemaJson: String) {
         onStructuredRequest?.invoke(requestId, prompt, schemaJson)
+    }
+
+    // Keep registration concrete: Lint resolves Compose remember() results as generic T.
+    fun attachTo(webView: WebView) {
+        webView.addJavascriptInterface(this, INTERFACE_NAME)
     }
 
     companion object {

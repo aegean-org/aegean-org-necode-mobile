@@ -109,6 +109,7 @@ if [[ "$GENERATE_KOTLIN" -eq 1 ]]; then
     cargo run -p uniffi-bindgen -- generate \
         --library "$DYLIB_FILE" \
         --language kotlin \
+        --config "$CRATE_DIR/uniffi.toml" \
         --out-dir "$OUT_KOTLIN"
 fi
 

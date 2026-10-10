@@ -24,8 +24,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -286,12 +286,12 @@ fun SessionCanvasRow(
             // Long-press on the row opens the action menu — replaces the
             // former 3-dot IconButton. Menu is anchored here so it pops
             // near the trailing edge.
-            DropdownMenu(
+            LitterDropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
             ) {
                 if (onReply != null) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("回复") },
                         onClick = {
                             showMenu = false
@@ -300,7 +300,7 @@ fun SessionCanvasRow(
                     )
                 }
                 if (onFork != null) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("复制") },
                         enabled = !session.hasActiveTurn,
                         onClick = {
@@ -310,7 +310,7 @@ fun SessionCanvasRow(
                     )
                 }
                 if (onCancelTurn != null && session.hasActiveTurn) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("取消任务", color = LitterTheme.danger) },
                         onClick = {
                             showMenu = false
@@ -319,7 +319,7 @@ fun SessionCanvasRow(
                     )
                 }
                 if (isPinned && onUnpin != null) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("取消置顶") },
                         onClick = {
                             showMenu = false
@@ -327,7 +327,7 @@ fun SessionCanvasRow(
                         },
                     )
                 } else if (!isPinned && onPin != null) {
-                    DropdownMenuItem(
+                    LitterDropdownMenuItem(
                         text = { Text("置顶") },
                         onClick = {
                             showMenu = false
@@ -335,7 +335,7 @@ fun SessionCanvasRow(
                         },
                     )
                 }
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = { Text("隐藏") },
                     onClick = {
                         showMenu = false

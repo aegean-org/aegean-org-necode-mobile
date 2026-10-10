@@ -29,8 +29,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -346,12 +346,12 @@ fun DirectoryPickerSheet(
                         fontSize = 12.sp,
                         modifier = Modifier.clickable(enabled = servers.isNotEmpty()) { showServerMenu = true },
                     )
-                    DropdownMenu(
+                    LitterDropdownMenu(
                         expanded = showServerMenu,
                         onDismissRequest = { showServerMenu = false },
                     ) {
                         servers.forEach { server ->
-                            DropdownMenuItem(
+                            LitterDropdownMenuItem(
                                 text = { Text("${server.name} • ${server.sourceLabel}") },
                                 onClick = {
                                     showServerMenu = false
@@ -539,11 +539,11 @@ fun DirectoryPickerSheet(
                                     IconButton(onClick = { showRecentsMenu = true }) {
                                         Icon(Icons.Default.MoreHoriz, contentDescription = "最近目录选项", tint = LitterTheme.textMuted)
                                     }
-                                    DropdownMenu(
+                                    LitterDropdownMenu(
                                         expanded = showRecentsMenu,
                                         onDismissRequest = { showRecentsMenu = false },
                                     ) {
-                                        DropdownMenuItem(
+                                        LitterDropdownMenuItem(
                                             text = { Text("清除最近目录") },
                                             onClick = {
                                                 showRecentsMenu = false

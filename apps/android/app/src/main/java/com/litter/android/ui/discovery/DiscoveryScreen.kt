@@ -44,14 +44,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -105,6 +102,7 @@ import com.litter.android.ui.common.metadata
 import com.litter.android.ui.common.runtimeLabel
 import com.litter.android.ui.common.runtimeSortIndex
 import uniffi.codex_mobile_client.AppSshSessionResult
+import uniffi.codex_mobile_client.DesktopConnectBridge
 import uniffi.codex_mobile_client.AppServerHealth
 import uniffi.codex_mobile_client.AppServerSnapshot
 import uniffi.codex_mobile_client.AppDiscoveredServer
@@ -134,6 +132,8 @@ fun DiscoveryScreen(
     scanProgressLabel: String? = null,
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
+    desktopBridge: androidx.compose.runtime.MutableState<DesktopConnectBridge?>,
+    onDesktopConnected: (String) -> Unit,
 ) {
     val logTag = "DiscoveryScreen"
     val appModel = LocalAppModel.current
@@ -144,6 +144,7 @@ fun DiscoveryScreen(
 
     var showManualEntry by remember { mutableStateOf(false) }
     var showAlleycatSheet by remember { mutableStateOf(false) }
+    var showDesktopConnectSheet by remember { mutableStateOf(false) }
     var showSlingshotComputers by remember { mutableStateOf(false) }
     var slingshotEnvironments by remember { mutableStateOf<List<AppSlingshotEnvironment>>(emptyList()) }
     var slingshotIsLoading by remember { mutableStateOf(false) }
@@ -534,41 +535,107 @@ fun DiscoveryScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                text = "添加设备",
-                color = LitterTheme.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            text = "选择连接方式。",
-            color = LitterTheme.textSecondary,
-            fontSize = 12.sp,
+    if (showDesktopConnectSheet) {
+        DesktopConnectSheet(
+            bridgeState = desktopBridge,
+            onDismiss = { showDesktopConnectSheet = false },
+            onConnected = { host ->
+                showDesktopConnectSheet = false
+                onDismiss()
+                onDesktopConnected(host)
+            },
         )
+    } else if (showAlleycatSheet) {
+        AlleycatAddServerSheet(
+            onDismiss = { showAlleycatSheet = false },
+            startScanningOnAppear = true,
+            onConnected = { result ->
+                showAlleycatSheet = false
+                scope.launch {
+                    SavedServerStore.rememberAlleycat(
+                        context = context,
+                        serverId = result.serverId,
+                        displayName = result.displayName,
+                        nodeId = result.nodeId,
+                        relay = result.params.relay,
+                        agentName = result.agentName,
+                        agentWire = alleycatWireStorageValue(result.agentWire),
+                    )
+                    reloadSavedServers()
+                    appModel.refreshSnapshot()
+                    pendingAutoNavigateServerId = result.serverId
+                }
+            },
+        )
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("添加设备", color = LitterTheme.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text("在手机上继续电脑里的项目和会话", color = LitterTheme.textSecondary, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
 
-        Spacer(Modifier.height(14.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .background(LitterTheme.accent.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
+                    .clickable(onClick = { showDesktopConnectSheet = true })
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier.size(46.dp)
+                            .background(LitterTheme.accent.copy(alpha = 0.18f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Outlined.DesktopWindows, contentDescription = null,
+                            tint = LitterTheme.accentStrong, modifier = Modifier.size(26.dp))
+                    }
+                    Text("NeCode Desktop", color = LitterTheme.textPrimary, fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("推荐", color = LitterTheme.accentStrong, fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold)
+                }
+                Text("登录 NE 账号，选择一台在线电脑。无需扫码，连接后可继续项目和会话。",
+                    color = LitterTheme.textSecondary, fontSize = 13.sp, lineHeight = 19.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                        .background(LitterTheme.accentStrong, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("登录并选择电脑", color = LitterTheme.onAccentStrong, fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null,
+                        tint = LitterTheme.onAccentStrong)
+                }
+            }
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ChooserCard(
-                title = "扫码连接 NeCode",
-                subtitle = "扫描电脑端 NeCode mobile 显示的配对二维码。",
-                icon = Icons.Default.QrCodeScanner,
-                onClick = { showAlleycatSheet = true },
-            )
+            Spacer(Modifier.height(8.dp))
+            Text("其他连接方式", color = LitterTheme.textSecondary, fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = { showAlleycatSheet = true })
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(42.dp).background(LitterTheme.surface, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null,
+                        tint = LitterTheme.accentStrong, modifier = Modifier.size(22.dp))
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("扫码连接 NeCode CLI", color = LitterTheme.textPrimary, fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold)
+                    Text("扫描 CLI 生成的配对二维码", color = LitterTheme.textSecondary, fontSize = 12.sp)
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null,
+                    tint = LitterTheme.textMuted)
+            }
         }
     }
 
@@ -865,112 +932,7 @@ fun DiscoveryScreen(
         )
     }
 
-    if (showAlleycatSheet) {
-        @OptIn(ExperimentalMaterial3Api::class)
-        ModalBottomSheet(
-            onDismissRequest = { showAlleycatSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = LitterTheme.background,
-        ) {
-            AlleycatAddServerSheet(
-                onDismiss = { showAlleycatSheet = false },
-                startScanningOnAppear = true,
-                onConnected = { result ->
-                    showAlleycatSheet = false
-                    scope.launch {
-                        SavedServerStore.rememberAlleycat(
-                            context = context,
-                            serverId = result.serverId,
-                            displayName = result.displayName,
-                            nodeId = result.nodeId,
-                            relay = result.params.relay,
-                            agentName = result.agentName,
-                            agentWire = alleycatWireStorageValue(result.agentWire),
-                        )
-                        reloadSavedServers()
-                        appModel.refreshSnapshot()
-                        pendingAutoNavigateServerId = result.serverId
-                    }
-                },
-            )
-        }
-    }
-}
 
-@Composable
-private fun ChooserCard(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-) {
-    val borderColor = LitterTheme.accent.copy(alpha = 0.18f)
-    val backgroundColor = LitterTheme.surface.copy(alpha = 0.6f)
-    val iconBubble = LitterTheme.accent.copy(alpha = 0.10f)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(backgroundColor, RoundedCornerShape(14.dp))
-            .border(
-                width = 0.8.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(14.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .size(36.dp)
-                    .background(iconBubble, RoundedCornerShape(50)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = LitterTheme.accent,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = title,
-                        color = LitterTheme.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                Text(
-                    text = subtitle,
-                    color = LitterTheme.textSecondary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = LitterTheme.textMuted,
-                modifier = Modifier.padding(top = 10.dp),
-            )
-        }
-
-    }
 }
 
 @Composable

@@ -39,8 +39,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -427,9 +427,9 @@ private fun ServerSettingsRow(
             }
         }
 
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+        LitterDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             if (onEdit != null) {
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = { Text("编辑") },
                     onClick = {
                         showMenu = false
@@ -438,7 +438,7 @@ private fun ServerSettingsRow(
                 )
             }
             if (onRename != null) {
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = { Text("重命名") },
                     onClick = {
                         showMenu = false
@@ -446,7 +446,7 @@ private fun ServerSettingsRow(
                     },
                 )
             }
-            DropdownMenuItem(
+            LitterDropdownMenuItem(
                 text = { Text("移除") },
                 onClick = {
                     showMenu = false

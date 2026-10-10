@@ -13,6 +13,9 @@ import java.io.DataOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import uniffi.codex_mobile_client.AppVoiceTranscriptionRequest
+import uniffi.codex_mobile_client.transcribeNeVoice
+import kotlinx.coroutines.CancellationException
 
 private const val DEFAULT_DEVICE_SAMPLE_RATE = 44100
 private const val TRANSCRIPTION_SAMPLE_RATE = 24000
@@ -58,7 +63,7 @@ class VoiceTranscriptionManager {
 
     fun startRecording(context: Context) {
         if (_isRecording.value) return
-        if (!hasMicPermission(context)) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             _error.value = "需要麦克风权限"
             return
         }
@@ -100,18 +105,7 @@ class VoiceTranscriptionManager {
         appModel: AppModel,
         options: VoiceTranscriptionOptions,
     ): String? {
-        stopRecorder()
-        val allSamples = drainSamples()
-        val durationSec = allSamples.size.toFloat() / deviceSampleRate
-        if (durationSec < MIN_DURATION_SECONDS) {
-            _error.value = "录音时间太短"
-            return null
-        }
-
-        val wav = encodeWav(
-            resample(allSamples, deviceSampleRate, TRANSCRIPTION_SAMPLE_RATE),
-            TRANSCRIPTION_SAMPLE_RATE,
-        )
+        val wav = finishRecording() ?: return null
         _isTranscribing.value = true
         return try {
             withContext(Dispatchers.IO) {
@@ -142,6 +136,31 @@ class VoiceTranscriptionManager {
         } finally {
             _isTranscribing.value = false
         }
+    }
+
+    suspend fun stopAndTranscribeDesktop(token: String): String? {
+        val wav = finishRecording() ?: return null
+        _isTranscribing.value = true
+        return try {
+            transcribeNeVoice(token, wav, null, transcriptionLanguage(null))
+        } catch (e: Exception) {
+            LLog.e("VoiceTranscription", "desktop transcription failed", e)
+            _error.value = e.message
+            null
+        } finally {
+            _isTranscribing.value = false
+        }
+    }
+
+    private fun finishRecording(): ByteArray? {
+        stopRecorder()
+        val allSamples = drainSamples()
+        if (allSamples.size.toFloat() / deviceSampleRate < MIN_DURATION_SECONDS) {
+            _error.value = "录音时间太短"
+            return null
+        }
+        return encodeWav(resample(allSamples, deviceSampleRate, TRANSCRIPTION_SAMPLE_RATE),
+            TRANSCRIPTION_SAMPLE_RATE)
     }
 
     fun cancelRecording() {

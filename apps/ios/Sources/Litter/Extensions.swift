@@ -131,8 +131,13 @@ enum LitterFont {
     private static let berkeleyBold = "BerkeleyMono-Bold"
 
     static var storedFamily: FontFamilyOption {
-        let raw = UserDefaults.standard.string(forKey: "fontFamily") ?? "mono"
-        return FontFamilyOption(rawValue: raw) ?? .mono
+        let raw = UserDefaults.standard.string(forKey: "fontFamily") ?? "system"
+        return FontFamilyOption(rawValue: raw) ?? .system
+    }
+
+    // Code remains monospaced even when prose uses the system reading font.
+    static var markdownCodeFontName: String {
+        preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
     }
 
     static var markdownFontName: String {

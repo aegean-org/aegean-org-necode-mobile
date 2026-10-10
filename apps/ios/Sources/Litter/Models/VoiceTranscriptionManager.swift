@@ -102,6 +102,24 @@ final class VoiceTranscriptionManager {
         }
     }
 
+    func stopAndTranscribeDesktop(token: String) async -> String? {
+        guard isRecording else { return nil }
+        teardownEngine()
+        guard let wav = encodeWAV() else {
+            error = "录音太短或音频编码失败。"
+            return nil
+        }
+        isTranscribing = true
+        defer { isTranscribing = false }
+        do {
+            return try await transcribeNeVoice(token: token, audioBytes: wav, model: nil,
+                language: Locale.current.language.languageCode?.identifier == "zh" ? "zh" : "en")
+        } catch {
+            if !Task.isCancelled { self.error = error.localizedDescription }
+            return nil
+        }
+    }
+
     func cancelRecording() {
         teardownEngine()
     }

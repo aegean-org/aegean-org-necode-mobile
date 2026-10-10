@@ -238,7 +238,7 @@ object LitterThemeManager {
     var appearanceMode by mutableStateOf(LitterAppearanceMode.SYSTEM)
         private set
 
-    var monoFontEnabled by mutableStateOf(true)
+    var monoFontEnabled by mutableStateOf(false)
         private set
 
     var lightTheme by mutableStateOf(LitterResolvedTheme.defaultLight)
@@ -285,7 +285,7 @@ object LitterThemeManager {
             systemIsDark = systemIsDarkMode
             appearanceMode = loadAppearanceMode()
             activeTheme = themeForMode(appearanceMode)
-            monoFontEnabled = preferences?.getBoolean(FONT_MONO_KEY, true) ?: true
+            monoFontEnabled = preferences?.getBoolean(FONT_MONO_KEY, false) ?: false
             initialized = true
         }
     }

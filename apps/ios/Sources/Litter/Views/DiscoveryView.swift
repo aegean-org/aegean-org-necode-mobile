@@ -3,6 +3,8 @@ import Network
 
 struct DiscoveryView: View {
     var onServerSelected: ((DiscoveredServer) -> Void)?
+    var onDesktopConnected: ((String) -> Void)?
+    private var desktopConnectBridge: Binding<DesktopConnectBridge?>
     @Environment(AppModel.self) private var appModel
     @State private var discovery: NetworkDiscovery
     @State private var sshServer: DiscoveredServer?
@@ -11,6 +13,7 @@ struct DiscoveryView: View {
     @State private var sshAgentContext: SSHBridgeAgentContext?
     @State private var showManualEntry = false
     @State private var showAlleycatSheet = false
+    @State private var showDesktopConnectSheet = false
     @State private var showSlingshotHosts = false
     @State private var slingshotEnvironments: [AppSlingshotEnvironment] = []
     @State private var slingshotIsLoading = false
@@ -35,11 +38,15 @@ struct DiscoveryView: View {
 
     init(
         onServerSelected: ((DiscoveredServer) -> Void)? = nil,
+        desktopBridge: Binding<DesktopConnectBridge?> = .constant(nil),
+        onDesktopConnected: ((String) -> Void)? = nil,
         discovery: NetworkDiscovery? = nil,
         autoStartDiscovery: Bool = true,
         initialServers: [DiscoveredServer] = []
     ) {
         self.onServerSelected = onServerSelected
+        self.desktopConnectBridge = desktopBridge
+        self.onDesktopConnected = onDesktopConnected
         _discovery = State(initialValue: discovery ?? NetworkDiscovery())
         self.autoStartDiscovery = autoStartDiscovery
         self.initialServers = initialServers
@@ -79,7 +86,7 @@ struct DiscoveryView: View {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             chooserContent
         }
-        .navigationTitle("添加主机")
+        .navigationTitle("添加设备")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -156,6 +163,12 @@ struct DiscoveryView: View {
         }
         .sheet(isPresented: $showSlingshotHosts) {
             slingshotHostsSheet
+        }
+        .sheet(isPresented: $showDesktopConnectSheet) {
+            DesktopConnectSheet(bridge: desktopConnectBridge) { host in
+                showDesktopConnectSheet = false
+                onDesktopConnected?(host)
+            }
         }
         .sheet(isPresented: $showAlleycatSheet) {
             AlleycatAddServerSheet(appModel: appModel, startScanningOnAppear: true) { result in
@@ -247,109 +260,90 @@ struct DiscoveryView: View {
     @ViewBuilder
     private var chooserContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("选择连接电脑的方式。")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("在手机上继续电脑里的项目和会话")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textSecondary)
-                    .padding(.top, 8)
+                    .padding(.bottom, 8)
 
-                chooserCard(
-                    title: "扫码连接 NeCode",
-                    subtitle: "扫描电脑端 NeCode mobile 显示的配对二维码。",
-                    badge: "推荐",
-                    icon: "qrcode.viewfinder",
-                    isRecommended: true,
-                    accessibilityID: "discovery.chooser.kittylitter"
-                ) {
-                    showAlleycatSheet = true
-                }
-
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .scrollIndicators(.hidden)
-    }
-
-    private func chooserCard(
-        title: String,
-        subtitle: String,
-        badge: String?,
-        icon: String,
-        isRecommended: Bool,
-        accessibilityID: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: icon)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 36, height: 36)
-                        .background(
-                            Circle()
-                                .fill(LitterTheme.accent.opacity(isRecommended ? 0.16 : 0.10))
-                        )
-                        .padding(.top, 2)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text(title)
-                                .litterFont(.subheadline, weight: .semibold)
+                Button { showDesktopConnectSheet = true } label: {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "desktopcomputer")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundColor(LitterTheme.accentStrong)
+                                .frame(width: 46, height: 46)
+                                .background(LitterTheme.accent.opacity(0.18),
+                                            in: RoundedRectangle(cornerRadius: 14))
+                            Text("NeCode Desktop")
+                                .litterFont(.headline, weight: .semibold)
                                 .foregroundColor(LitterTheme.textPrimary)
-                            if let badge {
-                                Text(badge)
-                                    .litterFont(.caption2, weight: .semibold)
-                                    .foregroundColor(LitterTheme.accentStrong)
-                                    .tracking(0.5)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        Capsule()
-                                            .fill(LitterTheme.accent.opacity(0.14))
-                                    )
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(LitterTheme.accent.opacity(0.45), lineWidth: 0.6)
-                                    )
-                            }
+                            Spacer(minLength: 4)
+                            Text("推荐")
+                                .litterFont(.caption2, weight: .semibold)
+                                .foregroundColor(LitterTheme.accentStrong)
                         }
-                        Text(subtitle)
-                            .litterFont(.caption)
+                        Text("登录 NE 账号，选择一台在线电脑。无需扫码，连接后可继续项目和会话。")
+                            .litterFont(.footnote)
                             .foregroundColor(LitterTheme.textSecondary)
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 2)
+                        HStack {
+                            Text("登录并选择电脑")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .litterFont(.subheadline, weight: .semibold)
+                        .foregroundColor(LitterTheme.textOnAccent)
+                        .frame(minHeight: 48)
+                        .padding(.horizontal, 16)
+                        .background(LitterTheme.accentStrong,
+                                    in: RoundedRectangle(cornerRadius: 12))
                     }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(LitterTheme.textMuted)
-                        .padding(.top, 10)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LitterTheme.accent.opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 18))
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("discovery.chooser.desktop")
+
+                Text("其他连接方式")
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .padding(.top, 16)
+                Button { showAlleycatSheet = true } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "qrcode.viewfinder")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(LitterTheme.accentStrong)
+                            .frame(width: 42, height: 42)
+                            .background(LitterTheme.surface,
+                                        in: RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("扫码连接 NeCode CLI")
+                                .litterFont(.subheadline, weight: .semibold)
+                                .foregroundColor(LitterTheme.textPrimary)
+                            Text("扫描 CLI 生成的配对二维码")
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textSecondary)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(LitterTheme.textMuted)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("discovery.chooser.kittylitter")
             }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(LitterTheme.surface.opacity(isRecommended ? 0.85 : 0.6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(
-                        LitterTheme.accent.opacity(isRecommended ? 0.45 : 0.18),
-                        lineWidth: isRecommended ? 1.0 : 0.8
-                    )
-            )
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(accessibilityID)
+        .scrollIndicators(.hidden)
     }
 
     // MARK: - Sections (legacy discovery list, retained for sheet plumbing)

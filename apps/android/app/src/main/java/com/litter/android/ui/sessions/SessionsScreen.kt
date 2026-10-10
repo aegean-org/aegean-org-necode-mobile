@@ -32,8 +32,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -403,9 +403,9 @@ fun SessionsScreen(
                         selectedLabelColor = Color.Black,
                     ),
                 )
-                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                LitterDropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                     WorkspaceSortMode.entries.forEach { mode ->
-                        DropdownMenuItem(
+                        LitterDropdownMenuItem(
                             text = { Text(mode.title) },
                             onClick = {
                                 sessionsUiState.sortMode = mode
@@ -636,19 +636,19 @@ private fun SessionNodeRow(
             )
         }
 
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(
+        LitterDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            LitterDropdownMenuItem(
                 text = { Text("分叉") },
                 onClick = {
                     showMenu = false
                     onFork()
                 },
             )
-            DropdownMenuItem(
+            LitterDropdownMenuItem(
                 text = { Text("重命名") },
                 onClick = { showMenu = false; showRenameDialog = true },
             )
-            DropdownMenuItem(
+            LitterDropdownMenuItem(
                 text = { Text("归档") },
                 onClick = { showMenu = false; showArchiveDialog = true },
             )

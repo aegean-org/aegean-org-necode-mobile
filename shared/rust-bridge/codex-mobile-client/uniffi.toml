@@ -1,0 +1,3 @@
+[bindings.kotlin]
+android = true
+cdylib_name = "codex_mobile_client"

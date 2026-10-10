@@ -1,6 +1,7 @@
 package com.litter.android.ui.conversation
 
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 
 /**
  * JavaScript-to-Kotlin bridge for the timeline widget shell. Mirrors the
@@ -45,6 +46,11 @@ class WidgetBridge(
     @JavascriptInterface
     fun ready() {
         onReady()
+    }
+
+    // Keep registration concrete: Lint resolves Compose remember() results as generic T.
+    fun attachTo(webView: WebView) {
+        webView.addJavascriptInterface(this, INTERFACE_NAME)
     }
 
     companion object {

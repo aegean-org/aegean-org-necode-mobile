@@ -8,6 +8,8 @@ pub(crate) mod alleycat;
 mod android;
 mod app_store;
 mod client;
+mod desktop_connect;
+mod desktop_voice;
 mod discovery;
 mod errors;
 mod parser;
@@ -24,6 +26,10 @@ pub use alleycat::{
 };
 pub use app_store::{AppStore, AppStoreSubscription};
 pub use client::AppClient;
+pub use desktop_connect::{
+    DesktopConnectBridge, DesktopConnection, DesktopHost, DesktopResponse, MobileDevice, NeLogin,
+};
+pub use desktop_voice::transcribe_ne_voice;
 pub use discovery::{
     AppSlingshotEnvironment, DiscoveryBridge, DiscoveryScanSubscription, ServerBridge,
 };

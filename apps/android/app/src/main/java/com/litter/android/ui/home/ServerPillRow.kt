@@ -18,8 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -144,22 +144,22 @@ private fun ServerPill(
                 AgentRuntimeBadgeStack(runtimes = server.agentRuntimes)
             }
         }
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(
+        LitterDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            LitterDropdownMenuItem(
                 text = { Text(stringResource(R.string.server_action_reconnect)) },
                 onClick = { showMenu = false; onReconnect() },
             )
-            DropdownMenuItem(
+            LitterDropdownMenuItem(
                 text = { Text(stringResource(R.string.server_action_restart_app_server)) },
                 onClick = { showMenu = false; onRestartAppServer() },
             )
             if (!server.isLocal) {
-                DropdownMenuItem(
+                LitterDropdownMenuItem(
                     text = { Text(stringResource(R.string.server_action_rename)) },
                     onClick = { showMenu = false; onRename() },
                 )
             }
-            DropdownMenuItem(
+            LitterDropdownMenuItem(
                 text = { Text(stringResource(R.string.server_action_remove)) },
                 onClick = { showMenu = false; onRemove() },
             )

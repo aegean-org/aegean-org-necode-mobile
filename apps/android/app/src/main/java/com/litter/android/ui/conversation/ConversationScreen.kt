@@ -945,6 +945,7 @@ fun ConversationScreen(
         }
 
         if (showSkillsSheet) {
+            val launchState by appModel.launchState.snapshot.collectAsState()
             ModalBottomSheet(
                 onDismissRequest = { showSkillsSheet = false },
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -952,7 +953,7 @@ fun ConversationScreen(
             ) {
                 ComposerSkillsSheet(
                     serverId = threadKey.serverId,
-                    cwd = thread?.info?.cwd ?: appModel.launchState.snapshot.value.currentCwd.ifBlank { "/" },
+                    cwd = thread?.info?.cwd ?: launchState.currentCwd.ifBlank { "/" },
                     onDismiss = { showSkillsSheet = false },
                     onError = { slashErrorMessage = it },
                 )

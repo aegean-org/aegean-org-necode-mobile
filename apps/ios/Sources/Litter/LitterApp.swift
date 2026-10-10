@@ -387,6 +387,9 @@ struct ContentView: View {
     @Environment(AppRuntimeController.self) private var appRuntime
     @Environment(ThemeManager.self) private var themeManager
     @State private var appState = AppState()
+    @State private var desktopConnectBridge: DesktopConnectBridge?
+    @State private var desktopHostName: String?
+    @State private var pendingDesktopHostName: String?
     @State private var stableSafeAreaInsets = StableSafeAreaInsets()
     @State private var conversationWarmup = ConversationWarmupCoordinator()
     @State private var composerBottomInset: CGFloat = 0
@@ -412,24 +415,18 @@ struct ContentView: View {
                     ConversationDisplayUITestHarnessView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    standardHomeNavigationView(
-                        topInset: geometry.safeAreaInsets.top,
-                        bottomInset: composerBottomInset
-                    )
+                    connectedDesktopHome(topInset: geometry.safeAreaInsets.top, bottomInset: composerBottomInset)
                 }
                 #else
-                standardHomeNavigationView(
-                    topInset: geometry.safeAreaInsets.top,
-                    bottomInset: composerBottomInset
-                )
+                connectedDesktopHome(topInset: geometry.safeAreaInsets.top, bottomInset: composerBottomInset)
                 #endif
 
                 #if DEBUG
-                if !ConversationDisplayUITestHarnessView.isEnabled {
+                if !ConversationDisplayUITestHarnessView.isEnabled && desktopHostName == nil {
                     standardOverlays
                 }
                 #else
-                standardOverlays
+                if desktopHostName == nil { standardOverlays }
                 #endif
 
             }
@@ -488,6 +485,38 @@ struct ContentView: View {
                 themeManager.syncSystemColorScheme(colorScheme)
             }
         }
+        .task(id: scenePhase == .active && !appState.showServerPicker && desktopHostName == nil) {
+            guard scenePhase == .active && !appState.showServerPicker && desktopHostName == nil else { return }
+            while !Task.isCancelled {
+                do {
+                    guard let credentials = try DesktopConnectCredentialStore.load(),
+                          let preferred = DesktopConnectCredentialStore.preferredDesktopID(for: credentials.accountId) else { return }
+                    let client: DesktopConnectBridge
+                    if let existing = desktopConnectBridge { client = existing }
+                    else {
+                        client = try DesktopConnectBridge(
+                            ucUrl: UserDefaults.standard.string(forKey: "desktop.connect.ucURL") ?? "https://uc.inoteexpress.com/",
+                            connectUrl: UserDefaults.standard.string(forKey: "desktop.connect.url") ?? "https://necode.inoteexpress.com/")
+                        desktopConnectBridge = client
+                    }
+                    let mobile = try await client.registerMobile(token: credentials.token,
+                        savedId: credentials.mobileId, savedSecret: credentials.mobileSecret)
+                    try DesktopConnectCredentialStore.save(.init(accountId: credentials.accountId,
+                        token: credentials.token, mobileId: mobile.id, mobileSecret: mobile.secret))
+                    guard let active = try await client.recoverDesktop(token: credentials.token, mobile: mobile,
+                        preferredDesktopId: preferred, forceReconnect: false) else { return }
+                    let hosts = try await client.listDesktops(token: credentials.token)
+                    try Task.checkCancellation()
+                    DesktopConnectCredentialStore.setPreferredDesktopID(active.desktopId, for: credentials.accountId)
+                    desktopHostName = hosts.first(where: { $0.id == active.desktopId })?.name ?? active.desktopId
+                    return
+                } catch {
+                    if Task.isCancelled { return }
+                    LLog.warn("DesktopConnect", "automatic restore failed", fields: ["error": error.localizedDescription])
+                }
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            }
+        }
         .onChange(of: appModel.snapshot?.activeThread) { _, _ in
             appState.selectedModel = ""
             appState.selectedAgentRuntimeKind = nil
@@ -497,9 +526,17 @@ struct ContentView: View {
         .onChange(of: appModel.snapshot) { _, nextSnapshot in
             appRuntime.handleSnapshot(nextSnapshot)
         }
-        .sheet(isPresented: $bindableAppState.showServerPicker) {
+        .sheet(isPresented: $bindableAppState.showServerPicker, onDismiss: {
+            if let pendingDesktopHostName {
+                desktopHostName = pendingDesktopHostName
+                self.pendingDesktopHostName = nil
+            }
+        }) {
             NavigationStack {
                 DiscoveryView(onServerSelected: { _ in
+                    appState.showServerPicker = false
+                }, desktopBridge: $desktopConnectBridge, onDesktopConnected: { host in
+                    pendingDesktopHostName = host
                     appState.showServerPicker = false
                 })
             }
@@ -523,6 +560,19 @@ struct ContentView: View {
             appState.showSettings = true
         }
         #endif
+    }
+
+    @ViewBuilder
+    private func connectedDesktopHome(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+        if let desktopHostName, let desktopConnectBridge {
+            DesktopSessionsView(bridge: desktopConnectBridge, hostName: desktopHostName,
+                topInset: topInset, bottomInset: bottomInset, onDisconnected: {
+                    self.desktopHostName = nil
+                    appState.showServerPicker = true
+                }, onHostChanged: { self.desktopHostName = $0 })
+        } else {
+            standardHomeNavigationView(topInset: topInset, bottomInset: bottomInset)
+        }
     }
 
     private func standardHomeNavigationView(topInset: CGFloat, bottomInset: CGFloat) -> some View {

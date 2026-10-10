@@ -39,12 +39,10 @@ class ScreenshotTest {
         Screengrab.screenshot("02_Settings")
 
         // 03 - Theme / Appearance
-        try {
-            composeTestRule.onNodeWithText("Appearance").performClick()
-            composeTestRule.waitForIdle()
-            Thread.sleep(800)
-            Screengrab.screenshot("03_Themes")
-        } catch (_: Exception) {}
+        composeTestRule.onNodeWithText("外观").performClick()
+        composeTestRule.waitForIdle()
+        Thread.sleep(800)
+        Screengrab.screenshot("03_Themes")
 
         // Dismiss settings
         composeTestRule.activityRule.scenario.onActivity {

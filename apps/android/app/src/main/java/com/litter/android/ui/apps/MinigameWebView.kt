@@ -92,7 +92,7 @@ fun MinigameWebView(
                 settings.displayZoomControls = false
                 overScrollMode = WebView.OVER_SCROLL_NEVER
                 // Only register openLink/height/ready — not sendPrompt/saveAppState/structuredResponse.
-                addJavascriptInterface(widgetBridge, WidgetBridge.INTERFACE_NAME)
+                widgetBridge.attachTo(this)
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         super.onPageStarted(view, url, favicon)

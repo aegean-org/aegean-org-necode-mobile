@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
+import com.litter.android.state.DesktopConnectCredentialStore
 import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.NetworkDiscovery
 import com.litter.android.state.PathNormalizer
@@ -30,11 +31,16 @@ import com.litter.android.state.AlleycatCredentialStore
 import com.litter.android.state.SavedServerStore
 import com.litter.android.state.SavedThreadsStore
 import com.litter.android.state.connectionModeLabel
+import com.litter.android.util.LLog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.litter.android.ui.conversation.ApprovalOverlay
 import com.litter.android.ui.conversation.ConversationInfoScreen
 import com.litter.android.ui.conversation.ConversationScreen
 import com.litter.android.ui.discovery.DiscoveryScreen
+import com.litter.android.ui.desktop.DesktopSessionsScreen
+import uniffi.codex_mobile_client.DesktopConnectBridge
 import com.litter.android.ui.home.HomeDashboardScreen
 import com.litter.android.ui.home.HomeDashboardSupport
 import com.litter.android.ui.home.ProjectPickerSheet
@@ -119,6 +125,8 @@ fun LitterApp(
         var navStack by remember { mutableStateOf<List<Route>>(listOf(Route.Home)) }
         val currentRoute = navStack.lastOrNull() ?: Route.Home
         val sessionsUiState = remember { SessionsUiState() }
+        val desktopBridge = remember { mutableStateOf<DesktopConnectBridge?>(null) }
+        var desktopHostName by remember { mutableStateOf<String?>(null) }
 
         // Global sheet state
         var showDiscovery by remember { mutableStateOf(false) }
@@ -128,6 +136,33 @@ fun LitterApp(
         var directoryPickerServerId by remember { mutableStateOf<String?>(null) }
         var directoryPickerForProject by remember { mutableStateOf(false) }
         var showProjectPicker by remember { mutableStateOf(false) }
+
+        // A killed Android process loses Compose state, but must not forget the user's Desktop selection.
+        LaunchedEffect(showDiscovery, desktopHostName) {
+            if (showDiscovery || desktopHostName != null) return@LaunchedEffect
+            val store = DesktopConnectCredentialStore(context.applicationContext)
+            while (!showDiscovery && desktopHostName == null) {
+                try {
+                    val desktopId = store.preferredDesktopId() ?: break
+                    val credentials = store.load() ?: break
+                    val settings = context.getSharedPreferences("desktop_connect_settings", 0)
+                    val client = desktopBridge.value ?: DesktopConnectBridge(
+                        ucUrl = settings.getString("uc_url", "https://uc.inoteexpress.com/") ?: "https://uc.inoteexpress.com/",
+                        connectUrl = settings.getString("connect_url", "https://necode.inoteexpress.com/") ?: "https://necode.inoteexpress.com/",
+                    ).also { desktopBridge.value = it }
+                    val mobile = client.registerMobile(credentials.token, credentials.mobileId, credentials.mobileSecret)
+                    store.save(credentials.copy(mobileId = mobile.id, mobileSecret = mobile.secret))
+                    val active = client.recoverDesktop(credentials.token, mobile, desktopId, false) ?: break
+                    store.setPreferredDesktopId(active.desktopId)
+                    desktopHostName = client.listDesktops(credentials.token)
+                        .firstOrNull { it.id == active.desktopId }?.name ?: active.desktopId
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    LLog.w("DesktopConnect", "automatic restore failed", mapOf("error" to e.message))
+                    delay(10_000)
+                }
+            }
+        }
 
         // Home selection state
         var selectedServerId by remember {
@@ -284,6 +319,7 @@ fun LitterApp(
         // Home-composer sends don't call setActiveThread, so this only triggers
         // for real "open a thread" actions (e.g. voice session handoff).
         LaunchedEffect(snapshot?.activeThread) {
+            if (desktopHostName != null) return@LaunchedEffect
             val activeKey = snapshot?.activeThread ?: return@LaunchedEffect
             val alreadyShowing = when (val route = currentRoute) {
                 is Route.Conversation -> route.key == activeKey
@@ -309,7 +345,14 @@ fun LitterApp(
         Box(modifier = rootModifier) {
             when (val route = currentRoute) {
                 is Route.Home -> {
-                    HomeDashboardScreen(
+                    val host = desktopHostName
+                    val bridge = desktopBridge.value
+                    if (host != null && bridge != null) {
+                        DesktopSessionsScreen(bridge, host, onDisconnected = {
+                            desktopHostName = null
+                            navStack = listOf(Route.Home)
+                        }, onHostChanged = { desktopHostName = it })
+                    } else HomeDashboardScreen(
                         onOpenConversation = navigateToConversation,
                         onShowDiscovery = { showDiscovery = true },
                         onShowSettings = { showSettings = true },
@@ -547,6 +590,13 @@ fun LitterApp(
                     onDismiss = {
                         showDiscovery = false
                         networkDiscovery.stopScanning()
+                    },
+                    desktopBridge = desktopBridge,
+                    onDesktopConnected = { host ->
+                        showDiscovery = false
+                        networkDiscovery.stopScanning()
+                        desktopHostName = host
+                        navStack = listOf(Route.Home)
                     },
                 )
             }

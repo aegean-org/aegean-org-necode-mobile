@@ -691,6 +691,7 @@ private fun FramingHint() {
     )
 }
 
+@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
 private fun bindCameraUseCases(
     context: Context,
     lifecycleOwner: LifecycleOwner,

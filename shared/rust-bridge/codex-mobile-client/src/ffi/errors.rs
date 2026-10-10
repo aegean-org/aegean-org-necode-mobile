@@ -1,4 +1,4 @@
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[derive(Debug, Clone, thiserror::Error, uniffi::Error)]
 pub enum ClientError {
     #[error("Transport: {0}")]
     Transport(String),

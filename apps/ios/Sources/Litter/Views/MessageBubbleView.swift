@@ -841,14 +841,14 @@ private func litterContentTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdow
     theme.inlineCode = InlineCodeStyle(
         backgroundColor: LitterTheme.surfaceLight,
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.markdownCodeFontName, size: codeSize),
         fontSize: codeSize
     )
 
     theme.codeBlock = CodeBlockStyle(
         backgroundColor: LitterTheme.codeBackground.opacity(0.8),
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.markdownCodeFontName, size: codeSize),
         fontSize: codeSize,
         cornerRadius: 8,
         showLanguageLabel: false,
@@ -912,14 +912,14 @@ private func litterSystemTheme(bodySize: CGFloat, codeSize: CGFloat) -> Markdown
     theme.inlineCode = InlineCodeStyle(
         backgroundColor: LitterTheme.surfaceLight,
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.markdownCodeFontName, size: codeSize),
         fontSize: codeSize
     )
 
     theme.codeBlock = CodeBlockStyle(
         backgroundColor: LitterTheme.codeBackground.opacity(0.8),
         textColor: LitterTheme.textPrimary,
-        font: .custom(LitterFont.markdownFontName, size: codeSize),
+        font: .custom(LitterFont.markdownCodeFontName, size: codeSize),
         fontSize: codeSize,
         cornerRadius: 8,
         showLanguageLabel: false,

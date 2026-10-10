@@ -36,8 +36,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -137,15 +137,15 @@ fun SavedAppScreen(
             } else null,
             isUpdating = isUpdating,
         )
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(
+        LitterDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            LitterDropdownMenuItem(
                 text = { Text("Rename") },
                 onClick = {
                     showMenu = false
                     renameDialogVisible = true
                 },
             )
-            DropdownMenuItem(
+            LitterDropdownMenuItem(
                 text = { Text("Delete", color = LitterTheme.danger) },
                 onClick = {
                     showMenu = false
@@ -545,8 +545,8 @@ private fun AppModeWebView(
                 settings.builtInZoomControls = false
                 settings.displayZoomControls = false
                 overScrollMode = WebView.OVER_SCROLL_NEVER
-                addJavascriptInterface(savedBridge, SavedAppBridge.INTERFACE_NAME)
-                addJavascriptInterface(widgetBridge, WidgetBridge.INTERFACE_NAME)
+                savedBridge.attachTo(this)
+                widgetBridge.attachTo(this)
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
