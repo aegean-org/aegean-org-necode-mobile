@@ -589,7 +589,9 @@ $(STAMP_BINDINGS_K): $(STAMP_SYNC) $(BOUNDARY_SOURCES) | alleycat-main
 	@touch $@
 
 xcgen: $(STAMP_XCGEN)
-$(STAMP_XCGEN): $(IOS_DIR)/project.yml
+	@$(IOS_SCRIPTS)/regenerate-project.sh --repair-only
+
+$(STAMP_XCGEN): $(IOS_DIR)/project.yml $(IOS_SCRIPTS)/regenerate-project.sh $(IOS_SCRIPTS)/prepare-hairball.py
 	@echo "==> Regenerating Xcode project..."
 	@$(IOS_SCRIPTS)/regenerate-project.sh
 	@touch $@

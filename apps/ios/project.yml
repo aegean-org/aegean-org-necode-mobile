@@ -41,8 +41,8 @@ settings:
 
 packages:
   Hairball:
-    url: https://github.com/dnakov/hairball.git
-    branch: main
+    # Prepared from the pinned revision by scripts/prepare-hairball.py.
+    path: ../../artifacts/ios/dependencies/hairball
   Nuke:
     url: https://github.com/kean/Nuke.git
     from: "12.8.0"

@@ -25,6 +25,14 @@ if ! command -v xcodegen >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: python3 not found; install Python 3.9 or newer first" >&2
+  exit 1
+fi
+
+# Prepare the dependency before XcodeGen resolves the local package path.
+python3 "$SCRIPT_DIR/prepare-hairball.py"
+
 needs_regen=0
 
 if [[ -d "$NESTED_PROJECT" ]]; then
@@ -34,7 +42,8 @@ if [[ -d "$NESTED_PROJECT" ]]; then
   needs_regen=1
 fi
 
-if [[ ! -f "$PROJECT_FILE/project.pbxproj" ]]; then
+if [[ ! -f "$PROJECT_FILE/project.pbxproj" ]] || \
+  ! grep -Fq "../../artifacts/ios/dependencies/hairball" "$PROJECT_FILE/project.pbxproj"; then
   needs_regen=1
 fi
 
