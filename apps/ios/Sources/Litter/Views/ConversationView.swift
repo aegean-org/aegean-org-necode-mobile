@@ -393,9 +393,17 @@ struct ConversationView: View {
 private extension AppThreadSnapshot {
     var serverId: String { key.serverId }
     var isSubagent: Bool {
-        info.parentThreadId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            && ((info.agentNickname?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-                || (info.agentRole?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false))
+        // Swift 6.4 crashes in SemanticARCOpts on the chained optional expression.
+        guard let parentThreadId = info.parentThreadId,
+              !parentThreadId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if let nickname = info.agentNickname,
+           !nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        guard let role = info.agentRole else { return false }
+        return !role.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var agentDisplayLabel: String? {
