@@ -1,8 +1,8 @@
 use crate::ffi::ClientError;
 use base64::Engine;
+use super::ne_auth::{NeAuth, NeCaptchaConfig, NeLogin, NeSessionStore};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayConfig, RelayMap, RelayMode, RelayUrl};
 use reqwest::{Client, Url};
-use rsa::{Pkcs1v15Encrypt, RsaPublicKey, pkcs8::DecodePublicKey};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::str::FromStr;
@@ -27,12 +27,6 @@ pub struct DesktopHost {
     pub endpoint_id: String,
     pub relay_url: Option<String>,
     pub status: String,
-}
-
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct NeLogin {
-    pub token: String,
-    pub account_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, uniffi::Record)]
@@ -97,7 +91,7 @@ struct ActiveDesktop {
     healthy: Arc<AtomicBool>,
     expires_at: Arc<AtomicI64>,
     renewal: JoinHandle<()>,
-    token: String,
+    session_id: String,
     mobile: MobileDevice,
 }
 
@@ -116,7 +110,7 @@ struct DesktopState {
 struct PendingConnect {
     generation: u64,
     desktop_id: Option<String>,
-    token: String,
+    session_id: String,
     mobile: MobileDevice,
     waiters: usize,
     cancel: watch::Sender<bool>,
@@ -146,31 +140,10 @@ impl Drop for ConnectCancellation {
 
 #[derive(uniffi::Object)]
 pub struct DesktopConnectBridge {
-    uc_url: Url,
+    auth: Arc<NeAuth>,
     connect_url: Url,
     client: Client,
     state: Arc<Mutex<DesktopState>>,
-}
-
-#[derive(Deserialize)]
-struct NeResult {
-    code: serde_json::Value,
-    data: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct TokenData {
-    token: String,
-}
-
-#[derive(Deserialize)]
-struct PublicKeyData {
-    public_key: String,
-}
-
-#[derive(Deserialize)]
-struct AccountData {
-    account_id: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -191,100 +164,59 @@ struct DesktopHostWire {
 #[uniffi::export(async_runtime = "tokio")]
 impl DesktopConnectBridge {
     #[uniffi::constructor]
-    pub fn new(uc_url: String, connect_url: String) -> Result<Self, ClientError> {
+    pub fn new(uc_url: String, connect_url: String, store: Box<dyn NeSessionStore>) -> Result<Self, ClientError> {
         let uc_url = service_url(&uc_url)?;
         let connect_url = service_url(&connect_url)?;
+        let client = Client::builder().timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none()).build().map_err(transport_error)?;
         Ok(Self {
-            uc_url,
-            connect_url,
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .map_err(|e| ClientError::Transport(e.to_string()))?,
-            state: Arc::new(Mutex::new(DesktopState::default())),
+            auth: Arc::new(NeAuth::new(client.clone(), uc_url, store)),
+            connect_url, client, state: Arc::new(Mutex::new(DesktopState::default())),
         })
     }
 
-    pub async fn login_with_password(
-        &self,
-        username: String,
-        password: String,
-    ) -> Result<NeLogin, ClientError> {
-        if username.trim().is_empty() || password.is_empty() {
-            return Err(ClientError::InvalidParams(
-                "请输入 NE 账号和密码".into(),
-            ));
-        }
-        let response = self
-            .client
-            .get(self.uc_url.join("user/dict").map_err(url_error)?)
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let key: PublicKeyData = ne_data(response)
-            .await?
-            .ok_or_else(|| ClientError::Serialization("NE public key missing".into()))?;
-        let password = encrypt_ne_password(&password, &key.public_key)?;
-        let response = self
-            .client
-            .post(self.uc_url.join("user/passwordlogin").map_err(url_error)?)
-            .form(&[
-                ("target", username.trim()),
-                ("password", password.as_str()),
-                ("expire", "2592000"),
-            ])
-            .send()
-            .await
-            .map_err(transport_error)?;
-        let token: TokenData = ne_data(response)
-            .await?
-            .ok_or_else(|| ClientError::Rpc("登录服务未返回有效凭据，请重新登录；若仍失败，请联系管理员".into()))?;
-        if token.token.trim().is_empty() {
-            return Err(ClientError::Rpc("登录服务未返回有效凭据，请重新登录；若仍失败，请联系管理员".into()));
-        }
-        let account_id = self.verify_login(token.token.clone()).await?;
-        Ok(NeLogin {
-            token: token.token,
-            account_id,
-        })
+    pub async fn login_config(&self) -> Result<NeCaptchaConfig, ClientError> {
+        self.auth.captcha_config().await
     }
-    pub async fn verify_login(&self, token: String) -> Result<String, ClientError> {
-        if token.trim().is_empty() {
-            return Err(ClientError::InvalidParams("请先登录 NE 账号，再连接电脑".into()));
+
+    pub async fn login_with_password(&self, username: String, password: String, captcha_verify_param: Option<String>) -> Result<NeLogin, ClientError> {
+        // Close old transports before replacing their auth owner. If an expired credential
+        // cannot release its remote lease, local closure is complete and server TTL reclaims it.
+        if let Err(error) = self.disconnect_desktop().await {
+            tracing::warn!("Previous desktop lease will expire after login replacement: {error}");
         }
-        for path in ["user/verify", "user/info"] {
-            let mut url = self.uc_url.join(path).map_err(url_error)?;
-            url.query_pairs_mut().append_pair("AUT", &token);
-            let response = self
-                .client
-                .get(url)
-                .header("AUT", &token)
-                .header("token", &token)
-                .send()
-                .await
-                .map_err(transport_error)?;
-            if path == "user/info" {
-                let data: AccountData = ne_data(response)
-                    .await?
-                    .ok_or_else(|| ClientError::Rpc("登录服务未返回有效账号信息，请重新登录；若仍失败，请联系管理员".into()))?;
-                return match data.account_id {
-                    serde_json::Value::String(id) if !id.trim().is_empty() => Ok(id),
-                    serde_json::Value::Number(id) => Ok(id.to_string()),
-                    _ => Err(ClientError::Rpc("登录服务未返回有效账号信息，请重新登录；若仍失败，请联系管理员".into())),
-                };
-            }
-            ne_data::<serde_json::Value>(response).await?;
-        }
-        Err(ClientError::Rpc("暂时无法获取账号信息，请重新登录".into()))
+        let login = self.auth.login(username, password, captcha_verify_param).await?;
+        self.state.lock().expect("Desktop state poisoned").recovery_suspended = false;
+        Ok(login)
+    }
+
+    pub async fn current_login(&self) -> Result<Option<NeLogin>, ClientError> {
+        self.auth.current_login().await
+    }
+
+    pub async fn verify_login(&self, session_id: String) -> Result<String, ClientError> {
+        self.auth.verify(&session_id).await
+    }
+
+    /// Only the voice transport needs a bearer outside this bridge. Never persist it in UI state.
+    pub async fn access_token(&self, session_id: String) -> Result<String, ClientError> {
+        self.auth.access_token(&session_id, None).await
+    }
+
+    pub async fn logout(&self, session_id: String) -> Result<(), ClientError> {
+        let disconnected = self.disconnect_desktop().await;
+        self.auth.logout(&session_id).await?;
+        if let Err(error) = disconnected { tracing::warn!("Desktop disconnect before logout failed: {error}"); }
+        Ok(())
     }
 
     pub async fn register_mobile(
         &self,
-        token: String,
+        session_id: String,
         saved_id: Option<String>,
         saved_secret: Option<String>,
     ) -> Result<MobileDevice, ClientError> {
-        if token.trim().is_empty() || saved_id.is_some() != saved_secret.is_some() {
+        if session_id.trim().is_empty() || saved_id.is_some() != saved_secret.is_some() {
             return Err(ClientError::InvalidParams(
                 "NE login and matching saved mobile credentials required".into(),
             ));
@@ -300,46 +232,41 @@ impl DesktopConnectBridge {
                 ));
             }
         };
-        let response = self
-            .client
+        let response = self.auth.send(&session_id, self.client
             .post(self.connect_url.join("v1/mobiles").map_err(url_error)?)
-            .bearer_auth(token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(transport_error)?;
+            .json(&body)).await?;
         connect_data(response).await
     }
 
     pub async fn connect_desktop(
         &self,
-        token: String,
+        session_id: String,
         mobile: MobileDevice,
         desktop_id: String,
     ) -> Result<DesktopConnection, ClientError> {
-        self.connect_or_resume(token, mobile, Some(desktop_id), None, false)
+        self.connect_or_resume(session_id, mobile, Some(desktop_id), None, false)
             .await?
             .ok_or_else(|| ClientError::Rpc("这台电脑暂时无法连接，请确认电脑端 NeCode 已打开并保持联网".into()))
     }
 
     pub async fn resume_desktop(
         &self,
-        token: String,
+        session_id: String,
         mobile: MobileDevice,
     ) -> Result<Option<DesktopConnection>, ClientError> {
-        self.connect_or_resume(token, mobile, None, None, false)
+        self.connect_or_resume(session_id, mobile, None, None, false)
             .await
     }
 
     /// Automatic recovery never overrides a newer manual selection or disconnect.
     pub async fn recover_desktop(
         &self,
-        token: String,
+        session_id: String,
         mobile: MobileDevice,
         preferred_desktop_id: Option<String>,
         force_reconnect: bool,
     ) -> Result<Option<DesktopConnection>, ClientError> {
-        self.connect_or_resume(token, mobile, None, preferred_desktop_id, force_reconnect)
+        self.connect_or_resume(session_id, mobile, None, preferred_desktop_id, force_reconnect)
             .await
     }
 
@@ -417,7 +344,7 @@ impl DesktopConnectBridge {
                 state.pending = Some(PendingConnect {
                     generation,
                     desktop_id: None,
-                    token: active.token.clone(),
+                    session_id: active.session_id.clone(),
                     mobile: active.mobile.clone(),
                     waiters: 0,
                     cancel,
@@ -431,10 +358,11 @@ impl DesktopConnectBridge {
         if let Some((active, completed, generation)) = closing {
             let state = self.state.clone();
             let client = self.client.clone();
+            let auth = self.auth.clone();
             let url = self.connect_url.clone();
             // Cleanup is worker-owned, even when the native caller leaves the page.
             tokio::spawn(async move {
-                let result = close_desktop(&client, &url, active).await.map(|_| None);
+                let result = close_desktop(&client, &url, &auth, active).await.map(|_| None);
                 let mut state = state.lock().expect("Desktop state poisoned");
                 if state
                     .pending
@@ -452,17 +380,41 @@ impl DesktopConnectBridge {
         }
     }
 
-    pub async fn list_desktops(&self, token: String) -> Result<Vec<DesktopHost>, ClientError> {
-        if token.trim().is_empty() {
+    pub async fn remove_desktop(&self, session_id: String, desktop_id: String) -> Result<(), ClientError> {
+        let desktop_id = uuid::Uuid::parse_str(&desktop_id)
+            .map_err(|_| ClientError::InvalidParams("电脑标识无效，请刷新电脑列表".into()))?.to_string();
+        {
+            let state = self.state.lock().expect("Desktop state poisoned");
+            if state.active.as_ref().is_some_and(|active| active.lease.desktop_id == desktop_id)
+                || state.pending.as_ref().is_some_and(|pending| pending.desktop_id.as_ref() == Some(&desktop_id)) {
+                return Err(ClientError::InvalidParams("请先断开这台电脑，再移除连接登记".into()));
+            }
+        }
+        let response = self.auth.send(&session_id, self.client
+            .delete(self.connect_url.join(&format!("v1/desktops/{desktop_id}")).map_err(url_error)?)).await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            let body: Value = response.json().await.map_err(|error| ClientError::Serialization(error.to_string()))?;
+            return Err(ClientError::Rpc(match body.get("error").and_then(Value::as_str) {
+                Some("Not found") => "连接服务尚未支持移除电脑，请先更新 Connect 服务".into(),
+                Some("Desktop not found") => "这台电脑的登记已不存在，请刷新列表".into(),
+                _ => format!("移除电脑失败（HTTP 404）：{}", body.get("error").and_then(Value::as_str).unwrap_or("响应格式异常")),
+            }));
+        }
+        let result: Value = connect_data(response).await?;
+        if result.get("ok") != Some(&Value::Bool(true)) {
+            return Err(ClientError::Rpc("移除结果未确认，请刷新电脑列表核对".into()));
+        }
+        let mut state = self.state.lock().expect("Desktop state poisoned");
+        if state.preferred.as_ref().is_some_and(|(_, id)| id == &desktop_id) { state.preferred = None; }
+        Ok(())
+    }
+
+    pub async fn list_desktops(&self, session_id: String) -> Result<Vec<DesktopHost>, ClientError> {
+        if session_id.trim().is_empty() {
             return Err(ClientError::InvalidParams("请先登录 NE 账号，再连接电脑".into()));
         }
-        let response = self
-            .client
-            .get(self.connect_url.join("v1/desktops").map_err(url_error)?)
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(transport_error)?;
+        let response = self.auth.send(&session_id, self.client
+            .get(self.connect_url.join("v1/desktops").map_err(url_error)?)).await?;
         let list: DesktopList = connect_data(response).await?;
         Ok(list
             .desktops
@@ -574,13 +526,13 @@ impl DesktopConnectBridge {
 
     async fn connect_or_resume(
         &self,
-        token: String,
+        session_id: String,
         mobile: MobileDevice,
         desktop_id: Option<String>,
         preferred_desktop_id: Option<String>,
         force_reconnect: bool,
     ) -> ConnectResult {
-        if token.trim().is_empty()
+        if session_id.trim().is_empty()
             || mobile.id.is_empty()
             || mobile.secret.is_empty()
             || desktop_id.as_deref().is_some_and(str::is_empty)
@@ -596,7 +548,7 @@ impl DesktopConnectBridge {
                 let joining = state.pending.as_ref().is_some_and(|pending| {
                     !*pending.cancel.borrow()
                         && pending.desktop_id.as_ref() == Some(id)
-                        && same_mobile(&pending.token, &pending.mobile, &token, &mobile)
+                        && same_mobile(&pending.session_id, &pending.mobile, &session_id, &mobile)
                 });
                 if !joining {
                     state.intent += 1;
@@ -621,7 +573,7 @@ impl DesktopConnectBridge {
                 if let Some(active) = &state.active
                     && !force_reconnect
                     && connection_info(active).healthy
-                    && same_mobile(&active.token, &active.mobile, &token, &mobile)
+                    && same_mobile(&active.session_id, &active.mobile, &session_id, &mobile)
                     && desktop_id
                         .as_ref()
                         .is_none_or(|id| id == &active.lease.desktop_id)
@@ -630,7 +582,7 @@ impl DesktopConnectBridge {
                 }
                 if let Some(pending) = state.pending.as_mut() {
                     let joining = !*pending.cancel.borrow()
-                        && same_mobile(&pending.token, &pending.mobile, &token, &mobile)
+                        && same_mobile(&pending.session_id, &pending.mobile, &session_id, &mobile)
                         && desktop_id
                             .as_ref()
                             .is_none_or(|id| pending.desktop_id.as_ref() == Some(id));
@@ -661,7 +613,7 @@ impl DesktopConnectBridge {
                     state.pending = Some(PendingConnect {
                         generation,
                         desktop_id: desktop_id.clone(),
-                        token: token.clone(),
+                        session_id: session_id.clone(),
                         mobile: mobile.clone(),
                         waiters: 1,
                         cancel: cancel.clone(),
@@ -681,17 +633,18 @@ impl DesktopConnectBridge {
             if let Some((generation, cancel, completed, previous, preferred)) = reservation {
                 let state = self.state.clone();
                 let client = self.client.clone();
+                let auth = self.auth.clone();
                 let url = self.connect_url.clone();
-                let token = token.clone();
+                let session_id = session_id.clone();
                 let mobile = mobile.clone();
                 let desktop_id = desktop_id.clone();
                 tokio::spawn(async move {
                     let built = async {
                         if let Some(active) = previous {
                             if desktop_id.is_some()
-                                || !same_mobile(&active.token, &active.mobile, &token, &mobile)
+                                || !same_mobile(&active.session_id, &active.mobile, &session_id, &mobile)
                             {
-                                close_desktop(&client, &url, active)
+                                close_desktop(&client, &url, &auth, active)
                                     .await
                                     .map_err(|error| DesktopBuildError {
                                         cleanup: Some(error.clone()),
@@ -709,7 +662,8 @@ impl DesktopConnectBridge {
                         let active = establish_desktop(
                             client.clone(),
                             url.clone(),
-                            token.clone(),
+                            auth.clone(),
+                            session_id.clone(),
                             mobile.clone(),
                             desktop_id.clone(),
                             generation,
@@ -726,7 +680,8 @@ impl DesktopConnectBridge {
                         establish_desktop(
                             client.clone(),
                             url.clone(),
-                            token,
+                            auth.clone(),
+                            session_id,
                             mobile,
                             preferred,
                             generation,
@@ -763,7 +718,7 @@ impl DesktopConnectBridge {
                     }
                     let cleanup = match candidate.as_mut() {
                         Ok(active) => match active.take() {
-                            Some(active) => close_desktop(&client, &url, active).await,
+                            Some(active) => close_desktop(&client, &url, &auth, active).await,
                             None => Ok(()),
                         },
                         Err(error) => {
@@ -811,10 +766,10 @@ impl DesktopConnectBridge {
 fn same_mobile(
     saved_token: &str,
     saved: &MobileDevice,
-    token: &str,
+    session_id: &str,
     mobile: &MobileDevice,
 ) -> bool {
-    saved_token == token && saved.id == mobile.id && saved.secret == mobile.secret
+    saved_token == session_id && saved.id == mobile.id && saved.secret == mobile.secret
 }
 
 async fn wait_connect(done: &mut watch::Receiver<Option<ConnectResult>>) -> ConnectResult {
@@ -882,7 +837,8 @@ fn desktop_relay_map(relay: RelayUrl) -> RelayMap {
 async fn establish_desktop(
     client: Client,
     url: Url,
-    token: String,
+    auth: Arc<NeAuth>,
+    session_id: String,
     mobile: MobileDevice,
     desktop_id: Option<String>,
     generation: u64,
@@ -905,13 +861,9 @@ async fn establish_desktop(
     };
     // Do not abort lease acquisition mid-response: the server may already have committed it.
     // The worker resolves the bounded HTTP request, then releases a cancelled attempt.
-    let acquired = client
+    let acquired = auth.send(&session_id, client
         .post(url.join(path).map_err(url_error)?)
-        .bearer_auth(&token)
-        .json(&body)
-        .send()
-        .await
-        .map_err(transport_error);
+        .json(&body)).await;
     let lease: DesktopLease = match acquired {
         Ok(response)
             if path == "v1/leases/resume"
@@ -962,7 +914,7 @@ async fn establish_desktop(
     let connection = match connected {
         Ok(connection) => connection,
         Err(error) => {
-            let released = release_lease(&client, &url, &token, &mobile, &lease).await;
+            let released = release_lease(&client, &url, &auth, &session_id, &mobile, &lease).await;
             endpoint.close().await;
             return Err(match released {
                 Ok(()) => error.into(),
@@ -980,7 +932,8 @@ async fn establish_desktop(
     let renewal = tokio::spawn(renew_lease(
         client.clone(),
         url.clone(),
-        token.clone(),
+        auth.clone(),
+        session_id.clone(),
         mobile.clone(),
         lease.clone(),
         healthy.clone(),
@@ -995,7 +948,7 @@ async fn establish_desktop(
         healthy,
         expires_at,
         renewal,
-        token,
+        session_id,
         mobile,
     }))
 }
@@ -1018,6 +971,7 @@ async fn stop_desktop_transport(active: ActiveDesktop) {
 async fn close_desktop(
     client: &Client,
     url: &Url,
+    auth: &Arc<NeAuth>,
     active: ActiveDesktop,
 ) -> Result<(), ClientError> {
     active.healthy.store(false, Ordering::Release);
@@ -1026,7 +980,7 @@ async fn close_desktop(
     active
         .connection
         .close(iroh::endpoint::VarInt::from_u32(0), b"disconnect");
-    let released = release_lease(client, url, &active.token, &active.mobile, &active.lease).await;
+    let released = release_lease(client, url, auth, &active.session_id, &active.mobile, &active.lease).await;
     active.endpoint.close().await;
     match released {
         Err(error) if already_released(&error) => Ok(()),
@@ -1037,20 +991,14 @@ async fn close_desktop(
 async fn release_lease(
     client: &Client,
     url: &Url,
-    token: &str,
+    auth: &Arc<NeAuth>,
+    session_id: &str,
     mobile: &MobileDevice,
     lease: &DesktopLease,
 ) -> Result<(), ClientError> {
-    let response = client
-        .delete(
-            url.join(&format!("v1/leases/{}", lease.id))
-                .map_err(url_error)?,
-        )
-        .bearer_auth(token)
-        .json(&json!({"mobileId":mobile.id,"mobileSecret":mobile.secret,"ticket":lease.ticket}))
-        .send()
-        .await
-        .map_err(transport_error)?;
+    let response = auth.send(session_id, client
+        .delete(url.join(&format!("v1/leases/{}", lease.id)).map_err(url_error)?)
+        .json(&json!({"mobileId":mobile.id,"mobileSecret":mobile.secret,"ticket":lease.ticket}))).await?;
     connect_data::<Value>(response).await.map(|_| ())
 }
 
@@ -1063,7 +1011,8 @@ struct DesktopResponseWire {
 async fn renew_lease(
     client: Client,
     url: Url,
-    token: String,
+    auth: Arc<NeAuth>,
+    session_id: String,
     mobile: MobileDevice,
     lease: DesktopLease,
     healthy: Arc<AtomicBool>,
@@ -1074,10 +1023,9 @@ async fn renew_lease(
     loop {
         interval.tick().await;
         let result = async {
-            let response = client.post(url.join(&format!("v1/leases/{}/renew", lease.id)).map_err(url_error)?)
-                .bearer_auth(&token)
-                .json(&json!({"mobileId":mobile.id,"mobileSecret":mobile.secret,"ticket":lease.ticket}))
-                .send().await.map_err(transport_error)?;
+            let response = auth.send(&session_id, client
+                .post(url.join(&format!("v1/leases/{}/renew", lease.id)).map_err(url_error)?)
+                .json(&json!({"mobileId":mobile.id,"mobileSecret":mobile.secret,"ticket":lease.ticket}))).await?;
             connect_data::<LeaseRenewal>(response).await
         }.await;
         if let Err(error) = result {
@@ -1183,6 +1131,12 @@ async fn connect_data<T: serde::de::DeserializeOwned>(
 fn connect_response_error(status: reqwest::StatusCode, error: &str) -> ClientError {
     if status == reqwest::StatusCode::CONFLICT && error == "Desktop offline" {
         return ClientError::Rpc("这台电脑暂时离线，请在电脑上打开 NeCode 并保持联网，然后刷新列表".into());
+    }
+    if status == reqwest::StatusCode::CONFLICT && error == "Desktop is online" {
+        return ClientError::Rpc("这台电脑已恢复在线，不能移除；请刷新列表".into());
+    }
+    if status == reqwest::StatusCode::CONFLICT && error == "Desktop has an active lease" {
+        return ClientError::Rpc("这台电脑仍有有效连接，请断开并稍后刷新，再尝试移除".into());
     }
     let hint = match status {
         reqwest::StatusCode::UNAUTHORIZED => Some("登录状态已失效，请重新登录后连接电脑"),
@@ -1465,37 +1419,6 @@ fn service_url(value: &str) -> Result<Url, ClientError> {
     Ok(url)
 }
 
-async fn ne_data<T: serde::de::DeserializeOwned>(
-    response: reqwest::Response,
-) -> Result<Option<T>, ClientError> {
-    if !response.status().is_success() {
-        return Err(ClientError::Rpc(format!(
-            "登录服务返回异常，请稍后重试；若持续失败，请联系管理员（HTTP {}）",
-            response.status()
-        )));
-    }
-    let result: NeResult = response
-        .json()
-        .await
-        .map_err(|e| ClientError::Serialization(e.to_string()))?;
-    if result.code != 0 && result.code != "0" {
-        return Err(ClientError::Rpc("NE 登录失败或登录状态已失效，请检查账号密码或重新登录".into()));
-    }
-    result
-        .data
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|e| ClientError::Serialization(e.to_string()))
-}
-
-fn encrypt_ne_password(password: &str, public_key: &str) -> Result<String, ClientError> {
-    let key = RsaPublicKey::from_public_key_pem(public_key)
-        .map_err(|e| ClientError::Serialization(format!("Invalid NE public key: {e}")))?;
-    let encrypted = key
-        .encrypt(&mut rand_core::OsRng, Pkcs1v15Encrypt, password.as_bytes())
-        .map_err(|e| ClientError::InvalidParams(format!("NE password encryption failed: {e}")))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(encrypted))
-}
 fn url_error(error: url::ParseError) -> ClientError {
     ClientError::InvalidParams(error.to_string())
 }
@@ -1508,13 +1431,79 @@ fn transport_error(error: reqwest::Error) -> ClientError {
     } else {
         "与连接服务通信失败，请稍后重试"
     };
-    // Identity requests carry the login token in their URL; never expose it in UI errors.
+    // Strip URLs from transport errors to avoid disclosing request parameters.
     ClientError::Transport(format!("{hint}（{}）", error.without_url()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn removes_offline_desktop_with_current_bearer_and_clears_matching_preference() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let id = "11111111-1111-4111-8111-111111111111";
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = http_request(&mut socket).await;
+            assert!(request.starts_with(&format!("DELETE /v1/desktops/{id} ")));
+            assert!(request.to_lowercase().contains("authorization: bearer old-access"));
+            assert!(!request.contains("AUT="));
+            http_json(&mut socket, r#"{"ok":true}"#).await;
+        });
+        let bridge = DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap();
+        bridge.state.lock().unwrap().preferred = Some(("mobile".into(), id.into()));
+        bridge.remove_desktop("test".into(), id.into()).await.unwrap();
+        assert!(bridge.state.lock().unwrap().preferred.is_none());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unconfirmed_removal_does_not_clear_preference_or_hide_an_old_server() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let bridge = DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap();
+        let id = "11111111-1111-4111-8111-111111111111";
+        bridge.state.lock().unwrap().preferred = Some(("mobile".into(), id.into()));
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            http_request(&mut socket).await;
+            http_json(&mut socket, r#"{"ok":false}"#).await;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            http_request(&mut socket).await;
+            let body = r#"{"error":"Not found"}"#;
+            socket.write_all(format!("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        });
+        assert!(bridge.remove_desktop("test".into(), id.into()).await.is_err());
+        let error = bridge.remove_desktop("test".into(), id.into()).await.err().unwrap();
+        assert!(matches!(error, ClientError::Rpc(message) if message.contains("更新 Connect")));
+        assert_eq!(bridge.state.lock().unwrap().preferred.as_ref().unwrap().1, id);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removal_rejects_bad_ids_and_preserves_preference_on_server_conflict() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let bridge = DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap();
+        assert!(bridge.remove_desktop("test".into(), "../mobiles".into()).await.is_err());
+        let id = "11111111-1111-4111-8111-111111111111";
+        bridge.state.lock().unwrap().preferred = Some(("mobile".into(), id.into()));
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            http_request(&mut socket).await;
+            let body = r#"{"error":"Desktop has an active lease"}"#;
+            socket.write_all(format!("HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        });
+        let error = bridge.remove_desktop("test".into(), id.into()).await.err().unwrap();
+        assert!(matches!(error, ClientError::Rpc(message) if message.contains("连接") && message.contains("移除")));
+        assert_eq!(bridge.state.lock().unwrap().preferred.as_ref().unwrap().1, id);
+        server.await.unwrap();
+    }
+
 
     #[test]
     fn connect_response_error_explains_only_known_offline_conflict() {
@@ -1625,7 +1614,7 @@ mod tests {
             .to_public_key()
             .to_public_key_pem(Default::default())
             .unwrap();
-        let cipher = encrypt_ne_password("secret", &public).unwrap();
+        let cipher = super::super::ne_auth::encrypt_password("secret", &public).unwrap();
         assert_eq!(
             private
                 .decrypt(
@@ -1643,6 +1632,7 @@ mod tests {
             DesktopConnectBridge::new(
                 "https://uc.inoteexpress.com".into(),
                 "https://necode.inoteexpress.com".into(),
+                super::super::ne_auth::tests::test_store("https://uc.inoteexpress.com/"),
             )
         })
         .join()
@@ -1924,7 +1914,7 @@ mod tests {
             );
             http_json(&mut socket, r#"{"ok":true}"#).await;
         });
-        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url).unwrap());
+        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap());
         bridge.state.lock().unwrap().active = Some(ActiveDesktop {
             generation: 0,
             lease: DesktopLease {
@@ -1941,7 +1931,7 @@ mod tests {
             healthy: Arc::new(AtomicBool::new(true)),
             expires_at: Arc::new(AtomicI64::new(1234)),
             renewal: tokio::spawn(std::future::pending()),
-            token: "test".into(),
+            session_id: "test".into(),
             mobile: MobileDevice {
                 id: "mobile".into(),
                 secret: "test".into(),
@@ -2018,7 +2008,7 @@ mod tests {
     async fn cancelled_connect_releases_the_late_acquired_lease() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url).unwrap());
+        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap());
         let (started, waiting) = oneshot::channel();
         let (respond, response) = oneshot::channel();
         let server = tokio::spawn(async move {
@@ -2113,7 +2103,7 @@ mod tests {
     async fn concurrent_resume_calls_share_one_acquisition() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url).unwrap());
+        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap());
         let (started, waiting) = oneshot::channel();
         let (respond, response) = oneshot::channel();
         let server = tokio::spawn(async move {
@@ -2157,7 +2147,7 @@ mod tests {
     async fn explicit_disconnect_suspends_automatic_resume() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let bridge = DesktopConnectBridge::new(url.clone(), url).unwrap();
+        let bridge = DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap();
         bridge.disconnect_desktop().await.unwrap();
         // A hidden page's recovery loop must not undo a user's disconnect.
         let result = timeout(
@@ -2177,7 +2167,7 @@ mod tests {
     async fn dropping_one_joined_caller_keeps_recovery_alive() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url).unwrap());
+        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap());
         let (started, waiting) = oneshot::channel();
         let (respond, response) = oneshot::channel();
         let server = tokio::spawn(async move {
@@ -2243,7 +2233,7 @@ mod tests {
     async fn newest_manual_selection_supersedes_a_queued_selection() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url).unwrap());
+        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap());
         let (started, waiting) = oneshot::channel();
         let (respond, response) = oneshot::channel();
         let server = tokio::spawn(async move {
@@ -2338,7 +2328,7 @@ mod tests {
     async fn superseded_acquisition_error_does_not_block_new_selection() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url).unwrap());
+        let bridge = Arc::new(DesktopConnectBridge::new(url.clone(), url.clone(), super::super::ne_auth::tests::test_store(&url)).unwrap());
         let (started, waiting) = oneshot::channel();
         let (respond, response) = oneshot::channel();
         let server = tokio::spawn(async move {

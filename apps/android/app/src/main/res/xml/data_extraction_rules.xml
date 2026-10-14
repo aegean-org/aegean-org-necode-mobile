@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="ne_auth_v2.xml" />
+        <exclude domain="sharedpref" path="desktop_connect_credentials.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="ne_auth_v2.xml" />
+        <exclude domain="sharedpref" path="desktop_connect_credentials.xml" />
+    </device-transfer>
+</data-extraction-rules>

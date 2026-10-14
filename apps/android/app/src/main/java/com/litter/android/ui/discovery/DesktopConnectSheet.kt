@@ -65,6 +65,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.litter.android.state.DesktopConnectCredentialStore
+import com.litter.android.state.NeSessionSecureStore
 import com.litter.android.state.DesktopConnectCredentials
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -88,7 +89,7 @@ fun DesktopConnectSheet(
     var connectUrl by remember { mutableStateOf(settings.getString("connect_url", "https://necode.inoteexpress.com/") ?: "https://necode.inoteexpress.com/") }
     var bridge by bridgeState
     var accountId by remember { mutableStateOf<String?>(null) }
-    var token by remember { mutableStateOf<String?>(null) }
+    var sessionId by remember { mutableStateOf<String?>(null) }
     var mobile by remember { mutableStateOf<MobileDevice?>(null) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -100,10 +101,11 @@ fun DesktopConnectSheet(
     var restoring by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var showAdvanced by remember { mutableStateOf(false) }
+    var captcha by remember { mutableStateOf<uniffi.codex_mobile_client.NeCaptchaConfig?>(null) }
 
     fun configuredBridge(): DesktopConnectBridge {
         bridge?.let { return it }
-        val created = DesktopConnectBridge(ucUrl = ucUrl, connectUrl = connectUrl)
+        val created = DesktopConnectBridge(ucUrl = ucUrl, connectUrl = connectUrl, store = NeSessionSecureStore(context.applicationContext))
         check(settings.edit().putString("uc_url", ucUrl).putString("connect_url", connectUrl).commit()) {
             "无法保存服务地址"
         }
@@ -113,9 +115,9 @@ fun DesktopConnectSheet(
 
     fun saveIdentity() {
         val account = checkNotNull(accountId)
-        val accessToken = checkNotNull(token)
+        val loginSession = checkNotNull(sessionId)
         val device = checkNotNull(mobile)
-        store.save(DesktopConnectCredentials(account, accessToken, device.id, device.secret))
+        store.save(DesktopConnectCredentials(account, loginSession, device.id, device.secret))
     }
 
     fun act(block: suspend () -> Unit) {
@@ -129,22 +131,27 @@ fun DesktopConnectSheet(
         }
     }
 
-    fun login() {
+    fun login(proof: String? = null) {
         act {
             val client = configuredBridge()
-            val result = client.loginWithPassword(username, password)
+            if (proof == null) {
+                val config = client.loginConfig()
+                if (config.enabled == "1") { captcha = config; return@act }
+            }
+            val result = client.loginWithPassword(username, password, proof)
             val previous = store.load()
-            val device = client.registerMobile(result.token,
+            if (previous != null && previous.accountId != result.accountId) store.setPreferredDesktopId(null)
+            val device = client.registerMobile(result.sessionId,
                 previous?.mobileId?.takeIf { previous.accountId == result.accountId },
                 previous?.mobileSecret?.takeIf { previous.accountId == result.accountId })
-            token = result.token
+            sessionId = result.sessionId
             accountId = result.accountId
             mobile = device
             saveIdentity()
             password = ""
-            hosts = client.listDesktops(result.token)
+            hosts = client.listDesktops(result.sessionId)
             hostsLoaded = true
-            val active = client.recoverDesktop(result.token, device, store.preferredDesktopId(), false)
+            val active = client.recoverDesktop(result.sessionId, device, store.preferredDesktopId(), false)
             if (active != null && active.healthy) {
                 store.setPreferredDesktopId(active.desktopId)
                 val name = hosts.firstOrNull { it.id == active.desktopId }?.name ?: active.desktopId
@@ -157,19 +164,25 @@ fun DesktopConnectSheet(
     LaunchedEffect(Unit) {
         try {
             if (ucUrl.isBlank() || connectUrl.isBlank()) return@LaunchedEffect
-            val saved = store.load() ?: return@LaunchedEffect
+            val saved = store.load()
             busy = true
             val client = configuredBridge()
-            val account = client.verifyLogin(saved.token)
-            check(account == saved.accountId) { "账号已变更，请重新登录" }
-            val device = client.registerMobile(saved.token, saved.mobileId, saved.mobileSecret)
+            val login = client.currentLogin()
+            if (login == null) {
+                if (saved != null) error = "登录已升级，请重新登录 NE 账号"
+                return@LaunchedEffect
+            }
+            val account = client.verifyLogin(login.sessionId)
+            val device = client.registerMobile(login.sessionId,
+                saved?.mobileId?.takeIf { saved.accountId == account },
+                saved?.mobileSecret?.takeIf { saved.accountId == account })
             accountId = account
-            token = saved.token
+            sessionId = login.sessionId
             mobile = device
             saveIdentity()
-            hosts = client.listDesktops(saved.token)
+            hosts = client.listDesktops(login.sessionId)
             hostsLoaded = true
-            val active = client.recoverDesktop(saved.token, device, store.preferredDesktopId(), false)
+            val active = client.recoverDesktop(login.sessionId, device, store.preferredDesktopId(), false)
             if (active != null && active.healthy) {
                 store.setPreferredDesktopId(active.desktopId)
                 val name = hosts.firstOrNull { it.id == active.desktopId }?.name ?: active.desktopId
@@ -181,28 +194,44 @@ fun DesktopConnectSheet(
         finally { busy = false; restoring = false }
     }
 
-    if (token != null && !restoring) {
+    captcha?.let { config ->
+        NeCaptchaDialog(config, ucUrl, onResult = { proof -> captcha = null; login(proof) },
+            onCancel = { captcha = null; error = "验证已取消，请重试" },
+            onError = { message -> captcha = null; error = message })
+    }
+
+    if (sessionId != null && !restoring) {
         DesktopHostPicker(
             hosts = hosts, activeHostId = null, healthy = true,
             busy = busy, connectingHostId = connectingHostId, error = error,
             showLogout = true, accountId = accountId, hostsLoaded = hostsLoaded,
-            onRefresh = { act { hosts = configuredBridge().listDesktops(checkNotNull(token)); hostsLoaded = true } },
+            onRefresh = { act { hosts = configuredBridge().listDesktops(checkNotNull(sessionId)); hostsLoaded = true } },
             onDismiss = onDismiss,
             onSelect = { host ->
                 connectingHostId = host.id
                 act {
                     try {
-                        configuredBridge().connectDesktop(checkNotNull(token), checkNotNull(mobile), host.id)
+                        configuredBridge().connectDesktop(checkNotNull(sessionId), checkNotNull(mobile), host.id)
                         store.setPreferredDesktopId(host.id)
                         onConnected(host.name)
                     } finally { connectingHostId = null }
                 }
             },
+            onRemove = { host ->
+                act {
+                    val client = configuredBridge()
+                    client.removeDesktop(checkNotNull(sessionId), host.id)
+                    hosts = hosts.filterNot { it.id == host.id }
+                    if (store.preferredDesktopId() == host.id) store.setPreferredDesktopId(null)
+                    hosts = client.listDesktops(checkNotNull(sessionId))
+                    hostsLoaded = true
+                }
+            },
             onLogout = {
                 act {
-                    configuredBridge().disconnectDesktop()
+                    configuredBridge().logout(checkNotNull(sessionId))
                     store.clear()
-                    token = null
+                    sessionId = null
                     accountId = null
                     mobile = null
                     hosts = emptyList()
@@ -223,13 +252,13 @@ fun DesktopConnectSheet(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(if (token == null) "连接桌面端" else "选择电脑",
+                Text(if (sessionId == null) "连接桌面端" else "选择电脑",
                     color = LitterTheme.textPrimary, fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold)
-                if (token == null) Text("登录 NE 账号，找到你的电脑",
+                if (sessionId == null) Text("登录 NE 账号，找到你的电脑",
                     color = LitterTheme.textSecondary, fontSize = 13.sp)
             }
-            if (token != null) IconButton(onClick = { act { hosts = configuredBridge().listDesktops(checkNotNull(token)) } },
+            if (sessionId != null) IconButton(onClick = { act { hosts = configuredBridge().listDesktops(checkNotNull(sessionId)) } },
                 enabled = !busy, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.Refresh, contentDescription = "刷新电脑", tint = LitterTheme.textSecondary)
             }
@@ -247,7 +276,7 @@ fun DesktopConnectSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (restoring) {
                 DesktopCenterLoading("正在恢复 NE 账号…", Modifier.fillMaxWidth())
-            } else if (token == null) {
+            } else if (sessionId == null) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (busy) DesktopCenterLoading("正在登录 NE 账号…", Modifier.fillMaxWidth())
                     val fieldColors = OutlinedTextFieldDefaults.colors(
@@ -278,7 +307,7 @@ fun DesktopConnectSheet(
                         modifier = Modifier.fillMaxWidth().focusRequester(passwordFocus))
                 }
             }
-            if (token == null && !restoring) {
+            if (sessionId == null && !restoring) {
                 TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text(if (showAdvanced) "收起服务地址" else "高级设置 · 服务地址", color = LitterTheme.textSecondary,
                         fontSize = 12.sp)
@@ -293,7 +322,7 @@ fun DesktopConnectSheet(
                 }
             }
         }
-        if (token == null && !restoring) {
+        if (sessionId == null && !restoring) {
             Button(onClick = { keyboard?.hide(); login() }, enabled = !busy && username.isNotBlank() && password.isNotEmpty(),
                 colors = ButtonDefaults.buttonColors(containerColor = LitterTheme.accentStrong,
                     contentColor = LitterTheme.onAccentStrong, disabledContainerColor = LitterTheme.surfaceLight,

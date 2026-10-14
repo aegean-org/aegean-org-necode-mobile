@@ -122,7 +122,7 @@ final class VoiceTranscriptionManager {
         }
     }
 
-    func stopAndTranscribeDesktop(token: String) async -> String? {
+    func stopAndTranscribeDesktop(bridge: DesktopConnectBridge, sessionId: String) async -> String? {
         guard isRecording else { return nil }
         teardownEngine()
         guard let wav = encodeWAV() else {
@@ -132,6 +132,7 @@ final class VoiceTranscriptionManager {
         isTranscribing = true
         defer { isTranscribing = false }
         do {
+            let token = try await bridge.accessToken(sessionId: sessionId)
             return try await transcribeNeVoice(token: token, audioBytes: wav, model: nil,
                 language: Locale.current.language.languageCode?.identifier == "zh" ? "zh" : "en")
         } catch {

@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import com.litter.android.state.AppModel
+import com.litter.android.state.NeSessionSecureStore
 import com.litter.android.state.DesktopConnectCredentialStore
 import com.litter.android.state.LocalAccountLoginRequiredException
 import com.litter.android.state.NetworkDiscovery
@@ -149,12 +150,15 @@ fun LitterApp(
                     val client = desktopBridge.value ?: DesktopConnectBridge(
                         ucUrl = settings.getString("uc_url", "https://uc.inoteexpress.com/") ?: "https://uc.inoteexpress.com/",
                         connectUrl = settings.getString("connect_url", "https://necode.inoteexpress.com/") ?: "https://necode.inoteexpress.com/",
+                        store = NeSessionSecureStore(context.applicationContext),
                     ).also { desktopBridge.value = it }
-                    val mobile = client.registerMobile(credentials.token, credentials.mobileId, credentials.mobileSecret)
+                    val login = client.currentLogin() ?: break
+                    check(login.sessionId == credentials.sessionId && login.accountId == credentials.accountId) { "请重新登录 NE 账号" }
+                    val mobile = client.registerMobile(credentials.sessionId, credentials.mobileId, credentials.mobileSecret)
                     store.save(credentials.copy(mobileId = mobile.id, mobileSecret = mobile.secret))
-                    val active = client.recoverDesktop(credentials.token, mobile, desktopId, false) ?: break
+                    val active = client.recoverDesktop(credentials.sessionId, mobile, desktopId, false) ?: break
                     store.setPreferredDesktopId(active.desktopId)
-                    desktopHostName = client.listDesktops(credentials.token)
+                    desktopHostName = client.listDesktops(credentials.sessionId)
                         .firstOrNull { it.id == active.desktopId }?.name ?: active.desktopId
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {

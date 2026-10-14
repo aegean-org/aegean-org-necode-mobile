@@ -5,7 +5,7 @@ import org.json.JSONObject
 
 data class DesktopConnectCredentials(
     val accountId: String,
-    val token: String,
+    val sessionId: String,
     val mobileId: String?,
     val mobileSecret: String?,
 )
@@ -18,7 +18,7 @@ class DesktopConnectCredentialStore(context: Context) {
         val value = JSONObject(raw)
         return DesktopConnectCredentials(
             accountId = value.getString("accountId"),
-            token = value.getString("token"),
+            sessionId = value.optString("sessionId"),
             mobileId = value.optString("mobileId").takeIf { it.isNotEmpty() },
             mobileSecret = value.optString("mobileSecret").takeIf { it.isNotEmpty() },
         )
@@ -27,7 +27,7 @@ class DesktopConnectCredentialStore(context: Context) {
     fun save(value: DesktopConnectCredentials) {
         val data = JSONObject()
             .put("accountId", value.accountId)
-            .put("token", value.token)
+            .put("sessionId", value.sessionId)
             .put("mobileId", value.mobileId)
             .put("mobileSecret", value.mobileSecret)
         check(prefs.edit().putString("identity", data.toString()).commit()) { "无法保存桌面连接凭据" }

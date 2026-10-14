@@ -496,16 +496,19 @@ struct ContentView: View {
                     else {
                         client = try DesktopConnectBridge(
                             ucUrl: UserDefaults.standard.string(forKey: "desktop.connect.ucURL") ?? "https://uc.inoteexpress.com/",
-                            connectUrl: UserDefaults.standard.string(forKey: "desktop.connect.url") ?? "https://necode.inoteexpress.com/")
+                            connectUrl: UserDefaults.standard.string(forKey: "desktop.connect.url") ?? "https://necode.inoteexpress.com/",
+                            store: NeSessionKeychainStore())
                         desktopConnectBridge = client
                     }
-                    let mobile = try await client.registerMobile(token: credentials.token,
+                    guard let login = try await client.currentLogin(), login.sessionId == credentials.sessionId,
+                          login.accountId == credentials.accountId else { return }
+                    let mobile = try await client.registerMobile(sessionId: credentials.sessionId,
                         savedId: credentials.mobileId, savedSecret: credentials.mobileSecret)
                     try DesktopConnectCredentialStore.save(.init(accountId: credentials.accountId,
-                        token: credentials.token, mobileId: mobile.id, mobileSecret: mobile.secret))
-                    guard let active = try await client.recoverDesktop(token: credentials.token, mobile: mobile,
+                        sessionId: credentials.sessionId, mobileId: mobile.id, mobileSecret: mobile.secret))
+                    guard let active = try await client.recoverDesktop(sessionId: credentials.sessionId, mobile: mobile,
                         preferredDesktopId: preferred, forceReconnect: false) else { return }
-                    let hosts = try await client.listDesktops(token: credentials.token)
+                    let hosts = try await client.listDesktops(sessionId: credentials.sessionId)
                     try Task.checkCancellation()
                     DesktopConnectCredentialStore.setPreferredDesktopID(active.desktopId, for: credentials.accountId)
                     desktopHostName = hosts.first(where: { $0.id == active.desktopId })?.name ?? active.desktopId

@@ -138,12 +138,13 @@ class VoiceTranscriptionManager {
         }
     }
 
-    suspend fun stopAndTranscribeDesktop(token: String): String? {
+    suspend fun stopAndTranscribeDesktop(bridge: uniffi.codex_mobile_client.DesktopConnectBridge, sessionId: String): String? {
         val wav = finishRecording() ?: return null
         _isTranscribing.value = true
         return try {
-            transcribeNeVoice(token, wav, null, transcriptionLanguage(null))
-        } catch (e: Exception) {
+            transcribeNeVoice(bridge.accessToken(sessionId), wav, null, transcriptionLanguage(null))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) {
             LLog.e("VoiceTranscription", "desktop transcription failed", e)
             _error.value = e.message
             null

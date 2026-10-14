@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,13 +17,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.litter.android.ui.LitterTheme
+import com.litter.android.ui.common.LitterDropdownMenu
+import com.litter.android.ui.common.LitterDropdownMenuItem
 import uniffi.codex_mobile_client.DesktopHost
 
 internal fun desktopConnectErrorMessage(error: Exception): String = when (error) {
@@ -57,10 +67,27 @@ fun DesktopHostPicker(
     onRefresh: () -> Unit,
     onDismiss: () -> Unit,
     onSelect: (DesktopHost) -> Unit,
+    onRemove: (DesktopHost) -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
     hostsLoaded: Boolean = hosts.isNotEmpty(),
 ) {
+    var removalHost by remember { mutableStateOf<DesktopHost?>(null) }
+    removalHost?.let { host ->
+        AlertDialog(
+            onDismissRequest = { removalHost = null },
+            title = { Text("移除电脑“${host.name}”？") },
+            text = { Text("仅移除连接登记，不会删除电脑上的项目、文件或会话。再次使用这台电脑需要重新登记。") },
+            confirmButton = {
+                TextButton(enabled = !busy && hosts.any { it.id == host.id && it.status == "offline" },
+                    onClick = { removalHost = null; onRemove(host) }) {
+                    Text("移除电脑", color = LitterTheme.danger)
+                }
+            },
+            dismissButton = { TextButton(onClick = { removalHost = null }) { Text("取消") } },
+            containerColor = LitterTheme.background,
+        )
+    }
     val ordered = hosts.sortedWith(compareBy<DesktopHost> { it.id != activeHostId }
         .thenBy { it.status != "available" }.thenBy { it.name })
     val currentHost = ordered.firstOrNull { it.id == activeHostId }
@@ -111,7 +138,7 @@ fun DesktopHostPicker(
             }
             if (ordered.isNotEmpty()) {
                 if (busy && connectingHostId == null) {
-                    DesktopCenterLoading("正在刷新电脑列表…", Modifier.fillMaxWidth())
+                    DesktopCenterLoading("正在更新电脑列表…", Modifier.fillMaxWidth())
                 }
                 currentHost?.let { host ->
                     val action = desktopHostAction(activeHostId, host.id, host.status, healthy)
@@ -133,14 +160,33 @@ fun DesktopHostPicker(
                         if (index > 0) HorizontalDivider(Modifier.padding(start = 70.dp), color = LitterTheme.divider)
                         val action = desktopHostAction(activeHostId, host.id, host.status, healthy)
                         val available = host.status == "available"
-                        DesktopHostTile(
-                            name = host.name,
-                            status = if (available) "在线" else if (host.status == "busy") "占用中" else "离线",
-                            action = if (action == DesktopHostAction.CONNECT) "连接" else "不可连接",
-                            online = available, current = false,
-                            enabled = !busy && connectingHostId == null && action == DesktopHostAction.CONNECT,
-                            loading = connectingHostId == host.id,
-                        ) { onSelect(host) }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) {
+                                DesktopHostTile(
+                                    name = host.name,
+                                    status = if (available) "在线" else if (host.status == "busy") "占用中" else "离线",
+                                    action = if (action == DesktopHostAction.CONNECT) "连接" else "不可连接",
+                                    online = available, current = false,
+                                    enabled = !busy && connectingHostId == null && action == DesktopHostAction.CONNECT,
+                                    loading = connectingHostId == host.id,
+                                ) { onSelect(host) }
+                            }
+                            if (host.status == "offline") {
+                                var expanded by remember(host.id) { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { expanded = true }, enabled = !busy && connectingHostId == null) {
+                                        Icon(Icons.Default.MoreHoriz, contentDescription = "更多操作：${host.name}", tint = LitterTheme.textSecondary)
+                                    }
+                                    LitterDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                        LitterDropdownMenuItem(text = { Text("移除电脑", color = LitterTheme.danger) },
+                                            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null,
+                                                tint = LitterTheme.danger, modifier = Modifier.size(20.dp)) },
+                                            enabled = !busy && connectingHostId == null,
+                                            onClick = { expanded = false; removalHost = host })
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

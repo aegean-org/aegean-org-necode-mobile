@@ -28,7 +28,7 @@ internal fun openEncryptedPrefsOrReset(
     }
 }
 
-private fun buildEncryptedPrefs(context: Context, name: String): SharedPreferences =
+internal fun buildEncryptedPrefs(context: Context, name: String): SharedPreferences =
     EncryptedSharedPreferences.create(
         context,
         name,

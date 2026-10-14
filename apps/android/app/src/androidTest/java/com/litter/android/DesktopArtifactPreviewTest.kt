@@ -33,7 +33,10 @@ class DesktopArtifactPreviewTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun artifactRequestPassesPackagedNativeRouteGuardBeforeConnectionCheck() = runBlocking {
-        DesktopConnectBridge("https://uc.invalid/", "https://connect.invalid/").use { bridge ->
+        DesktopConnectBridge("https://uc.invalid/", "https://connect.invalid/", object : uniffi.codex_mobile_client.NeSessionStore {
+            override fun readSession(): String? = null
+            override fun replaceSession(expected: String?, value: String?): Boolean = error("Preview test must not write login state")
+        }).use { bridge ->
             val path = "/file/content?directory=" + Uri.encode("D:/repo") + "&path=" + Uri.encode("D:/repo/格调小区-百花山-路线图.html")
             val result = runCatching { bridge.requestDesktopFor("host", "GET", path, "null") }.exceptionOrNull()
             assertTrue("合法产物请求应通过路由检查，进入连接检查：$result", result is ClientException.Rpc)

@@ -12,6 +12,7 @@ mod desktop_connect;
 mod desktop_voice;
 mod discovery;
 mod errors;
+mod ne_auth;
 mod parser;
 mod reconnect;
 mod remote_path;
@@ -27,7 +28,7 @@ pub use alleycat::{
 pub use app_store::{AppStore, AppStoreSubscription};
 pub use client::AppClient;
 pub use desktop_connect::{
-    DesktopConnectBridge, DesktopConnection, DesktopHost, DesktopResponse, MobileDevice, NeLogin,
+    DesktopConnectBridge, DesktopConnection, DesktopHost, DesktopResponse, MobileDevice,
 };
 pub use desktop_voice::transcribe_ne_voice;
 pub use discovery::{
@@ -50,3 +51,5 @@ pub use crate::reconnect::{
     ReconnectResult, SavedServerRecord, SlingshotCredentialProvider, SlingshotCredentialRecord,
     SshAuthMethodRecord, SshCredentialProvider, SshCredentialRecord,
 };
+
+pub use ne_auth::{NeCaptchaConfig, NeLogin, NeSessionStore};

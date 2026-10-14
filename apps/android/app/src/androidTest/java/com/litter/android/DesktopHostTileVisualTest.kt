@@ -25,6 +25,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
@@ -59,7 +60,7 @@ class DesktopHostTileVisualTest {
                 DesktopHostPicker(
                     hosts = emptyList(), activeHostId = null, healthy = false, busy = false,
                     connectingHostId = null, error = "网络暂时不可用", showLogout = true,
-                    onRefresh = { refreshed = true }, onDismiss = {}, onSelect = {}, onLogout = {},
+                    onRefresh = { refreshed = true }, onDismiss = {}, onSelect = {}, onRemove = {}, onLogout = {},
                 )
             }
         }
@@ -83,7 +84,7 @@ class DesktopHostTileVisualTest {
                         ),
                         activeHostId = "current", healthy = true, busy = false,
                         connectingHostId = null, error = null, showLogout = true, accountId = "1050805",
-                        onRefresh = {}, onDismiss = {}, onSelect = {}, onLogout = {},
+                        onRefresh = {}, onDismiss = {}, onSelect = {}, onRemove = {}, onLogout = {},
                     )
                 }
             }
@@ -113,7 +114,7 @@ class DesktopHostTileVisualTest {
                     hosts = listOf(DesktopHost("one", "AegeanQAM · Windows", "endpoint", null, "available")),
                     activeHostId = null, healthy = true, busy = false, connectingHostId = null,
                     error = null, showLogout = false, onRefresh = {}, onDismiss = {},
-                    onSelect = {}, onLogout = {},
+                    onSelect = {}, onRemove = {}, onLogout = {},
                 )
             }
         }
@@ -122,6 +123,35 @@ class DesktopHostTileVisualTest {
         compose.onNodeWithText("你的电脑").assertDoesNotExist()
         compose.onNodeWithText("1 / 1 台在线").assertDoesNotExist()
     }
+    @Test fun onlyOfflineHostsOfferRemovalAndConfirmationIsRequired() {
+        var removed: String? = null
+        compose.setContent {
+            LitterAppTheme {
+                DesktopHostPicker(
+                    hosts = listOf(
+                        DesktopHost("online", "在线电脑", "endpoint-1", null, "available"),
+                        DesktopHost("busy", "占用电脑", "endpoint-2", null, "busy"),
+                        DesktopHost("old", "旧电脑", "endpoint-3", null, "offline"),
+                    ),
+                    activeHostId = null, healthy = true, busy = false, connectingHostId = null,
+                    error = null, showLogout = false, onRefresh = {}, onDismiss = {}, onSelect = {},
+                    onRemove = { removed = it.id }, onLogout = {},
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("更多操作：在线电脑").assertDoesNotExist()
+        compose.onNodeWithContentDescription("更多操作：占用电脑").assertDoesNotExist()
+        compose.onNodeWithContentDescription("更多操作：旧电脑").performClick()
+        compose.onNodeWithText("移除电脑").performClick()
+        assertTrue(removed == null)
+        compose.onNodeWithText("取消").performClick()
+        assertTrue(removed == null)
+        compose.onNodeWithContentDescription("更多操作：旧电脑").performClick()
+        compose.onNodeWithText("移除电脑").performClick()
+        compose.onNodeWithText("移除电脑").performClick()
+        assertTrue(removed == "old")
+    }
+
     @Test fun hostStatesAtDeviceWidth() {
         compose.setContent {
             LitterAppTheme {

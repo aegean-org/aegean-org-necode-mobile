@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font:16px system-ui,sans-serif;padding:24px 16px;color:#24292f;background:#fff;text-align:center}button{padding:14px 24px;border:0;border-radius:12px;background:#246bce;color:white;font:inherit}p{color:#626b77;line-height:1.6}</style>
+</head><body><h3>安全验证</h3><p id="status">正在加载验证组件…</p><div id="captcha"></div><button id="verify" disabled>点击开始验证</button>
+<script>
+(() => {
+  const config = __PUBLIC_CONFIG__;
+  let done = false;
+  const finish = (type, value) => {
+    if (done) return;
+    done = true;
+    clearTimeout(loading); clearTimeout(expiry);
+    const message = JSON.stringify({type, value});
+    if (window.NeCaptcha) window.NeCaptcha.postMessage(message);
+    else if (window.webkit?.messageHandlers?.neCaptcha) window.webkit.messageHandlers.neCaptcha.postMessage(message);
+  };
+  const failed = () => finish('error', '人机验证加载或校验失败，请检查网络后重试');
+  const loading = setTimeout(failed, 20000);
+  const expiry = setTimeout(() => finish('error', '验证已超时，请重新登录'), 180000);
+  window.AliyunCaptchaConfig = {region: config.region, prefix: config.prefix};
+  const script = document.createElement('script');
+  script.src = 'https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js';
+  script.onerror = failed;
+  script.onload = () => {
+    if (typeof window.initAliyunCaptcha !== 'function') return failed();
+    try {
+      window.initAliyunCaptcha({SceneId: config.sceneId, mode: 'popup', element: '#captcha', button: '#verify', language: 'cn',
+        rem: Math.min(1, Math.floor(window.innerWidth / 360 * 100) / 100),
+        getInstance: () => { clearTimeout(loading); document.getElementById('verify').disabled = false; document.getElementById('status').textContent = '请完成验证以继续登录'; },
+        success: value => typeof value === 'string' && value.trim() && value.length < 65536 ? finish('success', value) : failed(),
+        fail: () => { document.getElementById('status').textContent = '验证未通过，请重新尝试'; },
+        onError: failed, onClose: () => { if (!done) document.getElementById('status').textContent = '验证已关闭，可点击重新验证或取消'; }});
+    } catch (_) { failed(); }
+  };
+  document.head.append(script);
+})();
+</script></body></html>

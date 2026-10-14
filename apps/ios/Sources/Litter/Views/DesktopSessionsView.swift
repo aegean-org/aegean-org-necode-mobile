@@ -474,11 +474,11 @@ struct DesktopSessionsView: View {
                             throw NSError(domain: "DesktopConnect", code: 1,
                                 userInfo: [NSLocalizedDescriptionKey: "请重新登录 NeCode Desktop"])
                         }
-                        let mobile = try await bridge.registerMobile(token: credentials.token,
+                        let mobile = try await bridge.registerMobile(sessionId: credentials.sessionId,
                             savedId: credentials.mobileId, savedSecret: credentials.mobileSecret)
                         try DesktopConnectCredentialStore.save(.init(accountId: credentials.accountId,
-                            token: credentials.token, mobileId: mobile.id, mobileSecret: mobile.secret))
-                        guard let restored = try await bridge.recoverDesktop(token: credentials.token, mobile: mobile,
+                            sessionId: credentials.sessionId, mobileId: mobile.id, mobileSecret: mobile.secret))
+                        guard let restored = try await bridge.recoverDesktop(sessionId: credentials.sessionId, mobile: mobile,
                             preferredDesktopId: active?.desktopId ?? DesktopConnectCredentialStore.preferredDesktopID(for: credentials.accountId),
                             forceReconnect: connectionFailed) else { reconnecting = false; return }
                         try Task.checkCancellation()
@@ -776,7 +776,9 @@ struct DesktopSessionsView: View {
             online: current ? healthy : available,
             current: current,
             enabled: !busy && connectingHostId == nil && (current || available),
-            loading: connectingHostId == host.id
+            loading: connectingHostId == host.id,
+            onRemove: !current && host.status == "offline" ? { Task { await removeHost(host) } } : nil,
+            removalEnabled: !busy && connectingHostId == nil
         ) {
             if current && healthy { showHostPicker = false }
             else {
@@ -787,13 +789,25 @@ struct DesktopSessionsView: View {
         }
     }
 
+    private func removeHost(_ host: DesktopHost) async {
+        await perform {
+            guard let credentials = try DesktopConnectCredentialStore.load() else { throw desktopInputError("请先登录 NE 账号") }
+            try await bridge.removeDesktop(sessionId: credentials.sessionId, desktopId: host.id)
+            hosts.removeAll { $0.id == host.id }
+            if DesktopConnectCredentialStore.preferredDesktopID(for: credentials.accountId) == host.id {
+                DesktopConnectCredentialStore.setPreferredDesktopID(nil, for: credentials.accountId)
+            }
+            hosts = try await bridge.listDesktops(sessionId: credentials.sessionId)
+        }
+    }
+
     private func loadHosts() async {
         await perform {
             guard let credentials = try DesktopConnectCredentialStore.load() else {
                 throw NSError(domain: "DesktopConnect", code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "请重新登录 NeCode Desktop"])
             }
-            hosts = try await bridge.listDesktops(token: credentials.token)
+            hosts = try await bridge.listDesktops(sessionId: credentials.sessionId)
             activeHostID = await bridge.activeDesktop()?.desktopId
         }
     }
@@ -805,12 +819,12 @@ struct DesktopSessionsView: View {
                 throw NSError(domain: "DesktopConnect", code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "请重新登录 NeCode Desktop"])
             }
-            let mobile = try await bridge.registerMobile(token: credentials.token,
+            let mobile = try await bridge.registerMobile(sessionId: credentials.sessionId,
                 savedId: credentials.mobileId, savedSecret: credentials.mobileSecret)
             try DesktopConnectCredentialStore.save(.init(accountId: credentials.accountId,
-                token: credentials.token, mobileId: mobile.id, mobileSecret: mobile.secret))
+                sessionId: credentials.sessionId, mobileId: mobile.id, mobileSecret: mobile.secret))
             healthy = false
-            _ = try await bridge.connectDesktop(token: credentials.token, mobile: mobile, desktopId: host.id)
+            _ = try await bridge.connectDesktop(sessionId: credentials.sessionId, mobile: mobile, desktopId: host.id)
             DesktopConnectCredentialStore.setPreferredDesktopID(host.id, for: credentials.accountId)
             activeHostID = host.id
             connectionFailed = false
@@ -1429,12 +1443,15 @@ struct DesktopSessionsView: View {
                             let owner = recordingOwner ?? composerKey
                             do {
                                 guard let credentials = try DesktopConnectCredentialStore.load() else { throw desktopInputError("请先登录") }
-                                if let text = await speech.stopAndTranscribeDesktop(token: credentials.token) {
+                                if let text = await speech.stopAndTranscribeDesktop(bridge: bridge, sessionId: credentials.sessionId) {
                                     var draft = drafts[owner] ?? DesktopComposerDraft()
                                     draft.text = [draft.text, text].filter { !$0.isEmpty }.joined(separator: " ")
                                     drafts[owner] = draft
                                 }
-                            } catch { if composerKey == owner { self.error = error.localizedDescription } }
+                            } catch {
+                                speech.cancelRecording()
+                                if composerKey == owner { self.error = error.localizedDescription }
+                            }
                             recordingOwner = nil
                             return
                         }

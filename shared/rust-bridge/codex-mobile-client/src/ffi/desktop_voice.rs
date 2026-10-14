@@ -6,7 +6,9 @@ use std::time::Duration;
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn transcribe_ne_voice(token: String, audio_bytes: Vec<u8>, model: Option<String>, language: Option<String>) -> Result<String, ClientError> {
-    transcribe(&Client::new(), Url::parse("https://gateway.inoteexpress.com/v1/").unwrap(), token, audio_bytes, model, language).await
+    let client = Client::builder().redirect(reqwest::redirect::Policy::none()).build()
+        .map_err(|error| ClientError::Transport(format!("无法初始化语音服务：{}", error.without_url())))?;
+    transcribe(&client, Url::parse("https://gateway.inoteexpress.com/v1/").unwrap(), token, audio_bytes, model, language).await
 }
 const MAX_AUDIO: usize = 3 * 1024 * 1024;
 const MAX_RESPONSE: usize = 2 * 1024 * 1024;

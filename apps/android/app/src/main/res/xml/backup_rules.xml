@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Keystore keys cannot be restored to another installation/device. -->
+    <exclude domain="sharedpref" path="ne_auth_v2.xml" />
+    <exclude domain="sharedpref" path="desktop_connect_credentials.xml" />
+</full-backup-content>

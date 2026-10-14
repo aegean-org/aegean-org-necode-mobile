@@ -7,7 +7,7 @@ struct DesktopConnectSheet: View {
     @State private var username = ""
     @State private var password = ""
     @State private var passwordVisible = false
-    @State private var token: String?
+    @State private var sessionId: String?
     @State private var accountId: String?
     @Binding var bridge: DesktopConnectBridge?
     let onConnected: (String) -> Void
@@ -19,6 +19,8 @@ struct DesktopConnectSheet: View {
     @State private var restoring = true
     @State private var error: String?
     @State private var showAdvanced = false
+    @State private var captcha: NeCaptchaConfig?
+    @State private var showCaptcha = false
     @FocusState private var focusedField: LoginField?
     @Environment(\.dismiss) private var dismiss
 
@@ -32,16 +34,16 @@ struct DesktopConnectSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(token == nil ? "连接桌面端" : "选择电脑")
+                    Text(sessionId == nil ? "连接桌面端" : "选择电脑")
                         .litterFont(size: 20, weight: .semibold)
                         .foregroundColor(LitterTheme.textPrimary)
-                    if token == nil {
+                    if sessionId == nil {
                         Text("登录 NE 账号，找到你的电脑")
                             .litterFont(.footnote).foregroundColor(LitterTheme.textSecondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if token != nil {
+                if sessionId != nil {
                     Button { Task { await refreshHosts() } } label: {
                         Image(systemName: "arrow.clockwise").frame(width: 44, height: 44)
                     }
@@ -60,7 +62,7 @@ struct DesktopConnectSheet: View {
                 HStack(spacing: 8) {
                     Text(error).litterFont(.footnote).foregroundColor(LitterTheme.danger)
                         .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
-                    if token != nil {
+                    if sessionId != nil {
                         Button("重试") { Task { await refreshHosts() } }
                             .litterFont(.footnote, weight: .semibold)
                             .foregroundColor(LitterTheme.accentStrong)
@@ -74,7 +76,7 @@ struct DesktopConnectSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if restoring {
                         connectLoading("正在恢复 NE 账号…")
-                    } else if token == nil {
+                    } else if sessionId == nil {
                         VStack(alignment: .leading, spacing: 8) {
                             if busy { connectLoading("正在登录 NE 账号…") }
                             Text("手机或邮箱").litterFont(.footnote).foregroundColor(LitterTheme.textSecondary)
@@ -155,7 +157,9 @@ struct DesktopConnectSheet: View {
                                         online: available,
                                         current: false,
                                         enabled: !busy && connectingHostId == nil && available,
-                                        loading: connectingHostId == host.id
+                                        loading: connectingHostId == host.id,
+                                        onRemove: host.status == "offline" ? { Task { await removeHost(host) } } : nil,
+                                        removalEnabled: !busy && connectingHostId == nil
                                     ) {
                                         guard connectingHostId == nil else { return }
                                         connectingHostId = host.id
@@ -165,7 +169,7 @@ struct DesktopConnectSheet: View {
                             }
                         }
                     }
-                    if token == nil && !restoring {
+                    if sessionId == nil && !restoring {
                         Button { showAdvanced.toggle() } label: {
                             HStack(spacing: 4) {
                                 Text(showAdvanced ? "收起服务地址" : "高级设置 · 服务地址")
@@ -190,7 +194,7 @@ struct DesktopConnectSheet: View {
                 .padding(.bottom, 8)
             }
             .scrollDismissesKeyboard(.interactively)
-            if token != nil && !restoring {
+            if sessionId != nil && !restoring {
                 Divider()
                 HStack {
                     Text(accountId.map { "NE 账号 · \($0)" } ?? "已登录 NE 账号").lineLimit(1)
@@ -203,7 +207,7 @@ struct DesktopConnectSheet: View {
                 }
                 .litterFont(.caption)
             }
-            if token == nil && !restoring {
+            if sessionId == nil && !restoring {
                 Button { focusedField = nil; Task { await login() } } label: {
                     Text(busy ? "正在登录…" : "登录并查找电脑")
                         .litterFont(.subheadline, weight: .semibold)
@@ -218,11 +222,20 @@ struct DesktopConnectSheet: View {
         }
         .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 12)
         .background(LitterTheme.background)
-        .presentationDetents(restoring ? [.height(240), .large] : token == nil ? [.medium, .large] :
+        .presentationDetents(restoring ? [.height(240), .large] : sessionId == nil ? [.medium, .large] :
             [.height(min(620, CGFloat(250 + max(1, hosts.count) * 94))), .large])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(busy || restoring)
         .task { await restore() }
+        .sheet(isPresented: $showCaptcha, onDismiss: { captcha = nil }) {
+            if let captcha {
+                NeCaptchaSheet(config: captcha, baseURL: ucURL) { proof, message in
+                    showCaptcha = false
+                    if let proof { Task { await login(proof: proof) } }
+                    else { error = message ?? "验证已取消，请重试" }
+                }
+            }
+        }
     }
     private func connectLoading(_ label: String) -> some View {
         VStack(spacing: 12) {
@@ -238,7 +251,7 @@ struct DesktopConnectSheet: View {
 
     private func configuredBridge() throws -> DesktopConnectBridge {
         if let bridge { return bridge }
-        let created = try DesktopConnectBridge(ucUrl: ucURL, connectUrl: connectURL)
+        let created = try DesktopConnectBridge(ucUrl: ucURL, connectUrl: connectURL, store: NeSessionKeychainStore())
         UserDefaults.standard.set(ucURL, forKey: "desktop.connect.ucURL")
         UserDefaults.standard.set(connectURL, forKey: "desktop.connect.url")
         bridge = created
@@ -262,24 +275,25 @@ struct DesktopConnectSheet: View {
 
     private func restore() async {
         await perform {
-            guard !ucURL.isEmpty, !connectURL.isEmpty,
-                  let saved = try DesktopConnectCredentialStore.load() else { return }
+            guard !ucURL.isEmpty, !connectURL.isEmpty else { return }
+            let saved = try DesktopConnectCredentialStore.load()
             let client = try configuredBridge()
-            let account = try await client.verifyLogin(token: saved.token)
-            guard account == saved.accountId else {
-                throw NSError(domain: "DesktopConnect", code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "账号已变更，请重新登录"])
+            guard let login = try await client.currentLogin() else {
+                if saved != nil { error = "登录已升级，请重新登录 NE 账号" }
+                return
             }
-            let device = try await client.registerMobile(token: saved.token,
-                savedId: saved.mobileId, savedSecret: saved.mobileSecret)
-            token = saved.token
+            let account = try await client.verifyLogin(sessionId: login.sessionId)
+            let device = try await client.registerMobile(sessionId: login.sessionId,
+                savedId: saved?.accountId == account ? saved?.mobileId : nil,
+                savedSecret: saved?.accountId == account ? saved?.mobileSecret : nil)
+            sessionId = login.sessionId
             accountId = account
             mobile = device
             try saveIdentity()
-            hosts = try await client.listDesktops(token: saved.token)
+            hosts = try await client.listDesktops(sessionId: login.sessionId)
             hostsLoaded = true
-            let active = try await client.recoverDesktop(token: saved.token, mobile: device,
-                preferredDesktopId: DesktopConnectCredentialStore.preferredDesktopID(for: saved.accountId), forceReconnect: false)
+            let active = try await client.recoverDesktop(sessionId: login.sessionId, mobile: device,
+                preferredDesktopId: DesktopConnectCredentialStore.preferredDesktopID(for: account), forceReconnect: false)
             if let active, active.healthy {
                 let name = hosts.first(where: { $0.id == active.desktopId })?.name ?? active.desktopId
                 onConnected(name)
@@ -289,22 +303,26 @@ struct DesktopConnectSheet: View {
         restoring = false
     }
 
-    private func login() async {
+    private func login(proof: String? = nil) async {
         await perform {
             let client = try configuredBridge()
-            let result = try await client.loginWithPassword(username: username, password: password)
+            if proof == nil {
+                let config = try await client.loginConfig()
+                if config.enabled == "1" { captcha = config; showCaptcha = true; return }
+            }
+            let result = try await client.loginWithPassword(username: username, password: password, captchaVerifyParam: proof)
             let previous = try DesktopConnectCredentialStore.load()
-            let device = try await client.registerMobile(token: result.token,
+            let device = try await client.registerMobile(sessionId: result.sessionId,
                 savedId: previous?.accountId == result.accountId ? previous?.mobileId : nil,
                 savedSecret: previous?.accountId == result.accountId ? previous?.mobileSecret : nil)
-            token = result.token
+            sessionId = result.sessionId
             accountId = result.accountId
             mobile = device
             try saveIdentity()
             password = ""
-            hosts = try await client.listDesktops(token: result.token)
+            hosts = try await client.listDesktops(sessionId: result.sessionId)
             hostsLoaded = true
-            let active = try await client.recoverDesktop(token: result.token, mobile: device,
+            let active = try await client.recoverDesktop(sessionId: result.sessionId, mobile: device,
                 preferredDesktopId: DesktopConnectCredentialStore.preferredDesktopID(for: result.accountId), forceReconnect: false)
             if let active, active.healthy {
                 let name = hosts.first(where: { $0.id == active.desktopId })?.name ?? active.desktopId
@@ -315,15 +333,29 @@ struct DesktopConnectSheet: View {
     }
 
     private func saveIdentity() throws {
-        guard let accountId, let token, let mobile else { return }
-        try DesktopConnectCredentialStore.save(.init(accountId: accountId, token: token,
+        guard let accountId, let sessionId, let mobile else { return }
+        try DesktopConnectCredentialStore.save(.init(accountId: accountId, sessionId: sessionId,
             mobileId: mobile.id, mobileSecret: mobile.secret))
+    }
+
+    private func removeHost(_ host: DesktopHost) async {
+        await perform {
+            guard let sessionId, let accountId else { throw ClientError.InvalidParams("请先登录 NE 账号") }
+            let client = try configuredBridge()
+            try await client.removeDesktop(sessionId: sessionId, desktopId: host.id)
+            hosts.removeAll { $0.id == host.id }
+            if DesktopConnectCredentialStore.preferredDesktopID(for: accountId) == host.id {
+                DesktopConnectCredentialStore.setPreferredDesktopID(nil, for: accountId)
+            }
+            hosts = try await client.listDesktops(sessionId: sessionId)
+            hostsLoaded = true
+        }
     }
 
     private func refreshHosts() async {
         await perform {
-            if let token, let bridge {
-                hosts = try await bridge.listDesktops(token: token)
+            if let sessionId, let bridge {
+                hosts = try await bridge.listDesktops(sessionId: sessionId)
                 hostsLoaded = true
             }
         }
@@ -332,17 +364,17 @@ struct DesktopConnectSheet: View {
     private func connect(_ host: DesktopHost) async {
         defer { connectingHostId = nil }
         await perform {
-            guard let token, let mobile, let bridge else { return }
-            _ = try await bridge.connectDesktop(token: token, mobile: mobile, desktopId: host.id)
+            guard let sessionId, let mobile, let bridge else { return }
+            _ = try await bridge.connectDesktop(sessionId: sessionId, mobile: mobile, desktopId: host.id)
             onConnected(host.name)
         }
     }
 
     private func logout() async {
         await perform {
-            try await bridge?.disconnectDesktop()
+            if let sessionId { try await bridge?.logout(sessionId: sessionId) }
             try DesktopConnectCredentialStore.clear()
-            token = nil
+            sessionId = nil
             accountId = nil
             mobile = nil
             hosts = []
@@ -361,32 +393,54 @@ struct DesktopHostTile: View {
     let current: Bool
     let enabled: Bool
     let loading: Bool
+    var onRemove: (() -> Void)? = nil
+    var removalEnabled = true
+    @State private var confirmRemoval = false
     let onSelect: () -> Void
 
     var body: some View {
-        Button(action: onSelect) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    identity(singleLine: true)
-                    Spacer(minLength: 0)
-                    if action != "不可连接" { actionView }
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    identity(singleLine: false)
-                    if action != "不可连接" {
-                        HStack { Spacer(); actionView }
+        HStack(spacing: 0) {
+            Button(action: onSelect) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        identity(singleLine: true)
+                        Spacer(minLength: 0)
+                        if action != "不可连接" { actionView }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        identity(singleLine: false)
+                        if action != "不可连接" {
+                            HStack { Spacer(); actionView }
+                        }
                     }
                 }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: current ? 76 : 68)
+                .background(current ? LitterTheme.surfaceLight : LitterTheme.background)
+                .clipShape(RoundedRectangle(cornerRadius: current ? 14 : 0))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: current ? 76 : 68)
-            .background(current ? LitterTheme.surfaceLight : LitterTheme.background)
-            .clipShape(RoundedRectangle(cornerRadius: current ? 14 : 0))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(!enabled || loading)
+            .accessibilityLabel("\(name)，\(status)" + (loading ? "，正在连接" : enabled ? "，\(action)" : ""))
+            if onRemove != nil && !current {
+                Menu {
+                    Button("移除电脑", role: .destructive) { confirmRemoval = true }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(LitterTheme.textSecondary).frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("更多操作：\(name)")
+                .disabled(!removalEnabled || loading)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled || loading)
-        .accessibilityLabel("\(name)，\(status)" + (loading ? "，正在连接" : enabled ? "，\(action)" : ""))
+        .alert("移除电脑“\(name)”？", isPresented: $confirmRemoval) {
+            Button("取消", role: .cancel) {}
+            Button("移除电脑", role: .destructive) { onRemove?() }
+                .disabled(onRemove == nil || !removalEnabled || current || loading)
+        } message: {
+            Text("仅移除连接登记，不会删除电脑上的项目、文件或会话。再次使用这台电脑需要重新登记。")
+        }
     }
 
     private func identity(singleLine: Bool) -> some View {

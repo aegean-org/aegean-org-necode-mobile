@@ -29,7 +29,7 @@ fun LitterDropdownMenu(
         shape = RoundedCornerShape(16.dp),
         containerColor = LitterTheme.surface,
         tonalElevation = 0.dp,
-        shadowElevation = 6.dp,
+        shadowElevation = 4.dp,
         border = BorderStroke(0.5.dp, LitterTheme.border),
         content = content,
     )

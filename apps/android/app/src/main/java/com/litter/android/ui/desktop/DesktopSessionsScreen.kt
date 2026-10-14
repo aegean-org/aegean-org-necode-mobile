@@ -797,7 +797,7 @@ fun DesktopSessionsScreen(
         showHostPicker = true
         act {
             val credentials = checkNotNull(store.load()) { "请重新登录 NeCode Desktop" }
-            hosts = bridge.listDesktops(credentials.token)
+            hosts = bridge.listDesktops(credentials.sessionId)
             hostsLoaded = true
             activeHostId = bridge.activeDesktop()?.desktopId ?: store.preferredDesktopId()
         }
@@ -873,10 +873,10 @@ fun DesktopSessionsScreen(
                     LLog.i("DesktopConnect", "automatic reconnect started")
                     val credentials = checkNotNull(store.load()) { "请重新登录 NeCode Desktop" }
                     stage = "register"
-                    val mobile = bridge.registerMobile(credentials.token, credentials.mobileId, credentials.mobileSecret)
+                    val mobile = bridge.registerMobile(credentials.sessionId, credentials.mobileId, credentials.mobileSecret)
                     store.save(credentials.copy(mobileId = mobile.id, mobileSecret = mobile.secret))
                     stage = "recover"
-                    val restored = checkNotNull(bridge.recoverDesktop(credentials.token, mobile,
+                    val restored = checkNotNull(bridge.recoverDesktop(credentials.sessionId, mobile,
                         activeConnection?.desktopId ?: store.preferredDesktopId(), connectionFailed)) { "请重新选择电脑" }
                     healthy = restored.healthy
                     connectionFailed = false
@@ -1298,14 +1298,21 @@ fun DesktopSessionsScreen(
                     })
                 IconButton(onClick = {
                     if (recording) scope.launch {
-                        val token = store.load()?.token
+                        val token = store.load()?.sessionId
                         if (token == null) {
                             transcriptionManager.cancelRecording()
                             error = "请重新登录 NeCode Desktop"
                             return@launch
                         }
                         val target = recordingOwner ?: composer
-                        val transcript = transcriptionManager.stopAndTranscribeDesktop(token)
+                        val transcript = try {
+                            transcriptionManager.stopAndTranscribeDesktop(bridge, token)
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) {
+                            transcriptionManager.cancelRecording()
+                            error = desktopConnectErrorMessage(e)
+                            return@launch
+                        }
                         if (transcript != null) {
                             target.text.value = listOf(target.text.value.trim(), transcript).filter { it.isNotEmpty() }.joinToString(" ")
                             error = null
@@ -1494,7 +1501,7 @@ fun DesktopSessionsScreen(
                     onRefresh = {
                         act {
                             val credentials = checkNotNull(store.load()) { "请重新登录 NeCode Desktop" }
-                            hosts = bridge.listDesktops(credentials.token)
+                            hosts = bridge.listDesktops(credentials.sessionId)
                             hostsLoaded = true
                             activeHostId = bridge.activeDesktop()?.desktopId ?: store.preferredDesktopId()
                         }
@@ -1510,11 +1517,11 @@ fun DesktopSessionsScreen(
                                 try {
                                     LLog.i("DesktopConnect", "manual connect: register")
                                     val credentials = checkNotNull(store.load()) { "请重新登录 NeCode Desktop" }
-                                    val mobile = bridge.registerMobile(credentials.token, credentials.mobileId, credentials.mobileSecret)
+                                    val mobile = bridge.registerMobile(credentials.sessionId, credentials.mobileId, credentials.mobileSecret)
                                     store.save(credentials.copy(mobileId = mobile.id, mobileSecret = mobile.secret))
                                     stage = "connect"
                                     healthy = false
-                                    bridge.connectDesktop(credentials.token, mobile, host.id)
+                                    bridge.connectDesktop(credentials.sessionId, mobile, host.id)
                                     store.setPreferredDesktopId(host.id)
                                     activeHostId = host.id
                                     healthy = true
@@ -1538,6 +1545,16 @@ fun DesktopSessionsScreen(
                                     throw e
                                 } finally { connectingHostId = null }
                             }
+                        }
+                    },
+                    onRemove = { host ->
+                        act {
+                            val credentials = checkNotNull(store.load()) { "请重新登录 NeCode Desktop" }
+                            bridge.removeDesktop(credentials.sessionId, host.id)
+                            hosts = hosts.filterNot { it.id == host.id }
+                            if (store.preferredDesktopId() == host.id) store.setPreferredDesktopId(null)
+                            hosts = bridge.listDesktops(credentials.sessionId)
+                            hostsLoaded = true
                         }
                     },
                     onLogout = {},

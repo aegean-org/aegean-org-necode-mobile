@@ -3,9 +3,23 @@ import Security
 
 struct DesktopConnectCredentials: Codable {
     let accountId: String
-    let token: String
+    let sessionId: String
     let mobileId: String?
     let mobileSecret: String?
+
+    init(accountId: String, sessionId: String, mobileId: String?, mobileSecret: String?) {
+        self.accountId = accountId; self.sessionId = sessionId
+        self.mobileId = mobileId; self.mobileSecret = mobileSecret
+    }
+
+    private enum CodingKeys: String, CodingKey { case accountId, sessionId, mobileId, mobileSecret }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        accountId = try values.decode(String.self, forKey: .accountId)
+        sessionId = try values.decodeIfPresent(String.self, forKey: .sessionId) ?? ""
+        mobileId = try values.decodeIfPresent(String.self, forKey: .mobileId)
+        mobileSecret = try values.decodeIfPresent(String.self, forKey: .mobileSecret)
+    }
 }
 
 enum DesktopConnectCredentialStore {
